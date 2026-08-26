@@ -1,0 +1,21 @@
+services:
+  iea_g1_dev:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        USER_ID: ${HOST_UID:-1000}
+        GROUP_ID: ${HOST_GID:-1000}
+
+    image: iea_g1_dev:humble
+    container_name: iea_g1_dev
+
+    network_mode: host
+
+    volumes:
+      - ../:/workspace/IEA_G1
+
+    working_dir: /workspace/IEA_G1
+
+    stdin_open: true
+    tty: true

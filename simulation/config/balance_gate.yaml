@@ -1,0 +1,35 @@
+contract_version: 1
+
+purpose: harness_assisted_balance_development
+
+initialization:
+  elastic_harness_required: true
+  begin_with_harness_attached: true
+  require_zero_velocity_command: true
+  require_fresh_state_before_controller: true
+
+promotion_checks:
+  - model_loads_without_error
+  - all_29_body_joints_match_the_declared_mapping
+  - simulation_uses_domain_1_and_loopback
+  - controller_stabilizes_before_harness_release
+  - no_nan_or_nonfinite_joint_command
+  - stale_state_forces_passive_transition
+  - fall_or_limit_violation_stops_the_controller
+
+controller:
+  included: true
+  reference_policy_available_in_docker: true
+  policy_execution_adapter_included: true
+  implementation: pinned_unitree_rl_lab_g1_29dof_controller
+  startup_command: python3 simulation/run_g1_model.py --native --balance
+  dds_domain: 1
+  dds_interface: lo
+  initial_command: zero_velocity
+  command_input: keyboard
+  keyboard_controls:
+    forward_reverse_mps: 1.0
+    lateral_mps: 0.8
+    yaw_rad_s: 1.0
+    release_returns_to_zero: true
+  harness_release_requires_operator_review: true

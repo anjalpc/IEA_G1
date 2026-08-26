@@ -1,0 +1,82 @@
+contract_version: 1
+
+hand_system:
+  manufacturer: BrainCo
+  model: Revo2 Basic
+  hands_included_in_body_policy: false
+  control_channels_per_hand: 6
+
+hands:
+  right:
+    availability:
+      simulation: true
+      physical: true
+      physically_verified: true
+    hardware:
+      verified_firmware: 1.0.16.U
+      verified_device_id: 127
+      serial_device: deployment_local
+      serial_number: deployment_local
+    dds:
+      domain_id: 0
+      command_topic: rt/brainco/right/cmd
+      state_topic: rt/brainco/right/state
+      topics_verified: true
+    joints:
+      - {index: 0, dds_name: thumb, urdf_joint: right_thumb_proximal_joint, range_rad: [0.0, 1.0472]}
+      - {index: 1, dds_name: thumb_aux, urdf_joint: right_thumb_metacarpal_joint, range_rad: [0.0, 1.55334], direction_requires_validation: true}
+      - {index: 2, dds_name: index, urdf_joint: right_index_proximal_joint, range_rad: [0.0, 1.41]}
+      - {index: 3, dds_name: middle, urdf_joint: right_middle_proximal_joint, range_rad: [0.0, 1.41]}
+      - {index: 4, dds_name: ring, urdf_joint: right_ring_proximal_joint, range_rad: [0.0, 1.41]}
+      - {index: 5, dds_name: pinky, urdf_joint: right_pinky_proximal_joint, range_rad: [0.0, 1.41]}
+
+  left:
+    availability:
+      simulation: true
+      physical: unverified
+      physically_verified: false
+    hardware:
+      verified_firmware: null
+      verified_device_id: null
+      serial_device: deployment_local
+      serial_number: deployment_local
+    dds:
+      domain_id: 0
+      command_topic: rt/brainco/left/cmd
+      state_topic: rt/brainco/left/state
+      topics_verified: false
+    joints:
+      - {index: 0, dds_name: thumb, urdf_joint: left_thumb_proximal_joint, range_rad: [0.0, 1.0472]}
+      - {index: 1, dds_name: thumb_aux, urdf_joint: left_thumb_metacarpal_joint, range_rad: [0.0, 1.55334], direction_requires_validation: true}
+      - {index: 2, dds_name: index, urdf_joint: left_index_proximal_joint, range_rad: [0.0, 1.41]}
+      - {index: 3, dds_name: middle, urdf_joint: left_middle_proximal_joint, range_rad: [0.0, 1.41]}
+      - {index: 4, dds_name: ring, urdf_joint: left_ring_proximal_joint, range_rad: [0.0, 1.41]}
+      - {index: 5, dds_name: pinky, urdf_joint: left_pinky_proximal_joint, range_rad: [0.0, 1.41]}
+
+messages:
+  command_type: unitree_go/MotorCmds
+  state_type: unitree_go/MotorStates
+
+feedback:
+  position_field: q
+  velocity_field: dq
+  motor_current_field: tau_est
+  tau_est_unit: ampere
+  tau_est_is_physical_torque: false
+  temperature_field: temperature
+  communication_loss_field: lost
+
+safety:
+  normalized_command_range: [0.0, 1.0]
+  require_fresh_state: true
+  reject_unverified_hardware: true
+  reopen_after_test: true
+  human_hand_testing_approved: false
+  right_hardware_test_status: guarded_object_only
+  left_hardware_test_status: unverified
+
+reference:
+  source_repository: https://github.com/BrainCoTech/revo2_description.git
+  vendored_directory: simulation/vendor/brainco_revo2
+  license: Apache-2.0
+  robot_specific_files_vendored: true

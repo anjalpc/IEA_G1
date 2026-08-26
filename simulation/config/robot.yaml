@@ -1,0 +1,52 @@
+contract_version: 1
+
+robot:
+  manufacturer: Unitree
+  family: G1
+  variant: G1_EDU_U7
+  body_dofs: 29
+  hands_included_in_body_dofs: false
+
+model:
+  source_repository: https://github.com/unitreerobotics/unitree_mujoco.git
+  verified_revision: ae6a8403e272733e9996ef59990880330496177f
+  mjcf: simulation/vendor/unitree_g1/g1_29dof.xml
+  scene: simulation/vendor/unitree_g1/scene_29dof.xml
+  license: BSD-3-Clause
+  robot_specific_files_vendored: true
+
+reference_balance_policy:
+  source_repository: https://github.com/unitreerobotics/unitree_rl_lab.git
+  verified_revision: 4960b84732b0c2ec593dccbfe963fda1bcd7b1e3
+  docker_policy: /opt/unitree_rl_lab/deploy/robots/g1_29dof/config/policy/velocity/v0/exported/policy.onnx
+  docker_parameters: /opt/unitree_rl_lab/deploy/robots/g1_29dof/config/policy/velocity/v0/params/deploy.yaml
+  input_shape: [1, 480]
+  output_shape: [1, 29]
+  stored_in_git: false
+
+control:
+  body_command_topic: rt/lowcmd
+  body_state_topic: rt/lowstate
+  sdk_message_family: unitree_hg
+  motor_mode: 1
+  mode_machine: 5
+  policy_rate_hz: 50
+  physics_rate_hz: 200
+
+dds:
+  ros_domain_id: 42
+  unitree_hardware_domain_id: 0
+  simulation_domain_id: 1
+  simulation_interface: lo
+
+frames:
+  world: right_handed_z_up
+  imu_quaternion_order: wxyz
+  angular_velocity_frame: body
+
+safety:
+  require_exclusive_low_level_controller: true
+  reject_simulation_hardware_domain_collision: true
+  reject_stale_state: true
+  emergency_transition: passive
+  emergency_input: LT+B
