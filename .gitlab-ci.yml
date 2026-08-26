@@ -1,0 +1,29 @@
+stages:
+  - test
+
+ros2_humble:
+  stage: test
+  image: ros:humble-ros-base-jammy
+  before_script:
+    - apt-get update
+    - apt-get install -y --no-install-recommends python3-colcon-common-extensions python3-pytest
+  script:
+    - source /opt/ros/humble/setup.bash
+    - cd ros2_ws
+    - colcon build --packages-select g1_robot_bridge g1_simulation_bridge
+    - source install/setup.bash
+    - colcon test --packages-select g1_robot_bridge g1_simulation_bridge --event-handlers console_direct+
+    - colcon test-result --verbose
+
+simulation_gate:
+  stage: test
+  image: python:3.10-slim
+  before_script:
+    - python -m pip install --disable-pip-version-check -r simulation/requirements.txt
+  script:
+    - python simulation/validate_config.py
+    - python simulation/run_g1_model.py --validate-only
+    - python simulation/run_g1_model.py --headless --steps 1000 --hand-position 0.5
+    - python simulation/run_handshake_demo.py --validate-only
+    - python simulation/run_handshake_demo.py --headless --duration 0.05
+    - python simulation/run_handshake_demo.py --headless --duration 0.5 --cancel-after 0.05
