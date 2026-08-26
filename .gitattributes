@@ -1,0 +1,3 @@
+# Preserve redistributed vendor files byte-for-byte, including upstream
+# whitespace, so local formatting tools do not create unattributed changes.
+simulation/vendor/** whitespace=-trailing-space,-blank-at-eof

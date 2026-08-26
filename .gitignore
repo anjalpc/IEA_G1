@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ROS 2 / colcon outputs
+ros2_ws/build/
+ros2_ws/install/
+ros2_ws/log/
+
+# Local CMake outputs
+cmake-build-*/
+
+# Company simulation outputs
+simulation/.venv/
+simulation/output/
+simulation/*.onnx
+simulation/*.mjb
+
+# Local simulator and editor state
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+*.log
+
+# Local credentials and environment overrides
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
