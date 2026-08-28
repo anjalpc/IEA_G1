@@ -1,0 +1,148 @@
+diff --git a/include/dds/Subscription.h b/include/dds/Subscription.h
+index 311c8de..44091ff 100644
+--- a/include/dds/Subscription.h
++++ b/include/dds/Subscription.h
+@@ -23,13 +23,24 @@ public:
+     last_update_time_ = std::chrono::steady_clock::now() - std::chrono::milliseconds(timeout_ms_);
+     sub_ = std::make_shared<unitree::robot::ChannelSubscriber<MessageType>>(topic);
+     sub_->InitChannel([this](const void *msg){
+-      last_update_time_ = std::chrono::steady_clock::now();
+       std::lock_guard<std::mutex> lock(mutex_);
+       msg_ = *(const MessageType*)msg;
++      received_ = true;
++      last_update_time_ = std::chrono::steady_clock::now();
+       post_communication();
+     });
+   }
+ 
++  bool try_get(MessageType& message)
++  {
++    std::lock_guard<std::mutex> lock(mutex_);
++    if (!received_) {
++      return false;
++    }
++    message = msg_;
++    return true;
++  }
++
+   void set_timeout_ms(uint32_t timeout_ms) { timeout_ms_ = timeout_ms; }
+ 
+   bool isTimeout() {
+@@ -63,6 +74,7 @@ protected:
+   std::mutex mutex_;
+   unitree::robot::ChannelSubscriberPtr<MessageType> sub_;
+   std::chrono::steady_clock::time_point last_update_time_;
++  bool received_{false};
+ };
+ 
+ 
+diff --git a/main.cpp b/main.cpp
+index 1c5229e..79296d4 100644
+--- a/main.cpp
++++ b/main.cpp
+@@ -101,16 +101,22 @@ void update_finger(DeviceHandler* handle, uint8_t slave_id,
+                    unitree::robot::RealTimePublisher<unitree_go::msg::dds_::MotorStates_>* lowstate,
+                    const std::string& ns) {
+     uint16_t positions[6], speeds[6];
+-
+-    for (int i = 0; i < 6; ++i) {
+-        positions[i] = static_cast<uint16_t>(std::clamp(lowcmd->msg_.cmds()[i].q(), 0.f, 1.f) * 1000.f);
+-        speeds[i]    = static_cast<uint16_t>(std::clamp(lowcmd->msg_.cmds()[i].dq(), 0.f, 1.f) * 1000.f);
++    unitree_go::msg::dds_::MotorCmds_ command;
++
++    // Starting the server must be observationally passive. Write to the
++    // physical hand only after an intentional DDS command has been received.
++    if (lowcmd->try_get(command) && command.cmds().size() == 6) {
++        for (int i = 0; i < 6; ++i) {
++            positions[i] = static_cast<uint16_t>(
++                std::clamp(command.cmds()[i].q(), 0.f, 1.f) * 1000.f);
++            speeds[i] = static_cast<uint16_t>(
++                std::clamp(command.cmds()[i].dq(), 0.f, 1.f) * 1000.f);
++        }
++        stark_set_finger_positions_and_speeds(
++            handle, slave_id, positions, speeds, 6);
+     }
+ 
+-    // Write commands
+-    stark_set_finger_positions_and_speeds(handle, slave_id, positions, speeds, 6);
+-
+-    // Read status
++    // State publication remains active before the first command.
+     auto status = stark_get_motor_status(handle, slave_id);
+     if (!status) return;
+ 
+@@ -126,6 +132,46 @@ void update_finger(DeviceHandler* handle, uint8_t slave_id,
+     lowstate->unlockAndPublish();
+     free_motor_status_data(status);
+ }
++void restore_right_hand_neutral(DeviceHandler* handle, uint8_t slave_id) {
++    constexpr int ramp_steps = 19;
++    constexpr auto step_period = std::chrono::milliseconds(40);
++    const uint16_t target[6] = {399, 399, 50, 50, 49, 50};
++    const uint16_t speeds[6] = {1000, 1000, 1000, 1000, 1000, 1000};
++
++    auto status = stark_get_motor_status(handle, slave_id);
++    if (!status) {
++        spdlog::error(
++            "Could not read right-hand state; neutral shutdown skipped");
++        return;
++    }
++
++    uint16_t initial[6];
++    for (int i = 0; i < 6; ++i) {
++        initial[i] = status->positions[i];
++    }
++    free_motor_status_data(status);
++
++    spdlog::info("Restoring right hand to calibrated neutral posture");
++
++    for (int step = 1; step <= ramp_steps; ++step) {
++        uint16_t positions[6];
++
++        for (int i = 0; i < 6; ++i) {
++            const int delta =
++                static_cast<int>(target[i]) - static_cast<int>(initial[i]);
++            positions[i] = static_cast<uint16_t>(
++                static_cast<int>(initial[i]) +
++                (delta * step) / ramp_steps);
++        }
++
++        stark_set_finger_positions_and_speeds(
++            handle, slave_id, positions, speeds, 6);
++        std::this_thread::sleep_for(step_period);
++    }
++
++    std::this_thread::sleep_for(std::chrono::milliseconds(100));
++    spdlog::info("Right-hand neutral shutdown command complete");
++}
+ 
+ // Worker thread for each hand
+ void hand_worker(DeviceHandler* handle, uint8_t slave_id, const std::string& ns) {
+@@ -133,8 +179,6 @@ void hand_worker(DeviceHandler* handle, uint8_t slave_id, const std::string& ns)
+ 
+     // DDS setup
+     auto lowcmd   = std::make_shared<unitree::robot::SubscriptionBase<unitree_go::msg::dds_::MotorCmds_>>("rt/brainco/" + ns + "/cmd");
+-    lowcmd->msg_.cmds().resize(6);
+-    for (auto& finger : lowcmd->msg_.cmds()) finger.dq() = 1.;
+ 
+     auto lowstate = std::make_unique<unitree::robot::RealTimePublisher<unitree_go::msg::dds_::MotorStates_>>("rt/brainco/" + ns + "/state");
+     lowstate->msg_.states().resize(6);
+@@ -147,12 +191,17 @@ void hand_worker(DeviceHandler* handle, uint8_t slave_id, const std::string& ns)
+         if (sleep_us > 0) std::this_thread::sleep_for(std::chrono::microseconds(sleep_us));
+     }
+ 
++        if (handle && ns == "right") {
++        restore_right_hand_neutral(handle, slave_id);
++    }
++
+     spdlog::info("Worker for {} exiting (closing handle)", ns);
+     if (handle) modbus_close(handle);
+ }
+ 
+ int main(int argc, char** argv) {
+-    signal(SIGINT, signal_handler);
++        signal(SIGINT, signal_handler);
++        signal(SIGTERM, signal_handler);
+ 
+     auto vm = param::helper(argc, argv);
+     unitree::robot::ChannelFactory::Instance()->Init(0, vm["network_interface"].as<std::string>());

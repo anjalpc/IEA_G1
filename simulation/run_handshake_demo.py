@@ -12,15 +12,17 @@ import time
 from pathlib import Path
 
 import numpy as np
+import yaml
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
-PACKAGE_SOURCE = REPOSITORY_ROOT / "ros2_ws" / "src" / "g1_robot_bridge"
+INTERFACES_SOURCE = REPOSITORY_ROOT / "ros2_ws" / "src" / "g1_robot_interfaces"
+HANDSHAKE_SOURCE = REPOSITORY_ROOT / "ros2_ws" / "src" / "g1_handshake"
 MODEL_PATH = Path(__file__).resolve().parent / "models" / "handshake_surrogate.xml"
-sys.path.insert(0, str(PACKAGE_SOURCE))
+sys.path.insert(0, str(INTERFACES_SOURCE))
+sys.path.insert(0, str(HANDSHAKE_SOURCE))
 
-from g1_robot_bridge.brainco_hand_helper import plan_curl  # noqa: E402
-from g1_robot_bridge.handshake_sequence import HandshakeSequence  # noqa: E402
+from g1_handshake.handshake_sequence import AutomaticHandshake  # noqa: E402
 from model_composition import (  # noqa: E402
     BODY_ACTUATOR_COUNT,
     build_combined_model,
@@ -43,8 +45,21 @@ SHAKE_FREQUENCY_HZ = 1.4
 SHAKE_ELBOW_AMPLITUDE_RAD = 0.12
 SHAKE_SHOULDER_AMPLITUDE_RAD = 0.05
 SHAKE_WRIST_AMPLITUDE_RAD = 0.06
-HAND_RAMP_SECONDS = 1.5
 SIMULATED_PRESENTATION_SECONDS = 1.0
+
+
+def configured_hand_profile() -> tuple[list[float], list[float], float]:
+    """Read the shared hand targets and ramp used by both backends."""
+    configuration = REPOSITORY_ROOT / "ros2_ws" / "src" / \
+        "g1_handshake" / "config" / "handshake.yaml"
+    data = yaml.safe_load(configuration.read_text())
+    parameters = data["g1_hardware_bridge"]["ros__parameters"]
+    return (list(parameters["hand_grip_target"]),
+            list(parameters["hand_neutral_target"]),
+            float(parameters["grip_ramp_s"]))
+
+
+HAND_RAMP_SECONDS = configured_hand_profile()[2]
 
 
 class SimulationControls:
@@ -77,8 +92,17 @@ class SimulatedArm:
     def __init__(self, controls: SimulationControls, enabled: bool = True):
         self.controls = controls
         self.enabled = enabled
+        self.cancelled = False
+
+    def prepare_operation(self) -> None:
+        self.cancelled = False
+
+    def interrupt(self) -> None:
+        self.cancelled = True
 
     def execute(self, action_id: int) -> None:
+        if self.cancelled:
+            raise RuntimeError("simulated arm action cancelled")
         if action_id not in (27, 99):
             raise ValueError(f"unsupported simulated arm action: {action_id}")
         simulated_action = action_id if self.enabled else 99
@@ -94,25 +118,42 @@ class SimulatedArm:
             # gripping and shaking do not begin during the reach.
             time.sleep(SIMULATED_PRESENTATION_SECONDS)
 
+    def release(self) -> None:
+        self.interrupt()
+        self.controls.set_arm(99, "arm:99")
+
 
 class SimulatedHand:
     def __init__(self, controls: SimulationControls,
-                 curl_target: list[float]):
+                 curl_target: list[float], neutral_target: list[float],
+                 ramp_seconds: float):
         self.controls = controls
         self.curl_target = curl_target
+        self.neutral_target = neutral_target
+        self.ramp_seconds = ramp_seconds
+        self.cancelled = False
+
+    def prepare_operation(self) -> None:
+        self.cancelled = False
+
+    def interrupt(self) -> None:
+        self.cancelled = True
 
     def grip(self) -> None:
+        if self.cancelled:
+            raise RuntimeError("simulated hand command cancelled")
         print(
             "HAND TARGET [thumb, thumb_aux, index, middle, ring, pinky]: "
             + " ".join(f"{value:.4f}" for value in self.curl_target),
             flush=True,
         )
         self.controls.set_hand(self.curl_target, "hand:grip")
-        time.sleep(HAND_RAMP_SECONDS)
+        time.sleep(self.ramp_seconds)
 
     def release(self) -> None:
-        self.controls.set_hand([0.0] * 6, "hand:release")
-        time.sleep(HAND_RAMP_SECONDS)
+        self.interrupt()
+        self.controls.set_hand(self.neutral_target, "hand:release")
+        time.sleep(self.ramp_seconds)
 
 
 class IntegratedG1Backend:
@@ -247,9 +288,6 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--duration", type=float, default=2.0)
     parser.add_argument(
-        "--curl-amount", type=float, default=0.12,
-        help="BrainCo plan_curl amount in normalized manufacturer units")
-    parser.add_argument(
         "--curl-target", type=float, nargs=6,
         metavar=("THUMB", "THUMB_AUX", "INDEX", "MIDDLE", "RING", "PINKY"),
         help="explicit six-channel simulation target; overrides curl-amount")
@@ -272,8 +310,6 @@ def main() -> int:
     args = parse_args()
     if args.duration < 0.0:
         raise ValueError("duration must not be negative")
-    if not 0.0 <= args.curl_amount <= 0.25:
-        raise ValueError("curl-amount must be in the range 0..0.25")
     if (args.curl_target is not None
             and any(value < 0.0 or value > 1.0
                     for value in args.curl_target)):
@@ -301,11 +337,12 @@ def main() -> int:
         return 0
 
     arm = SimulatedArm(controls, enabled=not args.hand_only)
+    configured_grip, neutral_target, hand_ramp = configured_hand_profile()
     curl_target = (
         list(args.curl_target)
-        if args.curl_target is not None else plan_curl(args.curl_amount)
+        if args.curl_target is not None else configured_grip
     )
-    hand = SimulatedHand(controls, curl_target)
+    hand = SimulatedHand(controls, curl_target, neutral_target, hand_ramp)
     cancelled = threading.Event()
     interrupted = threading.Event()
     states: list[str] = []
@@ -315,15 +352,17 @@ def main() -> int:
         states.append(state)
         print(f"STATE: {state}", flush=True)
 
+    sequence = AutomaticHandshake(
+        arm, hand, args.duration, 0.0, cancelled, set_state,
+        wait_for_grip=lambda: True)
+
     def run_sequence() -> None:
         try:
-            HandshakeSequence(
-                arm, hand, args.duration, cancelled, lambda: True,
-                set_state).run()
+            sequence.prepare()
+            sequence.run()
         except BaseException as exc:
             failure.append(exc)
-            hand.release()
-            arm.execute(99)
+            sequence.safe_state.release_once()
 
     worker = threading.Thread(target=run_sequence, daemon=True)
     previous_sigint = signal.getsignal(signal.SIGINT)
@@ -375,7 +414,7 @@ def main() -> int:
         signal.signal(signal.SIGINT, previous_sigint)
 
     worker.join(timeout=(
-        SIMULATED_PRESENTATION_SECONDS + 2.0 * HAND_RAMP_SECONDS + 1.0))
+        SIMULATED_PRESENTATION_SECONDS + 2.0 * hand_ramp + 1.0))
     if failure:
         raise failure[0]
 

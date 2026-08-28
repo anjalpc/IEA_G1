@@ -110,6 +110,16 @@ ENV UNITREE_MUJOCO_BIN=/opt/unitree_mujoco/simulate/build/unitree_mujoco
 ENV UNITREE_BALANCE_CONTROLLER=/opt/unitree_rl_lab/deploy/robots/g1_29dof/build/g1_ctrl
 ENV LD_LIBRARY_PATH=/opt/mujoco/lib:/opt/unitree_robotics/lib:/opt/unitree_rl_lab/deploy/thirdparty/onnxruntime-linux-x64-1.22.0/lib
 
+# Use one ROS middleware and domain in every development shell. CycloneDDS
+# avoids Fast DDS shared-memory transport problems between container shells.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+      ros-humble-rmw-cyclonedds-cpp && \
+    rm -rf /var/lib/apt/lists/*
+
+ENV ROS_DOMAIN_ID=42
+ENV RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+ENV CYCLONEDDS_URI=file:///workspace/IEA_G1/config/cyclonedds_humble.xml
+
 RUN groupadd --gid ${GROUP_ID} dev && \
     useradd \
         --uid ${USER_ID} \

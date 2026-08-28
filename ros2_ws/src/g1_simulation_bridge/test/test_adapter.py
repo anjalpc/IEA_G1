@@ -23,6 +23,8 @@ class Controls:
 def adapter():
     instance = G1SimulationAdapter.__new__(G1SimulationAdapter)
     instance.controls = Controls()
+    instance.grip_target = [0.48, 0.45, 0.15, 0.20, 0.25, 0.20]
+    instance.neutral_target = [0.399, 0.399, 0.05, 0.05, 0.049, 0.05]
     return instance
 
 
@@ -33,22 +35,27 @@ def test_resolves_explicit_simulation_root():
 
 def test_dispatches_reviewed_commands():
     instance = adapter()
-    instance._arm_action({"action_id": 27})
-    instance._hand_position({"hand": "right", "positions": [0.1] * 6})
+    arm_result = instance._arm_action({
+        "action_id": 27, "client_id": "test-client"})
+    result = instance._hand_grip({"client_id": "test-client"})
     assert instance.controls.arm == (27, "ros:arm:27")
-    assert instance.controls.hand == ([0.1] * 6, "ros:right_hand")
+    assert arm_result == {"code": 0}
+    assert instance.controls.hand == (
+        instance.grip_target, "ros:right_hand:grip")
+    assert result is None
 
 
 @pytest.mark.parametrize("action_id", [0, 28, 100])
 def test_rejects_unknown_arm_actions(action_id):
     with pytest.raises(ValueError):
-        adapter()._arm_action({"action_id": action_id})
+        adapter()._arm_action({
+            "action_id": action_id, "client_id": "test-client"})
 
 
-def test_rejects_invalid_hand_commands():
-    with pytest.raises(ValueError):
-        adapter()._hand_position({"hand": "left", "positions": [0.0] * 6})
-    with pytest.raises(ValueError):
-        adapter()._hand_position({"hand": "right", "positions": [0.0] * 5})
-    with pytest.raises(ValueError):
-        adapter()._hand_position({"hand": "right", "positions": [1.1] * 6})
+def test_release_operations_return_safe_targets():
+    instance = adapter()
+    instance._arm_release({})
+    instance._hand_release({})
+    assert instance.controls.arm == (99, "ros:arm:99")
+    assert instance.controls.hand == (
+        instance.neutral_target, "ros:right_hand:release")

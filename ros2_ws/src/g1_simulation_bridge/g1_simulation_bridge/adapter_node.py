@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import os
 from pathlib import Path
 import signal
@@ -12,12 +11,7 @@ import time
 
 import rclpy
 from rclpy.node import Node
-from std_msgs.msg import String
-
-from g1_robot_bridge.simulation_client import (
-    SIM_COMMAND_TOPIC,
-    SIM_FEEDBACK_TOPIC,
-)
+from g1_robot_interfaces.bridge_server import BridgeServer
 
 
 def resolve_simulation_root(explicit_path=None):
@@ -53,58 +47,66 @@ class G1SimulationAdapter(Node):
     def __init__(self, controls):
         super().__init__("g1_simulation_bridge")
         self.controls = controls
-        self.feedback = self.create_publisher(String, SIM_FEEDBACK_TOPIC, 10)
-        self.create_subscription(
-            String, SIM_COMMAND_TOPIC, self.command_callback, 10)
-        self.handlers = {
+        self.declare_parameter(
+            "hand_neutral_target", [0.399, 0.399, 0.050, 0.050, 0.049, 0.050])
+        self.declare_parameter(
+            "hand_grip_target", [0.48, 0.45, 0.15, 0.20, 0.25, 0.20])
+        self.neutral_target = list(
+            self.get_parameter("hand_neutral_target").value)
+        self.grip_target = list(self.get_parameter("hand_grip_target").value)
+        for target in (self.neutral_target, self.grip_target):
+            if len(target) != 6 or any(value < 0.0 or value > 1.0
+                                       for value in target):
+                raise ValueError("configured hand targets must be six values in 0..1")
+        self.server = BridgeServer(self, "simulation", {
+            "arm_prepare": self._prepare,
             "arm_action": self._arm_action,
-            "hand_position": self._hand_position,
-        }
+            "arm_interrupt": self._arm_interrupt,
+            "arm_release": self._arm_release,
+            "hand_prepare": self._prepare,
+            "hand_grip": self._hand_grip,
+            "hand_interrupt": self._hand_interrupt,
+            "hand_release": self._hand_release,
+        })
+
+    def _prepare(self, request):
+        del request
+        return None
 
     def _arm_action(self, request):
         action_id = int(request["action_id"])
-        if action_id not in (27, 99):
-            raise ValueError("only arm actions 27 and 99 are implemented")
+        if action_id != 27:
+            raise ValueError("only arm action 27 is implemented")
         self.controls.set_arm(action_id, f"ros:arm:{action_id}")
+        return {"code": 0}
 
-    def _hand_position(self, request):
-        if request.get("hand") != "right":
-            raise ValueError("only the right BrainCo hand is implemented")
-        positions = [float(value) for value in request["positions"]]
-        if len(positions) != 6:
-            raise ValueError("hand command must contain six positions")
-        if any(value < 0.0 or value > 1.0 for value in positions):
-            raise ValueError("hand positions must be within 0..1")
-        self.controls.set_hand(positions, "ros:right_hand")
+    def _arm_interrupt(self, request):
+        del request
+        return None
 
-    def _reply(self, command_id, status, error=None):
-        if not rclpy.ok():
-            return
-        message = String()
-        response = {"command_id": command_id, "status": status}
-        if error is not None:
-            response["error"] = error
-        message.data = json.dumps(response, sort_keys=True)
-        self.feedback.publish(message)
+    def _arm_release(self, request):
+        del request
+        self.controls.set_arm(99, "ros:arm:99")
+        return {"code": 0}
 
-    def command_callback(self, message):
-        command_id = None
-        try:
-            request = json.loads(message.data)
-            command_id = int(request["command_id"])
-            interface = str(request["interface"])
-            handler = self.handlers.get(interface)
-            if handler is None:
-                raise ValueError(f"unsupported simulation interface: {interface}")
-            handler(request)
-        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
-            self._reply(command_id, "error", str(exc))
-            return
-        self._reply(command_id, "ok")
+    def _hand_grip(self, request):
+        del request
+        self.controls.set_hand(self.grip_target, "ros:right_hand:grip")
+        return None
+
+    def _hand_interrupt(self, request):
+        del request
+        return None
+
+    def _hand_release(self, request):
+        del request
+        self.controls.set_hand(self.neutral_target, "ros:right_hand:release")
+        return None
 
     def safe_reset(self):
         """Return application-controlled targets to passive defaults."""
-        self.controls.set_hand([0.0] * 6, "bridge:shutdown:hand_open")
+        self.controls.set_hand(
+            self.neutral_target, "bridge:shutdown:hand_neutral")
         self.controls.set_arm(99, "bridge:shutdown:arm_release")
 
 
@@ -127,7 +129,7 @@ def main(args=None):
     backend = backend_type(controls)
     if parsed.validate_only:
         print("VALID: g1_simulation_bridge adapter loaded the MuJoCo backend")
-        print("VALID: interfaces arm_action and hand_position")
+        print("VALID: backend-neutral arm and hand operations")
         return 0
 
     rclpy.init(args=ros_args)

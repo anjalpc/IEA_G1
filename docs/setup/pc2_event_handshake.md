@@ -1,15 +1,40 @@
 # PC2 event-handshake deployment
 
-The scripts default to this deployment root:
+The robot uses the same reviewed Git history as development but checks out only
+the production files. Create a partial sparse clone:
 
-```text
-/home/unitree/telefonica/event_handshake
+```bash
+cd /home/unitree
+git clone --filter=blob:none --no-checkout \
+  <COMPANY_GITLAB_REPOSITORY_URL> IEA_G1
+cd /home/unitree/IEA_G1
+git sparse-checkout init --no-cone
+git sparse-checkout set --no-cone \
+  '/docs/setup/pc2_event_handshake.md' \
+  '/ros2_ws/src/g1_robot_interfaces/' \
+  '/ros2_ws/src/g1_handshake/' \
+  '/ros2_ws/src/g1_hardware_bridge/' \
+  '/scripts/build.sh' \
+  '/scripts/start.sh' \
+  '/scripts/status.sh' \
+  '/scripts/pc2_handshake.sh' \
+  '/vendor/brainco_hand_server/'
+git checkout main
+./scripts/build.sh
 ```
 
-For another location, export `IEA_G1_DEPLOY_ROOT`. The scripts also accept
-`ROS_SETUP` (default `/opt/ros/foxy/setup.bash`) and `G1_NETWORK_INTERFACE`
-(default `eth0`). Keeping these settings outside tracked files prevents local
-machine paths from becoming project requirements.
+The PC2 working tree now contains only this guide, the three production
+packages, four runtime scripts, and the BrainCo runtime. Git remembers the
+sparse selection for subsequent pulls.
+
+The supported robot checkout is:
+
+```text
+/home/unitree/IEA_G1
+```
+
+`ROS_SETUP` defaults to `/opt/ros/foxy/setup.bash` and
+`G1_NETWORK_INTERFACE` defaults to `eth0`.
 
 
 Use ROS domain `42` for the event-facing ROS API. Domain `0` contains Unitree's
@@ -18,41 +43,35 @@ The hardware backend independently initializes Unitree SDK domain `0` on the
 configured robot network interface.
 
 ```bash
-export IEA_G1_DEPLOY_ROOT=/home/unitree/telefonica/event_handshake
-cd "$IEA_G1_DEPLOY_ROOT/ros2_ws"
+cd /home/unitree/IEA_G1/ros2_ws
 source /opt/ros/foxy/setup.bash
 source install/setup.bash
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 export ROS_DOMAIN_ID=42
 ```
 
-Dry run (recommended through the reviewed wrapper):
+Start BrainCo and both ROS nodes with one command:
 
 ```bash
-"$IEA_G1_DEPLOY_ROOT/scripts/pc2_run_handshake_dry.sh"
+cd /home/unitree/IEA_G1
+./scripts/start.sh
 ```
 
-The repository configuration always keeps `hardware_enabled: false`. Physical
-testing must use an explicit per-run override after completing the safety setup:
+The hardware bridge directly owns the reviewed arm and BrainCo hand
+backends. The integrated sequence restores the calibrated neutral hand posture
+before arm action 99 on completion, cancellation, timeout, shutdown, and error
+cleanup.
 
-```bash
-"$IEA_G1_DEPLOY_ROOT/scripts/pc2_run_handshake_hardware.sh"
-```
-
-Never store `hardware_enabled: true` in the deployment configuration.
-
-BrainCo hand commands have a second independent interlock. They remain dry-run
-unless `hand_control_enabled:=true` is supplied on the hardware invocation.
-The integrated sequence opens the right hand before arm action 99 on normal
-completion, cancellation, disable, shutdown, and error cleanup. Keep both
-flags false for local and PC2 dry runs.
-
-Use the consolidated operator command from another terminal:
+Use the operator command from another terminal:
 
 ```bash
 ./scripts/pc2_handshake.sh state
-./scripts/pc2_handshake.sh enable
 ./scripts/pc2_handshake.sh start
+./scripts/pc2_handshake.sh grip
 ./scripts/pc2_handshake.sh cancel
-./scripts/pc2_handshake.sh disable
 ```
+
+`start` executes action 27 and waits. Issue `grip` only after the arm is
+presented: the hand closes to the validated target, holds for five seconds,
+opens, and action 99 releases the arm. A 15-second wait timeout performs the
+same open-and-release cleanup without gripping.

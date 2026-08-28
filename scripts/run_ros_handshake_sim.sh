@@ -16,6 +16,7 @@ fi
 source /opt/ros/humble/setup.bash
 source ros2_ws/install/setup.bash
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-42}"
+handshake_config="$(ros2 pkg prefix g1_handshake)/share/g1_handshake/config/handshake.yaml"
 
 node_pid=""
 trigger_pid=""
@@ -29,16 +30,29 @@ cleanup() {
 }
 trap cleanup INT TERM EXIT
 
-setsid ros2 launch g1_robot_bridge event_handshake.launch.py \
-    simulation_enabled:=true &
+setsid ros2 launch g1_handshake handshake.launch.py &
 node_pid="$!"
 
 (
-    sleep 2
-    ros2 service call /event/handshake/operator_enable \
-        std_srvs/srv/SetBool "{data: true}"
+    deadline=$((SECONDS + 30))
+    until ros2 node list | grep -qx '/g1_simulation_bridge'; do
+        if (( SECONDS >= deadline )); then
+            echo "ERROR: simulation bridge did not become ready." >&2
+            exit 1
+        fi
+        sleep 0.2
+    done
     ros2 service call /event/handshake/start std_srvs/srv/Trigger "{}"
+    if [[ -n "${G1_AUTO_CANCEL_AFTER_S:-}" ]]; then
+        sleep "${G1_AUTO_CANCEL_AFTER_S}"
+        ros2 service call /event/handshake/cancel std_srvs/srv/Trigger "{}"
+    else
+        sleep "${G1_AUTO_GRIP_AFTER_S:-0.5}"
+        sleep 0.2
+        ros2 service call /event/handshake/grip std_srvs/srv/Trigger "{}"
+    fi
 ) &
 trigger_pid="$!"
 
-ros2 run g1_simulation_bridge simulation_bridge "$@"
+ros2 run g1_simulation_bridge simulation_bridge "$@" --ros-args \
+    --params-file "${handshake_config}"

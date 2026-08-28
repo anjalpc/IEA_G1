@@ -29,6 +29,10 @@ cd IEA_G1
 ./scripts/dev.sh
 ```
 
+The command starts one shared Compose service if necessary and opens a shell.
+Run it again from another host terminal to enter the same container. It does
+not create another one-off container.
+
 The launcher maps the host UID/GID, builds the image, mounts the checkout at
 `/workspace/IEA_G1`, and opens a shell as `dev`. This mode works on hosts
 without a display or GPU device.
@@ -45,6 +49,12 @@ pwd
 Expected values are `dev`, `humble`, Python `3.10.x`, and
 `/workspace/IEA_G1`.
 
+Development shells default to ROS domain `42` with
+`rmw_cyclonedds_cpp`, so nodes and service clients started from separate
+container terminals use the same DDS configuration. Development DDS is bound
+to host loopback through `config/cyclonedds_humble.xml`; it cannot accidentally
+discover or command the physical robot network.
+
 ## 3. Build and test
 
 Inside the container:
@@ -53,9 +63,11 @@ Inside the container:
 cd ros2_ws
 colcon build --symlink-install
 source install/setup.bash
-colcon test --packages-select g1_robot_bridge g1_simulation_bridge \
+colcon test --packages-select g1_robot_interfaces g1_handshake \
+  g1_hardware_bridge g1_simulation_bridge \
   --event-handlers console_direct+
 colcon test-result --verbose
+cd ..
 
 python3 simulation/validate_config.py
 python3 simulation/run_g1_model.py --validate-only
@@ -89,9 +101,17 @@ are not assumed to be AMD-specific.
 
 ## 5. Re-enter or rebuild
 
-Run `./scripts/dev.sh` each time a disposable container shell is needed. The
-checkout is mounted from the host, so source changes persist when the
-container exits.
+Run `./scripts/dev.sh` each time another shell in the shared container is
+needed. The checkout is mounted from the host, so source changes persist when
+the container exits.
+
+The explicit equivalents are:
+
+```bash
+./scripts/dev.sh start  # start without opening a shell
+./scripts/dev.sh shell  # open a shell in the shared container
+./scripts/dev.sh stop   # stop and remove the shared container
+```
 
 After changing the Dockerfile or Compose configuration, exit and rerun the
 launcher. To rebuild ROS artifacts without deleting source:
@@ -113,6 +133,12 @@ source and must not be deleted.
   desktop session.
 - Xauthority is unreadable: set `XAUTHORITY` to the active readable authority
   file before running `./scripts/dev.sh --gui`.
+
+Stop and remove the shared development container after all shells have exited:
+
+```bash
+./scripts/dev.sh stop
+```
 - The viewer reports `llvmpipe`: verify host graphics drivers and Docker access
   to `/dev/dri`; headless validation remains available.
 - ROS packages are not found: source `/opt/ros/humble/setup.bash`, then source

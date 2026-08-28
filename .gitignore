@@ -27,6 +27,8 @@ simulation/*.mjb
 *.swo
 *~
 *.log
+MUJOCO_LOG.TXT
+output/
 
 # Local credentials and environment overrides
 .env

@@ -1,0 +1,22 @@
+event_handshake:
+  ros__parameters:
+    bridge_name: hardware
+    action_timeout_s: 5.0
+    presentation_settle_s: 0.5
+    grip_command_timeout_s: 15.0
+    grip_hold_s: 5.0
+
+g1_hardware_bridge:
+  ros__parameters:
+    network_interface: eth0
+    action_timeout_s: 5.0
+    grip_ramp_s: 0.75
+    release_ramp_s: 0.75
+    # BrainCo order: thumb, thumb_aux, index, middle, ring, pinky.
+    hand_neutral_target: &hand_neutral [0.399, 0.399, 0.050, 0.050, 0.049, 0.050]
+    hand_grip_target: &hand_grip [0.48, 0.45, 0.15, 0.20, 0.25, 0.20]
+
+g1_simulation_bridge:
+  ros__parameters:
+    hand_neutral_target: *hand_neutral
+    hand_grip_target: *hand_grip

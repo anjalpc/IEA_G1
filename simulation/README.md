@@ -37,6 +37,10 @@ From the repository root:
 ./scripts/dev.sh
 ```
 
+Additional terminals can run the same command to enter the already-running
+development container. Stop the shared container with `./scripts/dev.sh stop`
+when all development shells have exited.
+
 The image contains ROS 2 Humble, MuJoCo, PyYAML, NumPy, ONNX Runtime, and a
 pinned Unitree G1 reference velocity/balance policy. The repository is mounted
 at `/workspace/IEA_G1`.
@@ -213,21 +217,19 @@ actively held open, and the elastic harness remains attached throughout.
 Perfect the hand profile without the approximate arm action first:
 
 ```bash
-python3 simulation/run_handshake_demo.py --hand-only --curl-amount 0.12 \
-  --duration 2.0
+python3 simulation/run_handshake_demo.py --hand-only --duration 5.0
 ```
 
-This uses the same `plan_curl()` channel ratios as the hardware helper and the
-same 1.5-second smooth close/open duration. `--curl-amount` accepts `0..0.25`
-in simulation; the guarded hardware command remains independently limited to
-`0.15`.
+By default this uses the operator-validated target in BrainCo manufacturer
+order: `[0.48, 0.45, 0.15, 0.20, 0.25, 0.20]`. The configured duration is the
+hold interval after simulated contact.
 
 To tune the six channels independently in simulation, pass them in manufacturer
 order (`thumb thumb_aux index middle ring pinky`):
 
 ```bash
 python3 simulation/run_handshake_demo.py --hand-only --duration 2.0 \
-  --curl-target 0.048 0.030 0.120 0.120 0.120 0.120
+  --curl-target 0.48 0.45 0.15 0.20 0.25 0.20
 ```
 
 An explicit simulation target never changes the guarded hardware limits or
@@ -270,25 +272,26 @@ For an integration run without the viewer:
 ./scripts/run_ros_handshake_sim.sh --headless
 ```
 
-The runner starts the node in explicit simulation mode, enables it through
-`/event/handshake/operator_enable`, triggers `/event/handshake/start`, and
-keeps the integrated G1 + BrainCo viewer open. `Ctrl+C` stops the node and
+The runner starts the backend-neutral application with the simulation bridge,
+enables it through
+`/event/handshake/start`, then triggers `/event/handshake/grip`, and
+then triggers `/event/handshake/grip`. It keeps the integrated G1 + BrainCo
+viewer open. `Ctrl+C` stops the node and
 bridge. If the bridge does not acknowledge a command, the ROS node enters its
 existing error and cleanup path rather than pretending the action succeeded.
 
-The reusable client is implemented in `g1_robot_bridge/simulation_client.py`;
+The reusable client is implemented in `g1_robot_interfaces/bridge_client.py`;
 the adapter node is the separate `g1_simulation_bridge` ROS package.
 Applications communicate through
-`/simulation/g1/command` and `/simulation/g1/feedback`. The bridge currently
-implements the `arm_action` and `hand_position` interfaces. Future packages can
+`/g1/bridge/command` and `/g1/bridge/feedback`. Future packages can
 use the same acknowledged transport, but every new capability—velocity,
 sensors, navigation state, or another actuator—must add and test a named bridge
 handler rather than sending arbitrary unvalidated commands.
 
 The adapter loads the project MuJoCo backend from `simulation/` while keeping
 application packages isolated from simulator implementation details. The
-current arm handler intentionally supports only actions `27` and `99`, and
-the hand handler supports six-channel right-hand positions. This is an
+current arm handler supports presentation action `27` and safe release action
+`99`; hand operations support six-channel right-hand positions. This is an
 application integration test; the visible
 action-27 arm trajectory is still the reviewed MuJoCo approximation because
 Unitree does not expose the firmware trajectory implementation as simulation
