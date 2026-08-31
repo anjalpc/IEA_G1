@@ -13,10 +13,10 @@ g1_hardware_bridge:
     grip_ramp_s: 0.75
     release_ramp_s: 0.75
     # BrainCo order: thumb, thumb_aux, index, middle, ring, pinky.
-    hand_neutral_target: &hand_neutral [0.399, 0.399, 0.050, 0.050, 0.049, 0.050]
-    hand_grip_target: &hand_grip [0.48, 0.45, 0.15, 0.20, 0.25, 0.20]
+    hand_neutral_target: [0.399, 0.399, 0.050, 0.050, 0.049, 0.050]
+    hand_grip_target: [0.48, 0.45, 0.15, 0.20, 0.25, 0.20]
 
 g1_simulation_bridge:
   ros__parameters:
-    hand_neutral_target: *hand_neutral
-    hand_grip_target: *hand_grip
+    hand_neutral_target: [0.399, 0.399, 0.050, 0.050, 0.049, 0.050]
+    hand_grip_target: [0.48, 0.45, 0.15, 0.20, 0.25, 0.20]

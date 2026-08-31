@@ -42,13 +42,8 @@ launch_pid=""
 stop_group() {
     local signal="$1"
     local pid="$2"
-    local privileged="${3:-false}"
     [[ -n "${pid}" ]] || return 0
-    if [[ "${privileged}" == true ]]; then
-        sudo kill -"${signal}" -- "-${pid}" 2>/dev/null || true
-    else
-        kill -"${signal}" -- "-${pid}" 2>/dev/null || true
-    fi
+    kill -"${signal}" -- "-${pid}" 2>/dev/null || true
 }
 
 wait_for_exit() {
@@ -73,10 +68,11 @@ cleanup() {
         fi
         wait "${launch_pid}" 2>/dev/null || true
     fi
-    if [[ -n "${brainco_pid}" ]] && kill -0 "${brainco_pid}" 2>/dev/null; then
-        stop_group TERM "${brainco_pid}" true
-        if ! wait_for_exit "${brainco_pid}" 30; then
-            stop_group KILL "${brainco_pid}" true
+    if [[ -n "${brainco_pid}" ]]; then
+        sudo pkill -TERM -f "^${SERVER_BINARY}( |$)" 2>/dev/null || true
+        if kill -0 "${brainco_pid}" 2>/dev/null && \
+                ! wait_for_exit "${brainco_pid}" 30; then
+            sudo pkill -KILL -f "^${SERVER_BINARY}( |$)" 2>/dev/null || true
         fi
         wait "${brainco_pid}" 2>/dev/null || true
     fi
@@ -85,7 +81,7 @@ cleanup() {
 trap cleanup INT TERM EXIT
 
 sudo -v
-setsid sudo env \
+sudo -n env \
     LD_LIBRARY_PATH="${SERVER_LIBRARY}:/usr/local/lib" \
     "${SERVER_BINARY}" --network "${NETWORK_INTERFACE}" &
 brainco_pid=$!
