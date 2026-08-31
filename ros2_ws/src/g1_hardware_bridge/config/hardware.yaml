@@ -1,0 +1,9 @@
+g1_hardware_bridge:
+  ros__parameters:
+    network_interface: eth0
+    action_timeout_s: 5.0
+    grip_ramp_s: 0.75
+    release_ramp_s: 0.75
+    # BrainCo order: thumb, thumb_aux, index, middle, ring, pinky.
+    hand_neutral_target: [0.399, 0.399, 0.050, 0.050, 0.049, 0.050]
+    hand_grip_target: [0.48, 0.45, 0.15, 0.20, 0.25, 0.20]

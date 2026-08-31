@@ -1,8 +1,18 @@
 """Guarded ROS bridge that exclusively owns physical G1 commands."""
 
+import signal
+import threading
+import time
+
 import rclpy
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
+
+try:
+    # Humble supports disabling rclpy's automatic signal handlers directly.
+    from rclpy.signals import SignalHandlerOptions
+except ImportError:  # Foxy on the robot
+    SignalHandlerOptions = None
 
 from g1_hardware_bridge.brainco_hand import BrainCoHand
 from g1_hardware_bridge.unitree_arm import UnitreeArm
@@ -101,33 +111,72 @@ class G1HardwareBridge(Node):
         self.hand.release()
 
     def safe_shutdown(self):
+        """Return the physical hand and arm to their guarded safe state."""
+        started = time.monotonic()
         errors = []
-        for name, command in (("hand", self.hand.release),
-                              ("arm", self.arm.release)):
+
+        for name, command in (
+            ("hand", self.hand.release),
+            ("arm", self.arm.release),
+        ):
             try:
                 command()
             except Exception as exc:
                 errors.append(f"{name}: {exc}")
+
+        elapsed = time.monotonic() - started
         if errors:
             self.get_logger().error(
-                "physical bridge shutdown release failed: " + "; ".join(errors))
+                "physical bridge safe shutdown incomplete after "
+                f"{elapsed:.3f}s: " + "; ".join(errors)
+            )
+        else:
+            self.get_logger().info(
+                "physical bridge safe shutdown complete in "
+                f"{elapsed:.3f}s"
+            )
 
 
 def main(args=None):
-    rclpy.init(args=args)
+    """Run with explicit signals so guarded hardware shutdown always executes."""
+    if SignalHandlerOptions is None:
+        rclpy.init(args=args)
+    else:
+        rclpy.init(
+            args=args,
+            signal_handler_options=SignalHandlerOptions.NO,
+        )
+
     node = G1HardwareBridge()
     executor = MultiThreadedExecutor(num_threads=4)
     executor.add_node(node)
+    stop_requested = threading.Event()
+
+    def request_stop(_signum, _frame):
+        stop_requested.set()
+
+    previous_sigint = signal.signal(signal.SIGINT, request_stop)
+    previous_sigterm = signal.signal(signal.SIGTERM, request_stop)
+
     try:
-        executor.spin()
+        while not stop_requested.is_set() and rclpy.ok():
+            executor.spin_once(timeout_sec=0.2)
     except KeyboardInterrupt:
         pass
     finally:
         node.safe_shutdown()
-        executor.shutdown(timeout_sec=10.0)
+
+        if not executor.shutdown(timeout_sec=10.0):
+            node.get_logger().warning(
+                "hardware bridge executor did not stop within 10 seconds"
+            )
+
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
+
+        signal.signal(signal.SIGINT, previous_sigint)
+        signal.signal(signal.SIGTERM, previous_sigterm)
 
 
 if __name__ == "__main__":

@@ -3,7 +3,6 @@
 import json
 import signal
 import threading
-import time
 
 import rclpy
 from rclpy.executors import MultiThreadedExecutor
@@ -31,7 +30,7 @@ class HandshakeNode(Node):
         self.declare_parameter("bridge_name", "unconfigured")
         self.declare_parameter("action_timeout_s", 5.0)
         self.declare_parameter("presentation_settle_s", 2.0)
-        self.declare_parameter("grip_command_timeout_s", 15.0)
+        self.declare_parameter("presentation_timeout_s", 15.0)
         self.declare_parameter("grip_hold_s", 5.0)
         self.bridge_name = str(self.get_parameter("bridge_name").value)
         timeout = float(self.get_parameter("action_timeout_s").value)
@@ -40,14 +39,14 @@ class HandshakeNode(Node):
         settle = float(self.get_parameter("presentation_settle_s").value)
         if not 0.0 <= settle <= 10.0:
             raise ValueError("presentation_settle_s must be between 0 and 10")
-        grip_command_timeout = float(
-            self.get_parameter("grip_command_timeout_s").value)
+        presentation_timeout = float(
+            self.get_parameter("presentation_timeout_s").value)
         grip_hold = float(self.get_parameter("grip_hold_s").value)
         if not 5.0 <= grip_hold <= 8.0:
             raise ValueError("grip_hold_s must be between 5 and 8 seconds")
-        if not 1.0 <= grip_command_timeout <= 60.0:
+        if not 5.0 <= presentation_timeout <= 60.0:
             raise ValueError(
-                "grip_command_timeout_s must be between 1 and 60 seconds")
+                "presentation_timeout_s must be between 5 and 60 seconds")
         self.transport = BridgeTransport(self, timeout, self.bridge_name)
         self.backend = BridgeArmBackend(self.transport)
         self.hand_backend = BridgeHandBackend(self.transport)
@@ -55,8 +54,8 @@ class HandshakeNode(Node):
         self.cancelled = threading.Event()
         self.operation_lock = threading.Lock()
         self.worker = None
-        self.grip_requested = threading.Event()
-        self.grip_command_timeout = grip_command_timeout
+        self.presentation_timeout = presentation_timeout
+        self.presentation_timer = None
         self.publisher = self.create_publisher(
             String, "/event/handshake/state", 10)
         self.create_service(Trigger, "/event/handshake/start",
@@ -68,8 +67,7 @@ class HandshakeNode(Node):
         self.create_timer(0.5, self.publish_state)
         self.interaction = AutomaticHandshake(
             self.backend, self.hand_backend, grip_hold, settle,
-            self.cancelled, self.set_state,
-            wait_for_grip=self.wait_for_grip_command)
+            self.cancelled, self.set_state)
         self.get_logger().warning(
             f"Handshake application ready for bridge '{self.bridge_name}'")
 
@@ -81,63 +79,117 @@ class HandshakeNode(Node):
         }, sort_keys=True)
         self.publisher.publish(msg)
 
+    def cancel_presentation_timer(self):
+        """Cancel the pending dashboard presentation timeout."""
+        timer = self.presentation_timer
+        self.presentation_timer = None
+        if timer is not None:
+            timer.cancel()
+
+    def schedule_presentation_timeout(self):
+        """Schedule safe release of an unused dashboard presentation."""
+        self.cancel_presentation_timer()
+        timer = threading.Timer(
+            self.presentation_timeout,
+            self.presentation_timeout_callback)
+        timer.daemon = True
+        self.presentation_timer = timer
+        timer.start()
+
+    def presentation_timeout_callback(self):
+        """Release an arm left presented by the dashboard."""
+        current = threading.current_thread()
+        with self.operation_lock:
+            self.presentation_timer = None
+            if self.state != "ARM_PRESENTED":
+                return
+            if self.worker is not None and self.worker.is_alive():
+                return
+            self.worker = current
+
+        try:
+            self.run_interaction_command(
+                self.interaction.expire_presentation)
+        finally:
+            with self.operation_lock:
+                if self.worker is current:
+                    self.worker = None
+
+    def run_present_command(self):
+        """Raise the arm and start its automatic-release timer."""
+        self.run_interaction_command(self.interaction.present)
+        with self.operation_lock:
+            if (self.state == "ARM_PRESENTED"
+                    and not self.cancelled.is_set()):
+                self.schedule_presentation_timeout()
+
     def grip_callback(self, request, response):
-        """Accept grip only while a presented arm is waiting for it."""
+        """Start a grip independently of how the arm was raised."""
         del request
         with self.operation_lock:
-            if (self.worker is None or not self.worker.is_alive()
-                    or self.state != "WAITING_FOR_GRIP"):
+            if self.worker is not None and self.worker.is_alive():
                 response.success = False
-                response.message = "handshake is not waiting for a grip command"
+                response.message = "another handshake operation is running"
                 return response
-            if self.grip_requested.is_set():
+
+            self.cancel_presentation_timer()
+            try:
+                self.interaction.prepare()
+            except Exception as exc:
                 response.success = False
-                response.message = "grip command already accepted"
+                response.message = f"could not prepare grip: {exc}"
                 return response
-            self.grip_requested.set()
+
+            self.worker = threading.Thread(
+                target=self.run_interaction_command,
+                args=(self.interaction.grip,),
+                name="handshake-grip-worker",
+                daemon=True)
+            self.worker.start()
+
         response.success = True
         response.message = "grip accepted"
         return response
-
-    def wait_for_grip_command(self):
-        """Wait for GRIP, cancellation, or the safety timeout."""
-        deadline = time.monotonic() + self.grip_command_timeout
-        while not self.grip_requested.wait(0.02):
-            if self.cancelled.is_set():
-                return False
-            if time.monotonic() >= deadline:
-                return False
-        return not self.cancelled.is_set()
 
     def set_state(self, state):
         self.state = state
         self.publish_state()
 
     def start_callback(self, request, response):
+        """Raise the arm and start the dashboard presentation timer."""
         del request
         with self.operation_lock:
             if self.worker is not None and self.worker.is_alive():
                 response.success = False
-                response.message = "handshake already running"
+                response.message = "another handshake operation is running"
                 return response
+            if self.state == "ARM_PRESENTED":
+                response.success = False
+                response.message = "arm is already presented"
+                return response
+
+            self.cancel_presentation_timer()
             try:
-                self.grip_requested.clear()
                 self.interaction.prepare()
             except Exception as exc:
                 response.success = False
-                response.message = f"could not prepare handshake: {exc}"
+                response.message = (
+                    f"could not prepare arm presentation: {exc}")
                 return response
+
             self.worker = threading.Thread(
-                target=self.run_interaction_command,
-                args=(self.interaction.run,), name="handshake-worker",
+                target=self.run_present_command,
+                name="handshake-present-worker",
                 daemon=True)
             self.worker.start()
+
         response.success = True
-        response.message = "handshake start accepted; send grip when ready"
+        response.message = "arm presentation accepted"
         return response
 
     def cancel_callback(self, request, response):
         del request
+        self.cancel_presentation_timer()
         with self.operation_lock:
             try:
                 self.interaction.cancel()
@@ -179,8 +231,8 @@ class HandshakeNode(Node):
         # During a whole-launch shutdown the hardware bridge receives the same
         # signal and performs direct safe release. Do not wait for ROS replies
         # from a bridge that is shutting down concurrently.
+        self.cancel_presentation_timer()
         self.cancelled.set()
-        self.grip_requested.set()
         worker = self.worker
         if (worker is not None and worker.is_alive()
                 and worker is not threading.current_thread()):

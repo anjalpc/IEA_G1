@@ -20,7 +20,7 @@ class HandRecorder:
     def release(self): self.events.append(("hand", "release"))
 
 
-def make_sequence(hold=0.0, settle=0.0, wait_for_grip=lambda: True):
+def make_sequence(hold=0.0, settle=0.0):
     events, states, clock = [], [], [0.0]
 
     def monotonic():
@@ -30,45 +30,39 @@ def make_sequence(hold=0.0, settle=0.0, wait_for_grip=lambda: True):
     sequence = AutomaticHandshake(
         ArmRecorder(events), HandRecorder(events), hold, settle,
         threading.Event(), states.append, sleep=lambda _: None,
-        monotonic=monotonic, wait_for_grip=wait_for_grip)
+        monotonic=monotonic)
     return sequence, events, states
 
 
-def test_grip_command_completes_hold_then_safe_release():
+def test_present_only_raises_arm():
+    sequence, events, states = make_sequence(settle=1.0)
+    assert sequence.present() == "arm presentation complete"
+    assert events == [("arm", 27)]
+    assert states == ["PRESENTING", "ARM_PRESENTED"]
+
+
+def test_independent_grip_completes_hold_then_safe_release():
     sequence, events, states = make_sequence(hold=1.0)
-    assert sequence.run() == "handshake complete"
+    assert sequence.grip() == "handshake complete"
     assert events == [
-        ("arm", 27), ("hand", "grip"),
-        ("hand", "release"), ("arm", "release")]
+        ("hand", "grip"),
+        ("hand", "release"),
+        ("arm", "release"),
+    ]
     assert states == [
-        "PRESENTING", "WAITING_FOR_GRIP", "GRIPPING", "HOLDING",
-        "RELEASING", "COMPLETE"]
+        "GRIPPING", "HOLDING", "RELEASING", "COMPLETE"]
 
 
-def test_grip_timeout_releases_without_gripping():
-    sequence, events, states = make_sequence(
-        hold=5.0, wait_for_grip=lambda: False)
-    assert sequence.run() == (
-        "grip command timed out; hand opened and arm released")
-    assert ("hand", "grip") not in events
-    assert events[-2:] == [("hand", "release"), ("arm", "release")]
-    assert states == [
-        "PRESENTING", "WAITING_FOR_GRIP", "GRIP_TIMEOUT", "RELEASING",
-        "COMPLETE"]
-
-
-def test_cancel_while_waiting_releases_without_gripping():
+def test_presentation_timeout_returns_to_safe_state():
     sequence, events, states = make_sequence()
-
-    def cancel_wait():
-        sequence.cancelled.set()
-        return False
-
-    sequence.wait_for_grip = cancel_wait
-    assert sequence.run() == "handshake cancelled"
-    assert ("hand", "grip") not in events
-    assert events[-2:] == [("hand", "release"), ("arm", "release")]
-    assert states[-1] == "CANCELLED"
+    assert sequence.expire_presentation() == (
+        "presentation timed out; hand opened and arm released")
+    assert events == [
+        ("hand", "release"),
+        ("arm", "release"),
+    ]
+    assert states == [
+        "PRESENTATION_TIMEOUT", "RELEASING", "COMPLETE"]
 
 
 def test_arm_release_is_attempted_when_hand_release_fails():
@@ -80,7 +74,7 @@ def test_arm_release_is_attempted_when_hand_release_fails():
 
     sequence.hand.release = fail_release
     with pytest.raises(RuntimeError, match="hand fault"):
-        sequence.run()
+        sequence.grip()
     assert ("arm", "release") in events
 
 
@@ -88,14 +82,14 @@ def test_failed_present_action_never_grips():
     sequence, events, states = make_sequence()
     sequence.arm.execute = lambda action: 7402
     with pytest.raises(RuntimeError, match="action 27 returned 7402"):
-        sequence.run()
+        sequence.present()
     assert events == [] and states == ["PRESENTING"]
 
 
-def test_run_preserves_cancel_requested_before_worker_starts():
+def test_grip_preserves_cancel_requested_before_worker_starts():
     sequence, events, states = make_sequence()
     sequence.cancelled.set()
-    assert sequence.run() == "handshake cancelled"
+    assert sequence.grip() == "handshake cancelled"
     assert ("hand", "grip") not in events
     assert events[-2:] == [("hand", "release"), ("arm", "release")]
     assert states[-1] == "CANCELLED"

@@ -6,7 +6,6 @@ import threading
 from g1_robot_interfaces.constants import PRESENT_HAND_ACTION
 
 
-
 class SafeStateError(RuntimeError):
     """Report that one or more devices failed to reach their safe state."""
 
@@ -55,8 +54,9 @@ class SafeStateCoordinator:
                 errors.append(f"arm release failed: {exc}")
         finally:
             with self._condition:
-                self._error = (SafeStateError("; ".join(errors))
-                               if errors else None)
+                self._error = (
+                    SafeStateError("; ".join(errors)) if errors else None
+                )
                 self._complete = True
                 self._running = False
                 self._condition.notify_all()
@@ -66,12 +66,20 @@ class SafeStateCoordinator:
 
 
 class AutomaticHandshake:
-    """Present, await an explicit grip command, hold, then safely release."""
+    """Provide independent arm-presentation and timed-grip operations."""
 
-    def __init__(self, arm, hand, hold_seconds, settle_seconds, cancelled,
-                 set_state, sleep=time.sleep,
-                 monotonic=time.monotonic, safe_state=None,
-                 wait_for_grip=None):
+    def __init__(
+        self,
+        arm,
+        hand,
+        hold_seconds,
+        settle_seconds,
+        cancelled,
+        set_state,
+        sleep=time.sleep,
+        monotonic=time.monotonic,
+        safe_state=None,
+    ):
         self.arm = arm
         self.hand = hand
         self.hold_seconds = hold_seconds
@@ -81,9 +89,6 @@ class AutomaticHandshake:
         self.sleep = sleep
         self.monotonic = monotonic
         self.safe_state = safe_state or SafeStateCoordinator(arm, hand)
-        if wait_for_grip is None:
-            raise ValueError("wait_for_grip callback is required")
-        self.wait_for_grip = wait_for_grip
 
     def prepare(self):
         """Prepare cancellation and backends before starting a worker."""
@@ -97,32 +102,35 @@ class AutomaticHandshake:
             except Exception as release_error:
                 raise SafeStateError(
                     f"preparation failed: {prepare_error}; "
-                    f"safe release also failed: {release_error}") from prepare_error
+                    f"safe release also failed: {release_error}"
+                ) from prepare_error
             raise
 
-    def run(self):
-        """Run one complete handshake and always open before lowering."""
+    def present(self):
+        """Raise the arm into the presentation posture."""
         if self._cancelled():
             return self._cancel()
+
         self.set_state("PRESENTING")
         self._execute_arm(PRESENT_HAND_ACTION)
+
         if not self._wait(self.settle_seconds):
             return self._cancel()
 
-        self.set_state("WAITING_FOR_GRIP")
-        if not self.wait_for_grip():
-            if self._cancelled():
-                return self._cancel()
-            self.set_state("GRIP_TIMEOUT")
-            self.set_state("RELEASING")
-            self._cleanup()
-            self.set_state("COMPLETE")
-            return "grip command timed out; hand opened and arm released"
+        self.set_state("ARM_PRESENTED")
+        return "arm presentation complete"
+
+    def grip(self):
+        """Curl, hold, open the hand, and lower the arm."""
+        if self._cancelled():
+            return self._cancel()
 
         self.set_state("GRIPPING")
         self.hand.grip()
+
         if self._cancelled():
             return self._cancel()
+
         self.set_state("HOLDING")
         if not self._wait(self.hold_seconds):
             return self._cancel()
@@ -131,6 +139,14 @@ class AutomaticHandshake:
         self._cleanup()
         self.set_state("COMPLETE")
         return "handshake complete"
+
+    def expire_presentation(self):
+        """Safely lower a dashboard-presented arm after its timeout."""
+        self.set_state("PRESENTATION_TIMEOUT")
+        self.set_state("RELEASING")
+        self._cleanup()
+        self.set_state("COMPLETE")
+        return "presentation timed out; hand opened and arm released"
 
     def cancel(self):
         """Request cancellation and synchronously return to a safe state."""

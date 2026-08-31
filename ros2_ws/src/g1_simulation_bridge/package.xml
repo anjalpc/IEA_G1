@@ -8,6 +8,10 @@
   <license>Proprietary</license>
 
   <exec_depend>g1_robot_interfaces</exec_depend>
+  <exec_depend>g1_handshake</exec_depend>
+  <exec_depend>ament_index_python</exec_depend>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
   <exec_depend>rclpy</exec_depend>
   <exec_depend>std_msgs</exec_depend>
 

@@ -49,14 +49,14 @@ SIMULATED_PRESENTATION_SECONDS = 1.0
 
 
 def configured_hand_profile() -> tuple[list[float], list[float], float]:
-    """Read the shared hand targets and ramp used by both backends."""
+    """Read the simulation-owned hand targets and ramp."""
     configuration = REPOSITORY_ROOT / "ros2_ws" / "src" / \
-        "g1_handshake" / "config" / "handshake.yaml"
+        "g1_simulation_bridge" / "config" / "simulation.yaml"
     data = yaml.safe_load(configuration.read_text())
-    parameters = data["g1_hardware_bridge"]["ros__parameters"]
+    parameters = data["g1_simulation_bridge"]["ros__parameters"]
     return (list(parameters["hand_grip_target"]),
             list(parameters["hand_neutral_target"]),
-            float(parameters["grip_ramp_s"]))
+            float(parameters["hand_ramp_s"]))
 
 
 HAND_RAMP_SECONDS = configured_hand_profile()[2]

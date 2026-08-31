@@ -63,16 +63,18 @@ cleanup() {
     # Keep BrainCo alive until ROS has neutralized the hand and lowered the arm.
     if [[ -n "${launch_pid}" ]] && kill -0 "${launch_pid}" 2>/dev/null; then
         stop_group INT "${launch_pid}"
-        if ! wait_for_exit "${launch_pid}" 60; then
+        # The hardware bridge may need to finish hand neutralization and a
+        # bounded Unitree action-99 retry sequence before it can exit.
+        if ! wait_for_exit "${launch_pid}" 200; then
             stop_group TERM "${launch_pid}"
         fi
         wait "${launch_pid}" 2>/dev/null || true
     fi
     if [[ -n "${brainco_pid}" ]]; then
-        sudo pkill -TERM -f "^${SERVER_BINARY}( |$)" 2>/dev/null || true
+        pkill -TERM -f "^${SERVER_BINARY}( |$)" 2>/dev/null || true
         if kill -0 "${brainco_pid}" 2>/dev/null && \
                 ! wait_for_exit "${brainco_pid}" 30; then
-            sudo pkill -KILL -f "^${SERVER_BINARY}( |$)" 2>/dev/null || true
+            pkill -KILL -f "^${SERVER_BINARY}( |$)" 2>/dev/null || true
         fi
         wait "${brainco_pid}" 2>/dev/null || true
     fi
@@ -80,8 +82,9 @@ cleanup() {
 }
 trap cleanup INT TERM EXIT
 
-sudo -v
-sudo -n env \
+# Isolate BrainCo from terminal Ctrl+C. This supervisor stops ROS first and
+# sends BrainCo its shutdown signal only after ROS safe release has finished.
+setsid env \
     LD_LIBRARY_PATH="${SERVER_LIBRARY}:/usr/local/lib" \
     "${SERVER_BINARY}" --network "${NETWORK_INTERFACE}" &
 brainco_pid=$!
@@ -98,4 +101,22 @@ fi
 echo "BrainCo ready; starting handshake nodes."
 setsid ros2 launch g1_hardware_bridge hardware_handshake.launch.py &
 launch_pid=$!
-wait "${launch_pid}"
+
+# BrainCo and ROS are both required. The first unexpected exit causes this
+# supervisor to leave the wait, and the EXIT trap stops the surviving sibling.
+set +e
+wait -n "${brainco_pid}" "${launch_pid}"
+status=$?
+set -e
+
+echo \
+    "ERROR: a required handshake component exited; stopping the complete stack." \
+    >&2
+
+# A required process ending without an operator signal is still an application
+# failure, even when that process returned status zero.
+if [[ ${status} -eq 0 ]]; then
+    status=1
+fi
+
+exit "${status}"

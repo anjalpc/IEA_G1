@@ -11,6 +11,7 @@ cd /home/unitree/IEA_G1
 git sparse-checkout init --no-cone
 git sparse-checkout set --no-cone \
   '/docs/setup/pc2_event_handshake.md' \
+  '/config/udev/70-brainco-hand.rules' \
   '/ros2_ws/src/g1_robot_interfaces/' \
   '/ros2_ws/src/g1_handshake/' \
   '/ros2_ws/src/g1_hardware_bridge/' \
@@ -23,9 +24,9 @@ git checkout main
 ./scripts/build.sh
 ```
 
-The PC2 working tree now contains only this guide, the three production
-packages, four runtime scripts, and the BrainCo runtime. Git remembers the
-sparse selection for subsequent pulls.
+The PC2 working tree now contains only this guide, the restricted udev rule,
+the three production packages, four runtime scripts, and the BrainCo runtime.
+Git remembers the sparse selection for subsequent pulls.
 
 The supported robot checkout is:
 
@@ -36,6 +37,30 @@ The supported robot checkout is:
 `ROS_SETUP` defaults to `/opt/ros/foxy/setup.bash` and
 `G1_NETWORK_INTERFACE` defaults to `eth0`.
 
+## BrainCo serial permissions
+
+The BrainCo server runs as `unitree` without `sudo`. Install the restricted
+device rule once:
+
+```bash
+sudo groupadd --system brainco 2>/dev/null || true
+sudo usermod -aG brainco unitree
+sudo install -m 0644 \
+  config/udev/70-brainco-hand.rules \
+  /etc/udev/rules.d/70-brainco-hand.rules
+sudo udevadm control --reload-rules
+sudo udevadm trigger --action=change --subsystem-match=tty
+```
+
+Start a fresh login session and verify:
+
+```bash
+id
+ls -l /dev/ttyUSB*
+```
+
+The login must include group `brainco`, and the matching FTDI ports must belong
+to `root:brainco`. No interactive password is required by `start.sh`.
 
 Use ROS domain `42` for the event-facing ROS API. Domain `0` contains Unitree's
 native DDS traffic and is intentionally isolated from the ROS API participant.
@@ -71,7 +96,8 @@ Use the operator command from another terminal:
 ./scripts/pc2_handshake.sh cancel
 ```
 
-`start` executes action 27 and waits. Issue `grip` only after the arm is
-presented: the hand closes to the validated target, holds for five seconds,
-opens, and action 99 releases the arm. A 15-second wait timeout performs the
-same open-and-release cleanup without gripping.
+`start` executes action 27 and starts a 15-second presentation timeout. If no
+grip follows, the hand remains neutral and action 99 releases the arm. `grip`
+is independent, so it can follow either the dashboard start command or an
+externally presented arm. It closes to the validated target, holds for five
+seconds, returns to neutral, and executes action 99.

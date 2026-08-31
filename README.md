@@ -47,7 +47,7 @@ importing Unitree or BrainCo drivers directly.
 
 Application-level state machine for the current two-button handshake workflow.
 It owns the sequence, public ROS services, state publication, cancellation,
-timeouts, and the installed runtime configuration:
+timeouts, and application-level runtime configuration:
 
 ```text
 ros2_ws/src/g1_handshake/config/handshake.yaml
@@ -59,18 +59,22 @@ driver implementation.
 ### `g1_hardware_bridge`
 
 Physical backend for PC2. It is the only package that owns Unitree arm actions
-and BrainCo right-hand commands. Native SDK operations run in isolated helper
-processes on DDS domain `0`, while the ROS-facing bridge remains on the
-application domain.
+and BrainCo right-hand commands. Physical calibration, ramp, and network values
+are owned by `g1_hardware_bridge/config/hardware.yaml`. Native SDK operations
+run in isolated helper processes on DDS domain `0`, while the ROS-facing bridge
+remains on the application domain.
 
 ### `g1_simulation_bridge`
 
 Development backend that adapts the same acknowledged application operations
-to the MuJoCo implementation. It is not selected by the PC2 production build.
+to the MuJoCo implementation. Simulation-only targets and timing are owned by
+`g1_simulation_bridge/config/simulation.yaml`. It is not selected by the PC2
+production build.
 
 ## Repository layout
 
 ```text
+config/udev/                restricted physical-device permission rules
 docker/                     reproducible ROS Humble development image
 docs/setup/                 workstation and PC2 setup instructions
 ros2_ws/src/                ROS 2 source packages
@@ -188,8 +192,8 @@ The current handshake application exposes:
 
 | Type | Name | Purpose |
 | --- | --- | --- |
-| Service | `/event/handshake/start` | Present the arm and wait for grip |
-| Service | `/event/handshake/grip` | Execute the configured grip sequence |
+| Service | `/event/handshake/start` | Present the arm with automatic timeout |
+| Service | `/event/handshake/grip` | Execute an independent timed grip sequence |
 | Service | `/event/handshake/cancel` | Cancel and request safe release |
 | Topic | `/event/handshake/state` | Publish application state and bridge |
 
@@ -222,6 +226,7 @@ The current production selection is:
 
 ```text
 docs/setup/pc2_event_handshake.md
+config/udev/70-brainco-hand.rules
 ros2_ws/src/g1_robot_interfaces/
 ros2_ws/src/g1_handshake/
 ros2_ws/src/g1_hardware_bridge/
