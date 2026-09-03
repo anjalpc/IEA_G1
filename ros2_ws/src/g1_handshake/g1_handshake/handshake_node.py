@@ -74,7 +74,12 @@ class HandshakeNode(Node):
             HandClient(self.transport), hand, grip_target,
             grip_ramp, release_ramp)
         self.state = "IDLE"
+        self.arm_ownership = (
+            "IDLE" if self.bridge_name != "hardware" else "UNAVAILABLE")
+        self.arm_action_id = None
+        self.arm_action_name = ""
         self.cancelled = threading.Event()
+        self.yield_requested = threading.Event()
         self.operation_lock = threading.Lock()
         self.worker = None
         self.presentation_timeout = presentation_timeout
@@ -82,6 +87,9 @@ class HandshakeNode(Node):
         self.shutting_down = threading.Event()
         self.publisher = self.create_publisher(
             String, "/event/handshake/state", 10)
+        self.create_subscription(
+            String, "/g1/bridge/hardware/arm_ownership",
+            self.arm_ownership_callback, 10)
         self.create_service(Trigger, "/event/handshake/start",
                             self.start_callback)
         self.create_service(Trigger, "/event/handshake/cancel",
@@ -93,6 +101,7 @@ class HandshakeNode(Node):
         self.interaction = AutomaticHandshake(
             self.backend, self.hand_backend, grip_hold, settle,
             self.cancelled, self.set_state,
+            yield_requested=self.yield_requested,
             presentation_action=presentation_action)
         self.get_logger().warning(
             f"Handshake application ready for bridge '{self.bridge_name}'")
@@ -104,8 +113,73 @@ class HandshakeNode(Node):
         msg.data = json.dumps({
             "state": self.state,
             "bridge": self.bridge_name,
+            "arm_ownership": self.arm_ownership,
+            "arm_action_id": self.arm_action_id,
+            "arm_action_name": self.arm_action_name,
         }, sort_keys=True)
         self.publisher.publish(msg)
+
+    def arm_ownership_callback(self, message):
+        """Consume bridge ownership and yield safely to external actions."""
+        if self.bridge_name != "hardware":
+            return
+        try:
+            state = json.loads(message.data)
+            status = str(state["status"])
+            action_id = state.get("id")
+            action_name = str(state.get("name", ""))
+        except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+            self.get_logger().error(f"invalid arm ownership state: {exc}")
+            status = "UNAVAILABLE"
+            action_id = None
+            action_name = ""
+
+        self.arm_ownership = status
+        self.arm_action_id = action_id
+        self.arm_action_name = action_name
+
+        if status == "IDLE":
+            with self.operation_lock:
+                worker_running = (
+                    self.worker is not None and self.worker.is_alive())
+                if (self.state == "EXTERNAL_ARM_CONTROL"
+                        and not worker_running):
+                    self.set_state("IDLE")
+            return
+
+        if status not in ("EXTERNAL", "UNAVAILABLE"):
+            return
+        if self.state not in {
+                "PRESENTING", "ARM_PRESENTED", "GRIPPING", "HOLDING"}:
+            return
+
+        self.cancel_presentation_timer()
+        try:
+            self.interaction.request_external_yield()
+        except Exception as exc:
+            self.get_logger().warning(
+                f"could not interrupt active hand command: {exc}")
+        with self.operation_lock:
+            if self.worker is not None and self.worker.is_alive():
+                return
+            self.worker = threading.Thread(
+                target=self.run_interaction_command,
+                args=(self.interaction.yield_arm_control,),
+                name="handshake-external-yield-worker",
+                daemon=True)
+            self.worker.start()
+
+    def arm_command_allowed(self, allowed):
+        """Return an operator-facing reason when arm ownership blocks work."""
+        if self.bridge_name != "hardware":
+            return None
+        if self.arm_ownership in allowed:
+            return None
+        if self.arm_ownership == "EXTERNAL":
+            return (
+                "external Unitree arm action is active: "
+                f"{self.arm_action_id} {self.arm_action_name}".rstrip())
+        return "Unitree arm state is unavailable or not stably idle"
 
     def cancel_presentation_timer(self):
         """Cancel the pending dashboard presentation timeout."""
@@ -159,6 +233,11 @@ class HandshakeNode(Node):
         """Start a grip independently of how the arm was raised."""
         del request
         with self.operation_lock:
+            blocked = self.arm_command_allowed({"IDLE", "OWNED"})
+            if blocked is not None:
+                response.success = False
+                response.message = blocked
+                return response
             if self.worker is not None and self.worker.is_alive():
                 response.success = False
                 response.message = "another handshake operation is running"
@@ -196,6 +275,11 @@ class HandshakeNode(Node):
                 response.message = "another handshake operation is running"
                 return response
             if self.state == "ARM_PRESENTED":
+                blocked = self.arm_command_allowed({"IDLE", "OWNED"})
+                if blocked is not None:
+                    response.success = False
+                    response.message = blocked
+                    return response
                 self.cancel_presentation_timer()
                 self.worker = threading.Thread(
                     target=self.run_release_command,
@@ -204,6 +288,12 @@ class HandshakeNode(Node):
                 self.worker.start()
                 response.success = True
                 response.message = "arm release accepted"
+                return response
+
+            blocked = self.arm_command_allowed({"IDLE"})
+            if blocked is not None:
+                response.success = False
+                response.message = blocked
                 return response
 
             self.cancel_presentation_timer()
@@ -247,6 +337,17 @@ class HandshakeNode(Node):
             message = command()
             self.get_logger().info(message)
         except Exception as exc:
+            if self.yield_requested.is_set():
+                try:
+                    message = self.interaction.yield_arm_control()
+                except Exception as cleanup_exc:
+                    self.get_logger().error(
+                        "hand-only release after external takeover failed: "
+                        f"{cleanup_exc}")
+                    self.set_state("ERROR")
+                    return
+                self.get_logger().warning(message)
+                return
             if self.cancelled.is_set():
                 try:
                     self.interaction.safe_state.release_once()

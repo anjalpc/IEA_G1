@@ -3,7 +3,8 @@ import threading
 import pytest
 
 from g1_handshake.handshake_sequence import (
-    AutomaticHandshake, SafeStateCoordinator, SafeStateError)
+    AutomaticHandshake, ExternalYieldCoordinator,
+    SafeStateCoordinator, SafeStateError)
 
 
 class ArmRecorder:
@@ -18,6 +19,7 @@ class HandRecorder:
     def prepare_operation(self): self.events.append(("hand", "prepare"))
     def grip(self): self.events.append(("hand", "grip"))
     def release(self): self.events.append(("hand", "release"))
+    def interrupt(self): self.events.append(("hand", "interrupt"))
 
 
 def make_sequence(hold=0.0, settle=0.0):
@@ -149,3 +151,36 @@ def test_prepare_and_release_failure_reports_both_errors():
     with pytest.raises(SafeStateError, match="safe release also failed"):
         sequence.prepare()
     assert ("arm", "release") in events
+
+
+def test_external_takeover_opens_hand_without_releasing_arm():
+    sequence, events, states = make_sequence()
+    sequence.request_external_yield()
+    assert sequence.yield_arm_control() == (
+        "external arm takeover detected; hand opened and arm untouched")
+    assert events == [("hand", "interrupt"), ("hand", "release")]
+    assert ("arm", "release") not in events
+    assert states == ["YIELDING_TO_EXTERNAL_ARM", "EXTERNAL_ARM_CONTROL"]
+
+
+def test_external_takeover_interrupts_present_wait_without_action_99():
+    sequence, events, states = make_sequence(settle=5.0)
+
+    def sleep(_duration):
+        sequence.request_external_yield()
+
+    sequence.sleep = sleep
+    assert sequence.present() == (
+        "external arm takeover detected; hand opened and arm untouched")
+    assert events == [
+        ("arm", 27), ("hand", "interrupt"), ("hand", "release")]
+    assert ("arm", "release") not in events
+    assert states[-1] == "EXTERNAL_ARM_CONTROL"
+
+
+def test_external_yield_cleanup_runs_once():
+    events = []
+    coordinator = ExternalYieldCoordinator(HandRecorder(events))
+    coordinator.release_once()
+    coordinator.release_once()
+    assert events == [("hand", "release")]

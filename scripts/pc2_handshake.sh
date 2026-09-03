@@ -26,8 +26,19 @@ case "${1:-}" in
     ros2 service call /event/handshake/cancel std_srvs/srv/Trigger "{}"
     ;;
   state)
-    timeout 2 ros2 topic echo /event/handshake/state || status=$?
-    if [[ ${status:-0} -ne 0 && ${status:-0} -ne 124 ]]; then
+    status=0
+    state_output="$(
+      timeout 2 ros2 topic echo /event/handshake/state
+    )" || status=$?
+
+    if ! grep -q "^data:" <<< "${state_output}"; then
+      echo "ERROR: no handshake state received within 2 seconds." >&2
+      exit 1
+    fi
+
+    printf '%s\n' "${state_output}"
+
+    if [[ ${status} -ne 0 && ${status} -ne 124 ]]; then
       exit "${status}"
     fi
     ;;

@@ -80,7 +80,7 @@ class UnitreeArm:
             raise RuntimeError("physical card presentation is disabled")
         arguments = [
             sys.executable, "-m",
-            "g1_hardware_bridge.unitree_arm_shadow_helper",
+            "g1_hardware_bridge.experimental.arm_shadow_helper",
             self.interface,
             "--fraction", str(float(fraction)),
             "--move-seconds", str(float(move_seconds)),
@@ -111,7 +111,7 @@ class UnitreeArm:
     def _execute(self, action_id, is_release):
         arguments = [
             sys.executable, "-m",
-            "g1_hardware_bridge.unitree_action_helper", self.interface,
+            "g1_hardware_bridge.arm.action_helper", self.interface,
             str(self.timeout), str(action_id)]
         stdout = self._run_helper(
             arguments, self.timeout + 3.0, is_release)

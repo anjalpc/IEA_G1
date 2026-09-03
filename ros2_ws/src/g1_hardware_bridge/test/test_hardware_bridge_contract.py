@@ -1,5 +1,6 @@
 """Contract tests for physical bridge routing and safe shutdown."""
 
+from g1_hardware_bridge.arm.ownership import ArmOwnership
 from g1_hardware_bridge.hardware_bridge_node import G1HardwareBridge
 
 
@@ -27,6 +28,13 @@ class ArmRecorder:
     def __init__(self, events):
         self.events = events
 
+    def prepare_operation(self):
+        self.events.append(("arm_prepare",))
+
+    def execute(self, action_id):
+        self.events.append(("arm_execute", action_id))
+        return 0
+
     def release(self):
         self.events.append(("arm_release",))
         return 0
@@ -41,6 +49,60 @@ class Logger:
     def error(self, _message):
         pass
 
+    def warning(self, _message):
+        pass
+
+
+class OwnershipRecorder:
+    """Provide controllable ownership results for routing tests."""
+
+    def __init__(self, status=ArmOwnership.IDLE):
+        self.status = status
+        self.expected = []
+
+    def snapshot(self):
+        return {
+            "status": self.status,
+            "id": 552 if self.status == ArmOwnership.EXTERNAL else 0,
+            "name": "vq_shake_hand" if self.status == ArmOwnership.EXTERNAL
+            else "",
+            "holding": self.status == ArmOwnership.EXTERNAL,
+            "expected_id": None,
+            "idle_stable": self.status == ArmOwnership.IDLE,
+        }
+
+    def require_available(self):
+        state = self.snapshot()
+        if self.status != ArmOwnership.IDLE:
+            raise RuntimeError(ArmOwnership.block_reason(state))
+        return state
+
+    def expect(self, action_id):
+        self.expected.append(int(action_id))
+
+    def clear_expectation(self, action_id=None):
+        del action_id
+
+
+class TimerRecorder:
+    """Record timer cancellation."""
+
+    def __init__(self):
+        self.cancelled = False
+
+    def cancel(self):
+        self.cancelled = True
+
+
+class MonitorRecorder:
+    """Record monitor shutdown."""
+
+    def __init__(self):
+        self.stopped = False
+
+    def stop(self):
+        self.stopped = True
+
 
 def bridge():
     """Construct the routing portion without initializing ROS or hardware."""
@@ -54,6 +116,8 @@ def bridge():
         "left": [0.400, 0.400, 0.049, 0.050, 0.049, 0.050],
     }
     instance._owned_hands = set()
+    instance.allowed_arm_actions = {27}
+    instance.arm_ownership = OwnershipRecorder()
     instance.get_logger = lambda: Logger()
     return instance, events
 
@@ -108,3 +172,63 @@ def test_shutdown_neutralizes_both_owned_hands_in_deterministic_order():
         ("hand_neutral", "right", instance.neutral_targets["right"], 0.2),
         ("arm_release",),
     ]
+
+
+def test_arm_monitor_shutdown_cancels_timer_and_stops_process():
+    instance = G1HardwareBridge.__new__(G1HardwareBridge)
+    instance.arm_ownership_timer = TimerRecorder()
+    instance.arm_monitor = MonitorRecorder()
+
+    instance.stop_arm_monitor()
+
+    assert instance.arm_ownership_timer.cancelled is True
+    assert instance.arm_monitor.stopped is True
+
+
+def test_arm_execute_requires_idle_then_records_expected_action():
+    instance, events = bridge()
+
+    assert instance._arm_execute({"action_id": 27}) == {"code": 0}
+
+    assert events == [("arm_execute", 27)]
+    assert instance.arm_ownership.expected == [27]
+
+
+def test_external_action_blocks_prepare_and_execute():
+    instance, events = bridge()
+    instance.arm_ownership.status = ArmOwnership.EXTERNAL
+
+    for command in (
+            lambda: instance._arm_prepare({}),
+            lambda: instance._arm_execute({"action_id": 27})):
+        try:
+            command()
+        except RuntimeError as exc:
+            assert "external Unitree arm action" in str(exc)
+        else:
+            raise AssertionError("external action was not blocked")
+
+    assert events == []
+
+
+def test_external_action_blocks_release_action_99():
+    instance, events = bridge()
+    instance.arm_ownership.status = ArmOwnership.EXTERNAL
+
+    try:
+        instance._arm_release({})
+    except RuntimeError as exc:
+        assert "external Unitree arm action" in str(exc)
+    else:
+        raise AssertionError("external action did not block release")
+
+    assert events == []
+
+
+def test_shutdown_does_not_release_externally_owned_arm():
+    instance, events = bridge()
+    instance.arm_ownership.status = ArmOwnership.EXTERNAL
+
+    instance.safe_shutdown()
+
+    assert events == []

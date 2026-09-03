@@ -1,6 +1,6 @@
 import pytest
 
-from g1_hardware_bridge.brainco_hand_helper import (
+from g1_hardware_bridge.hand.helper import (
     COMMAND_CONFIRMATION,
     command_position,
 )

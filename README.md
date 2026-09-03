@@ -32,7 +32,8 @@ ros2_ws/src/
 ├── g1_handshake/
 ├── g1_card_presentation/
 ├── g1_hardware_bridge/
-└── g1_simulation_bridge/
+├── g1_simulation_bridge/
+└── g1_bringup/
 ```
 
 ### `g1_robot_interfaces`
@@ -73,6 +74,18 @@ safe-shutdown ramp, and network values are owned by
 `g1_hardware_bridge/config/hardware.yaml`. It contains no handshake grip target
 or handshake timing. Native SDK operations run in isolated helper processes on
 DDS domain `0`, while the ROS-facing bridge remains on the application domain.
+Its Python implementation is divided by responsibility:
+
+```text
+g1_hardware_bridge/
+├── arm/          production Unitree actions and ownership monitoring
+├── hand/         production BrainCo backend and helper
+├── experimental/ disabled left-arm shadow/calibration helpers
+└── hardware_bridge_node.py
+```
+
+The `experimental` namespace is not launched by `g1_bringup`; physical card
+presentation remains disabled in `config/hardware.yaml`.
 
 ### `g1_simulation_bridge`
 
@@ -81,13 +94,22 @@ the MuJoCo implementation. Model-specific neutral targets are owned by
 `g1_simulation_bridge/config/simulation.yaml`. It contains no handshake grip
 profile and is not selected by the PC2 production build.
 
+### `g1_bringup`
+
+Launches the physical stack as one supervised unit: the hardware bridge and
+the handshake node together. It has no nodes or logic of its own, only the
+launch file. Critically, it couples the two nodes' lifecycle so that either
+one exiting shuts down the other — this is what makes the hardware bridge's
+guarded safe-shutdown reliable, since it depends on receiving the same
+termination signal as the handshake node rather than a clean request/reply
+handoff between them.
+
 ## Repository layout
 
 ```text
 config/udev/                restricted physical-device permission rules
 docker/                     reproducible ROS Humble development image
 docs/setup/                 workstation and PC2 setup instructions
-launch/                     physical deployment launch files
 ros2_ws/src/                ROS 2 source packages
 scripts/                    development, validation and robot commands
 simulation/                 MuJoCo models, configuration and validation
@@ -247,7 +269,7 @@ The current production selection is:
 ```text
 docs/setup/pc2_event_handshake.md
 config/udev/70-brainco-hand.rules
-launch/hardware_handshake.launch.py
+ros2_ws/src/g1_bringup/
 ros2_ws/src/g1_robot_interfaces/
 ros2_ws/src/g1_handshake/
 ros2_ws/src/g1_hardware_bridge/
@@ -265,6 +287,7 @@ operation, shutdown and update procedure are maintained in
 ## ROS domains
 
 The development environment and PC2 application API use ROS domain `42`.
+The runtime scripts select their domains automatically; manual exports are only needed for direct ROS diagnostic commands.
 Native Unitree arm and BrainCo hand helper processes use domain `0` internally.
 
 On PC2, operator terminals use:

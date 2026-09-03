@@ -4,7 +4,7 @@ import math
 
 import pytest
 
-from g1_hardware_bridge.left_arm_presentation_safety import (
+from g1_hardware_bridge.experimental.left_arm_safety import (
     ArmState,
     LEFT_CARD_PRESENTATION_CANDIDATE,
     PresentationLimits,

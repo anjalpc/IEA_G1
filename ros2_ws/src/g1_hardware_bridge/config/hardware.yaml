@@ -3,6 +3,8 @@ g1_hardware_bridge:
     network_interface: eth0
     action_timeout_s: 5.0
     safe_hand_ramp_s: 0.2
+    arm_state_stale_timeout_s: 2.0
+    arm_idle_stable_s: 0.5
     allowed_arm_actions: [27]
     # No rt/arm_sdk publisher exists in this stage.
     card_presentation_mode: disabled

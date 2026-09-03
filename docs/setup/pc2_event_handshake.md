@@ -12,7 +12,7 @@ git sparse-checkout init --no-cone
 git sparse-checkout set --no-cone \
   '/docs/setup/pc2_event_handshake.md' \
   '/config/udev/70-brainco-hand.rules' \
-  '/launch/hardware_handshake.launch.py' \
+  '/ros2_ws/src/g1_bringup/' \
   '/ros2_ws/src/g1_robot_interfaces/' \
   '/ros2_ws/src/g1_handshake/' \
   '/ros2_ws/src/g1_hardware_bridge/' \
@@ -26,7 +26,7 @@ git checkout main
 ```
 
 The PC2 working tree now contains only this guide, the restricted udev rule,
-the hardware launch file, the three production packages, four runtime scripts,
+the bringup package, the three runtime packages, four runtime scripts,
 and the BrainCo runtime. Git remembers the sparse selection for subsequent
 pulls.
 
@@ -64,10 +64,13 @@ ls -l /dev/ttyUSB*
 The login must include group `brainco`, and the matching FTDI ports must belong
 to `root:brainco`. No interactive password is required by `start.sh`.
 
-Use ROS domain `42` for the event-facing ROS API. Domain `0` contains Unitree's
-native DDS traffic and is intentionally isolated from the ROS API participant.
-The hardware backend independently initializes Unitree SDK domain `0` on the
-configured robot network interface.
+The runtime scripts select ROS domain `42` automatically for the event-facing
+API. Domain `0` contains Unitree's native DDS traffic and is intentionally
+isolated from the ROS API participant. The hardware backend independently uses
+Unitree SDK domain `0` on the configured robot network interface.
+
+The following environment setup is required only for direct `ros2` diagnostic
+commands:
 
 ```bash
 cd /home/unitree/IEA_G1/ros2_ws
@@ -88,6 +91,13 @@ The hardware bridge directly owns the reviewed arm and BrainCo hand
 backends. The integrated sequence restores the calibrated neutral hand posture
 before arm action 99 on completion, cancellation, timeout, shutdown, and error
 cleanup.
+
+The bridge also watches Unitree's event-driven `/arm/action/state` topic on
+native DDS domain `0`. Silence at startup is the robot's normal idle behavior.
+An observed external nonzero action blocks new handshake commands and makes an
+active handshake open only its hand while leaving the externally controlled
+arm untouched. A final action ID `0` restores availability. If the monitor
+process exits, physical arm commands remain blocked.
 
 Use the operator command from another terminal:
 

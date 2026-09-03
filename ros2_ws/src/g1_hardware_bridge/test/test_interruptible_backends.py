@@ -5,9 +5,9 @@ import threading
 
 import pytest
 
-from g1_hardware_bridge.brainco_hand import BrainCoHand
-from g1_hardware_bridge import unitree_arm
-from g1_hardware_bridge.unitree_arm import UnitreeArm
+from g1_hardware_bridge.hand.backend import BrainCoHand
+from g1_hardware_bridge.arm import backend as unitree_arm
+from g1_hardware_bridge.arm.backend import UnitreeArm
 
 
 class FakeProcess:
@@ -124,9 +124,9 @@ def test_offline_shadow_uses_read_only_helper(monkeypatch):
     backend.prepare_operation()
     result = backend.present("left_card_presentation", 0.25, 5.0)
     assert result == {"mode": "offline_shadow", "published": False}
-    assert "g1_hardware_bridge.unitree_arm_shadow_helper" in \
+    assert "g1_hardware_bridge.experimental.arm_shadow_helper" in \
         captured["arguments"]
-    assert "unitree_action_helper" not in captured["arguments"]
+    assert "g1_hardware_bridge.arm.action_helper" not in captured["arguments"]
     assert backend.release_presentation()["published"] is False
 
 

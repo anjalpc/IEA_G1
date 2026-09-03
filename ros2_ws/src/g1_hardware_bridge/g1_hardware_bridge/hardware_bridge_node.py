@@ -1,5 +1,6 @@
 """Guarded ROS bridge that exclusively owns physical G1 commands."""
 
+import json
 import signal
 import threading
 import time
@@ -7,6 +8,7 @@ import time
 import rclpy
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
+from std_msgs.msg import String
 
 try:
     # Humble supports disabling rclpy's automatic signal handlers directly.
@@ -14,11 +16,13 @@ try:
 except ImportError:  # Foxy on the robot
     SignalHandlerOptions = None
 
-from g1_hardware_bridge.brainco_hand import BrainCoHand
+from g1_hardware_bridge.arm.backend import UnitreeArm, native_dds_environment
+from g1_hardware_bridge.arm.monitor import UnitreeArmMonitor
+from g1_hardware_bridge.arm.ownership import ArmOwnership
+from g1_hardware_bridge.hand.backend import BrainCoHand
 from g1_hardware_bridge.settings import (
     DEFAULT_SAFE_HAND_RAMP_S,
 )
-from g1_hardware_bridge.unitree_arm import UnitreeArm
 from g1_robot_interfaces.bridge_server import BridgeServer
 from g1_robot_interfaces.validation import (
     validate_hand_name,
@@ -35,6 +39,8 @@ class G1HardwareBridge(Node):
         self.declare_parameter("network_interface", "eth0")
         self.declare_parameter("action_timeout_s", 5.0)
         self.declare_parameter("safe_hand_ramp_s", DEFAULT_SAFE_HAND_RAMP_S)
+        self.declare_parameter("arm_state_stale_timeout_s", 2.0)
+        self.declare_parameter("arm_idle_stable_s", 0.5)
         self.declare_parameter("allowed_arm_actions", [27])
         self.declare_parameter("card_presentation_mode", "disabled")
         self.declare_parameter(
@@ -73,6 +79,20 @@ class G1HardwareBridge(Node):
             self.card_presentation_mode)
         self.hand = BrainCoHand(interface, timeout)
         self._owned_hands = set()
+        stale_timeout = float(
+            self.get_parameter("arm_state_stale_timeout_s").value)
+        idle_stable = float(
+            self.get_parameter("arm_idle_stable_s").value)
+        self.arm_ownership = ArmOwnership(stale_timeout, idle_stable)
+        self.arm_ownership_publisher = self.create_publisher(
+            String, "/g1/bridge/hardware/arm_ownership", 10)
+        self.arm_monitor = UnitreeArmMonitor(
+            self.arm_ownership,
+            native_dds_environment(),
+            state_callback=self._publish_arm_ownership)
+        self.arm_monitor.start()
+        self.arm_ownership_timer = self.create_timer(
+            0.2, self._publish_arm_ownership)
         self.server = BridgeServer(self, "hardware", {
             "arm_prepare": self._arm_prepare,
             "arm_prepare_presentation": self._arm_prepare_presentation,
@@ -88,12 +108,30 @@ class G1HardwareBridge(Node):
         })
         self.get_logger().warning("Physical arm and hand bridge ready")
 
+    def _publish_arm_ownership(self, state=None):
+        """Publish native arm ownership on the application ROS domain."""
+        if state is None:
+            state = self.arm_ownership.snapshot()
+        message = String()
+        message.data = json.dumps(state, sort_keys=True)
+        self.arm_ownership_publisher.publish(message)
+
+    def stop_arm_monitor(self):
+        """Stop and reap the isolated native arm-state reader."""
+        timer = getattr(self, "arm_ownership_timer", None)
+        if timer is not None:
+            timer.cancel()
+        monitor = getattr(self, "arm_monitor", None)
+        if monitor is not None:
+            monitor.stop()
+
     @staticmethod
     def _request_hand(request):
         return validate_hand_name(request["hand"])
 
     def _arm_prepare(self, request):
         del request
+        self.arm_ownership.require_available()
         prepare = getattr(self.arm, "prepare_operation", None)
         if prepare is not None:
             prepare()
@@ -106,7 +144,13 @@ class G1HardwareBridge(Node):
         action_id = int(request["action_id"])
         if action_id not in self.allowed_arm_actions:
             raise ValueError(f"arm action {action_id} is not allowed")
-        return {"code": self.arm.execute(action_id)}
+        self.arm_ownership.require_available()
+        self.arm_ownership.expect(action_id)
+        try:
+            return {"code": self.arm.execute(action_id)}
+        except Exception:
+            self.arm_ownership.clear_expectation(action_id)
+            raise
 
     def _arm_present(self, request):
         return self.arm.present(
@@ -123,7 +167,16 @@ class G1HardwareBridge(Node):
 
     def _arm_release(self, request):
         del request
-        return {"code": self.arm.release()}
+        state = self.arm_ownership.snapshot()
+        if state["status"] not in (
+                ArmOwnership.IDLE, ArmOwnership.OWNED):
+            raise RuntimeError(ArmOwnership.block_reason(state))
+        self.arm_ownership.expect(UnitreeArm.RELEASE_ACTION)
+        try:
+            return {"code": self.arm.release()}
+        except Exception:
+            self.arm_ownership.clear_expectation(UnitreeArm.RELEASE_ACTION)
+            raise
 
     def _hand_prepare(self, request):
         del request
@@ -170,7 +223,14 @@ class G1HardwareBridge(Node):
                 self.safe_hand_ramp))
             for hand in sorted(self._owned_hands)
         ]
-        commands.append(("arm", self.arm.release))
+        ownership = getattr(self, "arm_ownership", None)
+        if ownership is None or ownership.snapshot()["status"] in (
+                ArmOwnership.IDLE, ArmOwnership.OWNED):
+            commands.append(("arm", self.arm.release))
+        else:
+            self.get_logger().warning(
+                "safe shutdown yielded arm release to external or "
+                "unavailable Unitree control")
         for name, command in commands:
             try:
                 command()
@@ -218,6 +278,7 @@ def main(args=None):
         pass
     finally:
         node.safe_shutdown()
+        node.stop_arm_monitor()
 
         if not executor.shutdown(timeout_sec=10.0):
             node.get_logger().warning(

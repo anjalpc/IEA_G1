@@ -93,7 +93,7 @@ brainco_pid=$!
 
 echo "Waiting for the BrainCo right hand..."
 if ! env ROS_DOMAIN_ID=0 python3 -m \
-        g1_hardware_bridge.brainco_hand_helper state \
+        g1_hardware_bridge.hand.helper state \
         --hand right --interface "${NETWORK_INTERFACE}" --timeout 15 \
         >/dev/null; then
     echo "ERROR: BrainCo right hand did not become ready." >&2

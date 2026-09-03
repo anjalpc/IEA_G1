@@ -5,7 +5,7 @@ import json
 import math
 import time
 
-from g1_hardware_bridge.left_arm_presentation_safety import (
+from g1_hardware_bridge.experimental.left_arm_safety import (
     LEFT_ARM_INDICES,
     RIGHT_ARM_INDICES,
     PresentationLimits,
@@ -13,7 +13,7 @@ from g1_hardware_bridge.left_arm_presentation_safety import (
     presentation_target,
     validate_state,
 )
-from g1_hardware_bridge.unitree_arm_shadow_helper import observed_state
+from g1_hardware_bridge.experimental.arm_shadow_helper import observed_state
 
 
 CONFIRMATION = "CONFIRM_LEFT_ARM_100_PERCENT"

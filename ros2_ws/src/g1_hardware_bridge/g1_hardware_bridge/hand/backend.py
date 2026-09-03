@@ -5,7 +5,7 @@ import subprocess
 import sys
 import threading
 
-from g1_hardware_bridge.unitree_arm import native_dds_environment
+from g1_hardware_bridge.arm.backend import native_dds_environment
 
 
 class BrainCoHand:
@@ -51,7 +51,7 @@ class BrainCoHand:
                 raise RuntimeError("another hand helper is already running")
             process = subprocess.Popen(
                 [sys.executable, "-m",
-                 "g1_hardware_bridge.brainco_hand_helper", *arguments],
+                 "g1_hardware_bridge.hand.helper", *arguments],
                 env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE,
                 text=True)
             self._active_process = process

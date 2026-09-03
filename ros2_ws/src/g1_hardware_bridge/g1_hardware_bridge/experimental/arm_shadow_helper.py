@@ -4,7 +4,7 @@ import argparse
 import json
 import time
 
-from g1_hardware_bridge.left_arm_presentation_safety import (
+from g1_hardware_bridge.experimental.left_arm_safety import (
     ArmState,
     captured_arm_positions,
     interpolate,
