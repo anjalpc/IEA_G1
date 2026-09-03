@@ -9,16 +9,11 @@ from g1_hardware_bridge.unitree_arm import native_dds_environment
 
 
 class BrainCoHand:
-    """Send interruptible bounded commands to the BrainCo right hand."""
+    """Send interruptible bounded position commands to either BrainCo hand."""
 
-    def __init__(self, interface, timeout, neutral_target, grip_target,
-                 grip_ramp_seconds, release_ramp_seconds):
+    def __init__(self, interface, timeout):
         self.interface = interface
         self.timeout = timeout
-        self.neutral_target = list(neutral_target)
-        self.grip_target = list(grip_target)
-        self.grip_ramp_seconds = grip_ramp_seconds
-        self.release_ramp_seconds = release_ramp_seconds
         self._lock = threading.Lock()
         self._active_process = None
         self._active_is_release = False
@@ -89,27 +84,27 @@ class BrainCoHand:
             raise RuntimeError(f"{description} returned no result")
         return json.loads(stdout[json_start:])
 
-    def grip(self):
+    def command_position(self, hand, target, ramp_seconds):
         stdout = self._run_helper([
-            "command-position", "--hand", "right", "--interface",
+            "command-position", "--hand", str(hand), "--interface",
             self.interface, "--timeout", str(self.timeout), "--ramp-seconds",
-            str(self.grip_ramp_seconds), "--confirm",
+            str(ramp_seconds), "--confirm",
             "CONFIRM_PHYSICAL_HAND_COMMAND", "--target",
-            *[str(value) for value in self.grip_target],
-        ], self.timeout + self.grip_ramp_seconds + 5.0)
-        return self._json_result(stdout, "BrainCo grip")
+            *[str(value) for value in target],
+        ], self.timeout + ramp_seconds + 5.0)
+        return self._json_result(stdout, "BrainCo position command")
 
-    def release(self):
-        """Interrupt normal hand motion, then restore the neutral posture."""
+    def neutral(self, hand, target, ramp_seconds):
+        """Interrupt normal hand motion, then restore a calibrated posture."""
         self.interrupt()
         # A release must finish inside ros2 launch's five-second SIGINT grace
         # period. One second is ample to receive the 100 Hz hand state when
         # the BrainCo server is available, and fails promptly when it is not.
         state_timeout = min(self.timeout, 1.0)
         self._run_helper([
-            "command-position", "--hand", "right", "--interface",
+            "command-position", "--hand", str(hand), "--interface",
             self.interface, "--timeout", str(state_timeout), "--target",
-            *[str(value) for value in self.neutral_target],
-            "--ramp-seconds", str(self.release_ramp_seconds), "--confirm",
+            *[str(value) for value in target],
+            "--ramp-seconds", str(ramp_seconds), "--confirm",
             "CONFIRM_PHYSICAL_HAND_COMMAND",
         ], state_timeout + 3.5, is_release=True)

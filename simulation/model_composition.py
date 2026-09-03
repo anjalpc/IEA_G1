@@ -36,11 +36,14 @@ MIMIC_MULTIPLIERS = {
 }
 
 # The Unitree placeholder hand extends along wrist +X; the BrainCo URDF hand
-# extends along base +Z. A +90 degree Y rotation aligns those axes. Positions
-# reuse the original placeholder attachment origins in the Unitree MJCF.
+# extends along base +Z. The +90 degree Y component aligns those axes. A
+# mirrored +/-90 degree twist around the BrainCo longitudinal Z axis then puts
+# each palm inward toward its corresponding hip in the relaxed G1 posture.
+# Positions reuse the original placeholder attachment origins in the Unitree
+# MJCF. Quaternions are MuJoCo wxyz values.
 HAND_MOUNTS = {
-    "right": ((0.0415, -0.003, 0.0), (0.70710678, 0.0, 0.70710678, 0.0)),
-    "left": ((0.0415, 0.003, 0.0), (0.70710678, 0.0, 0.70710678, 0.0)),
+    "right": ((0.0415, -0.003, 0.0), (0.5, 0.5, 0.5, 0.5)),
+    "left": ((0.0415, 0.003, 0.0), (0.5, -0.5, 0.5, -0.5)),
 }
 
 

@@ -32,14 +32,25 @@ from model_composition import (  # noqa: E402
 from run_g1_model import ElasticHarness, initialize  # noqa: E402
 
 
+# Median physical joint positions measured after Unitree action 27 reached
+# its stable right-arm presentation pose on the project G1 29-DoF robot.
 PRESENT_ARM_TARGETS = {
-    "right_shoulder_pitch_joint": -0.55,
-    "right_shoulder_roll_joint": -0.18,
-    "right_shoulder_yaw_joint": 0.0,
-    "right_elbow_joint": 1.05,
-    "right_wrist_roll_joint": 0.0,
-    "right_wrist_pitch_joint": 0.0,
-    "right_wrist_yaw_joint": 0.0,
+    "right_shoulder_pitch_joint": -0.108721,
+    "right_shoulder_roll_joint": -0.063594,
+    "right_shoulder_yaw_joint": 0.094819,
+    "right_elbow_joint": 0.182400,
+    "right_wrist_roll_joint": 0.159618,
+    "right_wrist_pitch_joint": -0.339249,
+    "right_wrist_yaw_joint": -0.061755,
+}
+LEFT_CARD_PRESENTATION_TARGETS = {
+    "left_shoulder_pitch_joint": -0.108721,
+    "left_shoulder_roll_joint": 0.063594,
+    "left_shoulder_yaw_joint": -0.094819,
+    "left_elbow_joint": 0.182400,
+    "left_wrist_roll_joint": -0.159618,
+    "left_wrist_pitch_joint": -0.339249,
+    "left_wrist_yaw_joint": 0.061755,
 }
 SHAKE_FREQUENCY_HZ = 1.4
 SHAKE_ELBOW_AMPLITUDE_RAD = 0.12
@@ -49,17 +60,17 @@ SIMULATED_PRESENTATION_SECONDS = 1.0
 
 
 def configured_hand_profile() -> tuple[list[float], list[float], float]:
-    """Read the simulation-owned hand targets and ramp."""
+    """Read the handshake-owned target and simulation neutral posture."""
     configuration = REPOSITORY_ROOT / "ros2_ws" / "src" / \
         "g1_simulation_bridge" / "config" / "simulation.yaml"
     data = yaml.safe_load(configuration.read_text())
-    parameters = data["g1_simulation_bridge"]["ros__parameters"]
-    return (list(parameters["hand_grip_target"]),
-            list(parameters["hand_neutral_target"]),
-            float(parameters["hand_ramp_s"]))
-
-
-HAND_RAMP_SECONDS = configured_hand_profile()[2]
+    simulation_parameters = data["g1_simulation_bridge"]["ros__parameters"]
+    handshake_data = yaml.safe_load((REPOSITORY_ROOT / "ros2_ws" / "src" /
+        "g1_handshake" / "config" / "handshake.yaml").read_text())
+    parameters = handshake_data["event_handshake"]["ros__parameters"]
+    return (list(parameters["grip_target"]),
+            list(simulation_parameters["right_hand_neutral_target"]),
+            float(parameters["grip_ramp_s"]))
 
 
 class SimulationControls:
@@ -68,24 +79,47 @@ class SimulationControls:
     def __init__(self):
         self.lock = threading.Lock()
         self.arm_action = 99
-        self.hand_positions = (0.0,) * 6
+        self.card_arm = None
+        self.card_arm_generation = 0
+        self.hand_positions = {
+            "left": (0.0,) * 6,
+            "right": (0.0,) * 6,
+        }
+        self.hand_ramps = {"left": 0.2, "right": 0.2}
         self.events: list[str] = []
 
     def set_arm(self, action_id: int, event: str) -> None:
         with self.lock:
             self.arm_action = action_id
+            if action_id == 99:
+                self.card_arm = None
             self.events.append(event)
 
-    def set_hand(self, values: list[float], event: str) -> None:
+    def set_card_arm(self, pose: str, fraction: float,
+                     move_seconds: float) -> None:
+        with self.lock:
+            self.arm_action = 99
+            self.card_arm = (str(pose), float(fraction), float(move_seconds))
+            self.card_arm_generation += 1
+            self.events.append(f"card-arm:{pose}")
+
+    def card_arm_snapshot(self):
+        with self.lock:
+            return self.card_arm, self.card_arm_generation
+
+    def set_hand(self, hand: str, values: list[float], event: str,
+                 ramp_seconds: float = 0.2) -> None:
         if len(values) != 6:
             raise ValueError("BrainCo target must contain six channels")
         with self.lock:
-            self.hand_positions = tuple(float(value) for value in values)
+            self.hand_positions[hand] = tuple(float(value) for value in values)
+            self.hand_ramps[hand] = float(ramp_seconds)
             self.events.append(event)
 
-    def snapshot(self) -> tuple[int, tuple[float, ...]]:
+    def snapshot(self):
         with self.lock:
-            return self.arm_action, self.hand_positions
+            return (self.arm_action, dict(self.hand_positions),
+                    dict(self.hand_ramps))
 
 
 class SimulatedArm:
@@ -147,12 +181,14 @@ class SimulatedHand:
             + " ".join(f"{value:.4f}" for value in self.curl_target),
             flush=True,
         )
-        self.controls.set_hand(self.curl_target, "hand:grip")
+        self.controls.set_hand(
+            "right", self.curl_target, "hand:grip", self.ramp_seconds)
         time.sleep(self.ramp_seconds)
 
     def release(self) -> None:
         self.interrupt()
-        self.controls.set_hand(self.neutral_target, "hand:release")
+        self.controls.set_hand(
+            "right", self.neutral_target, "hand:release", self.ramp_seconds)
         time.sleep(self.ramp_seconds)
 
 
@@ -177,18 +213,20 @@ class IntegratedG1Backend:
                 self.model.jnt_qposadr[joint_id]]
         self.controls = controls
         self.body_control_enabled = body_control_enabled
-        self.right_hand_command = np.zeros(6)
-        self.right_hand_start = np.zeros(6)
-        self.right_hand_target = np.zeros(6)
-        self.hand_transition_started = self.data.time
-        self.right_hand_ids = tuple(
-            mujoco.mj_name2id(
+        self.hand_commands = {side: np.zeros(6) for side in ("left", "right")}
+        self.hand_starts = {side: np.zeros(6) for side in ("left", "right")}
+        self.hand_targets = {side: np.zeros(6) for side in ("left", "right")}
+        self.hand_transition_started = {
+            side: self.data.time for side in ("left", "right")}
+        self.hand_ids = {
+            side: tuple(mujoco.mj_name2id(
                 self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, name)
-            for name in hand_actuator_names("right"))
-        self.left_hand_ids = tuple(
-            mujoco.mj_name2id(
-                self.model, mujoco.mjtObj.mjOBJ_ACTUATOR, name)
-            for name in hand_actuator_names("left"))
+                for name in hand_actuator_names(side))
+            for side in ("left", "right")
+        }
+        self.card_generation = -1
+        self.card_started = self.data.time
+        self.card_initial_targets = {}
 
     def _body_torques(self, action_id: int, gripping: bool) -> None:
         if not self.body_control_enabled:
@@ -215,6 +253,39 @@ class IntegratedG1Backend:
                     raise RuntimeError(f"no unique body actuator for {joint_name}")
                 targets[int(actuator_ids[0])] = target
 
+        card_arm, generation = self.controls.card_arm_snapshot()
+        if card_arm is not None:
+            pose, requested_fraction, move_seconds = card_arm
+            if pose != "left_card_presentation":
+                raise ValueError(f"unsupported simulated card pose: {pose}")
+            if generation != self.card_generation:
+                self.card_generation = generation
+                self.card_started = self.data.time
+                self.card_initial_targets = {}
+                for joint_name in LEFT_CARD_PRESENTATION_TARGETS:
+                    joint_id = self.mujoco.mj_name2id(
+                        self.model, self.mujoco.mjtObj.mjOBJ_JOINT,
+                        joint_name)
+                    self.card_initial_targets[joint_name] = self.data.qpos[
+                        self.model.jnt_qposadr[joint_id]]
+            elapsed_fraction = np.clip(
+                (self.data.time - self.card_started) / move_seconds, 0.0, 1.0)
+            blend = elapsed_fraction ** 3 * (
+                10.0 + elapsed_fraction * (-15.0 + 6.0 * elapsed_fraction))
+            for joint_name, final_target in \
+                    LEFT_CARD_PRESENTATION_TARGETS.items():
+                initial = self.card_initial_targets[joint_name]
+                scaled_target = initial + requested_fraction * (
+                    final_target - initial)
+                target = initial + blend * (scaled_target - initial)
+                joint_id = self.mujoco.mj_name2id(
+                    self.model, self.mujoco.mjtObj.mjOBJ_JOINT, joint_name)
+                actuator_ids = np.flatnonzero(
+                    self.model.actuator_trnid[:BODY_ACTUATOR_COUNT, 0] == joint_id)
+                if len(actuator_ids) != 1:
+                    raise RuntimeError(f"no unique body actuator for {joint_name}")
+                targets[int(actuator_ids[0])] = target
+
         for actuator_id, target in enumerate(targets):
             joint_id = self.model.actuator_trnid[actuator_id, 0]
             qpos = self.data.qpos[self.model.jnt_qposadr[joint_id]]
@@ -228,36 +299,40 @@ class IntegratedG1Backend:
             low, high = self.model.actuator_ctrlrange[actuator_id]
             self.data.ctrl[actuator_id] = np.clip(torque, low, high)
 
-    def _hand_targets(self, normalized_positions: tuple[float, ...]) -> None:
+    def _hand_targets(self, hand: str,
+                      normalized_positions: tuple[float, ...],
+                      ramp_seconds: float) -> None:
         target = np.asarray(normalized_positions, dtype=float)
         if target.shape != (6,):
             raise ValueError("BrainCo target must contain six channels")
-        if not np.array_equal(target, self.right_hand_target):
-            self.right_hand_start = self.right_hand_command.copy()
-            self.right_hand_target = target.copy()
-            self.hand_transition_started = self.data.time
+        if not np.array_equal(target, self.hand_targets[hand]):
+            self.hand_starts[hand] = self.hand_commands[hand].copy()
+            self.hand_targets[hand] = target.copy()
+            self.hand_transition_started[hand] = self.data.time
         fraction = np.clip(
-            (self.data.time - self.hand_transition_started) / HAND_RAMP_SECONDS,
+            (self.data.time - self.hand_transition_started[hand]) /
+            ramp_seconds,
             0.0,
             1.0,
         )
         smooth_fraction = fraction * fraction * (3.0 - 2.0 * fraction)
-        self.right_hand_command = (
-            self.right_hand_start
-            + smooth_fraction * (self.right_hand_target - self.right_hand_start)
+        self.hand_commands[hand] = (
+            self.hand_starts[hand]
+            + smooth_fraction * (
+                self.hand_targets[hand] - self.hand_starts[hand])
         )
-        for actuator_id in self.left_hand_ids:
-            self.data.ctrl[actuator_id] = 0.0
-        for channel, actuator_id in enumerate(self.right_hand_ids):
+        for channel, actuator_id in enumerate(self.hand_ids[hand]):
             low, high = self.model.actuator_ctrlrange[actuator_id]
             self.data.ctrl[actuator_id] = (
-                low + self.right_hand_command[channel] * (high - low))
+                low + self.hand_commands[hand][channel] * (high - low))
 
     def step(self) -> None:
-        action_id, hand_positions = self.controls.snapshot()
+        action_id, hand_positions, hand_ramps = self.controls.snapshot()
         self._body_torques(
-            action_id, gripping=any(value > 0.0 for value in hand_positions))
-        self._hand_targets(hand_positions)
+            action_id, gripping=any(
+                value > 0.0 for value in hand_positions["right"]))
+        for hand, positions in hand_positions.items():
+            self._hand_targets(hand, positions, hand_ramps[hand])
         self.harness.apply(self.data)
         self.mujoco.mj_step(self.model, self.data)
 
@@ -274,12 +349,13 @@ class SurrogateBackend:
         self.controls = controls
 
     def step(self) -> None:
-        action_id, hand_positions = self.controls.snapshot()
+        action_id, hand_positions, _hand_ramps = self.controls.snapshot()
         if action_id == 27:
             arm = (-0.55, -1.05)
         else:
             arm = (0.0, 0.0)
-        fixture_hand = [hand_positions[0], *hand_positions[2:6]]
+        right_hand = hand_positions["right"]
+        fixture_hand = [right_hand[0], *right_hand[2:6]]
         self.data.ctrl[:] = [*arm, *fixture_hand]
         self.mujoco.mj_step(self.model, self.data)
 
@@ -353,13 +429,13 @@ def main() -> int:
         print(f"STATE: {state}", flush=True)
 
     sequence = AutomaticHandshake(
-        arm, hand, args.duration, 0.0, cancelled, set_state,
-        wait_for_grip=lambda: True)
+        arm, hand, args.duration, 0.0, cancelled, set_state)
 
     def run_sequence() -> None:
         try:
             sequence.prepare()
-            sequence.run()
+            sequence.present()
+            sequence.grip()
         except BaseException as exc:
             failure.append(exc)
             sequence.safe_state.release_once()

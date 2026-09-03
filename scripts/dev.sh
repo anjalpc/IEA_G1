@@ -7,8 +7,9 @@ DOCKER_DIR="${PROJECT_ROOT}/docker"
 SERVICE="iea_g1_dev"
 
 action="shell"
-gui=false
+gui=true
 action_set=false
+build=true
 
 for argument in "$@"; do
     case "${argument}" in
@@ -23,8 +24,14 @@ for argument in "$@"; do
         --gui)
             gui=true
             ;;
+        --headless)
+            gui=false
+            ;;
+        --no-build)
+            build=false
+            ;;
         *)
-            echo "Usage: $0 [start|shell|stop] [--gui]" >&2
+            echo "Usage: $0 [start|shell|stop] [--gui|--headless] [--no-build]" >&2
             exit 2
             ;;
     esac
@@ -62,16 +69,22 @@ is_running() {
 }
 
 if [[ "${action}" == "start" ]]; then
-    docker compose "${compose_files[@]}" up -d --build "${SERVICE}"
+    build_args=()
+    if [[ "${build}" == true ]]; then build_args+=(--build); fi
+    docker compose "${compose_files[@]}" up -d "${build_args[@]}" "${SERVICE}"
     echo "Development container is running. Open a shell with:"
     echo "  ./scripts/dev.sh shell"
     exit 0
 fi
 
 if [[ "${gui}" == true ]]; then
-    docker compose "${compose_files[@]}" up -d --build "${SERVICE}"
+    build_args=()
+    if [[ "${build}" == true ]]; then build_args+=(--build); fi
+    docker compose "${compose_files[@]}" up -d "${build_args[@]}" "${SERVICE}"
 elif ! is_running; then
-    docker compose "${compose_files[@]}" up -d --build "${SERVICE}"
+    build_args=()
+    if [[ "${build}" == true ]]; then build_args+=(--build); fi
+    docker compose "${compose_files[@]}" up -d "${build_args[@]}" "${SERVICE}"
 fi
 
 docker compose -f docker-compose.yml exec "${SERVICE}" bash

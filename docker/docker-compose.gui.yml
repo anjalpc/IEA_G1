@@ -5,7 +5,7 @@ services:
       XAUTHORITY: /tmp/.docker.xauth
       QT_X11_NO_MITSHM: "1"
       LIBGL_ALWAYS_SOFTWARE: "0"
-      LIBGL_DRI3_DISABLE: "0"
+      LIBGL_DRI3_DISABLE: "1"
     devices:
       - /dev/dri:/dev/dri
     group_add:

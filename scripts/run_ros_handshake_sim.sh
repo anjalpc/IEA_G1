@@ -15,7 +15,8 @@ fi
 source /opt/ros/humble/setup.bash
 source ros2_ws/install/setup.bash
 
-export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-42}"
+# Keep simulation isolated from physical robot communication.
+export ROS_DOMAIN_ID="${G1_SIMULATION_DOMAIN_ID:-77}"
 
 # Preserve command-line arguments for the simulation node inside the launch file.
 printf -v G1_SIMULATION_ARGUMENTS '%q ' "$@"
@@ -63,9 +64,7 @@ cleanup() {
 
 trap cleanup INT TERM EXIT
 
-ros2 launch \
-    g1_simulation_bridge \
-    simulation_handshake.launch.py &
+ros2 launch g1_simulation_bridge simulation_handshake.launch.py &
 launch_pid=$!
 
 (

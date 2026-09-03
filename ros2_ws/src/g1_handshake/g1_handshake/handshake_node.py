@@ -17,10 +17,16 @@ except ImportError:  # pragma: no cover - exercised on the robot's Foxy runtime
     SignalHandlerOptions = None
 
 from g1_handshake.handshake_sequence import AutomaticHandshake
+from g1_handshake.handshake_backends import HandshakeHand
 from g1_robot_interfaces.bridge_client import (
-    BridgeArmBackend,
-    BridgeHandBackend,
+    ArmClient,
+    HandClient,
     BridgeTransport,
+)
+from g1_robot_interfaces.validation import (
+    validate_hand_name,
+    validate_hand_ramp_seconds,
+    validate_hand_target,
 )
 
 
@@ -32,6 +38,12 @@ class HandshakeNode(Node):
         self.declare_parameter("presentation_settle_s", 2.0)
         self.declare_parameter("presentation_timeout_s", 15.0)
         self.declare_parameter("grip_hold_s", 5.0)
+        self.declare_parameter("presentation_action_id", 27)
+        self.declare_parameter("hand", "right")
+        self.declare_parameter(
+            "grip_target", [0.48, 0.45, 0.15, 0.20, 0.25, 0.20])
+        self.declare_parameter("grip_ramp_s", 0.2)
+        self.declare_parameter("release_ramp_s", 0.2)
         self.bridge_name = str(self.get_parameter("bridge_name").value)
         timeout = float(self.get_parameter("action_timeout_s").value)
         if timeout <= 0.0:
@@ -42,20 +54,32 @@ class HandshakeNode(Node):
         presentation_timeout = float(
             self.get_parameter("presentation_timeout_s").value)
         grip_hold = float(self.get_parameter("grip_hold_s").value)
+        presentation_action = int(
+            self.get_parameter("presentation_action_id").value)
+        hand = validate_hand_name(self.get_parameter("hand").value)
+        grip_target = validate_hand_target(
+            self.get_parameter("grip_target").value, "grip_target")
+        grip_ramp = validate_hand_ramp_seconds(
+            self.get_parameter("grip_ramp_s").value, "grip_ramp_s")
+        release_ramp = validate_hand_ramp_seconds(
+            self.get_parameter("release_ramp_s").value, "release_ramp_s")
         if not 5.0 <= grip_hold <= 8.0:
             raise ValueError("grip_hold_s must be between 5 and 8 seconds")
         if not 5.0 <= presentation_timeout <= 60.0:
             raise ValueError(
                 "presentation_timeout_s must be between 5 and 60 seconds")
         self.transport = BridgeTransport(self, timeout, self.bridge_name)
-        self.backend = BridgeArmBackend(self.transport)
-        self.hand_backend = BridgeHandBackend(self.transport)
+        self.backend = ArmClient(self.transport)
+        self.hand_backend = HandshakeHand(
+            HandClient(self.transport), hand, grip_target,
+            grip_ramp, release_ramp)
         self.state = "IDLE"
         self.cancelled = threading.Event()
         self.operation_lock = threading.Lock()
         self.worker = None
         self.presentation_timeout = presentation_timeout
         self.presentation_timer = None
+        self.shutting_down = threading.Event()
         self.publisher = self.create_publisher(
             String, "/event/handshake/state", 10)
         self.create_service(Trigger, "/event/handshake/start",
@@ -64,14 +88,18 @@ class HandshakeNode(Node):
                             self.cancel_callback)
         self.create_service(Trigger, "/event/handshake/grip",
                             self.grip_callback)
-        self.create_timer(0.5, self.publish_state)
+        self.state_timer = self.create_timer(
+            0.5, self.publish_state)
         self.interaction = AutomaticHandshake(
             self.backend, self.hand_backend, grip_hold, settle,
-            self.cancelled, self.set_state)
+            self.cancelled, self.set_state,
+            presentation_action=presentation_action)
         self.get_logger().warning(
             f"Handshake application ready for bridge '{self.bridge_name}'")
 
     def publish_state(self):
+        if self.shutting_down.is_set():
+            return
         msg = String()
         msg.data = json.dumps({
             "state": self.state,
@@ -123,6 +151,10 @@ class HandshakeNode(Node):
                     and not self.cancelled.is_set()):
                 self.schedule_presentation_timeout()
 
+    def run_release_command(self):
+        """Lower an already-presented arm without starting a new operation."""
+        self.run_interaction_command(self.interaction.release_presentation)
+
     def grip_callback(self, request, response):
         """Start a grip independently of how the arm was raised."""
         del request
@@ -156,7 +188,7 @@ class HandshakeNode(Node):
         self.publish_state()
 
     def start_callback(self, request, response):
-        """Raise the arm and start the dashboard presentation timer."""
+        """Toggle the dashboard-controlled arm between presented and safe."""
         del request
         with self.operation_lock:
             if self.worker is not None and self.worker.is_alive():
@@ -164,8 +196,14 @@ class HandshakeNode(Node):
                 response.message = "another handshake operation is running"
                 return response
             if self.state == "ARM_PRESENTED":
-                response.success = False
-                response.message = "arm is already presented"
+                self.cancel_presentation_timer()
+                self.worker = threading.Thread(
+                    target=self.run_release_command,
+                    name="handshake-release-worker",
+                    daemon=True)
+                self.worker.start()
+                response.success = True
+                response.message = "arm release accepted"
                 return response
 
             self.cancel_presentation_timer()
@@ -228,6 +266,9 @@ class HandshakeNode(Node):
             self.set_state("ERROR")
 
     def shutdown(self):
+        self.shutting_down.set()
+        self.state_timer.cancel()
+
         # During a whole-launch shutdown the hardware bridge receives the same
         # signal and performs direct safe release. Do not wait for ROS replies
         # from a bridge that is shutting down concurrently.

@@ -56,8 +56,7 @@ def arm():
 
 
 def hand():
-    return BrainCoHand(
-        "eth0", 0.1, [0.05] * 6, [0.2] * 6, 0.5, 0.75)
+    return BrainCoHand("eth0", 0.1)
 
 
 def test_hand_release_uses_configured_neutral_target(monkeypatch):
@@ -70,7 +69,7 @@ def test_hand_release_uses_configured_neutral_target(monkeypatch):
         return process
 
     monkeypatch.setattr(subprocess, "Popen", popen)
-    backend.release()
+    backend.neutral("right", [0.05] * 6, 0.75)
     target_index = captured["arguments"].index("--target")
     assert captured["arguments"][target_index + 1:target_index + 7] == [
         "0.05"] * 6
@@ -102,6 +101,33 @@ def test_arm_rejects_normal_action_until_prepared(monkeypatch):
     monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: process)
     backend.prepare_operation()
     assert backend.execute(27) == 0
+
+
+def test_card_presentation_is_disabled_by_default():
+    backend = arm()
+    with pytest.raises(RuntimeError, match="disabled"):
+        backend.prepare_presentation()
+
+
+def test_offline_shadow_uses_read_only_helper(monkeypatch):
+    backend = UnitreeArm("eth0", 0.1, "offline_shadow")
+    payload = '{"mode":"offline_shadow","published":false}'
+    process = FakeProcess(
+        f"SHADOW_RESULT={payload}\n", finish_immediately=True)
+    captured = {}
+
+    def popen(arguments, **kwargs):
+        captured["arguments"] = arguments
+        return process
+
+    monkeypatch.setattr(subprocess, "Popen", popen)
+    backend.prepare_operation()
+    result = backend.present("left_card_presentation", 0.25, 5.0)
+    assert result == {"mode": "offline_shadow", "published": False}
+    assert "g1_hardware_bridge.unitree_arm_shadow_helper" in \
+        captured["arguments"]
+    assert "unitree_action_helper" not in captured["arguments"]
+    assert backend.release_presentation()["published"] is False
 
 
 def test_arm_interrupts_normal_helper(monkeypatch):
@@ -160,7 +186,7 @@ def test_arm_release_reports_persistent_busy_result(monkeypatch):
 def test_hand_rejects_normal_command_until_prepared():
     backend = hand()
     with pytest.raises(RuntimeError, match="cancelled"):
-        backend.grip()
+        backend.command_position("right", [0.2] * 6, 0.5)
 
 
 def test_hand_interrupts_normal_helper(monkeypatch):
@@ -168,7 +194,8 @@ def test_hand_interrupts_normal_helper(monkeypatch):
     process = FakeProcess()
     monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: process)
     backend.prepare_operation()
-    worker, errors = run_in_thread(backend.grip)
+    worker, errors = run_in_thread(
+        lambda: backend.command_position("right", [0.2] * 6, 0.5))
     assert process.started.wait(1.0)
     backend.interrupt()
     worker.join(1.0)
@@ -180,7 +207,8 @@ def test_hand_interrupt_does_not_stop_opening(monkeypatch):
     backend = hand()
     process = FakeProcess()
     monkeypatch.setattr(subprocess, "Popen", lambda *args, **kwargs: process)
-    worker, errors = run_in_thread(backend.release)
+    worker, errors = run_in_thread(
+        lambda: backend.neutral("right", [0.05] * 6, 0.75))
     assert process.started.wait(1.0)
     backend.interrupt()
     assert not process.terminated

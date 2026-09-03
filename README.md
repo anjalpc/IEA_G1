@@ -30,6 +30,7 @@ The source workspace is under `ros2_ws/src`:
 ros2_ws/src/
 ├── g1_robot_interfaces/
 ├── g1_handshake/
+├── g1_card_presentation/
 ├── g1_hardware_bridge/
 └── g1_simulation_bridge/
 ```
@@ -37,8 +38,8 @@ ros2_ws/src/
 ### `g1_robot_interfaces`
 
 Backend-neutral, acknowledged command transport shared by applications and
-bridges. It defines correlated command/reply behaviour and reviewed Unitree
-action identifiers without importing physical or simulated implementations.
+bridges. It defines correlated command/reply behaviour plus shared command
+validation without importing physical or simulated implementations.
 
 New application packages should depend on this interface layer rather than
 importing Unitree or BrainCo drivers directly.
@@ -56,20 +57,29 @@ ros2_ws/src/g1_handshake/config/handshake.yaml
 It communicates only through `g1_robot_interfaces` and contains no physical
 driver implementation.
 
+### `g1_card_presentation`
+
+Separate application for the event's verified left-hand card grip and guarded
+left-arm presentation request. It does not change or reuse the right-hand
+action-27 handshake profile. Development defaults to the simulation bridge;
+the physical backend is disabled unless an explicit shadow-mode configuration
+is selected.
+
 ### `g1_hardware_bridge`
 
 Physical backend for PC2. It is the only package that owns Unitree arm actions
-and BrainCo right-hand commands. Physical calibration, ramp, and network values
-are owned by `g1_hardware_bridge/config/hardware.yaml`. Native SDK operations
-run in isolated helper processes on DDS domain `0`, while the ROS-facing bridge
-remains on the application domain.
+and BrainCo hand commands. Hardware allowlists, physical neutral calibration,
+safe-shutdown ramp, and network values are owned by
+`g1_hardware_bridge/config/hardware.yaml`. It contains no handshake grip target
+or handshake timing. Native SDK operations run in isolated helper processes on
+DDS domain `0`, while the ROS-facing bridge remains on the application domain.
 
 ### `g1_simulation_bridge`
 
-Development backend that adapts the same acknowledged application operations
-to the MuJoCo implementation. Simulation-only targets and timing are owned by
-`g1_simulation_bridge/config/simulation.yaml`. It is not selected by the PC2
-production build.
+Development backend that adapts the same generic arm and hand operations to
+the MuJoCo implementation. Model-specific neutral targets are owned by
+`g1_simulation_bridge/config/simulation.yaml`. It contains no handshake grip
+profile and is not selected by the PC2 production build.
 
 ## Repository layout
 
@@ -77,6 +87,7 @@ production build.
 config/udev/                restricted physical-device permission rules
 docker/                     reproducible ROS Humble development image
 docs/setup/                 workstation and PC2 setup instructions
+launch/                     physical deployment launch files
 ros2_ws/src/                ROS 2 source packages
 scripts/                    development, validation and robot commands
 simulation/                 MuJoCo models, configuration and validation
@@ -134,6 +145,7 @@ source install/setup.bash
 colcon test --packages-select \
   g1_robot_interfaces \
   g1_handshake \
+  g1_card_presentation \
   g1_hardware_bridge \
   g1_simulation_bridge \
   --event-handlers console_direct+
@@ -154,6 +166,7 @@ python3 simulation/run_handshake_demo.py --validate-only
 python3 simulation/run_handshake_demo.py --headless --duration 0.05
 python3 simulation/run_handshake_demo.py --headless \
   --duration 0.5 --cancel-after 0.05
+python3 simulation/run_g1_model.py --native --balance --card-presentation
 ```
 
 Run the ROS-integrated handshake backend with:
@@ -192,10 +205,17 @@ The current handshake application exposes:
 
 | Type | Name | Purpose |
 | --- | --- | --- |
-| Service | `/event/handshake/start` | Present the arm with automatic timeout |
+| Service | `/event/handshake/start` | Toggle arm presentation with automatic timeout |
 | Service | `/event/handshake/grip` | Execute an independent timed grip sequence |
 | Service | `/event/handshake/cancel` | Cancel and request safe release |
 | Topic | `/event/handshake/state` | Publish application state and bridge |
+
+The independent left-card application exposes:
+
+| Type | Name | Purpose |
+| --- | --- | --- |
+| Service | `/event/card/present` | Grip and simulate/request the left-card pose |
+| Service | `/event/card/release` | Open the left hand and release presentation state |
 
 Future applications should expose their own application-level APIs while
 reusing the shared backend boundary where appropriate.
@@ -227,6 +247,7 @@ The current production selection is:
 ```text
 docs/setup/pc2_event_handshake.md
 config/udev/70-brainco-hand.rules
+launch/hardware_handshake.launch.py
 ros2_ws/src/g1_robot_interfaces/
 ros2_ws/src/g1_handshake/
 ros2_ws/src/g1_hardware_bridge/

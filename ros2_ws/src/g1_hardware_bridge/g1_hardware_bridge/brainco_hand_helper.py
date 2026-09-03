@@ -7,6 +7,9 @@ import sys
 import time
 import traceback
 
+from g1_hardware_bridge.settings import DEFAULT_SAFE_HAND_RAMP_S
+from g1_robot_interfaces.validation import validate_hand_ramp_seconds
+
 
 JOINT_NAMES = ("thumb", "thumb_aux", "index", "middle", "ring", "pinky")
 COMMAND_CONFIRMATION = "CONFIRM_PHYSICAL_HAND_COMMAND"
@@ -35,18 +38,19 @@ def read_state(interface, hand, timeout):
 
 def command_position(interface, hand, target, ramp_seconds, timeout,
                      confirmation):
-    """Ramp the right hand from its measured state to an explicit target."""
+    """Ramp either BrainCo hand to an explicitly confirmed target."""
     if confirmation != COMMAND_CONFIRMATION:
         raise ValueError(
             f"physical hand control requires --confirm {COMMAND_CONFIRMATION}")
-    if hand != "right":
-        raise ValueError("handshake control is restricted to the right hand")
+    if hand not in ("left", "right"):
+        raise ValueError(
+            f"unsupported hand {hand!r}; expected 'left' or 'right'")
     if target is None or len(target) != 6:
         raise ValueError("target must contain six positions")
     if any(value < 0.0 or value > 1.0 for value in target):
         raise ValueError("target positions must be between 0 and 1")
-    if not 0.5 <= ramp_seconds <= 5.0:
-        raise ValueError("ramp duration must be between 0.5 and 5.0 seconds")
+    ramp_seconds = validate_hand_ramp_seconds(
+        ramp_seconds, "ramp duration")
     if timeout <= 0.0:
         raise ValueError("timeout must be positive")
 
@@ -100,7 +104,8 @@ def main():
     parser.add_argument("--hand", choices=("left", "right"), default="right")
     parser.add_argument("--interface", default="eth0")
     parser.add_argument("--timeout", type=float, default=5.0)
-    parser.add_argument("--ramp-seconds", type=float, default=0.75)
+    parser.add_argument(
+        "--ramp-seconds", type=float, default=DEFAULT_SAFE_HAND_RAMP_S)
     parser.add_argument("--confirm", default="")
     parser.add_argument("--target", type=float, nargs=6)
     args = parser.parse_args()

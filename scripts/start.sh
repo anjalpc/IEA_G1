@@ -15,7 +15,9 @@ source "${PROJECT_ROOT}/ros2_ws/install/setup.bash"
 set -u
 
 export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
-export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-42}"
+# The physical ROS application always uses its dedicated domain.
+# G1_APPLICATION_DOMAIN_ID is the only supported override.
+export ROS_DOMAIN_ID="${G1_APPLICATION_DOMAIN_ID:-42}"
 
 if [[ $# -ne 0 ]]; then
     echo "Usage: $0" >&2
@@ -99,7 +101,7 @@ if ! env ROS_DOMAIN_ID=0 python3 -m \
 fi
 
 echo "BrainCo ready; starting handshake nodes."
-setsid ros2 launch g1_hardware_bridge hardware_handshake.launch.py &
+setsid ros2 launch g1_bringup hardware_handshake.launch.py &
 launch_pid=$!
 
 # BrainCo and ROS are both required. The first unexpected exit causes this

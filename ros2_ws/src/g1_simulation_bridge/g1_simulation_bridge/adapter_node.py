@@ -12,6 +12,11 @@ import time
 import rclpy
 from rclpy.node import Node
 from g1_robot_interfaces.bridge_server import BridgeServer
+from g1_robot_interfaces.validation import (
+    validate_hand_name,
+    validate_hand_ramp_seconds,
+    validate_hand_target,
+)
 
 
 def resolve_simulation_root(explicit_path=None):
@@ -48,37 +53,57 @@ class G1SimulationAdapter(Node):
         super().__init__("g1_simulation_bridge")
         self.controls = controls
         self.declare_parameter(
-            "hand_neutral_target", [0.399, 0.399, 0.050, 0.050, 0.049, 0.050])
+            "right_hand_neutral_target",
+            [0.399, 0.399, 0.050, 0.050, 0.049, 0.050])
         self.declare_parameter(
-            "hand_grip_target", [0.48, 0.45, 0.15, 0.20, 0.25, 0.20])
-        self.neutral_target = list(
-            self.get_parameter("hand_neutral_target").value)
-        self.grip_target = list(self.get_parameter("hand_grip_target").value)
-        for target in (self.neutral_target, self.grip_target):
-            if len(target) != 6 or any(value < 0.0 or value > 1.0
-                                       for value in target):
-                raise ValueError("configured hand targets must be six values in 0..1")
+            "left_hand_neutral_target",
+            [0.400, 0.400, 0.049, 0.050, 0.049, 0.050])
+        self.neutral_targets = {
+            "right": list(self.get_parameter(
+                "right_hand_neutral_target").value),
+            "left": list(self.get_parameter(
+                "left_hand_neutral_target").value),
+        }
+        for hand, target in self.neutral_targets.items():
+            self.neutral_targets[hand] = validate_hand_target(
+                target, f"{hand} hand neutral")
         self.server = BridgeServer(self, "simulation", {
             "arm_prepare": self._prepare,
-            "arm_action": self._arm_action,
+            "arm_prepare_presentation": self._prepare,
+            "arm_execute": self._arm_execute,
+            "arm_present": self._arm_present,
+            "arm_present_release": self._arm_present_release,
             "arm_interrupt": self._arm_interrupt,
             "arm_release": self._arm_release,
             "hand_prepare": self._prepare,
-            "hand_grip": self._hand_grip,
+            "hand_command": self._hand_command,
             "hand_interrupt": self._hand_interrupt,
-            "hand_release": self._hand_release,
+            "hand_neutral": self._hand_neutral,
         })
 
     def _prepare(self, request):
         del request
         return None
 
-    def _arm_action(self, request):
+    def _arm_execute(self, request):
         action_id = int(request["action_id"])
         if action_id != 27:
             raise ValueError("only arm action 27 is implemented")
         self.controls.set_arm(action_id, f"ros:arm:{action_id}")
         return {"code": 0}
+
+    def _arm_present(self, request):
+        pose = str(request["pose"])
+        fraction = float(request["fraction"])
+        move_seconds = float(request["move_s"])
+        if pose != "left_card_presentation":
+            raise ValueError("unsupported arm presentation pose")
+        if not 0.0 < fraction <= 1.0:
+            raise ValueError("presentation fraction must be between 0 and 1")
+        if not 2.0 <= move_seconds <= 10.0:
+            raise ValueError("presentation duration must be between 2 and 10")
+        self.controls.set_card_arm(pose, fraction, move_seconds)
+        return {"mode": "simulation", "pose": pose}
 
     def _arm_interrupt(self, request):
         del request
@@ -89,24 +114,36 @@ class G1SimulationAdapter(Node):
         self.controls.set_arm(99, "ros:arm:99")
         return {"code": 0}
 
-    def _hand_grip(self, request):
+    def _arm_present_release(self, request):
         del request
-        self.controls.set_hand(self.grip_target, "ros:right_hand:grip")
+        self.controls.set_arm(99, "ros:card-arm:release")
+        return {"mode": "simulation", "released": True}
+
+    def _hand_command(self, request):
+        hand = validate_hand_name(request["hand"])
+        target = validate_hand_target(request["target"])
+        ramp = validate_hand_ramp_seconds(request["ramp_s"])
+        self.controls.set_hand(
+            hand, target, f"ros:{hand}_hand:command", ramp)
         return None
 
     def _hand_interrupt(self, request):
         del request
         return None
 
-    def _hand_release(self, request):
-        del request
-        self.controls.set_hand(self.neutral_target, "ros:right_hand:release")
+    def _hand_neutral(self, request):
+        hand = validate_hand_name(request["hand"])
+        ramp = validate_hand_ramp_seconds(request["ramp_s"])
+        self.controls.set_hand(
+            hand, self.neutral_targets[hand], f"ros:{hand}_hand:neutral",
+            ramp)
         return None
 
     def safe_reset(self):
         """Return application-controlled targets to passive defaults."""
-        self.controls.set_hand(
-            self.neutral_target, "bridge:shutdown:hand_neutral")
+        for hand, target in self.neutral_targets.items():
+            self.controls.set_hand(
+                hand, target, f"bridge:shutdown:{hand}_hand_neutral")
         self.controls.set_arm(99, "bridge:shutdown:arm_release")
 
 
@@ -178,7 +215,8 @@ def main(args=None):
         node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
-    return 130 if interrupted else 0
+    # SIGINT from ros2 launch is an expected supervised shutdown.
+    return 0
 
 
 if __name__ == "__main__":

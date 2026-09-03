@@ -12,6 +12,7 @@ git sparse-checkout init --no-cone
 git sparse-checkout set --no-cone \
   '/docs/setup/pc2_event_handshake.md' \
   '/config/udev/70-brainco-hand.rules' \
+  '/launch/hardware_handshake.launch.py' \
   '/ros2_ws/src/g1_robot_interfaces/' \
   '/ros2_ws/src/g1_handshake/' \
   '/ros2_ws/src/g1_hardware_bridge/' \
@@ -25,8 +26,9 @@ git checkout main
 ```
 
 The PC2 working tree now contains only this guide, the restricted udev rule,
-the three production packages, four runtime scripts, and the BrainCo runtime.
-Git remembers the sparse selection for subsequent pulls.
+the hardware launch file, the three production packages, four runtime scripts,
+and the BrainCo runtime. Git remembers the sparse selection for subsequent
+pulls.
 
 The supported robot checkout is:
 
@@ -96,8 +98,9 @@ Use the operator command from another terminal:
 ./scripts/pc2_handshake.sh cancel
 ```
 
-`start` executes action 27 and starts a 15-second presentation timeout. If no
-grip follows, the hand remains neutral and action 99 releases the arm. `grip`
-is independent, so it can follow either the dashboard start command or an
-externally presented arm. It closes to the validated target, holds for five
-seconds, returns to neutral, and executes action 99.
+The first `start` call executes action 27 and starts a 15-second presentation
+timeout. A second `start` call while the state is `ARM_PRESENTED` cancels that
+timer, restores the hand to neutral, and releases the arm with action 99. If no
+second call or grip follows, the timeout performs the same safe release. `grip`
+closes to the validated target, holds for five seconds, returns to neutral, and
+executes action 99.

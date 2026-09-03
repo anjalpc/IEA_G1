@@ -65,6 +65,17 @@ def test_presentation_timeout_returns_to_safe_state():
         "PRESENTATION_TIMEOUT", "RELEASING", "COMPLETE"]
 
 
+def test_operator_toggle_returns_presented_arm_to_safe_state():
+    sequence, events, states = make_sequence()
+    assert sequence.release_presentation() == (
+        "arm presentation released; hand opened and arm released")
+    assert events == [
+        ("hand", "release"),
+        ("arm", "release"),
+    ]
+    assert states == ["RELEASING", "ARM_RELEASED"]
+
+
 def test_arm_release_is_attempted_when_hand_release_fails():
     sequence, events, _ = make_sequence()
 

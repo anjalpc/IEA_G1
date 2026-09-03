@@ -106,6 +106,14 @@ RUN git clone https://github.com/unitreerobotics/unitree_sdk2.git /opt/unitree_s
       --parallel && \
     rm -f /tmp/mujoco.tar.gz
 
+# Keep the project overlay after the expensive pinned dependency layer. Editing
+# the presentation behavior now rebuilds only the native simulator executable.
+COPY native_card_overlay.h /tmp/native_card_overlay.h
+COPY patch_native_card_overlay.py /tmp/patch_native_card_overlay.py
+RUN cp /tmp/native_card_overlay.h /opt/unitree_mujoco/simulate/src/ && \
+    python3 /tmp/patch_native_card_overlay.py && \
+    cmake --build /opt/unitree_mujoco/simulate/build --parallel
+
 ENV UNITREE_MUJOCO_BIN=/opt/unitree_mujoco/simulate/build/unitree_mujoco
 ENV UNITREE_BALANCE_CONTROLLER=/opt/unitree_rl_lab/deploy/robots/g1_29dof/build/g1_ctrl
 ENV LD_LIBRARY_PATH=/opt/mujoco/lib:/opt/unitree_robotics/lib:/opt/unitree_rl_lab/deploy/thirdparty/onnxruntime-linux-x64-1.22.0/lib

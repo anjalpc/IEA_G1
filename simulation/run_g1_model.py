@@ -76,13 +76,23 @@ def initialize(model: mujoco.MjModel, data: mujoco.MjData) -> None:
 
 
 def set_hand_position(model: mujoco.MjModel, data: mujoco.MjData,
-                      normalized_position: float) -> None:
-    """Set all 12 hand channels without touching the 29 body controls."""
-    if not 0.0 <= normalized_position <= 1.0:
-        raise ValueError("hand position must be in the range 0..1")
-    for actuator_id in range(BODY_ACTUATOR_COUNT, model.nu):
-        low, high = model.actuator_ctrlrange[actuator_id]
-        data.ctrl[actuator_id] = low + normalized_position * (high - low)
+                      normalized_position: float | None) -> None:
+    """Set verified neutral hands, or an explicit uniform diagnostic value."""
+    targets = {
+        "right": (0.399, 0.399, 0.050, 0.050, 0.049, 0.050),
+        "left": (0.400, 0.400, 0.049, 0.050, 0.049, 0.050),
+    }
+    if normalized_position is not None:
+        if not 0.0 <= normalized_position <= 1.0:
+            raise ValueError("hand position must be in the range 0..1")
+        targets = {side: (normalized_position,) * HAND_CHANNELS_PER_SIDE
+                   for side in targets}
+    for side_index, side in enumerate(("right", "left")):
+        first = BODY_ACTUATOR_COUNT + side_index * HAND_CHANNELS_PER_SIDE
+        for channel, normalized in enumerate(targets[side]):
+            actuator_id = first + channel
+            low, high = model.actuator_ctrlrange[actuator_id]
+            data.ctrl[actuator_id] = low + normalized * (high - low)
 
 
 def export_mjcf(path: Path) -> None:
@@ -104,7 +114,7 @@ def export_mjcf(path: Path) -> None:
     print(f"EXPORTED: {path}", flush=True)
 
 
-def run_native_viewer(balance: bool = False) -> int:
+def run_native_viewer(balance: bool = False, card_presentation: bool = False) -> int:
     """Export the model and run Unitree's native viewer inside Docker."""
     native_binary = os.environ.get("UNITREE_MUJOCO_BIN")
     if not native_binary:
@@ -124,6 +134,41 @@ def run_native_viewer(balance: bool = False) -> int:
     if "llvmpipe" in renderer_text.lower():
         raise RuntimeError("Docker is using software rendering, not the host GPU")
 
+    # ROS Humble prepends its own CycloneDDS C library when setup.bash is
+    # sourced. Unitree's native simulator and controller use the matching
+    # CycloneDDS C++ library under /opt/unitree_robotics, so mixing the two
+    # builds causes Iceoryx assertions and invalid frees. Keep this override
+    # local to the native simulation children; ROS nodes retain their normal
+    # Humble runtime.
+    native_env = os.environ.copy()
+    unitree_library = "/opt/unitree_robotics/lib"
+    library_paths = native_env.get("LD_LIBRARY_PATH", "").split(":")
+    library_paths = [path for path in library_paths
+                     if path and path != unitree_library]
+    native_env["LD_LIBRARY_PATH"] = ":".join(
+        [unitree_library, *library_paths])
+    if card_presentation:
+        project_root = Path(__file__).resolve().parent.parent
+        overlay = project_root / "docker" / "native_card_overlay.h"
+        patcher = project_root / "docker" / "patch_native_card_overlay.py"
+        subprocess.run(
+            ["sudo", "cp", str(overlay),
+             "/opt/unitree_mujoco/simulate/src/native_card_overlay.h"],
+            check=True,
+        )
+        subprocess.run(["sudo", "python3", str(patcher)], check=True)
+        subprocess.run(
+            ["sudo", "cmake", "--build",
+             "/opt/unitree_mujoco/simulate/build", "--parallel"],
+            check=True,
+        )
+        native_env["IEA_G1_LEFT_CARD"] = "1"
+        print(
+            "LEFT CARD: starts after 8 simulated seconds, moves for 5 seconds, "
+            "holds for 5 seconds, then returns; left-hand grip ramps in 1.5 seconds",
+            flush=True,
+        )
+
     terminal_fd = None
     terminal_settings = None
     if sys.stdin.isatty():
@@ -133,7 +178,7 @@ def run_native_viewer(balance: bool = False) -> int:
     simulator = subprocess.Popen([
         native_binary, "-r", "g1", "-s", str(generated_model),
         "-i", "1", "-n", "lo",
-    ])
+    ], env=native_env)
     controller = None
     try:
         if balance:
@@ -148,7 +193,8 @@ def run_native_viewer(balance: bool = False) -> int:
                 flush=True,
             )
             time.sleep(2.0)
-            controller = subprocess.Popen([controller_binary, "-n", "lo"])
+            controller = subprocess.Popen(
+                [controller_binary, "-n", "lo"], env=native_env)
 
         while True:
             simulator_status = simulator.poll()
@@ -196,14 +242,17 @@ def main() -> int:
         "--balance", action="store_true",
         help="run the pinned Unitree zero-velocity balance policy with --native")
     parser.add_argument(
+        "--card-presentation", action="store_true",
+        help="run the simulation-only left-card overlay with --native --balance")
+    parser.add_argument(
         "--export-mjcf", type=Path, metavar="PATH",
         help="write the composed G1 + BrainCo MJCF for the native viewer")
     parser.add_argument(
         "--render-fps", type=float, default=30.0,
         help="interactive render rate; physics remains near real time")
     parser.add_argument(
-        "--hand-position", type=float, default=0.0, metavar="0..1",
-        help="normalized target for all BrainCo channels (default: open)")
+        "--hand-position", type=float, default=None, metavar="0..1",
+        help="uniform diagnostic target; default uses verified neutral values")
     args = parser.parse_args()
     if args.steps < 1:
         raise ValueError("steps must be positive")
@@ -214,9 +263,12 @@ def main() -> int:
         parser.error("--native cannot be combined with headless/validation/export")
     if args.balance and not args.native:
         parser.error("--balance requires --native")
+    if args.card_presentation and not (args.native and args.balance):
+        parser.error("--card-presentation requires --native --balance")
 
     if args.native:
-        return run_native_viewer(balance=args.balance)
+        return run_native_viewer(
+            balance=args.balance, card_presentation=args.card_presentation)
 
     model = build_combined_model()
     validate_combined_model(model)

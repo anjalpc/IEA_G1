@@ -1,6 +1,5 @@
 g1_simulation_bridge:
   ros__parameters:
     # Simulation order matches the BrainCo bridge command order.
-    hand_neutral_target: [0.399, 0.399, 0.050, 0.050, 0.049, 0.050]
-    hand_grip_target: [0.48, 0.45, 0.15, 0.20, 0.25, 0.20]
-    hand_ramp_s: 0.75
+    right_hand_neutral_target: [0.399, 0.399, 0.050, 0.050, 0.049, 0.050]
+    left_hand_neutral_target: [0.400, 0.400, 0.049, 0.050, 0.049, 0.050]

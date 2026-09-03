@@ -3,8 +3,6 @@
 import time
 import threading
 
-from g1_robot_interfaces.constants import PRESENT_HAND_ACTION
-
 
 class SafeStateError(RuntimeError):
     """Report that one or more devices failed to reach their safe state."""
@@ -79,6 +77,7 @@ class AutomaticHandshake:
         sleep=time.sleep,
         monotonic=time.monotonic,
         safe_state=None,
+        presentation_action=27,
     ):
         self.arm = arm
         self.hand = hand
@@ -89,6 +88,7 @@ class AutomaticHandshake:
         self.sleep = sleep
         self.monotonic = monotonic
         self.safe_state = safe_state or SafeStateCoordinator(arm, hand)
+        self.presentation_action = int(presentation_action)
 
     def prepare(self):
         """Prepare cancellation and backends before starting a worker."""
@@ -112,7 +112,7 @@ class AutomaticHandshake:
             return self._cancel()
 
         self.set_state("PRESENTING")
-        self._execute_arm(PRESENT_HAND_ACTION)
+        self._execute_arm(self.presentation_action)
 
         if not self._wait(self.settle_seconds):
             return self._cancel()
@@ -147,6 +147,13 @@ class AutomaticHandshake:
         self._cleanup()
         self.set_state("COMPLETE")
         return "presentation timed out; hand opened and arm released"
+
+    def release_presentation(self):
+        """Safely lower an arm when the operator toggles presentation off."""
+        self.set_state("RELEASING")
+        self._cleanup()
+        self.set_state("ARM_RELEASED")
+        return "arm presentation released; hand opened and arm released"
 
     def cancel(self):
         """Request cancellation and synchronously return to a safe state."""

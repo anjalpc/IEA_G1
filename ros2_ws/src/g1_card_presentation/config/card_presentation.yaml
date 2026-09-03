@@ -1,0 +1,14 @@
+event_card_presentation:
+  ros__parameters:
+    # Keep development on the simulation bridge until physical promotion.
+    bridge_name: simulation
+    action_timeout_s: 5.0
+    pose: left_card_presentation
+    motion_fraction: 1.0
+    move_seconds: 5.0
+    hold_seconds: 5.0
+    hand: left
+    # BrainCo order: thumb, thumb_aux, index, middle, ring, pinky.
+    grip_target: [0.780, 1.000, 0.400, 1.000, 1.000, 1.000]
+    grip_ramp_s: 1.5
+    release_ramp_s: 1.5

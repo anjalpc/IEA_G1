@@ -26,8 +26,16 @@ def test_command_position_rejects_out_of_range_target(target):
             COMMAND_CONFIRMATION)
 
 
-def test_command_position_restricts_production_control_to_right_hand():
-    with pytest.raises(ValueError, match="restricted to the right hand"):
+def test_command_position_rejects_unsupported_hand():
+    with pytest.raises(ValueError, match="unsupported hand"):
         command_position(
-            "eth0", "left", [0.1] * 6, 0.75, 5.0,
+            "eth0", "invalid", [0.1] * 6, 0.75, 5.0,
+            COMMAND_CONFIRMATION)
+
+
+@pytest.mark.parametrize("ramp_seconds", [0.19, 5.01])
+def test_command_position_rejects_unsafe_ramp(ramp_seconds):
+    with pytest.raises(ValueError, match="ramp duration must be between"):
+        command_position(
+            "eth0", "right", [0.1] * 6, ramp_seconds, 5.0,
             COMMAND_CONFIRMATION)

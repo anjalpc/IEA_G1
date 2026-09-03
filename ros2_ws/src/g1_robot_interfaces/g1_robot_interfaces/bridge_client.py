@@ -94,8 +94,9 @@ class BridgeTransport:
                 f"{response.get('error', 'unknown error')}")
         return response.get("result")
 
-class BridgeArmBackend:
-    """Arm backend that contains no hardware or simulation implementation."""
+
+class ArmClient:
+    """Generic acknowledged arm-command client."""
 
     def __init__(self, transport):
         self.transport = transport
@@ -103,6 +104,11 @@ class BridgeArmBackend:
 
     def prepare_operation(self):
         self.transport.send("arm_prepare")
+        self.cancelled = False
+
+    def prepare_presentation(self):
+        """Require backend approval before a card workflow can move its hand."""
+        self.transport.send("arm_prepare_presentation")
         self.cancelled = False
 
     def interrupt(self):
@@ -113,13 +119,29 @@ class BridgeArmBackend:
         if self.cancelled:
             raise RuntimeError("arm action cancelled")
         result = self.transport.send(
-            "arm_action", response_timeout=(self.transport.timeout + 3.0
+            "arm_execute", response_timeout=(self.transport.timeout + 3.0
                                              + RESPONSE_MARGIN_S),
             action_id=int(action_id))
         try:
             return int(result["code"])
         except (KeyError, TypeError, ValueError) as exc:
             raise RuntimeError("G1 bridge returned an invalid arm result") from exc
+
+    def present(self, pose, fraction, move_seconds):
+        """Request a backend-owned named presentation pose."""
+        if self.cancelled:
+            raise RuntimeError("arm action cancelled")
+        return self.transport.send(
+            "arm_present",
+            response_timeout=(self.transport.timeout + float(move_seconds)
+                              + RESPONSE_MARGIN_S),
+            pose=str(pose), fraction=float(fraction),
+            move_s=float(move_seconds))
+
+    def release_presentation(self):
+        """Release a named presentation without invoking a firmware action."""
+        self.cancelled = True
+        return self.transport.send("arm_present_release")
 
     def release(self):
         self.interrupt()
@@ -135,8 +157,8 @@ class BridgeArmBackend:
         return code
 
 
-class BridgeHandBackend:
-    """Hand backend that contains no hardware or simulation implementation."""
+class HandClient:
+    """Generic acknowledged hand-position client."""
 
     def __init__(self, transport):
         self.transport = transport
@@ -150,16 +172,20 @@ class BridgeHandBackend:
         self.cancelled = True
         self.transport.send("hand_interrupt")
 
-    def grip(self):
+    def command_position(self, hand, target, ramp_seconds):
         if self.cancelled:
             raise RuntimeError("hand command cancelled")
         return self.transport.send(
-            "hand_grip",
-            response_timeout=(self.transport.timeout + 12.0
-                              + RESPONSE_MARGIN_S))
+            "hand_command",
+            response_timeout=(self.transport.timeout + float(ramp_seconds)
+                              + 5.0 + RESPONSE_MARGIN_S),
+            hand=str(hand), target=list(target),
+            ramp_s=float(ramp_seconds))
 
-    def release(self):
+    def neutral(self, hand, ramp_seconds):
         self.interrupt()
-        self.transport.send(
-            "hand_release", response_timeout=(self.transport.timeout + 6.5
-                                               + RESPONSE_MARGIN_S))
+        return self.transport.send(
+            "hand_neutral",
+            response_timeout=(self.transport.timeout + float(ramp_seconds)
+                              + 5.0 + RESPONSE_MARGIN_S),
+            hand=str(hand), ramp_s=float(ramp_seconds))

@@ -15,9 +15,16 @@ except ImportError:  # Foxy on the robot
     SignalHandlerOptions = None
 
 from g1_hardware_bridge.brainco_hand import BrainCoHand
+from g1_hardware_bridge.settings import (
+    DEFAULT_SAFE_HAND_RAMP_S,
+)
 from g1_hardware_bridge.unitree_arm import UnitreeArm
 from g1_robot_interfaces.bridge_server import BridgeServer
-from g1_robot_interfaces.constants import PRESENT_HAND_ACTION
+from g1_robot_interfaces.validation import (
+    validate_hand_name,
+    validate_hand_ramp_seconds,
+    validate_hand_target,
+)
 
 
 class G1HardwareBridge(Node):
@@ -27,50 +34,63 @@ class G1HardwareBridge(Node):
         super().__init__("g1_hardware_bridge")
         self.declare_parameter("network_interface", "eth0")
         self.declare_parameter("action_timeout_s", 5.0)
-        self.declare_parameter("grip_ramp_s", 0.75)
-        self.declare_parameter("release_ramp_s", 0.75)
+        self.declare_parameter("safe_hand_ramp_s", DEFAULT_SAFE_HAND_RAMP_S)
+        self.declare_parameter("allowed_arm_actions", [27])
+        self.declare_parameter("card_presentation_mode", "disabled")
         self.declare_parameter(
-            "hand_neutral_target", [0.399, 0.399, 0.050, 0.050, 0.049, 0.050])
+            "right_hand_neutral_target",
+            [0.399, 0.399, 0.050, 0.050, 0.049, 0.050])
         self.declare_parameter(
-            "hand_grip_target", [0.48, 0.45, 0.15, 0.20, 0.25, 0.20])
+            "left_hand_neutral_target",
+            [0.400, 0.400, 0.049, 0.050, 0.049, 0.050])
         interface = str(self.get_parameter("network_interface").value)
         timeout = float(self.get_parameter("action_timeout_s").value)
-        neutral = list(self.get_parameter("hand_neutral_target").value)
-        grip = list(self.get_parameter("hand_grip_target").value)
-        grip_ramp = float(self.get_parameter("grip_ramp_s").value)
-        release_ramp = float(self.get_parameter("release_ramp_s").value)
+        self.safe_hand_ramp = validate_hand_ramp_seconds(
+            self.get_parameter("safe_hand_ramp_s").value,
+            "safe_hand_ramp_s")
+        self.allowed_arm_actions = {
+            int(value) for value in
+            self.get_parameter("allowed_arm_actions").value}
+        self.neutral_targets = {
+            "right": list(self.get_parameter(
+                "right_hand_neutral_target").value),
+            "left": list(self.get_parameter(
+                "left_hand_neutral_target").value),
+        }
         if timeout <= 0.0:
             raise ValueError("action_timeout_s must be positive")
-        if not 0.5 <= grip_ramp <= 5.0:
-            raise ValueError("grip_ramp_s must be between 0.5 and 5.0")
-        if not 0.5 <= release_ramp <= 5.0:
-            raise ValueError("release_ramp_s must be between 0.5 and 5.0")
         if not interface.strip():
             raise ValueError("network_interface must not be empty")
-        self._validate_targets(neutral, grip)
-        self.arm = UnitreeArm(interface, timeout)
-        self.hand = BrainCoHand(
-            interface, timeout, neutral, grip, grip_ramp, release_ramp)
+        if not self.allowed_arm_actions:
+            raise ValueError("allowed_arm_actions must not be empty")
+        for hand, target in self.neutral_targets.items():
+            self.neutral_targets[hand] = validate_hand_target(
+                target, f"{hand} hand neutral")
+        self.card_presentation_mode = str(
+            self.get_parameter("card_presentation_mode").value)
+        self.arm = UnitreeArm(
+            interface, timeout,
+            self.card_presentation_mode)
+        self.hand = BrainCoHand(interface, timeout)
+        self._owned_hands = set()
         self.server = BridgeServer(self, "hardware", {
             "arm_prepare": self._arm_prepare,
-            "arm_action": self._arm_action,
+            "arm_prepare_presentation": self._arm_prepare_presentation,
+            "arm_execute": self._arm_execute,
+            "arm_present": self._arm_present,
+            "arm_present_release": self._arm_present_release,
             "arm_interrupt": self._arm_interrupt,
             "arm_release": self._arm_release,
             "hand_prepare": self._hand_prepare,
-            "hand_grip": self._hand_grip,
+            "hand_command": self._hand_command,
             "hand_interrupt": self._hand_interrupt,
-            "hand_release": self._hand_release,
+            "hand_neutral": self._hand_neutral,
         })
         self.get_logger().warning("Physical arm and hand bridge ready")
 
     @staticmethod
-    def _validate_targets(neutral, grip):
-        if len(neutral) != 6 or len(grip) != 6:
-            raise ValueError("hand targets must contain six positions")
-        if any(value < 0.0 or value > 1.0 for value in neutral):
-            raise ValueError("hand neutral target must be between 0 and 1")
-        if any(value < 0.0 or value > 1.0 for value in grip):
-            raise ValueError("hand grip target must be between 0 and 1")
+    def _request_hand(request):
+        return validate_hand_name(request["hand"])
 
     def _arm_prepare(self, request):
         del request
@@ -78,11 +98,24 @@ class G1HardwareBridge(Node):
         if prepare is not None:
             prepare()
 
-    def _arm_action(self, request):
+    def _arm_prepare_presentation(self, request):
+        del request
+        self.arm.prepare_presentation()
+
+    def _arm_execute(self, request):
         action_id = int(request["action_id"])
-        if action_id != PRESENT_HAND_ACTION:
-            raise ValueError("only reviewed arm action 27 is accepted")
+        if action_id not in self.allowed_arm_actions:
+            raise ValueError(f"arm action {action_id} is not allowed")
         return {"code": self.arm.execute(action_id)}
+
+    def _arm_present(self, request):
+        return self.arm.present(
+            str(request["pose"]), float(request["fraction"]),
+            float(request["move_s"]))
+
+    def _arm_present_release(self, request):
+        del request
+        return self.arm.release_presentation()
 
     def _arm_interrupt(self, request):
         del request
@@ -98,27 +131,47 @@ class G1HardwareBridge(Node):
         if prepare is not None:
             prepare()
 
-    def _hand_grip(self, request):
-        del request
-        return self.hand.grip()
+    def _hand_command(self, request):
+        hand = self._request_hand(request)
+        target = validate_hand_target(request["target"])
+        ramp = validate_hand_ramp_seconds(request["ramp_s"], "ramp_s")
+        if (getattr(self, "card_presentation_mode", "disabled") ==
+                "offline_shadow"
+                and hand == "left"):
+            return {"mode": "offline_shadow", "published": False}
+        self._owned_hands.add(hand)
+        result = self.hand.command_position(hand, target, ramp)
+        return result
 
     def _hand_interrupt(self, request):
         del request
         self.hand.interrupt()
 
-    def _hand_release(self, request):
-        del request
-        self.hand.release()
+    def _hand_neutral(self, request):
+        hand = self._request_hand(request)
+        ramp = validate_hand_ramp_seconds(request["ramp_s"], "ramp_s")
+        if (getattr(self, "card_presentation_mode", "disabled") ==
+                "offline_shadow"
+                and hand == "left"):
+            return {"mode": "offline_shadow", "published": False}
+        result = self.hand.neutral(
+            hand, self.neutral_targets[hand], ramp)
+        self._owned_hands.discard(hand)
+        return result
 
     def safe_shutdown(self):
         """Return the physical hand and arm to their guarded safe state."""
         started = time.monotonic()
         errors = []
 
-        for name, command in (
-            ("hand", self.hand.release),
-            ("arm", self.arm.release),
-        ):
+        commands = [
+            (f"{hand} hand", lambda selected=hand: self.hand.neutral(
+                selected, self.neutral_targets[selected],
+                self.safe_hand_ramp))
+            for hand in sorted(self._owned_hands)
+        ]
+        commands.append(("arm", self.arm.release))
+        for name, command in commands:
             try:
                 command()
             except Exception as exc:

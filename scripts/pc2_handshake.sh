@@ -12,7 +12,8 @@ source "${PROJECT_ROOT}/ros2_ws/install/setup.bash"
 set -u
 
 export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
-export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-42}"
+# Service commands must use the same domain as the physical application.
+export ROS_DOMAIN_ID="${G1_APPLICATION_DOMAIN_ID:-42}"
 
 case "${1:-}" in
   start)
