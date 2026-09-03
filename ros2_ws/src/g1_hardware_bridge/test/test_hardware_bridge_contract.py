@@ -211,6 +211,15 @@ def test_external_action_blocks_prepare_and_execute():
     assert events == []
 
 
+def test_owned_action_allows_prepare_for_handshake_grip():
+    instance, events = bridge()
+    instance.arm_ownership.status = ArmOwnership.OWNED
+
+    instance._arm_prepare({})
+
+    assert events == [("arm_prepare",)]
+
+
 def test_external_action_blocks_release_action_99():
     instance, events = bridge()
     instance.arm_ownership.status = ArmOwnership.EXTERNAL

@@ -23,6 +23,7 @@ class ArmOwnership:
         self.monotonic = monotonic
         self._lock = threading.Lock()
         self._expected = None
+        self._transition_from = None
         self._last = None
         self._last_update = None
         self._idle_since = None
@@ -41,6 +42,12 @@ class ArmOwnership:
     def expect(self, action_id):
         """Record the next action ID intentionally requested by this bridge."""
         with self._lock:
+            if (self._last is not None
+                    and self._last["id"] != 0
+                    and self._last["id"] == self._expected):
+                self._transition_from = self._last["id"]
+            else:
+                self._transition_from = None
             self._expected = int(action_id)
 
     def clear_expectation(self, action_id=None):
@@ -48,6 +55,7 @@ class ArmOwnership:
         with self._lock:
             if action_id is None or self._expected == int(action_id):
                 self._expected = None
+                self._transition_from = None
 
     def update(self, action_id, name="", holding=False, timestamp=None):
         """Store one normalized native `/arm/action/state` sample."""
@@ -64,8 +72,11 @@ class ArmOwnership:
                 if self._idle_since is None:
                     self._idle_since = now
                 self._expected = None
+                self._transition_from = None
             else:
                 self._idle_since = None
+                if sample["id"] == self._expected:
+                    self._transition_from = None
 
     def snapshot(self, timestamp=None):
         """Return the current fail-safe ownership classification."""
@@ -75,6 +86,7 @@ class ArmOwnership:
             updated = self._last_update
             idle_since = self._idle_since
             expected = self._expected
+            transition_from = self._transition_from
             monitor_available = self._monitor_available
 
         if not monitor_available:
@@ -94,7 +106,8 @@ class ArmOwnership:
             return self._result(status, sample, expected, stable)
         if now - updated > self.stale_timeout_s:
             return self._result(self.UNAVAILABLE, sample, expected, False)
-        if expected is not None and sample["id"] == expected:
+        if expected is not None and sample["id"] in (
+                expected, transition_from):
             return self._result(self.OWNED, sample, expected, False)
         return self._result(self.EXTERNAL, sample, expected, False)
 

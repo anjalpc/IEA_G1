@@ -131,7 +131,10 @@ class G1HardwareBridge(Node):
 
     def _arm_prepare(self, request):
         del request
-        self.arm_ownership.require_available()
+        state = self.arm_ownership.snapshot()
+        if state["status"] not in (
+                ArmOwnership.IDLE, ArmOwnership.OWNED):
+            raise RuntimeError(ArmOwnership.block_reason(state))
         prepare = getattr(self.arm, "prepare_operation", None)
         if prepare is not None:
             prepare()

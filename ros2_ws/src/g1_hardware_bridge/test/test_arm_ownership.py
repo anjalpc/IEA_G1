@@ -70,6 +70,31 @@ def test_different_action_overrides_local_expectation():
     assert ownership.snapshot()["status"] == ArmOwnership.EXTERNAL
 
 
+def test_owned_action_remains_owned_while_release_feedback_transitions():
+    ownership, _ = tracker()
+    ownership.expect(27)
+    ownership.update(27, "shake_hand", True)
+
+    ownership.expect(99)
+    state = ownership.snapshot()
+    assert state["status"] == ArmOwnership.OWNED
+    assert state["id"] == 27
+    assert state["expected_id"] == 99
+
+    ownership.update(99, "release_arm", False)
+    assert ownership.snapshot()["status"] == ArmOwnership.OWNED
+
+
+def test_external_action_during_owned_release_transition_is_external():
+    ownership, _ = tracker()
+    ownership.expect(27)
+    ownership.update(27, "shake_hand", True)
+    ownership.expect(99)
+    ownership.update(552, "vq_shake_hand", True)
+
+    assert ownership.snapshot()["status"] == ArmOwnership.EXTERNAL
+
+
 def test_stale_active_action_fails_closed():
     # The native publisher only reports while an action is active or has
     # just changed; a nonzero action id going stale must still fail closed.
