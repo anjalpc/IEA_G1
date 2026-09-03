@@ -28,11 +28,13 @@ case "${1:-}" in
   state)
     status=0
     state_output="$(
-      timeout 2 ros2 topic echo /event/handshake/state
+      timeout --foreground --signal=INT --kill-after=1s 5s \
+        ros2 topic echo \
+        /event/handshake/state std_msgs/msg/String
     )" || status=$?
 
     if ! grep -q "^data:" <<< "${state_output}"; then
-      echo "ERROR: no handshake state received within 2 seconds." >&2
+      echo "ERROR: no handshake state received within 5 seconds." >&2
       exit 1
     fi
 
