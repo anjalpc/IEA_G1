@@ -18,6 +18,16 @@ def generate_launch_description():
     hardware_configuration = join(
         get_package_share_directory("g1_hardware_bridge"),
         "config", "hardware.yaml")
+    presence_configuration = join(
+        get_package_share_directory("g1_handshake"),
+        "config", "hand_presence.yaml")
+
+    video_helper = Node(
+        package="g1_handshake",
+        executable="unitree_video_helper",
+        name="unitree_video_helper",
+        output="screen",
+    )
 
     hardware_node = Node(
         package="g1_hardware_bridge",
@@ -35,6 +45,14 @@ def generate_launch_description():
         name="event_handshake",
         output="screen",
         parameters=[handshake_configuration],
+    )
+
+    presence_node = Node(
+        package="g1_handshake",
+        executable="hand_presence_node",
+        name="hand_presence",
+        output="screen",
+        parameters=[presence_configuration],
     )
 
     stop_after_hardware = RegisterEventHandler(
@@ -57,9 +75,28 @@ def generate_launch_description():
         )
     )
 
+    stop_after_video = RegisterEventHandler(
+        OnProcessExit(
+            target_action=video_helper,
+            on_exit=[EmitEvent(event=Shutdown(reason="RGB helper exited"))],
+        )
+    )
+
+    stop_after_presence = RegisterEventHandler(
+        OnProcessExit(
+            target_action=presence_node,
+            on_exit=[EmitEvent(event=Shutdown(
+                reason="hand presence node exited"))],
+        )
+    )
+
     return LaunchDescription([
+        video_helper,
         hardware_node,
         handshake_node,
+        presence_node,
         stop_after_hardware,
         stop_after_handshake,
+        stop_after_video,
+        stop_after_presence,
     ])

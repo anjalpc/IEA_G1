@@ -31,10 +31,12 @@ fi
 if [[ -f "${SERVER_ROOT}/SHA256SUMS" ]]; then
     (cd "${SERVER_ROOT}" && sha256sum -c SHA256SUMS)
 fi
-if pgrep -af '[b]rainco_hand_server|[h]andshake_node|[g]1_hardware_bridge' \
+process_pattern='[b]rainco_hand_server|[h]andshake_node|[g]1_hardware_bridge'
+process_pattern+='|[h]and_presence_node|[u]nitree_video_helper'
+if pgrep -af "${process_pattern}" \
         >/dev/null; then
     echo "ERROR: handshake processes are already running." >&2
-    pgrep -af '[b]rainco_hand_server|[h]andshake_node|[g]1_hardware_bridge' >&2
+    pgrep -af "${process_pattern}" >&2
     exit 1
 fi
 
