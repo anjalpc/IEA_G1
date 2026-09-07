@@ -1,5 +1,5 @@
 """
-RealSense depth-only backend.
+RealSense depth-camera backend.
 
 The Unitree RGB camera is owned by videohub_pc4. This backend therefore
 opens only the D435i depth stream.

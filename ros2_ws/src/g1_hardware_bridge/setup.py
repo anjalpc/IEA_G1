@@ -28,11 +28,11 @@ setup(
             "hardware_bridge = g1_hardware_bridge.hardware_bridge_node:main",
             (
                 "camera_bridge = "
-                "g1_hardware_bridge.camera.camera_bridge_node:main"
+                "g1_hardware_bridge.camera.node:main"
             ),
             (
-                "unitree_video_helper = "
-                "g1_hardware_bridge.camera.unitree_video_helper:main"
+                "rgb_helper = "
+                "g1_hardware_bridge.camera.rgb_helper:main"
             ),
         ],
     },

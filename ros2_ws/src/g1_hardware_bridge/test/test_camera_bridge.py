@@ -4,7 +4,7 @@ import numpy as np
 
 from builtin_interfaces.msg import Time
 
-from g1_hardware_bridge.camera.camera_bridge_node import depth_image_message
+from g1_hardware_bridge.camera.node import depth_image_message
 
 
 def test_depth_image_is_16uc1_in_millimetres():

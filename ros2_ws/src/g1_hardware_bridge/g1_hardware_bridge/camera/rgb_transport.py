@@ -1,4 +1,4 @@
-"""DDS-free client for the Unitree RGB shared-memory feed."""
+"""DDS-free shared-memory transport for Unitree RGB frames."""
 
 import fcntl
 import os

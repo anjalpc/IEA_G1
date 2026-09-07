@@ -17,7 +17,7 @@ from unitree_sdk2py.core.channel import (
     ChannelFactoryInitialize,
 )
 
-from g1_hardware_bridge.camera.rgb_frame_client import (
+from g1_hardware_bridge.camera.rgb_transport import (
     CHANNELS,
     FRAME_BYTES,
     HEADER_FORMAT,
@@ -30,12 +30,48 @@ from g1_hardware_bridge.camera.rgb_frame_client import (
     VERSION,
     WIDTH,
 )
-from g1_hardware_bridge.camera.unitree_video import (
-    UnitreeVideoSource,
-)
 
 
 TARGET_FPS = 30.0
+
+
+class UnitreeVideoSource:
+    """Fetch and decode RGB frames from the Unitree video service."""
+
+    def __init__(self, timeout_s=3.0):
+        self.timeout_s = float(timeout_s)
+        self._client = None
+
+    def start(self):
+        """Initialize the Unitree video client."""
+        from unitree_sdk2py.go2.video.video_client import VideoClient
+
+        if self._client is not None:
+            raise RuntimeError("Unitree video source already started")
+
+        client = VideoClient()
+        client.SetTimeout(self.timeout_s)
+        client.Init()
+        self._client = client
+
+    def read_frame(self):
+        """Return one decoded BGR frame, or None when unavailable."""
+        import cv2
+        import numpy as np
+
+        if self._client is None:
+            raise RuntimeError("Unitree video source is not started")
+
+        code, data = self._client.GetImageSample()
+        if code != 0 or not data:
+            return None
+
+        encoded = np.frombuffer(bytes(data), dtype=np.uint8)
+        return cv2.imdecode(encoded, cv2.IMREAD_COLOR)
+
+    def stop(self):
+        """Release the Unitree video client."""
+        self._client = None
 
 
 def _pack_header(

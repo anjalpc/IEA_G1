@@ -9,8 +9,8 @@ from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 from sensor_msgs.msg import CompressedImage, Image
 
-from g1_hardware_bridge.camera.depth_camera import DepthCamera
-from g1_hardware_bridge.camera.rgb_frame_client import RgbFrameClient
+from g1_hardware_bridge.camera.depth import DepthCamera
+from g1_hardware_bridge.camera.rgb_transport import RgbFrameClient
 
 try:
     from rclpy.signals import SignalHandlerOptions
