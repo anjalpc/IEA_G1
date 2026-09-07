@@ -92,7 +92,8 @@ class RgbFrameClient:
         return True
 
     def read_latest(self):
-        """Atomically return (frame, age_seconds, sequence).
+        """
+        Atomically return (frame, age_seconds, sequence).
 
         Returns (None, None, None) when the helper has not created or
         initialized the shared-memory stream yet.

@@ -18,15 +18,26 @@ def generate_launch_description():
     hardware_configuration = join(
         get_package_share_directory("g1_hardware_bridge"),
         "config", "hardware.yaml")
+    camera_configuration = join(
+        get_package_share_directory("g1_hardware_bridge"),
+        "config", "camera.yaml")
     presence_configuration = join(
         get_package_share_directory("g1_handshake"),
         "config", "hand_presence.yaml")
 
     video_helper = Node(
-        package="g1_handshake",
+        package="g1_hardware_bridge",
         executable="unitree_video_helper",
         name="unitree_video_helper",
         output="screen",
+    )
+
+    camera_bridge = Node(
+        package="g1_hardware_bridge",
+        executable="camera_bridge",
+        name="g1_camera_bridge",
+        output="screen",
+        parameters=[camera_configuration],
     )
 
     hardware_node = Node(
@@ -82,6 +93,14 @@ def generate_launch_description():
         )
     )
 
+    stop_after_camera = RegisterEventHandler(
+        OnProcessExit(
+            target_action=camera_bridge,
+            on_exit=[EmitEvent(event=Shutdown(
+                reason="camera bridge exited"))],
+        )
+    )
+
     stop_after_presence = RegisterEventHandler(
         OnProcessExit(
             target_action=presence_node,
@@ -92,11 +111,13 @@ def generate_launch_description():
 
     return LaunchDescription([
         video_helper,
+        camera_bridge,
         hardware_node,
         handshake_node,
         presence_node,
         stop_after_hardware,
         stop_after_handshake,
         stop_after_video,
+        stop_after_camera,
         stop_after_presence,
     ])

@@ -219,6 +219,17 @@ bridge channels. Current bridge topics are:
 /g1/bridge/simulation/feedback
 ```
 
+Physical camera acquisition is centralized in `g1_hardware_bridge`. Its
+camera bridge is the sole RealSense owner and exposes reusable ROS topics:
+
+```text
+/g1/camera/rgb/compressed
+/g1/camera/depth/image_raw
+```
+
+Handshake perception and future applications consume these topics instead of
+opening camera devices directly.
+
 Every command includes a client identifier and command identifier. A response
 is accepted only by the requesting client and only while that command is
 pending.

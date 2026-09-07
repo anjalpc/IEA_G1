@@ -80,7 +80,7 @@ export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 export ROS_DOMAIN_ID=42
 ```
 
-Start BrainCo and both ROS nodes with one command:
+Start BrainCo and the supervised ROS stack with one command:
 
 ```bash
 cd /home/unitree/IEA_G1
@@ -91,6 +91,21 @@ The hardware bridge directly owns the reviewed arm and BrainCo hand
 backends. The integrated sequence restores the calibrated neutral hand posture
 before arm action 99 on completion, cancellation, timeout, shutdown, and error
 cleanup.
+
+The hardware package also owns the physical camera adapters. The standalone
+Unitree RGB helper remains isolated on native DDS domain `0` and writes its
+latest frame to shared memory. The ROS-facing camera bridge is the sole
+RealSense owner, reads that RGB frame, and publishes application-facing data
+on domain `42`:
+
+```text
+/g1/camera/rgb/compressed
+/g1/camera/depth/image_raw
+```
+
+The handshake presence node subscribes to these topics and never opens camera
+devices. This permits preview, recording, and future perception consumers to
+share the same frames without competing for `/dev/video*`.
 
 The bridge also watches Unitree's event-driven `/arm/action/state` topic on
 native DDS domain `0`. Silence at startup is the robot's normal idle behavior.

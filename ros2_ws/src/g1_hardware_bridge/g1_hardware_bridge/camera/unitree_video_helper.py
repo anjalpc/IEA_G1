@@ -1,4 +1,5 @@
-"""Standalone Unitree RGB helper.
+"""
+Standalone Unitree RGB helper.
 
 This process owns Unitree SDK2 / CycloneDDS and writes the newest decoded
 1920x1080 BGR frame into shared memory.
@@ -16,7 +17,7 @@ from unitree_sdk2py.core.channel import (
     ChannelFactoryInitialize,
 )
 
-from g1_handshake.video.rgb_frame_client import (
+from g1_hardware_bridge.camera.rgb_frame_client import (
     CHANNELS,
     FRAME_BYTES,
     HEADER_FORMAT,
@@ -29,7 +30,7 @@ from g1_handshake.video.rgb_frame_client import (
     VERSION,
     WIDTH,
 )
-from g1_handshake.video.unitree_video import (
+from g1_hardware_bridge.camera.unitree_video import (
     UnitreeVideoSource,
 )
 
@@ -58,7 +59,6 @@ def _pack_header(
 
 def main():
     """Run the Unitree RGB shared-memory writer."""
-
     # This process exclusively owns Unitree SDK DDS.
     ChannelFactoryInitialize(
         0,

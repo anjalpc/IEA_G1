@@ -1,17 +1,17 @@
 """ROS node that detects stable human-hand presence for the handshake.
 
-RGB is received from a DDS-isolated helper through shared memory.
+RGB and depth are received from the central hardware camera bridge.
 
 This process deliberately contains:
     - rclpy / ROS
     - MediaPipe
-    - shared-memory RGB reader
+    - standard ROS camera subscribers
 
 This process deliberately DOES NOT contain:
     - Unitree SDK2
     - ChannelFactoryInitialize
     - Unitree VideoClient
-    - RealSense depth fusion
+    - direct camera-device ownership
 
 Physical grip triggering is disabled by default and must be explicitly
 enabled through the enable_grip_trigger ROS parameter.
@@ -22,9 +22,11 @@ import signal
 import threading
 import time
 
+import numpy as np
 import rclpy
 from rclpy.node import Node
-from sensor_msgs.msg import CompressedImage
+from rclpy.qos import qos_profile_sensor_data
+from sensor_msgs.msg import CompressedImage, Image
 from std_msgs.msg import String
 from std_srvs.srv import Trigger
 
@@ -35,11 +37,6 @@ from g1_handshake.presence.hand_presence import (
     HandPresenceDetector,
 )
 from g1_handshake.presence.target_region import TargetRegion
-from g1_handshake.video.rgb_frame_client import (
-    RgbFrameClient,
-)
-from g1_handshake.video.depth_camera import DepthCamera
-
 try:
     from rclpy.signals import SignalHandlerOptions
 except ImportError:
@@ -85,6 +82,10 @@ class HandPresenceNode(Node):
 
         self.declare_parameter(
             "rgb_stale_after_s",
+            0.25,
+        )
+        self.declare_parameter(
+            "depth_stale_after_s",
             0.25,
         )
 
@@ -143,6 +144,9 @@ class HandPresenceNode(Node):
                 "rgb_stale_after_s"
             ).value
         )
+        self.depth_stale_after_s = float(
+            self.get_parameter("depth_stale_after_s").value
+        )
 
         self.enable_grip_trigger = bool(
             self.get_parameter(
@@ -183,6 +187,9 @@ class HandPresenceNode(Node):
                 "rgb_stale_after_s must be positive"
             )
 
+        if self.depth_stale_after_s <= 0.0:
+            raise ValueError("depth_stale_after_s must be positive")
+
         self.detector = HandPresenceDetector(
             required_stable_frames=required_stable_frames,
             window_size=stability_window_frames,
@@ -197,9 +204,10 @@ class HandPresenceNode(Node):
 
         self.hand_detector.start()
 
-        self.rgb_client = RgbFrameClient()
-        self.depth_camera = DepthCamera()
-        self.depth_camera.start()
+        self._latest_rgb = None
+        self._latest_depth = None
+        self._rgb_received_at = None
+        self._depth_received_at = None
 
         self._armed = False
         self._fired_this_presentation = False
@@ -227,6 +235,18 @@ class HandPresenceNode(Node):
             "/event/handshake/state",
             self._state_callback,
             10,
+        )
+        self.create_subscription(
+            CompressedImage,
+            "/g1/camera/rgb/compressed",
+            self._rgb_callback,
+            qos_profile_sensor_data,
+        )
+        self.create_subscription(
+            Image,
+            "/g1/camera/depth/image_raw",
+            self._depth_callback,
+            qos_profile_sensor_data,
         )
 
         self.create_timer(
@@ -323,6 +343,35 @@ class HandPresenceNode(Node):
 
         self._armed = armed
 
+    def _rgb_callback(self, message):
+        """Store the newest decoded RGB frame."""
+        import cv2
+
+        encoded = np.frombuffer(message.data, dtype=np.uint8)
+        frame = cv2.imdecode(encoded, cv2.IMREAD_COLOR)
+        if frame is None:
+            self.get_logger().warning("invalid compressed RGB frame")
+            return
+        self._latest_rgb = frame
+        self._rgb_received_at = time.monotonic()
+
+    def _depth_callback(self, message):
+        """Store the newest 16-bit millimetre depth frame."""
+        if message.encoding != "16UC1":
+            self.get_logger().warning(
+                f"unsupported depth encoding: {message.encoding}"
+            )
+            return
+        expected = int(message.height) * int(message.width)
+        depth = np.frombuffer(message.data, dtype=np.uint16)
+        if depth.size != expected:
+            self.get_logger().warning("invalid depth image size")
+            return
+        self._latest_depth = depth.reshape(
+            int(message.height), int(message.width)
+        ).astype(np.float32)
+        self._depth_received_at = time.monotonic()
+
     def _log_gate_transitions(self, rgb_hit, depth_hit):
         """Log RGB and depth gate changes once while armed."""
         if not self._armed:
@@ -346,12 +395,26 @@ class HandPresenceNode(Node):
                 f"depth gate {'HIT' if depth_hit else 'CLEAR'}{detail}"
             )
 
+    def _read_rgb(self):
+        """Return the latest subscribed RGB frame and its local age."""
+        age = (
+            None
+            if self._rgb_received_at is None
+            else time.monotonic() - self._rgb_received_at
+        )
+        return self._latest_rgb, age, None
+
+    def _read_depth(self):
+        """Return the latest subscribed depth frame when still fresh."""
+        if self._latest_depth is None or self._depth_received_at is None:
+            raise RuntimeError("depth topic is unavailable")
+        age = time.monotonic() - self._depth_received_at
+        if age > self.depth_stale_after_s:
+            raise RuntimeError(f"depth topic is stale ({age:.3f}s)")
+        return self._latest_depth
+
     def _poll(self):
-        (
-            color_bgr,
-            age,
-            _sequence,
-        ) = self.rgb_client.read_latest()
+        color_bgr, age, _sequence = self._read_rgb()
 
         if color_bgr is None:
             self._set_rgb_state(
@@ -396,12 +459,11 @@ class HandPresenceNode(Node):
 
         depth_hit = False
         try:
-            depth = self.depth_camera.read_frame_mm(timeout_ms=100)
+            depth = self._read_depth()
             x, y, roi_width, roi_height = self.depth_roi
             region = depth[y:y + roi_height, x:x + roi_width]
             valid = region[(region > 100.0) & (region < 4000.0)]
             if valid.size:
-                import numpy as np
                 self._depth_median_mm = float(np.median(valid))
                 self._depth_near25_mm = float(np.percentile(valid, 25))
                 depth_hit = (
@@ -565,22 +627,6 @@ class HandPresenceNode(Node):
             )
 
     def shutdown(self):
-        try:
-            self.depth_camera.stop()
-        except Exception as exc:
-            self.get_logger().error(
-                f"depth camera shutdown failed: {exc}"
-            )
-
-        try:
-            self.rgb_client.close()
-
-        except Exception as exc:
-            self.get_logger().error(
-                "RGB client shutdown failed: "
-                f"{exc}"
-            )
-
         try:
             self.hand_detector.stop()
 

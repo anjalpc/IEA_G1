@@ -1,4 +1,5 @@
-"""Unitree RGB image source.
+"""
+Unitree RGB image source.
 
 This module wraps Unitree's VideoClient.GetImageSample() API.
 
@@ -34,7 +35,8 @@ class UnitreeVideoSource:
         self._client = client
 
     def read_frame(self):
-        """Fetch and return one BGR OpenCV frame.
+        """
+        Fetch and return one BGR OpenCV frame.
 
         Return None if Unitree's video service reports an error or the JPEG
         cannot be decoded.

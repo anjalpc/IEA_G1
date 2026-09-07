@@ -10,6 +10,7 @@ import json
 
 import numpy as np
 
+from sensor_msgs.msg import Image
 from std_msgs.msg import String
 
 from g1_handshake.hand_presence_node import (
@@ -129,6 +130,8 @@ def make_node(
         else FakeRgbClient()
     )
     instance.depth_camera = FakeDepthCamera()
+    instance._read_rgb = instance.rgb_client.read_latest
+    instance._read_depth = instance.depth_camera.read_frame_mm
     instance.depth_roi = (381, 170, 193, 181)
     instance.depth_near25_below_mm = 800.0
     instance.rgb_recent_s = 1.0
@@ -149,6 +152,10 @@ def make_node(
     instance._depth_near25_mm = None
     instance._rgb_hit_state = None
     instance._depth_hit_state = None
+    instance._latest_rgb = None
+    instance._latest_depth = None
+    instance._rgb_received_at = None
+    instance._depth_received_at = None
 
     grip_calls = []
 
@@ -207,6 +214,25 @@ def test_no_hand_detected_is_not_a_hit():
 
     assert detector.observations == [False]
     assert instance._fired_this_presentation is False
+
+
+def test_depth_callback_accepts_shared_16uc1_frame():
+    instance, _logger, _grip_calls = make_node()
+    message = Image()
+    message.height = 2
+    message.width = 3
+    message.encoding = "16UC1"
+    message.data = np.array(
+        [[400, 500, 600], [700, 800, 900]], dtype=np.uint16
+    ).tobytes()
+
+    instance._depth_callback(message)
+
+    assert instance._latest_depth.tolist() == [
+        [400.0, 500.0, 600.0],
+        [700.0, 800.0, 900.0],
+    ]
+    assert instance._depth_received_at is not None
 
 
 def test_detected_hand_is_a_hit():

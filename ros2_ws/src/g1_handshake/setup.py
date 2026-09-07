@@ -72,11 +72,6 @@ setup(
                 "hand_presence_node = "
                 "g1_handshake.hand_presence_node:main"
             ),
-            (
-                "unitree_video_helper = "
-                "g1_handshake.video."
-                "unitree_video_helper:main"
-            ),
         ],
     },
 )
