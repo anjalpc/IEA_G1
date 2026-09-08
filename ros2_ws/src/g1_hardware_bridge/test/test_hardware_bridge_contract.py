@@ -28,6 +28,9 @@ class ArmRecorder:
     def __init__(self, events):
         self.events = events
 
+    def has_presentation(self):
+        return False
+
     def prepare_operation(self):
         self.events.append(("arm_prepare",))
 
@@ -241,3 +244,24 @@ def test_shutdown_does_not_release_externally_owned_arm():
     instance.safe_shutdown()
 
     assert events == []
+
+
+def test_card_prepare_and_present_reject_external_owner():
+    import pytest
+
+    instance, events = bridge()
+    instance.arm_ownership.status = ArmOwnership.EXTERNAL
+    with pytest.raises(RuntimeError, match="external Unitree arm action"):
+        instance._arm_prepare_presentation({})
+    with pytest.raises(RuntimeError, match="external Unitree arm action"):
+        instance._arm_present({})
+    assert events == []
+
+
+def test_shutdown_releases_local_card_even_if_native_monitor_unavailable():
+    instance, events = bridge()
+    instance.arm_ownership.status = ArmOwnership.UNAVAILABLE
+    instance.arm.has_presentation = lambda: True
+    instance.arm.release_presentation = lambda: events.append(("card_release",))
+    instance.safe_shutdown()
+    assert events == [("card_release",)]

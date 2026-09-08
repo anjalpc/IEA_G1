@@ -141,6 +141,7 @@ class G1HardwareBridge(Node):
 
     def _arm_prepare_presentation(self, request):
         del request
+        self.arm_ownership.require_available()
         self.arm.prepare_presentation()
 
     def _arm_execute(self, request):
@@ -156,6 +157,7 @@ class G1HardwareBridge(Node):
             raise
 
     def _arm_present(self, request):
+        self.arm_ownership.require_available()
         return self.arm.present(
             str(request["pose"]), float(request["fraction"]),
             float(request["move_s"]))
@@ -191,10 +193,6 @@ class G1HardwareBridge(Node):
         hand = self._request_hand(request)
         target = validate_hand_target(request["target"])
         ramp = validate_hand_ramp_seconds(request["ramp_s"], "ramp_s")
-        if (getattr(self, "card_presentation_mode", "disabled") ==
-                "offline_shadow"
-                and hand == "left"):
-            return {"mode": "offline_shadow", "published": False}
         self._owned_hands.add(hand)
         result = self.hand.command_position(hand, target, ramp)
         return result
@@ -206,10 +204,6 @@ class G1HardwareBridge(Node):
     def _hand_neutral(self, request):
         hand = self._request_hand(request)
         ramp = validate_hand_ramp_seconds(request["ramp_s"], "ramp_s")
-        if (getattr(self, "card_presentation_mode", "disabled") ==
-                "offline_shadow"
-                and hand == "left"):
-            return {"mode": "offline_shadow", "published": False}
         result = self.hand.neutral(
             hand, self.neutral_targets[hand], ramp)
         self._owned_hands.discard(hand)
@@ -227,7 +221,9 @@ class G1HardwareBridge(Node):
             for hand in sorted(self._owned_hands)
         ]
         ownership = getattr(self, "arm_ownership", None)
-        if ownership is None or ownership.snapshot()["status"] in (
+        if self.arm.has_presentation():
+            commands.append(("arm presentation", self.arm.release_presentation))
+        elif ownership is None or ownership.snapshot()["status"] in (
                 ArmOwnership.IDLE, ArmOwnership.OWNED):
             commands.append(("arm", self.arm.release))
         else:

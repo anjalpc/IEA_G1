@@ -1,13 +1,24 @@
 event_card_presentation:
   ros__parameters:
-    # Keep development on the simulation bridge until physical promotion.
-    bridge_name: simulation
+    bridge_name: hardware
     action_timeout_s: 5.0
     pose: left_card_presentation
     motion_fraction: 1.0
-    move_seconds: 5.0
-    hold_seconds: 5.0
+
+    # Total visible motion: 0.30 s bilateral preparation + 0.90 s extension.
+    move_seconds: 1.2
+
+    # Maximum time the robot may remain presented while still holding the card.
+    presentation_timeout_s: 60.0
+
+    # After the hand opens, retract automatically if no retract command arrives.
+    released_timeout_s: 20.0
+
+    # Used only during coordinated safety cleanup.
+    release_dwell_s: 0.5
+
     hand: left
+
     # BrainCo order: thumb, thumb_aux, index, middle, ring, pinky.
     grip_target: [0.780, 1.000, 0.400, 1.000, 1.000, 1.000]
     grip_ramp_s: 1.5

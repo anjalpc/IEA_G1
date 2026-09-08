@@ -4,7 +4,13 @@
 class CardHand:
     """Configured left-hand behavior over a generic hand client."""
 
-    def __init__(self, client, target, grip_ramp, release_ramp):
+    def __init__(
+        self,
+        client,
+        target,
+        grip_ramp,
+        release_ramp,
+    ):
         self.client = client
         self.target = list(target)
         self.grip_ramp = float(grip_ramp)
@@ -18,7 +24,13 @@ class CardHand:
 
     def grip(self):
         return self.client.command_position(
-            "left", self.target, self.grip_ramp)
+            "left",
+            self.target,
+            self.grip_ramp,
+        )
 
     def release(self):
-        return self.client.neutral("left", self.release_ramp)
+        return self.client.neutral(
+            "left",
+            self.release_ramp,
+        )

@@ -45,13 +45,14 @@ def test_arm_named_presentation_uses_backend_owned_pose():
     assert transport.commands[1] == (
         "arm_present",
         {
-            "response_timeout": 12.0,
+            "response_timeout": 32.0,
             "pose": "left_card_presentation",
             "fraction": 0.25,
             "move_s": 5.0,
         },
     )
-    assert transport.commands[2] == ("arm_present_release", {})
+    assert transport.commands[2] == (
+        "arm_present_release", {"response_timeout": 17.0})
 
 
 def test_hand_uses_only_backend_neutral_operations():

@@ -51,7 +51,7 @@ g1_hardware_bridge/
 │   ├── depth.py          RealSense depth acquisition
 │   ├── rgb_transport.py  shared-memory RGB transport
 │   └── rgb_helper.py     isolated Unitree RGB acquisition process
-├── experimental/  disabled left-arm calibration and shadow helpers
+├── experimental/  disabled left-arm calibration helpers
 ├── hardware_bridge_node.py
 └── settings.py
 ```
@@ -83,6 +83,9 @@ Configuration files:
 Owns the separate left-hand card-holding workflow. Its verified hand target is
 kept separate from the right-hand handshake. Physical left-arm presentation
 remains disabled unless explicitly enabled and validated.
+
+The live arm helper and pending integration checks are described in
+[`docs/setup/card_presentation_integration.md`](docs/setup/card_presentation_integration.md).
 
 ### `g1_simulation_bridge`
 

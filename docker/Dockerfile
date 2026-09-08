@@ -141,6 +141,17 @@ RUN echo "dev ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/dev && \
 
 RUN echo "source /opt/ros/humble/setup.bash" >> /home/dev/.bashrc
 
+# Python DDS helpers need SDK2 Python separately from the native C++ SDK.
+# Keep this late layer independent of the expensive simulator build.
+ARG UNITREE_SDK2_PYTHON_REVISION=65691c8a8bc53b98d3976dba4dbf9d5d20b2e7f5
+RUN git clone https://github.com/unitreerobotics/unitree_sdk2_python.git \
+      /opt/unitree_sdk2_python && \
+    git -C /opt/unitree_sdk2_python checkout "${UNITREE_SDK2_PYTHON_REVISION}" && \
+    python3 -m pip install --no-cache-dir \
+      numpy==1.26.4 opencv-python==4.11.0.86 \
+      -e /opt/unitree_sdk2_python && \
+    python3 -c "from unitree_sdk2py.utils.crc import CRC; from unitree_sdk2py.idl.default import unitree_hg_msg_dds__LowCmd_; print('SDK CRC OK:', CRC().Crc(unitree_hg_msg_dds__LowCmd_()))"
+
 USER dev
 
 WORKDIR /workspace/IEA_G1

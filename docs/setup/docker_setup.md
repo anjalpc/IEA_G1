@@ -49,6 +49,26 @@ pwd
 Expected values are `dev`, `humble`, Python `3.10.x`, and
 `/workspace/IEA_G1`.
 
+The Dockerfile installs SDK2 Python separately from the native C++ SDK, at a
+pinned upstream revision. It uses the SDK's `cyclonedds==0.10.2` dependency and
+pins OpenCV to `4.11.0.86` to retain NumPy `1.26.4`. The SDK checkout is retained
+at `/opt/unitree_sdk2_python` and installed editable because its upstream wheel
+omits the native CRC libraries. The image build constructs CRC and computes a
+checksum on a default HG command to check native-library availability.
+No robot filesystem path or
+SDK mount is required. Existing containers need rebuilding/recreating to pick
+up the image change. This workstation image does not replace PC2's Foxy/native
+CycloneDDS installation.
+
+After building and sourcing the workspace, these checks only import modules;
+they do not initialize DDS or publish robot commands:
+
+```bash
+python3 -c "import unitree_sdk2py"
+python3 -c "from g1_hardware_bridge.arm.presentation_helper import PresentationController; print('imports OK')"
+python3 -c "from unitree_sdk2py.utils.crc import CRC; from unitree_sdk2py.idl.default import unitree_hg_msg_dds__LowCmd_; print('SDK CRC OK:', CRC().Crc(unitree_hg_msg_dds__LowCmd_()))"
+```
+
 Development shells default to ROS domain `42` with
 `rmw_cyclonedds_cpp`, so nodes and service clients started from separate
 container terminals use the same DDS configuration. Development DDS is bound

@@ -7,7 +7,7 @@ g1_hardware_bridge:
     arm_idle_stable_s: 0.5
     allowed_arm_actions: [27]
     # No rt/arm_sdk publisher exists in this stage.
-    card_presentation_mode: disabled
+    card_presentation_mode: live
     # BrainCo order: thumb, thumb_aux, index, middle, ring, pinky.
     right_hand_neutral_target: [0.399, 0.399, 0.050, 0.050, 0.049, 0.050]
     left_hand_neutral_target: [0.400, 0.400, 0.049, 0.050, 0.049, 0.050]

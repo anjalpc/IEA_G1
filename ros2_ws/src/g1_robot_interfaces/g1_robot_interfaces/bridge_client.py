@@ -101,6 +101,7 @@ class ArmClient:
     def __init__(self, transport):
         self.transport = transport
         self.cancelled = True
+        self.presentation_move_seconds = 10.0
 
     def prepare_operation(self):
         self.transport.send("arm_prepare")
@@ -131,9 +132,12 @@ class ArmClient:
         """Request a backend-owned named presentation pose."""
         if self.cancelled:
             raise RuntimeError("arm action cancelled")
+        self.presentation_move_seconds = float(move_seconds)
+        # Include acquisition and a possible failed-present cleanup before the
+        # bridge returns its error. Release also includes home settling/exit.
         return self.transport.send(
             "arm_present",
-            response_timeout=(self.transport.timeout + float(move_seconds)
+            response_timeout=(2.0 * (self.presentation_move_seconds + 10.0)
                               + RESPONSE_MARGIN_S),
             pose=str(pose), fraction=float(fraction),
             move_s=float(move_seconds))
@@ -141,7 +145,10 @@ class ArmClient:
     def release_presentation(self):
         """Release a named presentation without invoking a firmware action."""
         self.cancelled = True
-        return self.transport.send("arm_present_release")
+        return self.transport.send(
+            "arm_present_release",
+            response_timeout=(self.presentation_move_seconds + 10.0
+                              + RESPONSE_MARGIN_S))
 
     def release(self):
         self.interrupt()

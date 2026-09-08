@@ -1,6 +1,7 @@
 """Tests for interruptible hardware-helper process ownership."""
 
 import subprocess
+import sys
 import threading
 
 import pytest
@@ -109,27 +110,6 @@ def test_card_presentation_is_disabled_by_default():
         backend.prepare_presentation()
 
 
-def test_offline_shadow_uses_read_only_helper(monkeypatch):
-    backend = UnitreeArm("eth0", 0.1, "offline_shadow")
-    payload = '{"mode":"offline_shadow","published":false}'
-    process = FakeProcess(
-        f"SHADOW_RESULT={payload}\n", finish_immediately=True)
-    captured = {}
-
-    def popen(arguments, **kwargs):
-        captured["arguments"] = arguments
-        return process
-
-    monkeypatch.setattr(subprocess, "Popen", popen)
-    backend.prepare_operation()
-    result = backend.present("left_card_presentation", 0.25, 5.0)
-    assert result == {"mode": "offline_shadow", "published": False}
-    assert "g1_hardware_bridge.experimental.arm_shadow_helper" in \
-        captured["arguments"]
-    assert "g1_hardware_bridge.arm.action_helper" not in captured["arguments"]
-    assert backend.release_presentation()["published"] is False
-
-
 def test_arm_interrupts_normal_helper(monkeypatch):
     backend = arm()
     process = FakeProcess("ACTION_RESULT=0\n")
@@ -215,3 +195,89 @@ def test_hand_interrupt_does_not_stop_opening(monkeypatch):
     process.complete()
     worker.join(1.0)
     assert not errors
+
+
+@pytest.fixture
+def live_arm(monkeypatch):
+    """Use real pipes and process exit, but never import or initialize DDS."""
+    backend = UnitreeArm("lo", 0.1, "live")
+    real_popen = subprocess.Popen
+    processes = []
+
+    def popen(arguments, **kwargs):
+        assert "g1_hardware_bridge.arm.presentation_helper" in arguments
+        script = (
+            "import sys\n"
+            "print('PRESENTED={\"mode\":\"live\"}', flush=True)\n"
+            "assert sys.stdin.readline() == 'RELEASE\\n'\n"
+            "print('RELEASED={\"mode\":\"live\",\"released\":true}', flush=True)\n"
+        )
+        process = real_popen([sys.executable, "-c", script], **kwargs)
+        processes.append(process)
+        return process
+
+    monkeypatch.setattr(subprocess, "Popen", popen)
+    backend.prepare_presentation()
+    yield backend
+    for process in processes:
+        if process.poll() is None:
+            process.kill()
+        process.wait(timeout=2)
+
+
+def test_live_present_persists_and_release_uses_same_process(live_arm):
+    assert live_arm.present("left_card_presentation", 0.25, 5.0) == {"mode": "live"}
+    process = live_arm._active_process
+    assert process.poll() is None
+    assert live_arm.release_presentation()["released"] is True
+    assert process.poll() == 0
+    assert live_arm._active_process is None
+
+
+def test_generic_release_waits_for_card_without_firmware_action(live_arm):
+    live_arm.present("left_card_presentation", 1.0, 8.0)
+    assert live_arm.release() == 0
+    assert live_arm._active_process is None
+
+
+def test_concurrent_release_waiters_share_cleanup(live_arm):
+    live_arm.present("left_card_presentation", 1.0, 8.0)
+    workers = [run_in_thread(live_arm.release_presentation) for _ in range(2)]
+    for worker, errors in workers:
+        worker.join(2)
+        assert not worker.is_alive()
+        assert not errors
+
+
+def test_release_timeout_keeps_live_process_owned(live_arm, monkeypatch):
+    live_arm.present("left_card_presentation", 1.0, 8.0)
+    process = live_arm._active_process
+    monkeypatch.setattr(live_arm, "_request_presentation_release", lambda _: None)
+
+    def timeout(*args):
+        raise TimeoutError("simulated release timeout")
+
+    monkeypatch.setattr(live_arm, "_wait_for_marker", timeout)
+    with pytest.raises(TimeoutError):
+        live_arm.release_presentation()
+    assert live_arm._active_process is process
+    assert live_arm.has_presentation()
+    assert process.poll() is None
+    with pytest.raises(RuntimeError, match="still running"):
+        live_arm.prepare_operation()
+
+
+def test_marker_survives_immediate_exit_and_stderr_flood():
+    process = subprocess.Popen(
+        [sys.executable, "-c",
+         "import sys; sys.stderr.write('diagnostic\\n' * 10000); "
+         "print('RELEASED={\"released\":true}', flush=True)"],
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    output = unitree_arm.PresentationOutput(process)
+    try:
+        assert output.wait("RELEASED=", 3) == '{"released":true}'
+        assert process.wait(timeout=2) == 0
+    finally:
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=2)
