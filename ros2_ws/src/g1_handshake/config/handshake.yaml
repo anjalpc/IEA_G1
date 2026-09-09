@@ -4,7 +4,7 @@ event_handshake:
     action_timeout_s: 5.0
     presentation_settle_s: 0.5
     presentation_timeout_s: 15.0
-    grip_hold_s: 5.0
+    grip_hold_s: 2.0
     presentation_action_id: 27
     hand: right
     # BrainCo order: thumb, thumb_aux, index, middle, ring, pinky.

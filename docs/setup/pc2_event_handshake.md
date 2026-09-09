@@ -1,4 +1,4 @@
-# PC2 event-handshake deployment
+# PC2 interaction-stack deployment
 
 The robot uses the same reviewed Git history as development but checks out only
 the production files. Create a partial sparse clone:
@@ -15,9 +15,11 @@ git sparse-checkout set --no-cone \
   '/ros2_ws/src/g1_bringup/' \
   '/ros2_ws/src/g1_robot_interfaces/' \
   '/ros2_ws/src/g1_handshake/' \
+  '/ros2_ws/src/g1_card_presentation/' \
   '/ros2_ws/src/g1_hardware_bridge/' \
   '/scripts/build.sh' \
   '/scripts/start.sh' \
+  '/scripts/event_control.sh' \
   '/scripts/status.sh' \
   '/scripts/pc2_handshake.sh' \
   '/vendor/brainco_hand_server/'
@@ -26,8 +28,8 @@ git checkout main
 ```
 
 The PC2 working tree now contains only this guide, the restricted udev rule,
-the bringup package, the three runtime packages, four runtime scripts,
-and the BrainCo runtime. Git remembers the sparse selection for subsequent
+the bringup package, the four runtime packages, the operator scripts, and the
+BrainCo runtime. Git remembers the sparse selection for subsequent
 pulls.
 
 The supported robot checkout is:

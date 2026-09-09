@@ -94,6 +94,7 @@ def sequence(calls, states, arm=None, hand=None):
         1.2,
         set_state=states.append,
         release_dwell_s=0.0,
+        handover_dwell_s=0.0,
     )
 
 
@@ -104,8 +105,10 @@ def test_independent_full_card_cycle():
 
     assert interaction.grip() == "gripped"
     assert interaction.present() == {"mode": "simulation"}
-    assert interaction.release_card() == "card released"
-    assert interaction.retract() == "arm released"
+    assert interaction.release_card() == {
+        "hand": "card released",
+        "arm": "arm released",
+    }
 
     assert calls == [
         ("hand", "prepare"),
@@ -335,3 +338,58 @@ def test_idle_interrupt_does_not_contact_hardware():
 
     assert calls == []
     assert interaction.stop_requested.is_set()
+
+
+def test_retract_while_gripping_preserves_grip():
+    calls = []
+    states = []
+    interaction = sequence(calls, states)
+
+    interaction.grip()
+    interaction.present()
+    assert interaction.retract() == "arm released"
+
+    assert interaction.hand_gripped
+    assert not interaction.arm_prepared
+    assert not interaction.arm_presented
+    assert calls.count(("hand", "release")) == 0
+    assert calls.count(("arm", "release")) == 1
+
+    assert interaction.release_card() == {
+        "hand": "card released",
+        "arm": None,
+    }
+
+
+def test_handover_opens_then_retracts():
+    calls = []
+    states = []
+    interaction = sequence(calls, states)
+
+    interaction.grip()
+    interaction.present()
+
+    assert interaction.handover() == {
+        "hand": "card released",
+        "arm": "arm released",
+    }
+    assert calls[-2:] == [
+        ("hand", "release"),
+        ("arm", "release"),
+    ]
+    assert states[-4:] == [
+        "HANDOVER_OPENING",
+        "HANDOVER_RELEASED",
+        "RETRACTING",
+        "ARM_DOWN",
+    ]
+
+
+def test_handover_requires_gripped_presented_card():
+    interaction = sequence([], [])
+
+    with pytest.raises(
+        RuntimeError,
+        match="not gripped and presented",
+    ):
+        interaction.handover()

@@ -34,20 +34,12 @@ handshake:state)
     ros2 topic echo /event/handshake/state std_msgs/msg/String
     ;;
 
-card:grip)
-    ros2 service call /event/card/grip std_srvs/srv/Trigger "{}"
-    ;;
-
-card:release)
-    ros2 service call /event/card/release std_srvs/srv/Trigger "{}"
+card:hold)
+    ros2 service call /event/card/hold std_srvs/srv/Trigger "{}"
     ;;
 
 card:present)
     ros2 service call /event/card/present std_srvs/srv/Trigger "{}"
-    ;;
-
-card:retract)
-    ros2 service call /event/card/retract std_srvs/srv/Trigger "{}"
     ;;
 
 card:cancel)
@@ -61,7 +53,7 @@ card:state)
 *)
     echo "Usage:"
     echo "  $0 handshake {start|grip|cancel|state}"
-    echo "  $0 card {grip|release|present|retract|cancel|state}"
+    echo "  $0 card {hold|present|cancel|state}"
     exit 2
     ;;
 

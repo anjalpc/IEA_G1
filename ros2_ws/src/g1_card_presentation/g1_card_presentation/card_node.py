@@ -53,13 +53,13 @@ class CardPresentationNode(Node):
         )
 
         self.declare_parameter(
-            "released_timeout_s",
-            20.0,
+            "release_dwell_s",
+            0.5,
         )
 
         self.declare_parameter(
-            "release_dwell_s",
-            0.5,
+            "handover_dwell_s",
+            1.5,
         )
 
         self.declare_parameter(
@@ -109,16 +109,14 @@ class CardPresentationNode(Node):
             ).value
         )
 
-        self.released_timeout = float(
-            self.get_parameter(
-                "released_timeout_s"
-            ).value
-        )
-
         release_dwell = float(
             self.get_parameter(
                 "release_dwell_s"
             ).value
+        )
+
+        handover_dwell = float(
+            self.get_parameter("handover_dwell_s").value
         )
 
         if timeout <= 0.0:
@@ -147,15 +145,14 @@ class CardPresentationNode(Node):
                 "between 5 and 300"
             )
 
-        if not 5.0 <= self.released_timeout <= 60.0:
-            raise ValueError(
-                "released_timeout_s must be "
-                "between 5 and 60"
-            )
-
         if not 0.0 <= release_dwell <= 3.0:
             raise ValueError(
                 "release_dwell_s must be between 0 and 3"
+            )
+
+        if not 0.5 <= handover_dwell <= 3.0:
+            raise ValueError(
+                "handover_dwell_s must be between 0.5 and 3"
             )
 
         transport = BridgeTransport(
@@ -219,6 +216,7 @@ class CardPresentationNode(Node):
             move_seconds,
             set_state=self.set_state,
             release_dwell_s=release_dwell,
+            handover_dwell_s=handover_dwell,
         )
 
         self.publisher = self.create_publisher(
@@ -236,14 +234,8 @@ class CardPresentationNode(Node):
 
         self.create_service(
             Trigger,
-            "/event/card/grip",
-            self.grip_callback,
-        )
-
-        self.create_service(
-            Trigger,
-            "/event/card/release",
-            self.release_callback,
+            "/event/card/hold",
+            self.hold_callback,
         )
 
         self.create_service(
@@ -254,14 +246,14 @@ class CardPresentationNode(Node):
 
         self.create_service(
             Trigger,
-            "/event/card/retract",
-            self.retract_callback,
+            "/event/card/cancel",
+            self.cancel_callback,
         )
 
         self.create_service(
             Trigger,
-            "/event/card/cancel",
-            self.cancel_callback,
+            "/event/card/handover",
+            self.handover_callback,
         )
 
         self.state_timer = self.create_timer(
@@ -318,6 +310,12 @@ class CardPresentationNode(Node):
             self.hand_state = "MOVING"
 
         elif state == "CARD_RELEASED":
+            self.hand_state = "OPEN"
+
+        elif state == "HANDOVER_OPENING":
+            self.hand_state = "MOVING"
+
+        elif state == "HANDOVER_RELEASED":
             self.hand_state = "OPEN"
 
         # Arm transitions.
@@ -414,26 +412,35 @@ class CardPresentationNode(Node):
         )
 
     # ------------------------------------------------------------------
-    # Hand
+    # Dashboard toggles
     # ------------------------------------------------------------------
 
-    def grip_callback(self, request, response):
-        """Close the hand regardless of arm position."""
-
+    def hold_callback(self, request, response):
+        """Toggle the hand while preserving the requested arm behavior."""
         del request
 
-        if self.hand_state != "OPEN":
+        if self.hand_state == "OPEN":
+            command = self.sequence.grip
+            name = "hold"
+            message = "card grip accepted"
+
+        elif self.hand_state == "GRIPPED":
+            self.cancel_presentation_timer()
+            command = self.sequence.release_card
+            name = "release"
+            message = (
+                "card release and optional retraction accepted"
+            )
+
+        else:
             response.success = False
             response.message = (
-                f"cannot grip while hand state is "
+                f"cannot toggle hold while hand state is "
                 f"{self.hand_state}"
             )
             return response
 
-        if not self._start_operation(
-            self.sequence.grip,
-            "grip",
-        ):
+        if not self._start_operation(command, name):
             response.success = False
             response.message = (
                 "another card operation is running"
@@ -441,66 +448,41 @@ class CardPresentationNode(Node):
             return response
 
         response.success = True
-        response.message = "card grip accepted"
+        response.message = message
         return response
-
-    def release_callback(self, request, response):
-        """Open the hand regardless of arm position."""
-
-        del request
-
-        if self.hand_state != "GRIPPED":
-            response.success = False
-            response.message = (
-                f"cannot release while hand state is "
-                f"{self.hand_state}"
-            )
-            return response
-
-        if not self._start_operation(
-            self.sequence.release_card,
-            "release",
-        ):
-            response.success = False
-            response.message = (
-                "another card operation is running"
-            )
-            return response
-
-        response.success = True
-        response.message = "card release accepted"
-        return response
-
-    # ------------------------------------------------------------------
-    # Arm
-    # ------------------------------------------------------------------
 
     def present_callback(self, request, response):
-        """Present the arm regardless of hand state."""
-
+        """Toggle the arm without changing the hand."""
         del request
 
-        if self.arm_state != "DOWN":
+        if self.arm_state == "DOWN":
+            blocked = self.arm_start_block_reason()
+
+            if blocked is not None:
+                response.success = False
+                response.message = blocked
+                return response
+
+            command = self.sequence.present
+            name = "present"
+            message = "card presentation accepted"
+
+        elif self.arm_state == "PRESENTED":
+            command = self.sequence.retract
+            name = "lower"
+            message = "card lowering accepted"
+
+        else:
             response.success = False
             response.message = (
-                f"cannot present while arm state is "
+                f"cannot toggle presentation while arm state is "
                 f"{self.arm_state}"
             )
             return response
 
-        blocked = self.arm_start_block_reason()
-
-        if blocked is not None:
-            response.success = False
-            response.message = blocked
-            return response
-
         self.cancel_presentation_timer()
 
-        if not self._start_operation(
-            self.sequence.present,
-            "present",
-        ):
+        if not self._start_operation(command, name):
             response.success = False
             response.message = (
                 "another card operation is running"
@@ -508,36 +490,33 @@ class CardPresentationNode(Node):
             return response
 
         response.success = True
-        response.message = "card presentation accepted"
+        response.message = message
         return response
 
-    def retract_callback(self, request, response):
-        """Retract the arm regardless of hand state."""
-
+    def handover_callback(self, request, response):
+        """Accept one detected handover only while offering a held card."""
         del request
 
-        if self.arm_state != "PRESENTED":
+        if not (
+            self.hand_state == "GRIPPED"
+            and self.arm_state == "PRESENTED"
+        ):
             response.success = False
-            response.message = (
-                f"cannot retract while arm state is "
-                f"{self.arm_state}"
-            )
+            response.message = "card is not gripped and presented"
             return response
 
         self.cancel_presentation_timer()
 
         if not self._start_operation(
-            self.sequence.retract,
-            "retract",
+            self.sequence.handover,
+            "handover",
         ):
             response.success = False
-            response.message = (
-                "another card operation is running"
-            )
+            response.message = "another card operation is running"
             return response
 
         response.success = True
-        response.message = "card retraction accepted"
+        response.message = "card handover accepted"
         return response
 
     # ------------------------------------------------------------------
@@ -617,15 +596,6 @@ class CardPresentationNode(Node):
                 and not self.sequence.stop_requested.is_set()
             ):
                 self.schedule_presentation_timeout()
-
-            # If the hand is released while the arm is presented,
-            # replace the long presentation timeout with 20 seconds.
-            if (
-                name == "release"
-                and self.arm_state == "PRESENTED"
-                and not self.sequence.stop_requested.is_set()
-            ):
-                self.schedule_released_timeout()
 
         except Exception as exc:
             if self.sequence.stop_requested.is_set():
@@ -733,20 +703,6 @@ class CardPresentationNode(Node):
         self.presentation_timer = timer
         timer.start()
 
-    def schedule_released_timeout(self):
-        """Start short timeout after releasing at presented pose."""
-
-        self.cancel_presentation_timer()
-
-        timer = threading.Timer(
-            self.released_timeout,
-            self.presentation_timeout_callback,
-        )
-
-        timer.daemon = True
-        self.presentation_timer = timer
-        timer.start()
-
     def cancel_presentation_timer(self):
         timer = self.presentation_timer
         self.presentation_timer = None
@@ -755,7 +711,7 @@ class CardPresentationNode(Node):
             timer.cancel()
 
     def presentation_timeout_callback(self):
-        """Retract safely when arm presentation expires."""
+        """Lower the arm on timeout without changing the hand."""
 
         self.presentation_timer = None
 
@@ -764,10 +720,17 @@ class CardPresentationNode(Node):
 
         self.get_logger().warning(
             "card arm presentation timed out; "
-            "starting safe cleanup"
+            "lowering while preserving hand state"
         )
 
-        self._start_cleanup()
+        if not self._start_operation(
+            self.sequence.retract,
+            "timeout-lower",
+        ):
+            self.get_logger().warning(
+                "card timeout could not start lowering because "
+                "another operation is running"
+            )
 
     # ------------------------------------------------------------------
     # Utilities / shutdown

@@ -159,6 +159,7 @@ class CardPresentation:
         move_seconds,
         set_state=lambda _state: None,
         release_dwell_s=0.5,
+        handover_dwell_s=1.5,
         safe_state=None,
     ):
         self.arm = arm
@@ -169,6 +170,7 @@ class CardPresentation:
         self.move_seconds = float(move_seconds)
 
         self.set_state = set_state
+        self.handover_dwell_s = float(handover_dwell_s)
 
         self.stop_requested = threading.Event()
 
@@ -243,8 +245,7 @@ class CardPresentation:
         return result
 
     def release_card(self):
-        """Open the left hand without moving either arm."""
-
+        """Open the hand and retract afterward when presented."""
         if not self.hand_gripped:
             return "card hand is already open"
 
@@ -254,16 +255,43 @@ class CardPresentation:
             )
 
         self.set_state("RELEASING_CARD")
-
-        result = self.hand.release()
+        hand_result = self.hand.release()
 
         self.hand_gripped = False
-
         self.set_state("CARD_RELEASED")
 
-        self._maybe_finish_interaction()
+        arm_result = None
 
-        return result
+        if (
+            self.arm_presented
+            and not self.stop_requested.is_set()
+        ):
+            arm_result = self.retract()
+        else:
+            self._maybe_finish_interaction()
+
+        return {
+            "hand": hand_result,
+            "arm": arm_result,
+        }
+
+    def handover(self):
+        """Open an offered card, pause for collection, then retract."""
+        if not self.hand_gripped or not self.arm_presented:
+            raise RuntimeError("card is not gripped and presented")
+
+        self.set_state("HANDOVER_OPENING")
+        hand_result = self.hand.release()
+        self.hand_gripped = False
+        self.set_state("HANDOVER_RELEASED")
+
+        if self.stop_requested.wait(self.handover_dwell_s):
+            return "card handover stopped"
+
+        return {
+            "hand": hand_result,
+            "arm": self.retract(),
+        }
 
     def present(self):
         """Present the arm without changing the hand."""

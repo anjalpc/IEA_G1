@@ -51,7 +51,6 @@ g1_hardware_bridge/
 │   ├── depth.py          RealSense depth acquisition
 │   ├── rgb_transport.py  shared-memory RGB transport
 │   └── rgb_helper.py     isolated Unitree RGB acquisition process
-├── experimental/  disabled left-arm calibration helpers
 ├── hardware_bridge_node.py
 └── settings.py
 ```
@@ -80,11 +79,17 @@ Configuration files:
 
 ### `g1_card_presentation`
 
-Owns the separate left-hand card-holding workflow. Its verified hand target is
-kept separate from the right-hand handshake. Physical left-arm presentation
-remains disabled unless explicitly enabled and validated.
+Owns the validated left-hand card workflow. The PC2 configuration uses the
+live arm helper and the verified BrainCo left-hand target. The dashboard uses
+two toggle controls: **Hold** changes the hand between open and gripping, and
+**Present** changes the arm between down and presented without changing the
+hand. Releasing while presented automatically retracts after the hand opens;
+lowering through Present preserves the current grip.
 
-The live arm helper and pending integration checks are described in
+Its `config/card_presentation.yaml` also owns the card-handover RGB/depth
+regions, thresholds, calibration mode, and automatic-release switch.
+
+Implementation and physical validation details are described in
 [`docs/setup/card_presentation_integration.md`](docs/setup/card_presentation_integration.md).
 
 ### `g1_simulation_bridge`
@@ -95,14 +100,16 @@ as part of the physical PC2 runtime.
 
 ### `g1_bringup`
 
-Contains composition launch files only. The physical handshake launch starts
+Contains composition launch files only. The physical interaction launch starts
 and supervises these required processes:
 
 1. Unitree RGB helper;
 2. camera bridge;
 3. hardware bridge;
 4. handshake node;
-5. hand-presence node.
+5. hand-presence node;
+6. card-handover presence node;
+7. card-presentation node.
 
 If a required process exits, launch shuts down the complete stack so the
 hardware bridge can perform its guarded cleanup.
@@ -125,6 +132,10 @@ RealSense depth camera
 RGB + depth topics
   -> /hand_presence
   -> /event/handshake/grip
+
+RGB + depth topics
+  -> /card_handover_detector
+  -> /event/card/handover
 ```
 
 The depth image uses `sensor_msgs/msg/Image` with `16UC1` millimetre values.
@@ -140,6 +151,7 @@ Camera topics:
 | `/g1/camera/rgb/compressed` | `sensor_msgs/msg/CompressedImage` | Shared RGB frames |
 | `/g1/camera/depth/image_raw` | `sensor_msgs/msg/Image` | Shared depth frames in millimetres |
 | `/event/handshake/hand_presence/debug/compressed` | `sensor_msgs/msg/CompressedImage` | Annotated handshake detector view |
+| `/event/card/handover/debug/compressed` | `sensor_msgs/msg/CompressedImage` | Annotated card-handover detector view |
 
 ## Handshake workflow
 
@@ -194,8 +206,22 @@ Card-presentation API:
 
 | Type | Name | Purpose |
 | --- | --- | --- |
-| Service | `/event/card/present` | Request the left-card presentation sequence |
-| Service | `/event/card/release` | Open the left hand and release presentation state |
+| Service | `/event/card/hold` | Toggle the left hand between open and gripping |
+| Service | `/event/card/present` | Toggle the arm between down and presented without changing the hand |
+| Service | `/event/card/cancel` | Request guarded hand and arm cleanup |
+| Topic | `/event/card/state` | Hand, arm, event, bridge, and ownership state |
+
+The normal dashboard behavior is:
+
+| Current state | Hold | Present |
+| --- | --- | --- |
+| Hand open, arm down | Grip | Raise with hand open |
+| Hand gripped, arm down | Open hand | Raise while gripping |
+| Hand open, arm presented | Grip at the presented pose | Lower with hand open |
+| Hand gripped, arm presented | Open, then automatically lower | Lower while maintaining grip |
+
+Dashboard controls must be disabled while the affected subsystem is moving,
+preparing, cleaning up, unknown, or in an error state.
 
 ## ROS domains
 
@@ -366,7 +392,7 @@ a safe state.
 - Revalidate camera regions whenever the robot head or camera mounting changes.
 - Test configuration and state-machine changes in simulation before physical
   deployment.
-- Keep physical left-arm card presentation disabled until separately validated.
+- Route card arm and hand commands through the guarded hardware bridge.
 
 ## Repository layout
 

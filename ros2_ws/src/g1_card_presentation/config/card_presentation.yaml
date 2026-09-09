@@ -11,15 +11,53 @@ event_card_presentation:
     # Maximum time the robot may remain presented while still holding the card.
     presentation_timeout_s: 60.0
 
-    # After the hand opens, retract automatically if no retract command arrives.
-    released_timeout_s: 20.0
-
     # Used only during coordinated safety cleanup.
     release_dwell_s: 0.5
+
+    # Time for the recipient to secure the card before the arm retracts.
+    handover_dwell_s: 1.5
 
     hand: left
 
     # BrainCo order: thumb, thumb_aux, index, middle, ring, pinky.
     grip_target: [0.780, 1.000, 0.400, 1.000, 1.000, 1.000]
     grip_ramp_s: 1.5
-    release_ramp_s: 1.5
+    release_ramp_s: 0.5
+
+card_handover_detector:
+  ros__parameters:
+    enabled: true
+    state_topic: /event/card/state
+    trigger_service: /event/card/handover
+    rgb_topic: /g1/camera/rgb/compressed
+    depth_topic: /g1/camera/depth/image_raw
+    debug_topic: /event/card/handover/debug/compressed
+
+    poll_rate_hz: 10.0
+    rgb_stale_after_s: 0.25
+    depth_stale_after_s: 0.5
+    baseline_delay_s: 0.5
+    required_hits: 2
+    window_size: 4
+    gate_memory_s: 0.5
+    waiting_hand_required_hits: 5
+    waiting_hand_window_size: 7
+
+    # Set these by dragging boxes in the OpenCV calibration windows.
+    rgb_roi_x: 595
+    rgb_roi_y: 371
+    rgb_roi_width: 650
+    rgb_roi_height: 334
+    depth_roi_x: 73
+    depth_roi_y: 68
+    depth_roi_width: 271
+    depth_roi_height: 172
+
+    rgb_pixel_delta: 25.0
+    rgb_changed_ratio: 0.05
+    depth_approach_mm: 150.0
+    depth_max_mm: 1000.0
+    log_interval_s: 1.0
+    publish_debug_image: true
+    show_calibration_windows: false
+

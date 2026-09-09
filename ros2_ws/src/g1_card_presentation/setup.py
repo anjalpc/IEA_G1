@@ -23,6 +23,8 @@ setup(
     entry_points={
         "console_scripts": [
             "card_presentation = g1_card_presentation.card_node:main",
+            "card_handover_detector = "
+            "g1_card_presentation.handover_detector:main",
         ],
     },
 )

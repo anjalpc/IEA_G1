@@ -37,7 +37,7 @@ class HandshakeNode(Node):
         self.declare_parameter("action_timeout_s", 5.0)
         self.declare_parameter("presentation_settle_s", 2.0)
         self.declare_parameter("presentation_timeout_s", 15.0)
-        self.declare_parameter("grip_hold_s", 5.0)
+        self.declare_parameter("grip_hold_s", 2.0)
         self.declare_parameter("presentation_action_id", 27)
         self.declare_parameter("hand", "right")
         self.declare_parameter(
@@ -63,8 +63,8 @@ class HandshakeNode(Node):
             self.get_parameter("grip_ramp_s").value, "grip_ramp_s")
         release_ramp = validate_hand_ramp_seconds(
             self.get_parameter("release_ramp_s").value, "release_ramp_s")
-        if not 5.0 <= grip_hold <= 8.0:
-            raise ValueError("grip_hold_s must be between 5 and 8 seconds")
+        if not 1.0 <= grip_hold <= 8.0:
+            raise ValueError("grip_hold_s must be between 1.0 and 8 seconds")
         if not 5.0 <= presentation_timeout <= 60.0:
             raise ValueError(
                 "presentation_timeout_s must be between 5 and 60 seconds")

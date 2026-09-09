@@ -84,6 +84,14 @@ def generate_launch_description():
         parameters=[presence_configuration],
     )
 
+    card_presence_node = Node(
+        package="g1_card_presentation",
+        executable="card_handover_detector",
+        name="card_handover_detector",
+        output="screen",
+        parameters=[card_configuration],
+    )
+
     card_node = Node(
         package="g1_card_presentation",
         executable="card_presentation",
@@ -98,6 +106,7 @@ def generate_launch_description():
         (rgb_helper, "RGB helper exited"),
         (camera_bridge, "camera bridge exited"),
         (presence_node, "hand presence node exited"),
+        (card_presence_node, "card handover detector exited"),
         (card_node, "card presentation node exited"),
     ]
 
@@ -121,6 +130,7 @@ def generate_launch_description():
         hardware_node,
         handshake_node,
         presence_node,
+        card_presence_node,
         card_node,
         *shutdown_handlers,
     ])
