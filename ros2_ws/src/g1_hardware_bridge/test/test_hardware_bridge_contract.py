@@ -25,22 +25,30 @@ class HandRecorder:
 class ArmRecorder:
     """Record physical arm backend calls."""
 
-    def __init__(self, events):
+    def __init__(self, events, release_code=0):
         self.events = events
+        self.release_code = release_code
 
-    def has_presentation(self):
+    def has_motion(self):
         return False
 
     def prepare_operation(self):
+        self.events.append(("arm_prepare",))
+
+    def prepare_motion(self):
         self.events.append(("arm_prepare",))
 
     def execute(self, action_id):
         self.events.append(("arm_execute", action_id))
         return 0
 
+    def execute_motion(self, motion, execution_timeout_s):
+        self.events.append(("arm_motion", motion, execution_timeout_s))
+        return {"mode": "live"}
+
     def release(self):
         self.events.append(("arm_release",))
-        return 0
+        return self.release_code
 
 
 class Logger:
@@ -113,6 +121,8 @@ def bridge():
     instance = G1HardwareBridge.__new__(G1HardwareBridge)
     instance.hand = HandRecorder(events)
     instance.arm = ArmRecorder(events)
+    instance._arm_lease_lock = __import__("threading").Lock()
+    instance._arm_lease_client = None
     instance.safe_hand_ramp = 0.2
     instance.neutral_targets = {
         "right": [0.399, 0.399, 0.050, 0.050, 0.049, 0.050],
@@ -121,7 +131,8 @@ def bridge():
     instance._owned_hands = set()
     instance.allowed_arm_actions = {27}
     instance.arm_ownership = OwnershipRecorder()
-    instance.get_logger = lambda: Logger()
+    instance._test_logger = Logger()
+    instance.get_logger = lambda: instance._test_logger
     return instance, events
 
 
@@ -190,11 +201,36 @@ def test_arm_monitor_shutdown_cancels_timer_and_stops_process():
 
 def test_arm_execute_requires_idle_then_records_expected_action():
     instance, events = bridge()
+    instance._arm_prepare({"client_id": "client-a"})
 
-    assert instance._arm_execute({"action_id": 27}) == {"code": 0}
+    assert instance._arm_execute({
+        "client_id": "client-a", "action_id": 27}) == {"code": 0}
 
-    assert events == [("arm_execute", 27)]
+    assert events == [("arm_prepare",), ("arm_execute", 27)]
     assert instance.arm_ownership.expected == [27]
+
+
+def test_arm_motion_routes_neutral_request_unchanged():
+    """Route neutral data without introducing behavior names in the bridge."""
+    instance, events = bridge()
+    motion = {
+        "version": 1,
+        "preparation": {"left_elbow_joint": 0.978},
+        "target_offsets": {"left_elbow_joint": -0.619944},
+        "phase_seconds": [0.3, 0.9],
+        "recovery": ["preparation", "baseline"],
+        "fraction": 0.25,
+    }
+
+    instance._arm_prepare_motion({"client_id": "client-a"})
+    result = instance._arm_motion({
+        "client_id": "client-a",
+        "motion": motion,
+        "execution_timeout_s": 8.0,
+    })
+
+    assert result == {"mode": "live"}
+    assert events == [("arm_prepare",), ("arm_motion", motion, 8.0)]
 
 
 def test_external_action_blocks_prepare_and_execute():
@@ -202,8 +238,9 @@ def test_external_action_blocks_prepare_and_execute():
     instance.arm_ownership.status = ArmOwnership.EXTERNAL
 
     for command in (
-            lambda: instance._arm_prepare({}),
-            lambda: instance._arm_execute({"action_id": 27})):
+            lambda: instance._arm_prepare({"client_id": "client-a"}),
+            lambda: instance._arm_execute({
+                "client_id": "client-a", "action_id": 27})):
         try:
             command()
         except RuntimeError as exc:
@@ -214,13 +251,28 @@ def test_external_action_blocks_prepare_and_execute():
     assert events == []
 
 
-def test_owned_action_allows_prepare_for_handshake_grip():
+def test_owned_action_allows_prepare_for_existing_lease():
     instance, events = bridge()
+    instance._arm_lease_client = "client-a"
     instance.arm_ownership.status = ArmOwnership.OWNED
 
-    instance._arm_prepare({})
+    instance._arm_prepare({"client_id": "client-a"})
 
     assert events == [("arm_prepare",)]
+
+
+def test_arm_lease_rejects_a_second_client_until_release():
+    import pytest
+
+    instance, events = bridge()
+    instance._arm_prepare({"client_id": "client-a"})
+    with pytest.raises(RuntimeError, match="leased by another"):
+        instance._arm_prepare({"client_id": "client-b"})
+    instance._arm_release({"client_id": "client-a"})
+    instance._arm_prepare({"client_id": "client-b"})
+
+    assert events == [
+        ("arm_prepare",), ("arm_release",), ("arm_prepare",)]
 
 
 def test_external_action_blocks_release_action_99():
@@ -228,7 +280,7 @@ def test_external_action_blocks_release_action_99():
     instance.arm_ownership.status = ArmOwnership.EXTERNAL
 
     try:
-        instance._arm_release({})
+        instance._arm_release({"client_id": "client-a"})
     except RuntimeError as exc:
         assert "external Unitree arm action" in str(exc)
     else:
@@ -246,22 +298,35 @@ def test_shutdown_does_not_release_externally_owned_arm():
     assert events == []
 
 
+def test_shutdown_reports_nonzero_arm_release_as_incomplete():
+    instance, events = bridge()
+    errors = []
+    instance.arm.release_code = 7400
+    instance.get_logger().error = errors.append
+
+    instance.safe_shutdown()
+
+    assert events == [("arm_release",)]
+    assert len(errors) == 1
+    assert "release action returned code 7400" in errors[0]
+
+
 def test_card_prepare_and_present_reject_external_owner():
     import pytest
 
     instance, events = bridge()
     instance.arm_ownership.status = ArmOwnership.EXTERNAL
     with pytest.raises(RuntimeError, match="external Unitree arm action"):
-        instance._arm_prepare_presentation({})
+        instance._arm_prepare_motion({"client_id": "client-a"})
     with pytest.raises(RuntimeError, match="external Unitree arm action"):
-        instance._arm_present({})
+        instance._arm_motion({"client_id": "client-a"})
     assert events == []
 
 
 def test_shutdown_releases_local_card_even_if_native_monitor_unavailable():
     instance, events = bridge()
     instance.arm_ownership.status = ArmOwnership.UNAVAILABLE
-    instance.arm.has_presentation = lambda: True
-    instance.arm.release_presentation = lambda: events.append(("card_release",))
+    instance.arm.has_motion = lambda: True
+    instance.arm.release_motion = lambda: events.append(("motion_release",))
     instance.safe_shutdown()
-    assert events == [("card_release",)]
+    assert events == [("motion_release",)]

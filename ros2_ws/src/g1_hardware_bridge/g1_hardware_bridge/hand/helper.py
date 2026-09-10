@@ -2,13 +2,18 @@
 
 import argparse
 import json
+import math
 import os
 import sys
 import time
 import traceback
 
 from g1_hardware_bridge.settings import DEFAULT_SAFE_HAND_RAMP_S
-from g1_robot_interfaces.validation import validate_hand_ramp_seconds
+from g1_hardware_bridge.native_runtime import network_interface
+from g1_robot_interfaces.validation import (
+    validate_hand_ramp_seconds,
+    validate_hand_target,
+)
 
 
 JOINT_NAMES = ("thumb", "thumb_aux", "index", "middle", "ring", "pinky")
@@ -30,6 +35,11 @@ def read_state(interface, hand, timeout):
         message = subscriber.Read()
         if message is not None and len(message.states) >= 6:
             values = [float(message.states[index].q) for index in range(6)]
+            if any(
+                not math.isfinite(value) or value < -0.05 or value > 1.05
+                for value in values
+            ):
+                raise RuntimeError(f"invalid {hand} hand state: {values}")
             return {"hand": hand, "topic": topic,
                     "joints": dict(zip(JOINT_NAMES, values))}
         time.sleep(0.01)
@@ -45,13 +55,11 @@ def command_position(interface, hand, target, ramp_seconds, timeout,
     if hand not in ("left", "right"):
         raise ValueError(
             f"unsupported hand {hand!r}; expected 'left' or 'right'")
-    if target is None or len(target) != 6:
-        raise ValueError("target must contain six positions")
-    if any(value < 0.0 or value > 1.0 for value in target):
-        raise ValueError("target positions must be between 0 and 1")
+    target = validate_hand_target(target, "target")
     ramp_seconds = validate_hand_ramp_seconds(
         ramp_seconds, "ramp duration")
-    if timeout <= 0.0:
+    timeout = float(timeout)
+    if not math.isfinite(timeout) or timeout <= 0.0:
         raise ValueError("timeout must be positive")
 
     from unitree_sdk2py.core.channel import ChannelFactoryInitialize
@@ -75,7 +83,10 @@ def command_position(interface, hand, target, ramp_seconds, timeout,
         time.sleep(0.01)
     if initial is None:
         raise TimeoutError(f"no BrainCo {hand} state received within {timeout}s")
-    if any(value < -0.05 or value > 1.05 for value in initial):
+    if any(
+        not math.isfinite(value) or value < -0.05 or value > 1.05
+        for value in initial
+    ):
         raise RuntimeError(f"invalid initial hand state: {initial}")
 
     message = MotorCmds_()
@@ -89,10 +100,12 @@ def command_position(interface, hand, target, ramp_seconds, timeout,
                   for start, end in zip(initial, target)]
         for index, value in enumerate(values):
             message.cmds[index].q = float(value)
-        publisher.Write(message)
+        if publisher.Write(message) is False:
+            raise RuntimeError("BrainCo command publication failed")
         time.sleep(1.0 / 25.0)
     for _ in range(5):
-        publisher.Write(message)
+        if publisher.Write(message) is False:
+            raise RuntimeError("BrainCo command publication failed")
         time.sleep(1.0 / 25.0)
     return {"hand": hand, "initial": dict(zip(JOINT_NAMES, initial)),
             "target": dict(zip(JOINT_NAMES, target)), "commanded": True}
@@ -102,7 +115,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("command", choices=("state", "command-position"))
     parser.add_argument("--hand", choices=("left", "right"), default="right")
-    parser.add_argument("--interface", default="eth0")
+    parser.add_argument("--interface", default=network_interface())
     parser.add_argument("--timeout", type=float, default=5.0)
     parser.add_argument(
         "--ramp-seconds", type=float, default=DEFAULT_SAFE_HAND_RAMP_S)

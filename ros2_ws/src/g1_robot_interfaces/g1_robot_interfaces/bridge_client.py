@@ -1,12 +1,20 @@
 """Acknowledged backend-neutral command client for G1 applications."""
 
 import json
+import math
 import threading
 import time
 import uuid
 
 from rclpy.callback_groups import ReentrantCallbackGroup
 from std_msgs.msg import String
+
+from g1_robot_interfaces.arm_motion import validate_arm_motion
+from g1_robot_interfaces.validation import (
+    validate_hand_name,
+    validate_hand_ramp_seconds,
+    validate_hand_target,
+)
 
 
 RESPONSE_MARGIN_S = 2.0
@@ -24,7 +32,8 @@ class BridgeTransport:
     """Send correlated commands to whichever G1 bridge is running."""
 
     def __init__(self, node, timeout, bridge_name):
-        if timeout <= 0.0:
+        timeout = float(timeout)
+        if not math.isfinite(timeout) or timeout <= 0.0:
             raise ValueError("bridge timeout must be positive")
         self.timeout = timeout
         self.bridge_name = str(bridge_name)
@@ -101,15 +110,15 @@ class ArmClient:
     def __init__(self, transport):
         self.transport = transport
         self.cancelled = True
-        self.presentation_move_seconds = 10.0
+        self.motion_timeout_seconds = 10.0
 
     def prepare_operation(self):
         self.transport.send("arm_prepare")
         self.cancelled = False
 
-    def prepare_presentation(self):
-        """Require backend approval before a card workflow can move its hand."""
-        self.transport.send("arm_prepare_presentation")
+    def prepare_motion(self):
+        """Require backend approval before executing a restricted motion."""
+        self.transport.send("arm_motion_prepare")
         self.cancelled = False
 
     def interrupt(self):
@@ -128,26 +137,27 @@ class ArmClient:
         except (KeyError, TypeError, ValueError) as exc:
             raise RuntimeError("G1 bridge returned an invalid arm result") from exc
 
-    def present(self, pose, fraction, move_seconds):
-        """Request a backend-owned named presentation pose."""
+    def execute_motion(self, motion, execution_timeout_s):
+        """Submit a restricted neutral motion with an explicit watchdog."""
         if self.cancelled:
             raise RuntimeError("arm action cancelled")
-        self.presentation_move_seconds = float(move_seconds)
-        # Include acquisition and a possible failed-present cleanup before the
-        # bridge returns its error. Release also includes home settling/exit.
+        motion = validate_arm_motion(motion)
+        execution_timeout_s = float(execution_timeout_s)
+        if not math.isfinite(execution_timeout_s) or execution_timeout_s <= 0.0:
+            raise ValueError("execution_timeout_s must be finite and positive")
+        self.motion_timeout_seconds = execution_timeout_s
         return self.transport.send(
-            "arm_present",
-            response_timeout=(2.0 * (self.presentation_move_seconds + 10.0)
+            "arm_motion",
+            response_timeout=(2.0 * (self.motion_timeout_seconds + 10.0)
                               + RESPONSE_MARGIN_S),
-            pose=str(pose), fraction=float(fraction),
-            move_s=float(move_seconds))
+            motion=motion, execution_timeout_s=execution_timeout_s)
 
-    def release_presentation(self):
-        """Release a named presentation without invoking a firmware action."""
+    def release_motion(self):
+        """Recover from restricted motion and release arm authority."""
         self.cancelled = True
         return self.transport.send(
-            "arm_present_release",
-            response_timeout=(self.presentation_move_seconds + 10.0
+            "arm_motion_release",
+            response_timeout=(self.motion_timeout_seconds + 10.0
                               + RESPONSE_MARGIN_S))
 
     def release(self):
@@ -182,17 +192,21 @@ class HandClient:
     def command_position(self, hand, target, ramp_seconds):
         if self.cancelled:
             raise RuntimeError("hand command cancelled")
+        hand = validate_hand_name(hand)
+        target = validate_hand_target(target)
+        ramp_seconds = validate_hand_ramp_seconds(ramp_seconds)
         return self.transport.send(
             "hand_command",
             response_timeout=(self.transport.timeout + float(ramp_seconds)
                               + 5.0 + RESPONSE_MARGIN_S),
-            hand=str(hand), target=list(target),
-            ramp_s=float(ramp_seconds))
+            hand=hand, target=target, ramp_s=ramp_seconds)
 
     def neutral(self, hand, ramp_seconds):
+        hand = validate_hand_name(hand)
+        ramp_seconds = validate_hand_ramp_seconds(ramp_seconds)
         self.interrupt()
         return self.transport.send(
             "hand_neutral",
             response_timeout=(self.transport.timeout + float(ramp_seconds)
                               + 5.0 + RESPONSE_MARGIN_S),
-            hand=str(hand), ramp_s=float(ramp_seconds))
+            hand=hand, ramp_s=ramp_seconds)

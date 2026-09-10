@@ -1,5 +1,6 @@
 """Tests for interruptible hardware-helper process ownership."""
 
+import json
 import subprocess
 import sys
 import threading
@@ -7,8 +8,9 @@ import threading
 import pytest
 
 from g1_hardware_bridge.hand.backend import BrainCoHand
-from g1_hardware_bridge.arm import backend as unitree_arm
-from g1_hardware_bridge.arm.backend import UnitreeArm
+from g1_hardware_bridge.arm import unitree_arm
+from g1_hardware_bridge.arm.unitree_arm import UnitreeArm
+from motion_fixture import checkpoint_motion
 
 
 class FakeProcess:
@@ -104,10 +106,10 @@ def test_arm_rejects_normal_action_until_prepared(monkeypatch):
     assert backend.execute(27) == 0
 
 
-def test_card_presentation_is_disabled_by_default():
+def test_arm_motion_is_disabled_by_default():
     backend = arm()
     with pytest.raises(RuntimeError, match="disabled"):
-        backend.prepare_presentation()
+        backend.prepare_motion()
 
 
 def test_arm_interrupts_normal_helper(monkeypatch):
@@ -205,7 +207,11 @@ def live_arm(monkeypatch):
     processes = []
 
     def popen(arguments, **kwargs):
-        assert "g1_hardware_bridge.arm.presentation_helper" in arguments
+        assert "g1_hardware_bridge.arm.arm_motion_helper" in arguments
+        motion = json.loads(arguments[arguments.index('--motion-json') + 1])
+        assert motion['recovery'] == ['preparation', 'baseline']
+        assert motion['phase_seconds'] == [0.3, 0.9]
+        assert '--fraction' not in arguments
         script = (
             "import sys\n"
             "print('PRESENTED={\"mode\":\"live\"}', flush=True)\n"
@@ -217,7 +223,7 @@ def live_arm(monkeypatch):
         return process
 
     monkeypatch.setattr(subprocess, "Popen", popen)
-    backend.prepare_presentation()
+    backend.prepare_motion()
     yield backend
     for process in processes:
         if process.poll() is None:
@@ -226,23 +232,23 @@ def live_arm(monkeypatch):
 
 
 def test_live_present_persists_and_release_uses_same_process(live_arm):
-    assert live_arm.present("left_card_presentation", 0.25, 5.0) == {"mode": "live"}
+    assert live_arm.execute_motion(checkpoint_motion(0.25), 5.0) == {"mode": "live"}
     process = live_arm._active_process
     assert process.poll() is None
-    assert live_arm.release_presentation()["released"] is True
+    assert live_arm.release_motion()["released"] is True
     assert process.poll() == 0
     assert live_arm._active_process is None
 
 
 def test_generic_release_waits_for_card_without_firmware_action(live_arm):
-    live_arm.present("left_card_presentation", 1.0, 8.0)
+    live_arm.execute_motion(checkpoint_motion(), 8.0)
     assert live_arm.release() == 0
     assert live_arm._active_process is None
 
 
 def test_concurrent_release_waiters_share_cleanup(live_arm):
-    live_arm.present("left_card_presentation", 1.0, 8.0)
-    workers = [run_in_thread(live_arm.release_presentation) for _ in range(2)]
+    live_arm.execute_motion(checkpoint_motion(), 8.0)
+    workers = [run_in_thread(live_arm.release_motion) for _ in range(2)]
     for worker, errors in workers:
         worker.join(2)
         assert not worker.is_alive()
@@ -250,18 +256,18 @@ def test_concurrent_release_waiters_share_cleanup(live_arm):
 
 
 def test_release_timeout_keeps_live_process_owned(live_arm, monkeypatch):
-    live_arm.present("left_card_presentation", 1.0, 8.0)
+    live_arm.execute_motion(checkpoint_motion(), 8.0)
     process = live_arm._active_process
-    monkeypatch.setattr(live_arm, "_request_presentation_release", lambda _: None)
+    monkeypatch.setattr(live_arm, "_request_motion_release", lambda _: None)
 
     def timeout(*args):
         raise TimeoutError("simulated release timeout")
 
     monkeypatch.setattr(live_arm, "_wait_for_marker", timeout)
     with pytest.raises(TimeoutError):
-        live_arm.release_presentation()
+        live_arm.release_motion()
     assert live_arm._active_process is process
-    assert live_arm.has_presentation()
+    assert live_arm.has_motion()
     assert process.poll() is None
     with pytest.raises(RuntimeError, match="still running"):
         live_arm.prepare_operation()
@@ -273,7 +279,7 @@ def test_marker_survives_immediate_exit_and_stderr_flood():
          "import sys; sys.stderr.write('diagnostic\\n' * 10000); "
          "print('RELEASED={\"released\":true}', flush=True)"],
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    output = unitree_arm.PresentationOutput(process)
+    output = unitree_arm.ArmMotionOutput(process)
     try:
         assert output.wait("RELEASED=", 3) == '{"released":true}'
         assert process.wait(timeout=2) == 0

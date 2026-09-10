@@ -1,6 +1,7 @@
 """Guarded ROS bridge that exclusively owns physical G1 commands."""
 
 import json
+import math
 import signal
 import threading
 import time
@@ -16,10 +17,14 @@ try:
 except ImportError:  # Foxy on the robot
     SignalHandlerOptions = None
 
-from g1_hardware_bridge.arm.backend import UnitreeArm, native_dds_environment
-from g1_hardware_bridge.arm.monitor import UnitreeArmMonitor
+from g1_hardware_bridge.arm.unitree_arm import UnitreeArm
+from g1_hardware_bridge.arm.arm_state_monitor import UnitreeArmMonitor
 from g1_hardware_bridge.arm.ownership import ArmOwnership
 from g1_hardware_bridge.hand.backend import BrainCoHand
+from g1_hardware_bridge.native_runtime import (
+    native_dds_environment,
+    network_interface,
+)
 from g1_hardware_bridge.settings import (
     DEFAULT_SAFE_HAND_RAMP_S,
 )
@@ -36,13 +41,13 @@ class G1HardwareBridge(Node):
 
     def __init__(self):
         super().__init__("g1_hardware_bridge")
-        self.declare_parameter("network_interface", "eth0")
+        self.declare_parameter("network_interface", network_interface())
         self.declare_parameter("action_timeout_s", 5.0)
         self.declare_parameter("safe_hand_ramp_s", DEFAULT_SAFE_HAND_RAMP_S)
         self.declare_parameter("arm_state_stale_timeout_s", 2.0)
         self.declare_parameter("arm_idle_stable_s", 0.5)
         self.declare_parameter("allowed_arm_actions", [27])
-        self.declare_parameter("card_presentation_mode", "disabled")
+        self.declare_parameter("arm_motion_mode", "disabled")
         self.declare_parameter(
             "right_hand_neutral_target",
             [0.399, 0.399, 0.050, 0.050, 0.049, 0.050])
@@ -63,7 +68,7 @@ class G1HardwareBridge(Node):
             "left": list(self.get_parameter(
                 "left_hand_neutral_target").value),
         }
-        if timeout <= 0.0:
+        if not math.isfinite(timeout) or timeout <= 0.0:
             raise ValueError("action_timeout_s must be positive")
         if not interface.strip():
             raise ValueError("network_interface must not be empty")
@@ -72,12 +77,14 @@ class G1HardwareBridge(Node):
         for hand, target in self.neutral_targets.items():
             self.neutral_targets[hand] = validate_hand_target(
                 target, f"{hand} hand neutral")
-        self.card_presentation_mode = str(
-            self.get_parameter("card_presentation_mode").value)
+        self.arm_motion_mode = str(
+            self.get_parameter("arm_motion_mode").value)
         self.arm = UnitreeArm(
             interface, timeout,
-            self.card_presentation_mode)
+            self.arm_motion_mode)
         self.hand = BrainCoHand(interface, timeout)
+        self._arm_lease_lock = threading.Lock()
+        self._arm_lease_client = None
         self._owned_hands = set()
         stale_timeout = float(
             self.get_parameter("arm_state_stale_timeout_s").value)
@@ -95,10 +102,10 @@ class G1HardwareBridge(Node):
             0.2, self._publish_arm_ownership)
         self.server = BridgeServer(self, "hardware", {
             "arm_prepare": self._arm_prepare,
-            "arm_prepare_presentation": self._arm_prepare_presentation,
+            "arm_motion_prepare": self._arm_prepare_motion,
             "arm_execute": self._arm_execute,
-            "arm_present": self._arm_present,
-            "arm_present_release": self._arm_present_release,
+            "arm_motion": self._arm_motion,
+            "arm_motion_release": self._arm_motion_release,
             "arm_interrupt": self._arm_interrupt,
             "arm_release": self._arm_release,
             "hand_prepare": self._hand_prepare,
@@ -129,26 +136,67 @@ class G1HardwareBridge(Node):
     def _request_hand(request):
         return validate_hand_name(request["hand"])
 
-    def _arm_prepare(self, request):
-        del request
-        state = self.arm_ownership.snapshot()
-        if state["status"] not in (
-                ArmOwnership.IDLE, ArmOwnership.OWNED):
-            raise RuntimeError(ArmOwnership.block_reason(state))
-        prepare = getattr(self.arm, "prepare_operation", None)
-        if prepare is not None:
-            prepare()
+    def _acquire_arm_lease(self, request, allow_owned=False):
+        """Atomically admit one bridge client for a complete arm operation."""
+        client_id = str(request["client_id"])
+        with self._arm_lease_lock:
+            if self._arm_lease_client not in (None, client_id):
+                raise RuntimeError("arm is leased by another bridge client")
+            state = self.arm_ownership.snapshot()
+            accepted = (ArmOwnership.IDLE,)
+            if allow_owned and self._arm_lease_client == client_id:
+                accepted = (ArmOwnership.IDLE, ArmOwnership.OWNED)
+            if state["status"] not in accepted:
+                raise RuntimeError(ArmOwnership.block_reason(state))
+            self._arm_lease_client = client_id
+        return client_id
 
-    def _arm_prepare_presentation(self, request):
-        del request
-        self.arm_ownership.require_available()
-        self.arm.prepare_presentation()
+    def _require_arm_lease(self, request):
+        client_id = str(request["client_id"])
+        with self._arm_lease_lock:
+            if self._arm_lease_client != client_id:
+                state = self.arm_ownership.snapshot()
+                if state["status"] not in (
+                        ArmOwnership.IDLE, ArmOwnership.OWNED):
+                    raise RuntimeError(ArmOwnership.block_reason(state))
+                raise RuntimeError("arm operation requires this client's lease")
+            state = self.arm_ownership.snapshot()
+            if state["status"] not in (
+                    ArmOwnership.IDLE, ArmOwnership.OWNED) and not (
+                        state["status"] == ArmOwnership.UNAVAILABLE
+                        and self.arm.has_motion()
+                    ):
+                raise RuntimeError(ArmOwnership.block_reason(state))
+        return client_id
+
+    def _release_arm_lease(self, client_id=None):
+        with self._arm_lease_lock:
+            if client_id is None or self._arm_lease_client == client_id:
+                self._arm_lease_client = None
+
+    def _arm_prepare(self, request):
+        client_id = self._acquire_arm_lease(request, allow_owned=True)
+        prepare = getattr(self.arm, "prepare_operation", None)
+        try:
+            if prepare is not None:
+                prepare()
+        except Exception:
+            self._release_arm_lease(client_id)
+            raise
+
+    def _arm_prepare_motion(self, request):
+        client_id = self._acquire_arm_lease(request)
+        try:
+            self.arm.prepare_motion()
+        except Exception:
+            self._release_arm_lease(client_id)
+            raise
 
     def _arm_execute(self, request):
+        self._require_arm_lease(request)
         action_id = int(request["action_id"])
         if action_id not in self.allowed_arm_actions:
             raise ValueError(f"arm action {action_id} is not allowed")
-        self.arm_ownership.require_available()
         self.arm_ownership.expect(action_id)
         try:
             return {"code": self.arm.execute(action_id)}
@@ -156,32 +204,32 @@ class G1HardwareBridge(Node):
             self.arm_ownership.clear_expectation(action_id)
             raise
 
-    def _arm_present(self, request):
-        self.arm_ownership.require_available()
-        return self.arm.present(
-            str(request["pose"]), float(request["fraction"]),
-            float(request["move_s"]))
+    def _arm_motion(self, request):
+        self._require_arm_lease(request)
+        return self.arm.execute_motion(
+            request["motion"], float(request["execution_timeout_s"]))
 
-    def _arm_present_release(self, request):
-        del request
-        return self.arm.release_presentation()
+    def _arm_motion_release(self, request):
+        client_id = self._require_arm_lease(request)
+        try:
+            return self.arm.release_motion()
+        finally:
+            self._release_arm_lease(client_id)
 
     def _arm_interrupt(self, request):
-        del request
+        self._require_arm_lease(request)
         self.arm.interrupt()
 
     def _arm_release(self, request):
-        del request
-        state = self.arm_ownership.snapshot()
-        if state["status"] not in (
-                ArmOwnership.IDLE, ArmOwnership.OWNED):
-            raise RuntimeError(ArmOwnership.block_reason(state))
+        client_id = self._require_arm_lease(request)
         self.arm_ownership.expect(UnitreeArm.RELEASE_ACTION)
         try:
             return {"code": self.arm.release()}
         except Exception:
             self.arm_ownership.clear_expectation(UnitreeArm.RELEASE_ACTION)
             raise
+        finally:
+            self._release_arm_lease(client_id)
 
     def _hand_prepare(self, request):
         del request
@@ -221,11 +269,15 @@ class G1HardwareBridge(Node):
             for hand in sorted(self._owned_hands)
         ]
         ownership = getattr(self, "arm_ownership", None)
-        if self.arm.has_presentation():
-            commands.append(("arm presentation", self.arm.release_presentation))
+        if self.arm.has_motion():
+            commands.append(("arm motion", self.arm.release_motion))
         elif ownership is None or ownership.snapshot()["status"] in (
                 ArmOwnership.IDLE, ArmOwnership.OWNED):
-            commands.append(("arm", self.arm.release))
+            def release_arm():
+                code = self.arm.release()
+                if code != 0:
+                    raise RuntimeError(f"release action returned code {code}")
+            commands.append(("arm", release_arm))
         else:
             self.get_logger().warning(
                 "safe shutdown yielded arm release to external or "
@@ -247,6 +299,7 @@ class G1HardwareBridge(Node):
                 "physical bridge safe shutdown complete in "
                 f"{elapsed:.3f}s"
             )
+        self._release_arm_lease()
 
 
 def main(args=None):

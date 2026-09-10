@@ -6,13 +6,13 @@ ros2_humble:
   image: ros:humble-ros-base-jammy
   before_script:
     - apt-get update
-    - apt-get install -y --no-install-recommends python3-colcon-common-extensions python3-pytest
+    - apt-get install -y --no-install-recommends python3-colcon-common-extensions python3-pytest python3-yaml python3-opencv
   script:
     - source /opt/ros/humble/setup.bash
     - cd ros2_ws
-    - colcon build --packages-select g1_robot_interfaces g1_handshake g1_hardware_bridge g1_simulation_bridge
+    - colcon build --packages-select g1_robot_interfaces g1_card_presentation g1_handshake g1_hardware_bridge g1_simulation_bridge
     - source install/setup.bash
-    - colcon test --packages-select g1_robot_interfaces g1_handshake g1_hardware_bridge g1_simulation_bridge --event-handlers console_direct+
+    - colcon test --packages-select g1_robot_interfaces g1_card_presentation g1_handshake g1_hardware_bridge g1_simulation_bridge --event-handlers console_direct+
     - colcon test-result --verbose
 
 ros2_foxy:
@@ -20,13 +20,13 @@ ros2_foxy:
   image: ros:foxy-ros-base-focal
   before_script:
     - apt-get update
-    - apt-get install -y --no-install-recommends python3-colcon-common-extensions python3-pytest
+    - apt-get install -y --no-install-recommends python3-colcon-common-extensions python3-pytest python3-yaml python3-opencv
   script:
     - source /opt/ros/foxy/setup.bash
     - cd ros2_ws
-    - colcon build --packages-select g1_robot_interfaces g1_handshake g1_hardware_bridge
+    - colcon build --packages-select g1_robot_interfaces g1_card_presentation g1_handshake g1_hardware_bridge
     - source install/setup.bash
-    - colcon test --packages-select g1_robot_interfaces g1_handshake g1_hardware_bridge --event-handlers console_direct+
+    - colcon test --packages-select g1_robot_interfaces g1_card_presentation g1_handshake g1_hardware_bridge --event-handlers console_direct+
     - colcon test-result --verbose
 
 simulation_gate:

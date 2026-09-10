@@ -2,6 +2,7 @@
 
 import threading
 import time
+import math
 
 
 class ArmOwnership:
@@ -14,12 +15,14 @@ class ArmOwnership:
 
     def __init__(self, stale_timeout_s=2.0, idle_stable_s=0.5,
                  monotonic=time.monotonic):
-        if stale_timeout_s <= 0.0:
+        stale_timeout_s = float(stale_timeout_s)
+        idle_stable_s = float(idle_stable_s)
+        if not math.isfinite(stale_timeout_s) or stale_timeout_s <= 0.0:
             raise ValueError("stale_timeout_s must be positive")
-        if idle_stable_s < 0.0:
+        if not math.isfinite(idle_stable_s) or idle_stable_s < 0.0:
             raise ValueError("idle_stable_s must not be negative")
-        self.stale_timeout_s = float(stale_timeout_s)
-        self.idle_stable_s = float(idle_stable_s)
+        self.stale_timeout_s = stale_timeout_s
+        self.idle_stable_s = idle_stable_s
         self.monotonic = monotonic
         self._lock = threading.Lock()
         self._expected = None

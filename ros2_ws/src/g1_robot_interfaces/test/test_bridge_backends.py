@@ -35,26 +35,6 @@ def test_arm_uses_only_backend_neutral_operations():
         "arm_prepare", "arm_execute", "arm_interrupt", "arm_release"]
 
 
-def test_arm_named_presentation_uses_backend_owned_pose():
-    transport = TransportRecorder()
-    backend = ArmClient(transport)
-    backend.prepare_presentation()
-    backend.present("left_card_presentation", 0.25, 5.0)
-    backend.release_presentation()
-    assert transport.commands[0] == ("arm_prepare_presentation", {})
-    assert transport.commands[1] == (
-        "arm_present",
-        {
-            "response_timeout": 32.0,
-            "pose": "left_card_presentation",
-            "fraction": 0.25,
-            "move_s": 5.0,
-        },
-    )
-    assert transport.commands[2] == (
-        "arm_present_release", {"response_timeout": 17.0})
-
-
 def test_hand_uses_only_backend_neutral_operations():
     transport = TransportRecorder()
     backend = HandClient(transport)
@@ -81,6 +61,50 @@ def test_hand_uses_only_backend_neutral_operations():
             "ramp_s": 0.2,
         },
     )
+
+
+def test_restricted_motion_keeps_legacy_watchdog_deadlines():
+    from g1_robot_interfaces.arm_motion import ARM_JOINT_NAMES
+    motion = {
+        'version': 1, 'preparation': dict.fromkeys(ARM_JOINT_NAMES, 0.0),
+        'target_offsets': dict.fromkeys(ARM_JOINT_NAMES[:7], 0.0),
+        'phase_seconds': [0.3, 0.9], 'recovery': ['preparation', 'baseline'],
+        'fraction': 0.25,
+    }
+    transport = TransportRecorder()
+    arm = ArmClient(transport)
+    arm.prepare_motion()
+    arm.execute_motion(motion, 5.0)
+    arm.release_motion()
+    assert transport.commands[1] == ('arm_motion', {
+        'motion': motion, 'execution_timeout_s': 5.0,
+        'response_timeout': 32.0})
+    assert transport.commands[2] == (
+        'arm_motion_release', {'response_timeout': 17.0})
+
+
+@pytest.mark.parametrize(
+    'execution_timeout_s',
+    [0.0, -1.0, float('nan'), float('inf'), float('-inf')],
+)
+def test_restricted_motion_rejects_invalid_compatibility_timeout(
+        execution_timeout_s):
+    """Reject invalid watchdog arithmetic before publishing a request."""
+    from g1_robot_interfaces.arm_motion import ARM_JOINT_NAMES
+    motion = {
+        'version': 1,
+        'preparation': dict.fromkeys(ARM_JOINT_NAMES, 0.0),
+        'target_offsets': dict.fromkeys(ARM_JOINT_NAMES[:7], 0.0),
+        'phase_seconds': [0.3, 0.9],
+        'recovery': ['preparation', 'baseline'],
+        'fraction': 0.25,
+    }
+    transport = TransportRecorder()
+    arm = ArmClient(transport)
+    arm.prepare_motion()
+    with pytest.raises(ValueError, match='finite and positive'):
+        arm.execute_motion(motion, execution_timeout_s)
+    assert transport.commands == [('arm_motion_prepare', {})]
 
 
 def test_arm_preserves_nonzero_action_result():
@@ -155,3 +179,11 @@ def test_validates_hand_target_and_ramp_limits():
         validate_hand_target([0.2] * 5 + [1.1])
     with pytest.raises(ValueError):
         validate_hand_ramp_seconds(0.19)
+
+
+def test_rejects_nonfinite_hand_values():
+    for value in (float("nan"), float("inf"), float("-inf")):
+        with pytest.raises(ValueError):
+            validate_hand_target([0.2] * 5 + [value])
+        with pytest.raises(ValueError):
+            validate_hand_ramp_seconds(value)

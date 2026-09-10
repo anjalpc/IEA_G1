@@ -65,7 +65,7 @@ they do not initialize DDS or publish robot commands:
 
 ```bash
 python3 -c "import unitree_sdk2py"
-python3 -c "from g1_hardware_bridge.arm.presentation_helper import PresentationController; print('imports OK')"
+python3 -c "from g1_hardware_bridge.arm.arm_motion_helper import ArmMotionController; print('imports OK')"
 python3 -c "from unitree_sdk2py.utils.crc import CRC; from unitree_sdk2py.idl.default import unitree_hg_msg_dds__LowCmd_; print('SDK CRC OK:', CRC().Crc(unitree_hg_msg_dds__LowCmd_()))"
 ```
 
@@ -83,8 +83,8 @@ Inside the container:
 cd ros2_ws
 colcon build --symlink-install
 source install/setup.bash
-colcon test --packages-select g1_robot_interfaces g1_handshake \
-  g1_hardware_bridge g1_simulation_bridge \
+colcon test --packages-select g1_robot_interfaces g1_card_presentation \
+  g1_handshake g1_hardware_bridge g1_simulation_bridge \
   --event-handlers console_direct+
 colcon test-result --verbose
 cd ..

@@ -156,7 +156,7 @@ class CardPresentation:
         hand,
         pose,
         fraction,
-        move_seconds,
+        execution_timeout_s,
         set_state=lambda _state: None,
         release_dwell_s=0.5,
         handover_dwell_s=1.5,
@@ -167,7 +167,7 @@ class CardPresentation:
 
         self.pose = str(pose)
         self.fraction = float(fraction)
-        self.move_seconds = float(move_seconds)
+        self.execution_timeout_s = float(execution_timeout_s)
 
         self.set_state = set_state
         self.handover_dwell_s = float(handover_dwell_s)
@@ -317,7 +317,7 @@ class CardPresentation:
         result = self.arm.present(
             self.pose,
             self.fraction,
-            self.move_seconds,
+            self.execution_timeout_s,
         )
 
         if self.stop_requested.is_set():

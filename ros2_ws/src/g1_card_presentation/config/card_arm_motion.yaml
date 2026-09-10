@@ -1,0 +1,9 @@
+# Checkpoint ff44390: measured Unitree Action-27 recipe, not hardware limits.
+# Joint order within each side: shoulder pitch/roll/yaw, elbow, wrist roll/pitch/yaw.
+right_rest: [0.239587, -0.270012, 0.079531, 0.802344, -0.004820, 0.007794, 0.003641]
+right_action27: [-0.108721, -0.063594, 0.094819, 0.182400, 0.159618, -0.339249, -0.061755]
+mirror_sign: [1.0, -1.0, -1.0, 1.0, -1.0, 1.0, -1.0]
+left_companion: [0.286, 0.218, -0.009, 0.978, 0.144, 0.006, -0.004]
+right_companion: [0.286, -0.218, 0.009, 0.978, -0.144, 0.006, 0.004]
+phase_seconds: [0.30, 0.90]
+recovery: [preparation, baseline]

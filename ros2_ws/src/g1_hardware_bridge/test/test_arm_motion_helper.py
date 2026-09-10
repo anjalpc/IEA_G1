@@ -1,4 +1,4 @@
-"""Offline controller regressions with DDS replaced by deterministic doubles."""
+"""Offline arm-motion regressions with DDS replaced by deterministic doubles."""
 
 import copy
 import os
@@ -6,7 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from g1_hardware_bridge.arm import presentation_helper as helper
+from g1_hardware_bridge.arm import arm_motion_helper as helper
+from motion_fixture import checkpoint_motion, LEFT_COMPANION, RIGHT_COMPANION
 
 
 @pytest.fixture
@@ -43,7 +44,7 @@ def controller(monkeypatch):
     monkeypatch.setattr(helper, 'ChannelSubscriber', Subscriber)
     monkeypatch.setattr(helper, 'ChannelPublisher', Publisher)
     monkeypatch.setattr(helper.time, 'monotonic', lambda: clock.now)
-    instance = helper.PresentationController('lo', 1.0, 1.2)
+    instance = helper.ArmMotionController('lo', checkpoint_motion())
     monkeypatch.setattr(instance, 'poll_release', lambda: instance.release_requested)
 
     def sleep(seconds):
@@ -127,8 +128,8 @@ def test_cancel_during_outward_motion_retracts(controller, capsys):
     cancel_at = (
         helper.ACQUIRE_TIME
         + helper.SETTLE_TIME
-        + helper.PREPARE_TIME
-        + helper.EXTEND_TIME / 2
+        + 0.30
+        + 0.90 / 2
     )
     controller.test_clock.on_sleep = lambda: (
         controller.request_release()
@@ -176,7 +177,7 @@ def test_stdin_release_and_parent_eof(controller, monkeypatch, chunk):
         if chunk:
             os.write(write_fd, chunk)
         os.close(write_fd)
-        assert helper.PresentationController.poll_release(controller)
+        assert helper.ArmMotionController.poll_release(controller)
 
 
 def test_partial_command_does_not_block_publishing(controller, monkeypatch):
@@ -185,9 +186,9 @@ def test_partial_command_does_not_block_publishing(controller, monkeypatch):
         with os.fdopen(read_fd, 'r') as stream:
             monkeypatch.setattr(helper.sys, 'stdin', stream)
             os.write(write_fd, b'REL')
-            assert not helper.PresentationController.poll_release(controller)
+            assert not helper.ArmMotionController.poll_release(controller)
             os.write(write_fd, b'EASE\n')
-            assert helper.PresentationController.poll_release(controller)
+            assert helper.ArmMotionController.poll_release(controller)
     finally:
         os.close(write_fd)
 
@@ -198,22 +199,22 @@ def arm_pose(command, joints):
 
 @pytest.mark.parametrize('duration', [1.2, 4.0])
 def test_bilateral_phases_and_reverse_timing(controller, duration):
-    controller.move_seconds = duration
+    controller.trajectory_duration = duration
     controller.prepare_seconds = duration / 4
     controller.extend_seconds = duration * 3 / 4
     assert controller.acquire()
     start = controller.test_clock.now
     offset = len(controller.test_commands)
-    assert controller.move_to_presentation()
+    assert controller.execute_outward_motion()
     assert controller.test_clock.now - start == pytest.approx(duration)
     companion_time = start + duration / 4
     for t, cmd in zip(controller.test_times[offset:], controller.test_commands[offset:]):
         for j in range(15):
             assert cmd.motor_cmd[j].q == controller.q_start[j]
         if t >= companion_time:
-            assert arm_pose(cmd, helper.RIGHT_IDS) == pytest.approx(helper.RIGHT_COMPANION)
+            assert arm_pose(cmd, helper.RIGHT_IDS) == pytest.approx(RIGHT_COMPANION)
         if t == pytest.approx(companion_time):
-            assert arm_pose(cmd, helper.LEFT_IDS) == pytest.approx(helper.LEFT_COMPANION)
+            assert arm_pose(cmd, helper.LEFT_IDS) == pytest.approx(LEFT_COMPANION)
     target = controller.target()
     assert arm_pose(controller.cmd, helper.LEFT_IDS) == pytest.approx(
         [target[j] for j in helper.LEFT_IDS])
@@ -230,9 +231,9 @@ def test_bilateral_phases_and_reverse_timing(controller, duration):
     assert first.motor_cmd[15].q == pytest.approx(target[15] + 0.01)
     for t, cmd in zip(controller.test_times[offset:], controller.test_commands[offset:]):
         if t <= start + duration * 3 / 4:
-            assert arm_pose(cmd, helper.RIGHT_IDS) == pytest.approx(helper.RIGHT_COMPANION)
+            assert arm_pose(cmd, helper.RIGHT_IDS) == pytest.approx(RIGHT_COMPANION)
         if t == pytest.approx(start + duration * 3 / 4):
-            assert arm_pose(cmd, helper.LEFT_IDS) == pytest.approx(helper.LEFT_COMPANION)
+            assert arm_pose(cmd, helper.LEFT_IDS) == pytest.approx(LEFT_COMPANION)
         if t >= start + duration:
             assert arm_pose(cmd, range(29)) == pytest.approx(list(controller.q_start.values()))
         if t < start + duration + helper.HOME_SETTLE_TIME:
@@ -246,7 +247,7 @@ def test_release_in_each_phase_uses_correct_reverse_sequence(controller, elapsed
     start = controller.test_clock.now
     controller.test_clock.on_sleep = lambda: (
         controller.request_release() if controller.test_clock.now >= start + elapsed else None)
-    assert not controller.move_to_presentation()
+    assert not controller.execute_outward_motion()
     assert controller.extension_started == (elapsed > 0.3)
     start = controller.test_clock.now
     controller.return_home()
@@ -258,26 +259,18 @@ def test_release_in_each_phase_uses_correct_reverse_sequence(controller, elapsed
 def test_fraction_scales_both_companions_and_preserves_card_delta(controller):
     assert controller.acquire()
     controller.fraction = 0.25
-    for joints, pose in ((helper.LEFT_IDS, helper.LEFT_COMPANION),
-                         (helper.RIGHT_IDS, helper.RIGHT_COMPANION)):
+    for joints, pose in ((helper.LEFT_IDS, LEFT_COMPANION),
+                         (helper.RIGHT_IDS, RIGHT_COMPANION)):
         for j, q in zip(joints, pose):
             assert controller.companion()[j] == pytest.approx(
                 controller.q_start[j] + 0.25 * (q - controller.q_start[j]))
-    for j, delta in zip(helper.LEFT_IDS, controller.left_delta):
+    for j, delta in zip(helper.LEFT_IDS, controller.motion['target_offsets'].values()):
         assert controller.target()[j] == pytest.approx(controller.q_start[j] + 0.25 * delta)
 
 
-@pytest.mark.parametrize('duration', [0.0, -1.0])
-def test_rejects_nonpositive_duration(controller, duration):
-    with pytest.raises(ValueError, match='move_seconds'):
-        helper.PresentationController('lo', 1.0, duration)
-
-
-@pytest.mark.parametrize('duration', [1.2, 4.0, 10.1, float('nan')])
-def test_legacy_duration_does_not_change_fixed_physical_timing(
-        controller, duration):
-    instance = helper.PresentationController('lo', 1.0, duration)
-    assert instance.prepare_seconds == helper.PREPARE_TIME
-    assert instance.extend_seconds == helper.EXTEND_TIME
-    assert instance.move_seconds == pytest.approx(
-        helper.PREPARE_TIME + helper.EXTEND_TIME)
+def test_trajectory_duration_comes_from_motion_phases(controller):
+    instance = helper.ArmMotionController('lo', checkpoint_motion())
+    assert instance.prepare_seconds == 0.30
+    assert instance.extend_seconds == 0.90
+    assert instance.trajectory_duration == pytest.approx(
+        0.30 + 0.90)

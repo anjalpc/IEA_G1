@@ -28,13 +28,13 @@ class Recorder:
         self.calls.append((self.name, "grip"))
         return "gripped"
 
-    def present(self, pose, fraction, move_seconds):
+    def present(self, pose, fraction, execution_timeout_s):
         self.calls.append((
             self.name,
             "present",
             pose,
             fraction,
-            move_seconds,
+            execution_timeout_s,
         ))
         return {"mode": "simulation"}
 

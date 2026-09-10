@@ -6,7 +6,7 @@ event_card_presentation:
     motion_fraction: 1.0
 
     # Total visible motion: 0.30 s bilateral preparation + 0.90 s extension.
-    move_seconds: 1.2
+    execution_timeout_s: 1.2
 
     # Maximum time the robot may remain presented while still holding the card.
     presentation_timeout_s: 60.0
@@ -60,4 +60,3 @@ card_handover_detector:
     log_interval_s: 1.0
     publish_debug_image: true
     show_calibration_windows: false
-

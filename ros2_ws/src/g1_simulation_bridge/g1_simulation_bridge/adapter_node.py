@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import math
 import os
 from pathlib import Path
 import signal
@@ -12,6 +13,7 @@ import time
 import rclpy
 from rclpy.node import Node
 from g1_robot_interfaces.bridge_server import BridgeServer
+from g1_robot_interfaces.arm_motion import validate_arm_motion
 from g1_robot_interfaces.validation import (
     validate_hand_name,
     validate_hand_ramp_seconds,
@@ -69,10 +71,10 @@ class G1SimulationAdapter(Node):
                 target, f"{hand} hand neutral")
         self.server = BridgeServer(self, "simulation", {
             "arm_prepare": self._prepare,
-            "arm_prepare_presentation": self._prepare,
+            "arm_motion_prepare": self._prepare,
             "arm_execute": self._arm_execute,
-            "arm_present": self._arm_present,
-            "arm_present_release": self._arm_present_release,
+            "arm_motion": self._arm_motion,
+            "arm_motion_release": self._arm_motion_release,
             "arm_interrupt": self._arm_interrupt,
             "arm_release": self._arm_release,
             "hand_prepare": self._prepare,
@@ -92,29 +94,26 @@ class G1SimulationAdapter(Node):
         self.controls.set_arm(action_id, f"ros:arm:{action_id}")
         return {"code": 0}
 
-    def _arm_present(self, request):
-        pose = str(request["pose"])
-        fraction = float(request["fraction"])
-        move_seconds = float(request["move_s"])
-        if pose != "left_card_presentation":
-            raise ValueError("unsupported arm presentation pose")
-        if not 0.0 < fraction <= 1.0:
-            raise ValueError("presentation fraction must be between 0 and 1")
-        if not 2.0 <= move_seconds <= 10.0:
-            raise ValueError("presentation duration must be between 2 and 10")
-        self.controls.set_card_arm(pose, fraction, move_seconds)
-        return {"mode": "simulation", "pose": pose}
-
     def _arm_interrupt(self, request):
         del request
         return None
+
+    def _arm_motion(self, request):
+        """Accept the restricted neutral arm motion contract."""
+        motion = validate_arm_motion(request['motion'])
+        execution_timeout_s = float(request['execution_timeout_s'])
+        if not math.isfinite(execution_timeout_s) or execution_timeout_s <= 0.0:
+            raise ValueError('execution_timeout_s must be finite and positive')
+        self.controls.set_arm_motion(motion)
+        return {'mode': 'simulation',
+                'trajectory_duration': sum(motion['phase_seconds'])}
 
     def _arm_release(self, request):
         del request
         self.controls.set_arm(99, "ros:arm:99")
         return {"code": 0}
 
-    def _arm_present_release(self, request):
+    def _arm_motion_release(self, request):
         del request
         self.controls.set_arm(99, "ros:card-arm:release")
         return {"mode": "simulation", "released": True}

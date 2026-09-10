@@ -1,4 +1,4 @@
-"""Persistent physical left-card presentation over Unitree rt/arm_sdk."""
+"""Restricted two-phase physical arm execution over Unitree rt/arm_sdk."""
 
 import argparse
 import json
@@ -19,61 +19,13 @@ from unitree_sdk2py.idl.default import unitree_hg_msg_dds__LowCmd_
 from unitree_sdk2py.idl.unitree_hg.msg.dds_ import LowCmd_, LowState_
 from unitree_sdk2py.utils.crc import CRC
 
+from g1_robot_interfaces.arm_motion import ARM_JOINT_NAMES, resolve_arm_motion
+from g1_hardware_bridge.arm.unitree_arm import validate_motion_envelope
+
 
 PRESENTED_PREFIX = "PRESENTED="
 RELEASED_PREFIX = "RELEASED="
 
-
-RIGHT_REST = [
-    +0.239587,
-    -0.270012,
-    +0.079531,
-    +0.802344,
-    -0.004820,
-    +0.007794,
-    +0.003641,
-]
-
-RIGHT_ACTION27 = [
-    -0.108721,
-    -0.063594,
-    +0.094819,
-    +0.182400,
-    +0.159618,
-    -0.339249,
-    -0.061755,
-]
-
-MIRROR_SIGN = [
-    +1.0,   # shoulder pitch
-    -1.0,   # shoulder roll
-    -1.0,   # shoulder yaw
-    +1.0,   # elbow
-    -1.0,   # wrist roll
-    +1.0,   # wrist pitch
-    -1.0,   # wrist yaw
-]
-
-# Measured from Unitree Action 27 bilateral preparation/companion posture.
-LEFT_COMPANION = [
-    +0.286,
-    +0.218,
-    -0.009,
-    +0.978,
-    +0.144,
-    +0.006,
-    -0.004,
-]
-
-RIGHT_COMPANION = [
-    +0.286,
-    -0.218,
-    +0.009,
-    +0.978,
-    -0.144,
-    +0.006,
-    +0.004,
-]
 
 LEFT_IDS = list(range(15, 22))
 RIGHT_IDS = list(range(22, 29))
@@ -94,12 +46,6 @@ KD_WRIST = 1.5
 # Fast authority transition.
 ACQUIRE_TIME = 0.30
 SETTLE_TIME = 0.05
-
-# Measured Unitree-style visible choreography:
-# ~0.30 s bilateral preparation
-# ~0.90 s performing-arm extension
-PREPARE_TIME = 0.30
-EXTEND_TIME = 0.90
 
 # Fast return / hand-back to Unitree controller.
 HOME_SETTLE_TIME = 0.05
@@ -126,55 +72,20 @@ def smoothstep5(value):
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("interface")
-    parser.add_argument(
-        "--fraction",
-        type=float,
-        default=1.0,
-    )
-    parser.add_argument(
-        "--move-seconds",
-        type=float,
-        default=1.2,
-    )
+    parser.add_argument("--motion-json", required=True)
     return parser.parse_args()
 
 
-class PresentationController:
+class ArmMotionController:
 
-    def __init__(self, interface, fraction, move_seconds):
-        if not 0.0 < fraction <= 1.0:
-            raise ValueError("fraction must be between 0 and 1")
-
-        # Keep accepting the legacy backend argument for API compatibility.
-        # Physical timing is now fixed to the measured Unitree choreography.
-        if move_seconds <= 0.0:
-            raise ValueError("move_seconds must be positive")
-
+    def __init__(self, interface, motion):
+        # Validate before DDS initialization or acquisition of authority.
+        self.motion = validate_motion_envelope(motion)
         self.interface = interface
-        self.fraction = fraction
-
-        # Do not derive physical timing from the legacy caller value anymore.
-        self.prepare_seconds = PREPARE_TIME
-        self.extend_seconds = EXTEND_TIME
-        self.move_seconds = self.prepare_seconds + self.extend_seconds
-
+        self.fraction = self.motion['fraction']
+        self.prepare_seconds, self.extend_seconds = self.motion['phase_seconds']
+        self.trajectory_duration = self.prepare_seconds + self.extend_seconds
         self.extension_started = False
-
-        right_delta = [
-            action - rest
-            for action, rest in zip(
-                RIGHT_ACTION27,
-                RIGHT_REST,
-            )
-        ]
-
-        self.left_delta = [
-            sign * delta
-            for sign, delta in zip(
-                MIRROR_SIGN,
-                right_delta,
-            )
-        ]
 
         self.release_requested = False
         self.state = None
@@ -457,51 +368,28 @@ class PresentationController:
             for joint in (12, 13, 14)
         }
 
+    def _waypoints(self):
+        # Resolve only from the actual post-acquisition baseline. No behavior
+        # process or configuration file is needed once this worker starts.
+        baseline = {name: self.q_start[index]
+                    for name, index in zip(ARM_JOINT_NAMES, range(15, 29))}
+        motion = dict(self.motion, fraction=self.fraction)
+        return resolve_arm_motion(motion, baseline)
+
     def companion(self):
-        """
-        Return the bilateral preparation/companion posture.
-
-        fraction scales the complete gesture for staged
-        physical validation.
-        """
+        """Resolve the request's first waypoint (historical method name)."""
+        preparation, _target = self._waypoints()
         result = dict(self.q_start)
-
-        for joints, pose in (
-            (LEFT_IDS, LEFT_COMPANION),
-            (RIGHT_IDS, RIGHT_COMPANION),
-        ):
-            for joint, value in zip(
-                joints,
-                pose,
-            ):
-                result[joint] += (
-                    self.fraction
-                    * (
-                        value
-                        - self.q_start[joint]
-                    )
-                )
-
+        result.update({index: preparation[name]
+                       for name, index in zip(ARM_JOINT_NAMES, range(15, 29))})
         return result
 
     def target(self):
-        """
-        Return the presentation target.
-
-        Right arm remains in the companion posture.
-        Left arm continues toward the mirrored Action-27 card pose.
-        """
-        result = self.companion()
-
-        for local_index, joint in enumerate(
-            LEFT_IDS
-        ):
-            result[joint] = (
-                self.q_start[joint]
-                + self.fraction
-                * self.left_delta[local_index]
-            )
-
+        """Resolve the second waypoint without interpreting its purpose."""
+        _preparation, target = self._waypoints()
+        result = dict(self.q_start)
+        result.update({index: target[name]
+                       for name, index in zip(ARM_JOINT_NAMES, range(15, 29))})
         return result
 
     def move_phase(
@@ -578,17 +466,8 @@ class PresentationController:
                 )
             )
 
-    def move_to_presentation(self):
-        """
-        Unitree-style choreography.
-
-        Phase A:
-            both arms -> bilateral companion pose (~0.30 s)
-
-        Phase B:
-            right arm holds companion
-            left arm -> card presentation (~0.90 s)
-        """
+    def execute_outward_motion(self):
+        """Execute the request's two validated phases."""
         companion = self.companion()
 
         if not self.move_phase(
@@ -606,8 +485,8 @@ class PresentationController:
             self.extend_seconds,
         )
 
-    def wait_presented(self):
-        """Hold the presented posture until RELEASE."""
+    def wait_for_release(self):
+        """Hold the target posture until RELEASE."""
         while not self.poll_release():
             self.safety_check()
             self.publish(1.0)
@@ -615,13 +494,10 @@ class PresentationController:
 
     def return_home(self):
         """
-        Reverse the Unitree-style choreography.
+        Execute preloaded recovery from measured state, then the baseline.
 
-        Phase C:
-            left arm presentation -> bilateral companion (~0.90 s)
-
-        Phase D:
-            both arms companion -> captured Run/start pose (~0.30 s)
+        Version 1 requires [preparation, baseline]. If phase two never began,
+        skip preparation so cancellation cannot start an outward extension.
         """
         return_weight = self.weight
 
@@ -647,7 +523,7 @@ class PresentationController:
 
         # If cancellation occurred during acquisition/preparation,
         # this safely returns directly to q_start without first
-        # extending toward the card pose.
+        # extending toward the second waypoint.
         self.move_phase(
             q_return_start,
             self.q_start,
@@ -734,7 +610,7 @@ class PresentationController:
 
             if (
                 acquired
-                and self.move_to_presentation()
+                and self.execute_outward_motion()
             ):
                 state = self.latest()
 
@@ -744,7 +620,7 @@ class PresentationController:
                         {
                             "mode": "live",
                             "fraction": self.fraction,
-                            "move_seconds": self.move_seconds,
+                            "trajectory_duration": self.trajectory_duration,
                             "prepare_seconds": self.prepare_seconds,
                             "extend_seconds": self.extend_seconds,
                             "left_q": [
@@ -767,7 +643,7 @@ class PresentationController:
                     flush=True,
                 )
 
-                self.wait_presented()
+                self.wait_for_release()
 
         finally:
             # Covers:
@@ -797,10 +673,9 @@ class PresentationController:
 def main():
     args = parse_args()
 
-    controller = PresentationController(
+    controller = ArmMotionController(
         args.interface,
-        args.fraction,
-        args.move_seconds,
+        json.loads(args.motion_json),
     )
 
     signal.signal(

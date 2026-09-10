@@ -5,7 +5,7 @@ import subprocess
 import sys
 import threading
 
-from g1_hardware_bridge.arm.backend import native_dds_environment
+from g1_hardware_bridge.native_runtime import native_dds_environment
 
 
 class BrainCoHand:
@@ -97,8 +97,7 @@ class BrainCoHand:
     def neutral(self, hand, target, ramp_seconds):
         """Interrupt normal hand motion, then restore a calibrated posture."""
         self.interrupt()
-        # A release must finish inside ros2 launch's five-second SIGINT grace
-        # period. One second is ample to receive the 100 Hz hand state when
+        # One second is ample to receive the 100 Hz hand state when
         # the BrainCo server is available, and fails promptly when it is not.
         state_timeout = min(self.timeout, 1.0)
         self._run_helper([
@@ -107,4 +106,4 @@ class BrainCoHand:
             *[str(value) for value in target],
             "--ramp-seconds", str(ramp_seconds), "--confirm",
             "CONFIRM_PHYSICAL_HAND_COMMAND",
-        ], state_timeout + 3.5, is_release=True)
+        ], state_timeout + float(ramp_seconds) + 1.0, is_release=True)

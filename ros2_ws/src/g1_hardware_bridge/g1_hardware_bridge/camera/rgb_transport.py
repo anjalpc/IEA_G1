@@ -9,8 +9,8 @@ from multiprocessing import shared_memory
 import numpy as np
 
 
-SHM_NAME = "g1_handshake_rgb"
-LOCK_PATH = "/tmp/g1_handshake_rgb.lock"
+SHM_NAME = "g1_unitree_rgb"
+LOCK_PATH = "/tmp/g1_unitree_rgb.lock"
 
 MAGIC = 0x47314852
 VERSION = 1

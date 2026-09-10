@@ -20,8 +20,8 @@ class Controls:
     def set_hand(self, hand, positions, event, ramp=0.2):
         self.hand = (hand, positions, event, ramp)
 
-    def set_card_arm(self, pose, fraction, move_seconds):
-        self.card_arm = (pose, fraction, move_seconds)
+    def set_arm_motion(self, motion):
+        self.card_arm = motion
 
 
 def adapter():
@@ -54,19 +54,6 @@ def test_dispatches_reviewed_commands():
     assert result is None
 
 
-def test_dispatches_separate_left_card_pose():
-    instance = adapter()
-    result = instance._arm_present({
-        "pose": "left_card_presentation",
-        "fraction": 0.25,
-        "move_s": 5.0,
-    })
-    assert instance.controls.card_arm == (
-        "left_card_presentation", 0.25, 5.0)
-    assert result == {
-        "mode": "simulation", "pose": "left_card_presentation"}
-
-
 @pytest.mark.parametrize("action_id", [0, 28, 100])
 def test_rejects_unknown_arm_actions(action_id):
     with pytest.raises(ValueError):
@@ -82,3 +69,18 @@ def test_release_operations_return_safe_targets():
     assert instance.controls.hand == (
         "right", instance.neutral_targets["right"],
         "ros:right_hand:neutral", 0.2)
+
+
+def test_restricted_motion_accepts_explicit_1_2_second_phases():
+    from g1_robot_interfaces.arm_motion import ARM_JOINT_NAMES
+    motion = {
+        'version': 1, 'preparation': dict.fromkeys(ARM_JOINT_NAMES, 0.0),
+        'target_offsets': dict.fromkeys(ARM_JOINT_NAMES[:7], 0.0),
+        'phase_seconds': [0.3, 0.9], 'recovery': ['preparation', 'baseline'],
+        'fraction': 1.0,
+    }
+    instance = adapter()
+    result = instance._arm_motion({
+        'motion': motion, 'execution_timeout_s': 8.0})
+    assert result == {'mode': 'simulation', 'trajectory_duration': 1.2}
+    assert instance.controls.card_arm == motion

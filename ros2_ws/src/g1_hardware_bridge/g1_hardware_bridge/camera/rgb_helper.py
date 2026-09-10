@@ -30,6 +30,7 @@ from g1_hardware_bridge.camera.rgb_transport import (
     VERSION,
     WIDTH,
 )
+from g1_hardware_bridge.native_runtime import network_interface
 
 
 TARGET_FPS = 30.0
@@ -98,7 +99,7 @@ def main():
     # This process exclusively owns Unitree SDK DDS.
     ChannelFactoryInitialize(
         0,
-        "eth0",
+        network_interface(),
     )
 
     camera = UnitreeVideoSource(

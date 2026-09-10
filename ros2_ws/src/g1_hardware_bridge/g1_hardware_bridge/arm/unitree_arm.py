@@ -1,36 +1,54 @@
 """Unitree arm backend for the physical G1 bridge."""
 
 import json
+import math
 from collections import deque
-import os
 import subprocess
 import sys
 import threading
 import time
 
+from g1_robot_interfaces.arm_motion import ARM_JOINT_NAMES, validate_arm_motion
+from g1_hardware_bridge.native_runtime import native_dds_environment
 
-def native_dds_environment():
-    """Return an environment using PC2's native CycloneDDS library."""
-    env = os.environ.copy()
-    env["ROS_DOMAIN_ID"] = "0"
 
-    library = env.get(
-        "UNITREE_CYCLONEDDS_LIB",
-        "/home/unitree/cyclonedds_ws/install/cyclonedds/lib",
+def validate_motion_envelope(motion):
+    """
+    Enforce the initial bounded Arm SDK capability, before starting DDS.
+
+    Bounds come from the existing measured motion amplitudes,
+    not vendor joint limits or permission for arbitrary trajectories. Version 1
+    supports bilateral preparation and left-arm offsets only. Expansion needs
+    separate physical validation. Requests cannot supply gains or safety policy.
+    """
+    motion = validate_arm_motion(motion)
+    if motion['phase_seconds'] != [0.30, 0.90]:
+        raise ValueError('unsupported phase timing for arm capability v1')
+    if set(motion['target_offsets']) != set(ARM_JOINT_NAMES[:7]):
+        raise ValueError('arm capability v1 requires the seven left-arm offsets')
+    # Preserve the sign as well as the magnitude of the one physically tested
+    # recipe. This is only a pre-DDS request gate. It is not a general physical
+    # envelope; resolved displacement limits still require real robot traces.
+    preparation_limits = (
+        0.286, 0.218, -0.009, 0.978, 0.144, 0.006, -0.004,
+        0.286, -0.218, 0.009, 0.978, -0.144, 0.006, 0.004,
     )
+    offset_limits = (
+        -0.348308, -0.206418, -0.015288, -0.619944,
+        -0.164438, -0.347043, 0.065396,
+    )
+    for values, names, limits in (
+            (motion['preparation'], ARM_JOINT_NAMES, preparation_limits),
+            (motion['target_offsets'], ARM_JOINT_NAMES[:7], offset_limits)):
+        for name, limit in zip(names, limits):
+            value = values[name]
+            low, high = sorted((0.0, limit))
+            if value < low - 1e-9 or value > high + 1e-9:
+                raise ValueError(f'motion exceeds capability envelope: {name}')
+    return motion
 
-    if os.path.isdir(library):
-        existing = env.get("LD_LIBRARY_PATH", "")
-        env["LD_LIBRARY_PATH"] = (
-            f"{library}:{existing}"
-            if existing
-            else library
-        )
 
-    return env
-
-
-class PresentationOutput:
+class ArmMotionOutput:
     """Drain both pipes continuously and retain protocol results for waiters."""
 
     def __init__(self, process):
@@ -39,7 +57,7 @@ class PresentationOutput:
         self.results = {}
         self.errors = deque(maxlen=20)
         self.stdout_done = False
-        self.present_cancelled = False
+        self.motion_cancelled = False
         for stream, is_stdout in ((process.stdout, True), (process.stderr, False)):
             threading.Thread(target=self._read, args=(stream, is_stdout),
                              daemon=True).start()
@@ -61,19 +79,19 @@ class PresentationOutput:
                     self.stdout_done = True
                 self.condition.notify_all()
 
-    def cancel_present(self):
-        """Wake a waiter whose outward presentation was interrupted."""
+    def cancel_motion(self):
+        """Wake a waiter whose outward motion was interrupted."""
         with self.condition:
-            self.present_cancelled = True
+            self.motion_cancelled = True
             self.condition.notify_all()
 
     def wait(self, marker, timeout):
         deadline = time.monotonic() + timeout
         with self.condition:
             while marker not in self.results:
-                if marker == "PRESENTED=" and self.present_cancelled:
+                if marker == "PRESENTED=" and self.motion_cancelled:
                     raise RuntimeError(
-                        "arm presentation interrupted before PRESENTED")
+                        "arm motion interrupted before completion")
                 if self.stdout_done:
                     raise RuntimeError(
                         "Unitree arm helper closed stdout before "
@@ -87,7 +105,7 @@ class PresentationOutput:
 
 
 class UnitreeArm:
-    """Own firmware actions and persistent live Arm-SDK presentations."""
+    """Own firmware actions and persistent restricted Arm SDK motion."""
 
     RELEASE_ACTION = 99
     ARM_SDK_OCCUPIED = 7400
@@ -99,33 +117,33 @@ class UnitreeArm:
         self,
         interface,
         timeout,
-        card_presentation_mode="disabled",
+        arm_motion_mode="disabled",
     ):
         self.interface = interface
         self.timeout = timeout
 
-        self.card_presentation_mode = str(
-            card_presentation_mode
+        self.arm_motion_mode = str(
+            arm_motion_mode
         )
 
-        if self.card_presentation_mode not in (
+        if self.arm_motion_mode not in (
             "disabled",
             "live",
         ):
             raise ValueError(
-                "card_presentation_mode must be "
+                "arm_motion_mode must be "
                 "'disabled' or 'live'"
             )
 
         self._lock = threading.Lock()
-        self._presentation_release_lock = threading.Lock()
-        self._presentation_output = None
+        self._motion_release_lock = threading.Lock()
+        self._motion_output = None
 
         self._active_process = None
         self._active_is_release = False
-        self._active_is_presentation = False
+        self._active_is_motion = False
 
-        self._presentation_move_seconds = None
+        self._motion_timeout_seconds = None
 
         self._cancelled = True
 
@@ -141,14 +159,14 @@ class UnitreeArm:
 
             self._active_process = None
             self._active_is_release = False
-            self._active_is_presentation = False
-            self._presentation_move_seconds = None
+            self._active_is_motion = False
+            self._motion_timeout_seconds = None
             self._cancelled = False
 
-    def prepare_presentation(self):
-        if self.card_presentation_mode != "live":
+    def prepare_motion(self):
+        if self.arm_motion_mode != "live":
             raise RuntimeError(
-                "physical card presentation is disabled"
+                "physical Arm SDK motion is disabled"
             )
 
         self.prepare_operation()
@@ -158,7 +176,7 @@ class UnitreeArm:
             self._cancelled = True
             process = self._active_process
             is_release = self._active_is_release
-            is_presentation = self._active_is_presentation
+            is_motion = self._active_is_motion
 
         if (
             process is None
@@ -167,8 +185,8 @@ class UnitreeArm:
         ):
             return
 
-        if is_presentation:
-            self._request_presentation_release(process)
+        if is_motion:
+            self._request_motion_release(process)
             return
 
         process.terminate()
@@ -185,34 +203,24 @@ class UnitreeArm:
             is_release=False,
         )
 
-    def present(
-        self,
-        pose,
-        fraction,
-        move_seconds,
-    ):
-        if pose != "left_card_presentation":
-            raise ValueError(
-                "unsupported card presentation pose"
-            )
-
-        if self.card_presentation_mode != "live":
+    def execute_motion(self, motion, execution_timeout_s):
+        motion = validate_motion_envelope(motion)
+        if self.arm_motion_mode != "live":
             raise RuntimeError(
-                "physical card presentation is disabled"
+                "physical Arm SDK motion is disabled"
             )
 
-        fraction = float(fraction)
-        move_seconds = float(move_seconds)
+        execution_timeout_s = float(execution_timeout_s)
+        if not math.isfinite(execution_timeout_s) or execution_timeout_s <= 0.0:
+            raise ValueError("execution_timeout_s must be finite and positive")
 
         arguments = [
             sys.executable,
             "-m",
-            "g1_hardware_bridge.arm.presentation_helper",
+            "g1_hardware_bridge.arm.arm_motion_helper",
             self.interface,
-            "--fraction",
-            str(fraction),
-            "--move-seconds",
-            str(move_seconds),
+            "--motion-json",
+            json.dumps(motion, allow_nan=False),
         ]
 
         env = native_dds_environment()
@@ -241,11 +249,11 @@ class UnitreeArm:
                 bufsize=1,
             )
 
-            self._presentation_output = PresentationOutput(process)
+            self._motion_output = ArmMotionOutput(process)
             self._active_process = process
             self._active_is_release = False
-            self._active_is_presentation = True
-            self._presentation_move_seconds = move_seconds
+            self._active_is_motion = True
+            self._motion_timeout_seconds = execution_timeout_s
 
         marker = "PRESENTED="
 
@@ -253,59 +261,59 @@ class UnitreeArm:
             payload = self._wait_for_marker(
                 process,
                 marker,
-                move_seconds + 10.0,
+                execution_timeout_s + 10.0,
             )
 
             return json.loads(payload)
 
         except Exception:
-            # A failed present may still own authority. Wait for graceful
+            # A failed motion may still own authority. Wait for graceful
             # cleanup, preserving the process lock if cleanup cannot finish.
             try:
-                self.release_presentation()
+                self.release_motion()
             except Exception:
                 pass
             raise
 
-    def has_presentation(self):
+    def has_motion(self):
         """Include failed/exited sessions until their release is acknowledged."""
         with self._lock:
-            return self._active_is_presentation
+            return self._active_is_motion
 
-    def release_presentation(self):
+    def release_motion(self):
         # Concurrent cancellation/shutdown callers share one physical cleanup.
-        with self._presentation_release_lock:
-            return self._release_presentation()
+        with self._motion_release_lock:
+            return self._release_motion()
 
-    def _release_presentation(self):
+    def _release_motion(self):
         with self._lock:
             self._cancelled = True
             process = self._active_process
-            is_presentation = self._active_is_presentation
-            move_seconds = self._presentation_move_seconds
-            output = self._presentation_output
-        if process is None or not is_presentation:
+            is_motion = self._active_is_motion
+            execution_timeout_s = self._motion_timeout_seconds
+            output = self._motion_output
+        if process is None or not is_motion:
             return {"mode": "live", "released": True, "already_idle": True}
 
         if output is not None:
-            output.cancel_present()
-        self._request_presentation_release(process)
+            output.cancel_motion()
+        self._request_motion_release(process)
         payload = self._wait_for_marker(
-            process, "RELEASED=", float(move_seconds or 8.0) + 8.0)
+            process, "RELEASED=", float(execution_timeout_s or 8.0) + 8.0)
         result = json.loads(payload)
         if result.get("released") is not True:
             raise RuntimeError("arm helper did not confirm authority release")
         returncode = process.wait(timeout=2.0)
         if returncode != 0:
-            raise RuntimeError(f"arm presentation helper failed: rc={returncode}")
+            raise RuntimeError(f"arm motion helper failed: rc={returncode}")
         with self._lock:
             if self._active_process is process:
                 self._clear_active_locked()
         return result
 
     def release(self):
-        if self.has_presentation():
-            self.release_presentation()
+        if self.has_motion():
+            self.release_motion()
             return 0
         self.interrupt()
 
@@ -330,7 +338,7 @@ class UnitreeArm:
 
         return self.ARM_SDK_OCCUPIED
 
-    def _request_presentation_release(self, process):
+    def _request_motion_release(self, process):
         if process.poll() is not None:
             return
         try:
@@ -346,9 +354,9 @@ class UnitreeArm:
 
     def _wait_for_marker(self, process, marker, timeout):
         with self._lock:
-            output = self._presentation_output
+            output = self._motion_output
         if output is None or output.process is not process:
-            raise RuntimeError("presentation output session is unavailable")
+            raise RuntimeError("arm motion output session is unavailable")
         return output.wait(marker, timeout)
 
     def _execute(
@@ -417,7 +425,7 @@ class UnitreeArm:
 
             self._active_process = process
             self._active_is_release = is_release
-            self._active_is_presentation = False
+            self._active_is_motion = False
 
         try:
             stdout, stderr = process.communicate(
@@ -455,8 +463,8 @@ class UnitreeArm:
         return stdout
 
     def _clear_active_locked(self):
-        self._presentation_output = None
+        self._motion_output = None
         self._active_process = None
         self._active_is_release = False
-        self._active_is_presentation = False
-        self._presentation_move_seconds = None
+        self._active_is_motion = False
+        self._motion_timeout_seconds = None

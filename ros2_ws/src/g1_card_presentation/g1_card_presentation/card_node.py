@@ -1,6 +1,7 @@
 """ROS node for independent card-hand and card-arm control."""
 
 import json
+import math
 import signal
 import threading
 
@@ -15,7 +16,7 @@ try:
 except ImportError:  # Foxy
     SignalHandlerOptions = None
 
-from g1_card_presentation.card_backends import CardHand
+from g1_card_presentation.card_backends import CardArm, CardHand
 from g1_card_presentation.card_sequence import CardPresentation
 from g1_robot_interfaces.bridge_client import (
     ArmClient,
@@ -45,7 +46,7 @@ class CardPresentationNode(Node):
         self.declare_parameter("action_timeout_s", 5.0)
         self.declare_parameter("pose", "left_card_presentation")
         self.declare_parameter("motion_fraction", 1.0)
-        self.declare_parameter("move_seconds", 1.2)
+        self.declare_parameter("execution_timeout_s", 1.2)
 
         self.declare_parameter(
             "presentation_timeout_s",
@@ -97,9 +98,9 @@ class CardPresentationNode(Node):
             ).value
         )
 
-        move_seconds = float(
+        execution_timeout_s = float(
             self.get_parameter(
-                "move_seconds"
+                "execution_timeout_s"
             ).value
         )
 
@@ -119,7 +120,7 @@ class CardPresentationNode(Node):
             self.get_parameter("handover_dwell_s").value
         )
 
-        if timeout <= 0.0:
+        if not math.isfinite(timeout) or timeout <= 0.0:
             raise ValueError(
                 "action_timeout_s must be positive"
             )
@@ -129,28 +130,34 @@ class CardPresentationNode(Node):
                 "unsupported card presentation pose"
             )
 
-        if not 0.0 < fraction <= 1.0:
+        if not math.isfinite(fraction) or not 0.0 < fraction <= 1.0:
             raise ValueError(
                 "motion_fraction must be between 0 and 1"
             )
 
-        if not 1.2 <= move_seconds <= 10.0:
+        if (
+            not math.isfinite(execution_timeout_s)
+            or not 1.2 <= execution_timeout_s <= 10.0
+        ):
             raise ValueError(
-                "move_seconds must be between 1.2 and 10"
+                "execution_timeout_s must be between 1.2 and 10"
             )
 
-        if not 5.0 <= self.presentation_timeout <= 300.0:
+        if (
+            not math.isfinite(self.presentation_timeout)
+            or not 5.0 <= self.presentation_timeout <= 300.0
+        ):
             raise ValueError(
                 "presentation_timeout_s must be "
                 "between 5 and 300"
             )
 
-        if not 0.0 <= release_dwell <= 3.0:
+        if not math.isfinite(release_dwell) or not 0.0 <= release_dwell <= 3.0:
             raise ValueError(
                 "release_dwell_s must be between 0 and 3"
             )
 
-        if not 0.5 <= handover_dwell <= 3.0:
+        if not math.isfinite(handover_dwell) or not 0.5 <= handover_dwell <= 3.0:
             raise ValueError(
                 "handover_dwell_s must be between 0.5 and 3"
             )
@@ -161,7 +168,7 @@ class CardPresentationNode(Node):
             self.bridge_name,
         )
 
-        arm = ArmClient(transport)
+        arm = CardArm(ArmClient(transport))
 
         hand = CardHand(
             HandClient(transport),
@@ -213,7 +220,7 @@ class CardPresentationNode(Node):
             hand,
             pose,
             fraction,
-            move_seconds,
+            execution_timeout_s,
             set_state=self.set_state,
             release_dwell_s=release_dwell,
             handover_dwell_s=handover_dwell,
