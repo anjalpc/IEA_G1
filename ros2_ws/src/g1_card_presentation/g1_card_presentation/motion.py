@@ -17,7 +17,7 @@ def load_card_motion(path=None):
     return yaml.safe_load(Path(path).read_text())
 
 
-def card_arm_motion(profile, fraction):
+def card_arm_motion(profile):
     """Preserve the original mirrored Action-27 delta and bilateral preparation."""
     vectors = {}
     for key in ('right_rest', 'right_action27', 'mirror_sign',
@@ -38,5 +38,4 @@ def card_arm_motion(profile, fraction):
         'target_offsets': dict(zip(ARM_JOINT_NAMES[:7], delta)),
         'phase_seconds': profile['phase_seconds'],
         'recovery': profile['recovery'],
-        'fraction': fraction,
     })

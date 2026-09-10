@@ -232,7 +232,7 @@ def live_arm(monkeypatch):
 
 
 def test_live_present_persists_and_release_uses_same_process(live_arm):
-    assert live_arm.execute_motion(checkpoint_motion(0.25), 5.0) == {"mode": "live"}
+    assert live_arm.execute_motion(checkpoint_motion(), 5.0) == {"mode": "live"}
     process = live_arm._active_process
     assert process.poll() is None
     assert live_arm.release_motion()["released"] is True
@@ -283,24 +283,6 @@ def test_marker_survives_immediate_exit_and_stderr_flood():
     try:
         assert output.wait("RELEASED=", 3) == '{"released":true}'
         assert process.wait(timeout=2) == 0
-    finally:
-        if process.poll() is None:
-            process.kill()
-            process.wait(timeout=2)
-
-
-def test_arm_trace_is_forwarded_without_becoming_protocol_state(capsys):
-    process = subprocess.Popen(
-        [sys.executable, "-c",
-         "print('ARM_TRACE={\"stage\":\"acquired\"}', flush=True); "
-         "print('RELEASED={\"released\":true}', flush=True)"],
-        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    output = unitree_arm.ArmMotionOutput(process)
-    try:
-        assert output.wait("RELEASED=", 3) == '{"released":true}'
-        assert process.wait(timeout=2) == 0
-        assert 'ARM_TRACE={"stage":"acquired"}' in capsys.readouterr().out
-        assert "ARM_TRACE=" not in output.results
     finally:
         if process.poll() is None:
             process.kill()

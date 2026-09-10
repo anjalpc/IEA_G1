@@ -69,7 +69,6 @@ def test_restricted_motion_keeps_legacy_watchdog_deadlines():
         'version': 1, 'preparation': dict.fromkeys(ARM_JOINT_NAMES, 0.0),
         'target_offsets': dict.fromkeys(ARM_JOINT_NAMES[:7], 0.0),
         'phase_seconds': [0.3, 0.9], 'recovery': ['preparation', 'baseline'],
-        'fraction': 0.25,
     }
     transport = TransportRecorder()
     arm = ArmClient(transport)
@@ -97,7 +96,6 @@ def test_restricted_motion_rejects_invalid_compatibility_timeout(
         'target_offsets': dict.fromkeys(ARM_JOINT_NAMES[:7], 0.0),
         'phase_seconds': [0.3, 0.9],
         'recovery': ['preparation', 'baseline'],
-        'fraction': 0.25,
     }
     transport = TransportRecorder()
     arm = ArmClient(transport)

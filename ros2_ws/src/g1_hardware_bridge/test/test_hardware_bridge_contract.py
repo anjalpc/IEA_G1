@@ -219,7 +219,6 @@ def test_arm_motion_routes_neutral_request_unchanged():
         "target_offsets": {"left_elbow_joint": -0.619944},
         "phase_seconds": [0.3, 0.9],
         "recovery": ["preparation", "baseline"],
-        "fraction": 0.25,
     }
 
     instance._arm_prepare_motion({"client_id": "client-a"})

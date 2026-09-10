@@ -2,10 +2,6 @@ event_card_presentation:
   ros__parameters:
     bridge_name: hardware
     action_timeout_s: 5.0
-    pose: left_card_presentation
-    # Physical validation stage. Increase only after reviewing ARM_TRACE data.
-    motion_fraction: 0.25
-
     # Total visible motion: 0.30 s bilateral preparation + 0.90 s extension.
     execution_timeout_s: 1.2
 

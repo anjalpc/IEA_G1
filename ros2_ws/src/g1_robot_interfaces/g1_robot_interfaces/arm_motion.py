@@ -27,7 +27,7 @@ def validate_arm_motion(value):
     This is deliberately not an arbitrary trajectory language.
     """
     keys = {'version', 'preparation', 'target_offsets', 'phase_seconds',
-            'recovery', 'fraction'}
+            'recovery'}
     if not isinstance(value, dict) or set(value) != keys:
         raise ValueError('invalid arm motion fields')
     if type(value['version']) is not int or value['version'] != 1:
@@ -47,9 +47,6 @@ def validate_arm_motion(value):
         raise ValueError('phase durations must be positive')
     if value['recovery'] != ['preparation', 'baseline']:
         raise ValueError('unsupported recovery path')
-    fraction = _number(value['fraction'])
-    if not 0 < fraction <= 1:
-        raise ValueError('fraction must be between 0 and 1')
     return {
         'version': 1,
         'preparation': {name: _number(preparation[name]) for name in ARM_JOINT_NAMES},
@@ -57,17 +54,15 @@ def validate_arm_motion(value):
                            if name in offsets},
         'phase_seconds': durations,
         'recovery': ['preparation', 'baseline'],
-        'fraction': fraction,
     }
 
 
 def resolve_arm_motion(motion, baseline):
     """Resolve waypoints only after the executor captures its actual baseline."""
-    fraction = motion['fraction']
     preparation = dict(baseline)
     for name, value in motion['preparation'].items():
-        preparation[name] += fraction * (value - baseline[name])
+        preparation[name] = value
     target = dict(preparation)
     for name, offset in motion['target_offsets'].items():
-        target[name] = baseline[name] + fraction * offset
+        target[name] = baseline[name] + offset
     return preparation, target

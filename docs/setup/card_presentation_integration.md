@@ -56,7 +56,7 @@ The physical bridge accepts `arm_motion` with `motion` and the compatibility
 field `execution_timeout_s`. It validates the full request before starting the native worker,
 then the worker validates it again before DDS initialization. The initial
 capability permits fourteen arm preparation positions, seven left-arm offsets,
-two fixed phases (0.30/0.90 seconds), fraction in (0, 1], and recovery through
+two fixed phases (0.30/0.90 seconds), and recovery through
 preparation to the captured baseline. Component amplitude bounds derive from
 the existing measured recipe; these are deliberately restricted capability
 bounds, not general vendor joint limits or proof that every in-envelope motion
@@ -85,20 +85,10 @@ explicit phase durations.
 
 Offline regression tests freeze the checkpoint recipe independently of YAML,
 exercise executor recovery phases, and reject invalid requests before worker
-startup. Reduced-fraction physical validation is required before deployment of
-this extraction. No physical validation of this refactor has been performed.
-
-During physical validation the Arm SDK worker emits versioned `ARM_TRACE=`
-JSON records at acquisition, preparation, target, recovery start, and recovered
-endpoints. The parent bridge forwards these records to its process output
-without treating them as command-protocol state. Each record includes the
-motion fraction, phase timing, telemetry tick, authority weight, measured arm
-joints, captured baseline, optional commanded endpoint, waist joints, and IMU
-roll/pitch.
-
-The tracked physical-validation configuration starts at `motion_fraction:
-0.25`. Promotion to `0.50` and then the previously validated full fraction must
-be explicit changes made only after the preceding trace is accepted.
+startup. Physical validation at 0.25, 0.50, and full scale confirmed equivalent
+presentation and measured-state recovery. The deployed interface now exposes
+only the complete calibrated motion; validation scaling and endpoint tracing
+were removed after that acceptance run.
 
 The live helper publishes a complete Unitree HG `LowCmd` with a CRC on every
 write. It keeps non-arm joints at the captured post-acquisition position and
@@ -174,8 +164,9 @@ cd /home/unitree/IEA_G1
 ./scripts/event_control.sh card state
 ```
 
-Stop the stack with one `Ctrl+C` in its owning terminal. Wait for ROS and
-BrainCo cleanup messages before powering off.
+Stop the stack with one `Ctrl+C` in its owning terminal, or run
+`./scripts/start.sh stop` from another PC2 terminal. Wait for ROS recovery,
+authority release, and BrainCo cleanup messages before powering off.
 
 ## Verification
 

@@ -1,7 +1,6 @@
 """Offline arm-motion regressions with DDS replaced by deterministic doubles."""
 
 import copy
-import json
 import os
 from types import SimpleNamespace
 
@@ -257,42 +256,9 @@ def test_release_in_each_phase_uses_correct_reverse_sequence(controller, elapsed
         expected + helper.HOME_SETTLE_TIME, abs=helper.DT)
 
 
-def test_fraction_scales_both_companions_and_preserves_card_delta(controller):
-    assert controller.acquire()
-    controller.fraction = 0.25
-    for joints, pose in ((helper.LEFT_IDS, LEFT_COMPANION),
-                         (helper.RIGHT_IDS, RIGHT_COMPANION)):
-        for j, q in zip(joints, pose):
-            assert controller.companion()[j] == pytest.approx(
-                controller.q_start[j] + 0.25 * (q - controller.q_start[j]))
-    for j, delta in zip(helper.LEFT_IDS, controller.motion['target_offsets'].values()):
-        assert controller.target()[j] == pytest.approx(controller.q_start[j] + 0.25 * delta)
-
-
 def test_trajectory_duration_comes_from_motion_phases(controller):
     instance = helper.ArmMotionController('lo', checkpoint_motion())
     assert instance.prepare_seconds == 0.30
     assert instance.extend_seconds == 0.90
     assert instance.trajectory_duration == pytest.approx(
         0.30 + 0.90)
-
-
-def test_trace_state_emits_versioned_endpoint_sample(controller, capsys):
-    assert controller.acquire()
-    commanded = controller.target()
-
-    controller.trace_state("target", commanded=commanded)
-
-    trace_lines = [
-        line for line in capsys.readouterr().out.splitlines()
-        if line.startswith("ARM_TRACE=")
-    ]
-    payload = json.loads(trace_lines[-1].split("=", 1)[1])
-    assert payload["schema_version"] == 1
-    assert payload["stage"] == "target"
-    assert payload["fraction"] == 1.0
-    assert payload["phase_seconds"] == [0.3, 0.9]
-    assert len(payload["q_start"]) == 14
-    assert len(payload["measured_q"]) == 14
-    assert len(payload["commanded_q"]) == 14
-    assert len(payload["waist_q"]) == 3

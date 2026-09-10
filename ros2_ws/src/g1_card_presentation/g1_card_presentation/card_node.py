@@ -44,8 +44,6 @@ class CardPresentationNode(Node):
 
         self.declare_parameter("bridge_name", "simulation")
         self.declare_parameter("action_timeout_s", 5.0)
-        self.declare_parameter("pose", "left_card_presentation")
-        self.declare_parameter("motion_fraction", 1.0)
         self.declare_parameter("execution_timeout_s", 1.2)
 
         self.declare_parameter(
@@ -88,16 +86,6 @@ class CardPresentationNode(Node):
             ).value
         )
 
-        pose = str(
-            self.get_parameter("pose").value
-        )
-
-        fraction = float(
-            self.get_parameter(
-                "motion_fraction"
-            ).value
-        )
-
         execution_timeout_s = float(
             self.get_parameter(
                 "execution_timeout_s"
@@ -123,16 +111,6 @@ class CardPresentationNode(Node):
         if not math.isfinite(timeout) or timeout <= 0.0:
             raise ValueError(
                 "action_timeout_s must be positive"
-            )
-
-        if pose != "left_card_presentation":
-            raise ValueError(
-                "unsupported card presentation pose"
-            )
-
-        if not math.isfinite(fraction) or not 0.0 < fraction <= 1.0:
-            raise ValueError(
-                "motion_fraction must be between 0 and 1"
             )
 
         if (
@@ -218,8 +196,6 @@ class CardPresentationNode(Node):
         self.sequence = CardPresentation(
             arm,
             hand,
-            pose,
-            fraction,
             execution_timeout_s,
             set_state=self.set_state,
             release_dwell_s=release_dwell,

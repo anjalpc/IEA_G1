@@ -82,7 +82,6 @@ class ArmMotionController:
         # Validate before DDS initialization or acquisition of authority.
         self.motion = validate_motion_envelope(motion)
         self.interface = interface
-        self.fraction = self.motion['fraction']
         self.prepare_seconds, self.extend_seconds = self.motion['phase_seconds']
         self.trajectory_duration = self.prepare_seconds + self.extend_seconds
         self.extension_started = False
@@ -346,7 +345,6 @@ class ArmMotionController:
         # This becomes the trajectory origin and return pose.
         state = self.latest()
         self.capture_baseline(state)
-        self.trace_state("acquired")
 
         return True
 
@@ -369,61 +367,15 @@ class ArmMotionController:
             for joint in (12, 13, 14)
         }
 
-    def trace_state(self, stage, commanded=None, state=None):
-        """Emit a best-effort structured endpoint sample for validation."""
-        try:
-            if state is None:
-                state = self.latest()
-            payload = {
-                "schema_version": 1,
-                "stage": str(stage),
-                "time_monotonic": time.monotonic(),
-                "telemetry_tick": state.tick,
-                "fraction": self.fraction,
-                "phase_seconds": [
-                    self.prepare_seconds,
-                    self.extend_seconds,
-                ],
-                "weight": self.weight,
-                "measured_q": [
-                    state.motor_state[joint].q
-                    for joint in range(15, 29)
-                ],
-                "waist_q": [
-                    state.motor_state[joint].q
-                    for joint in (12, 13, 14)
-                ],
-                "roll": state.imu_state.rpy[0],
-                "pitch": state.imu_state.rpy[1],
-            }
-            if self.q_start is not None:
-                payload["q_start"] = [
-                    self.q_start[joint]
-                    for joint in range(15, 29)
-                ]
-            if commanded is not None:
-                payload["commanded_q"] = [
-                    commanded[joint]
-                    for joint in range(15, 29)
-                ]
-            print(
-                "ARM_TRACE=" + json.dumps(payload, sort_keys=True),
-                flush=True,
-            )
-        except Exception:
-            # Diagnostics must never affect physical control or recovery.
-            return
-
     def _waypoints(self):
         # Resolve only from the actual post-acquisition baseline. No behavior
         # process or configuration file is needed once this worker starts.
         baseline = {name: self.q_start[index]
                     for name, index in zip(ARM_JOINT_NAMES, range(15, 29))}
-        motion = dict(self.motion, fraction=self.fraction)
-        return resolve_arm_motion(motion, baseline)
+        return resolve_arm_motion(self.motion, baseline)
 
-    def companion(self):
-        """Resolve the request's first waypoint (historical method name)."""
+    def preparation(self):
+        """Resolve the request's first waypoint."""
         preparation, _target = self._waypoints()
         result = dict(self.q_start)
         result.update({index: preparation[name]
@@ -514,29 +466,26 @@ class ArmMotionController:
 
     def execute_outward_motion(self):
         """Execute the request's two validated phases."""
-        companion = self.companion()
+        preparation = self.preparation()
 
         if not self.move_phase(
             self.q_start,
-            companion,
+            preparation,
             self.prepare_seconds,
         ):
             return False
-
-        self.trace_state("prepared", commanded=companion)
 
         self.extension_started = True
 
         target = self.target()
 
         if not self.move_phase(
-            companion,
+            preparation,
             target,
             self.extend_seconds,
         ):
             return False
 
-        self.trace_state("target", commanded=target)
         return True
 
     def wait_for_release(self):
@@ -556,7 +505,6 @@ class ArmMotionController:
         return_weight = self.weight
 
         state = self.latest()
-        self.trace_state("recovery_started", state=state)
 
         # Always begin recovery from actual measured arm state.
         q_return_start = {
@@ -565,16 +513,16 @@ class ArmMotionController:
         }
 
         if self.extension_started:
-            companion = self.companion()
+            preparation = self.preparation()
 
             self.move_phase(
                 q_return_start,
-                companion,
+                preparation,
                 self.extend_seconds,
                 returning=True,
             )
 
-            q_return_start = companion
+            q_return_start = preparation
 
         # If cancellation occurred during acquisition/preparation,
         # this safely returns directly to q_start without first
@@ -596,8 +544,6 @@ class ArmMotionController:
             self.latest()
             self.publish(return_weight)
             time.sleep(DT)
-
-        self.trace_state("recovered", commanded=self.q_start)
 
     def release_authority(self):
         """
@@ -636,7 +582,6 @@ class ArmMotionController:
             time.sleep(DT)
 
         self.publish(0.0)
-
         if errors:
             raise RuntimeError(
                 "publication failed during authority release"
@@ -676,7 +621,6 @@ class ArmMotionController:
                     + json.dumps(
                         {
                             "mode": "live",
-                            "fraction": self.fraction,
                             "trajectory_duration": self.trajectory_duration,
                             "prepare_seconds": self.prepare_seconds,
                             "extend_seconds": self.extend_seconds,

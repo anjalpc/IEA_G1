@@ -154,8 +154,6 @@ class CardPresentation:
         self,
         arm,
         hand,
-        pose,
-        fraction,
         execution_timeout_s,
         set_state=lambda _state: None,
         release_dwell_s=0.5,
@@ -165,8 +163,6 @@ class CardPresentation:
         self.arm = arm
         self.hand = hand
 
-        self.pose = str(pose)
-        self.fraction = float(fraction)
         self.execution_timeout_s = float(execution_timeout_s)
 
         self.set_state = set_state
@@ -315,8 +311,6 @@ class CardPresentation:
         self.set_state("PRESENTING")
 
         result = self.arm.present(
-            self.pose,
-            self.fraction,
             self.execution_timeout_s,
         )
 

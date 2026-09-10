@@ -89,6 +89,21 @@ cd /home/unitree/IEA_G1
 ./scripts/start.sh
 ```
 
+Stop it from its owning terminal with Ctrl+C, or from any PC2 terminal with:
+
+```bash
+cd /home/unitree/IEA_G1
+./scripts/start.sh stop
+```
+
+The stop command signals the recorded supervisor or ROS process group, waits
+for bridge recovery and authority release, and stops BrainCo last. To capture a
+log without placing `start.sh` behind a pipeline, use:
+
+```bash
+./scripts/start.sh > >(tee /tmp/g1_interaction.log) 2>&1
+```
+
 The hardware bridge directly owns the reviewed arm and BrainCo hand
 backends. The integrated sequence restores the calibrated neutral hand posture
 before arm action 99 on completion, cancellation, timeout, shutdown, and error

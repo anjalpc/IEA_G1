@@ -28,12 +28,10 @@ class Recorder:
         self.calls.append((self.name, "grip"))
         return "gripped"
 
-    def present(self, pose, fraction, execution_timeout_s):
+    def present(self, execution_timeout_s):
         self.calls.append((
             self.name,
             "present",
-            pose,
-            fraction,
             execution_timeout_s,
         ))
         return {"mode": "simulation"}
@@ -89,8 +87,6 @@ def sequence(calls, states, arm=None, hand=None):
     return CardPresentation(
         arm or Recorder("arm", calls),
         hand or Recorder("hand", calls),
-        "left_card_presentation",
-        0.25,
         1.2,
         set_state=states.append,
         release_dwell_s=0.0,
@@ -117,8 +113,6 @@ def test_independent_full_card_cycle():
         (
             "arm",
             "present",
-            "left_card_presentation",
-            0.25,
             1.2,
         ),
         ("hand", "release"),

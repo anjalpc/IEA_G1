@@ -77,7 +77,6 @@ def test_restricted_motion_accepts_explicit_1_2_second_phases():
         'version': 1, 'preparation': dict.fromkeys(ARM_JOINT_NAMES, 0.0),
         'target_offsets': dict.fromkeys(ARM_JOINT_NAMES[:7], 0.0),
         'phase_seconds': [0.3, 0.9], 'recovery': ['preparation', 'baseline'],
-        'fraction': 1.0,
     }
     instance = adapter()
     result = instance._arm_motion({

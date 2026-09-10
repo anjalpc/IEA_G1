@@ -13,7 +13,6 @@ from motion_fixture import checkpoint_motion
 @pytest.mark.parametrize('change', [
     lambda m: m.update(version=2),
     lambda m: m.update(gains=[80] * 14),
-    lambda m: m.update(fraction=float('nan')),
     lambda m: m.update(phase_seconds=[0.3, float('inf')]),
     lambda m: m.update(phase_seconds=[0.3, 0.9, 0.1]),
     lambda m: m.update(recovery=['baseline']),

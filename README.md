@@ -358,10 +358,20 @@ From another PC2 terminal:
 ```bash
 cd /home/unitree/IEA_G1
 ./scripts/status.sh
+./scripts/start.sh stop
 ./scripts/pc2_handshake.sh state
 ./scripts/pc2_handshake.sh start
 ./scripts/pc2_handshake.sh grip
 ./scripts/pc2_handshake.sh cancel
+```
+
+`./scripts/start.sh stop` requests the same supervised shutdown as Ctrl+C. It
+uses recorded process groups so it also works when the terminal that started
+the stack is no longer attached. For a console log while preserving Ctrl+C
+supervision, start with:
+
+```bash
+./scripts/start.sh > >(tee /tmp/g1_interaction.log) 2>&1
 ```
 
 The full installation, udev, network, deployment, update, and shutdown

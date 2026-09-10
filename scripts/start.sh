@@ -6,12 +6,112 @@ set -eo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROS_SETUP="${ROS_SETUP:-/opt/ros/foxy/setup.bash}"
+RUNTIME_DIR="${G1_RUNTIME_DIR:-/tmp/g1_interaction_stack}"
+WRAPPER_PID_FILE="${RUNTIME_DIR}/start.pid"
+LAUNCH_PID_FILE="${RUNTIME_DIR}/launch.pid"
+BRAINCO_PID_FILE="${RUNTIME_DIR}/brainco.pid"
 
 SERVER_ROOT="${PROJECT_ROOT}/vendor/brainco_hand_server"
 SERVER_BINARY="${SERVER_ROOT}/bin/brainco_hand_server"
 SERVER_LIBRARY="${SERVER_ROOT}/lib/aarch64"
 
 NETWORK_INTERFACE="${G1_NETWORK_INTERFACE:-eth0}"
+PROCESS_PATTERN='[b]rainco_hand_server|[r]os2 launch g1_bringup'
+PROCESS_PATTERN+='|[h]ardware_bridge|[h]andshake_node|[h]and_presence_node'
+PROCESS_PATTERN+='|[r]gb_helper|[c]amera_bridge|[c]ard_presentation'
+PROCESS_PATTERN+='|[c]ard_handover_detector|[a]rm.state_helper'
+
+
+clear_runtime_files() {
+    rm -f "${WRAPPER_PID_FILE}" "${LAUNCH_PID_FILE}" "${BRAINCO_PID_FILE}"
+    rmdir "${RUNTIME_DIR}" 2>/dev/null || true
+}
+
+
+pid_matches() {
+    local pid="$1"
+    local pattern="$2"
+
+    [[ "${pid}" =~ ^[0-9]+$ ]] || return 1
+    [[ -r "/proc/${pid}/cmdline" ]] || return 1
+    tr '\0' ' ' < "/proc/${pid}/cmdline" | grep -q -- "${pattern}"
+}
+
+
+wait_for_pid_exit() {
+    local pid="$1"
+    local attempts="$2"
+
+    for ((count = 0; count < attempts; count++)); do
+        kill -0 "${pid}" 2>/dev/null || return 0
+        sleep 0.2
+    done
+
+    return 1
+}
+
+
+stop_recorded_stack() {
+    local wrapper_pid=""
+    local recorded_launch_pid=""
+    local recorded_brainco_pid=""
+
+    [[ -f "${WRAPPER_PID_FILE}" ]] && wrapper_pid="$(cat "${WRAPPER_PID_FILE}")"
+    [[ -f "${LAUNCH_PID_FILE}" ]] && recorded_launch_pid="$(cat "${LAUNCH_PID_FILE}")"
+    [[ -f "${BRAINCO_PID_FILE}" ]] && recorded_brainco_pid="$(cat "${BRAINCO_PID_FILE}")"
+
+    if pid_matches "${wrapper_pid}" "scripts/start.sh"; then
+        echo "Requesting supervised G1 shutdown..."
+        kill -INT "${wrapper_pid}"
+        if wait_for_pid_exit "${wrapper_pid}" 225; then
+            clear_runtime_files
+            echo "G1 interaction stack stopped."
+            return 0
+        fi
+        echo "WARN: start.sh supervisor did not exit; using recorded groups." >&2
+    fi
+
+    if pid_matches "${recorded_launch_pid}" "ros2 launch g1_bringup"; then
+        echo "Stopping ROS interaction stack..."
+        kill -INT -- "-${recorded_launch_pid}" 2>/dev/null || true
+        if ! wait_for_pid_exit "${recorded_launch_pid}" 200; then
+            echo "WARN: ROS stack did not stop after SIGINT." >&2
+            kill -TERM -- "-${recorded_launch_pid}" 2>/dev/null || true
+            wait_for_pid_exit "${recorded_launch_pid}" 25 || true
+        fi
+    fi
+
+    if pid_matches "${recorded_brainco_pid}" "brainco_hand_server"; then
+        echo "Stopping BrainCo server..."
+        kill -TERM -- "-${recorded_brainco_pid}" 2>/dev/null || true
+        wait_for_pid_exit "${recorded_brainco_pid}" 30 || true
+    fi
+
+    clear_runtime_files
+
+    if pgrep -af "${PROCESS_PATTERN}" >/dev/null; then
+        echo "ERROR: G1 processes remain; inspect with ./scripts/status.sh." >&2
+        pgrep -af "${PROCESS_PATTERN}" >&2
+        return 1
+    fi
+
+    echo "G1 interaction stack stopped."
+}
+
+
+case "${1:-}" in
+    stop)
+        [[ $# -eq 1 ]] || { echo "Usage: $0 [stop]" >&2; exit 2; }
+        stop_recorded_stack
+        exit $?
+        ;;
+    "")
+        ;;
+    *)
+        echo "Usage: $0 [stop]" >&2
+        exit 2
+        ;;
+esac
 
 source "${ROS_SETUP}"
 source "${PROJECT_ROOT}/ros2_ws/install/setup.bash"
@@ -25,11 +125,6 @@ export ROS_DOMAIN_ID="${G1_APPLICATION_DOMAIN_ID:-42}"
 # ---------------------------------------------------------------------------
 # Validation
 # ---------------------------------------------------------------------------
-
-if [[ $# -ne 0 ]]; then
-    echo "Usage: $0" >&2
-    exit 2
-fi
 
 if [[ ! -x "${SERVER_BINARY}" || \
       ! -f "${SERVER_LIBRARY}/libbc_stark_sdk.so" ]]; then
@@ -49,13 +144,9 @@ fi
 # Prevent duplicate stack
 # ---------------------------------------------------------------------------
 
-process_pattern='[b]rainco_hand_server|[h]andshake_node|[g]1_hardware_bridge'
-process_pattern+='|[h]and_presence_node|[u]nitree_video_helper'
-process_pattern+='|[e]vent_card_presentation'
-
-if pgrep -af "${process_pattern}" >/dev/null; then
+if pgrep -af "${PROCESS_PATTERN}" >/dev/null; then
     echo "ERROR: G1 interaction processes are already running." >&2
-    pgrep -af "${process_pattern}" >&2
+    pgrep -af "${PROCESS_PATTERN}" >&2
     exit 1
 fi
 
@@ -78,19 +169,6 @@ stop_group() {
 }
 
 
-wait_for_exit() {
-    local pid="$1"
-    local attempts="$2"
-
-    for ((count = 0; count < attempts; count++)); do
-        kill -0 "${pid}" 2>/dev/null || return 0
-        sleep 0.2
-    done
-
-    return 1
-}
-
-
 # ---------------------------------------------------------------------------
 # BrainCo lifecycle
 # ---------------------------------------------------------------------------
@@ -102,6 +180,7 @@ start_brainco() {
         --network "${NETWORK_INTERFACE}" &
 
     brainco_pid=$!
+    printf '%s\n' "${brainco_pid}" > "${BRAINCO_PID_FILE}"
 }
 
 
@@ -115,7 +194,7 @@ stop_brainco() {
 
         stop_group TERM "${brainco_pid}"
 
-        if ! wait_for_exit "${brainco_pid}" 30; then
+        if ! wait_for_pid_exit "${brainco_pid}" 30; then
             echo "WARN: BrainCo did not stop cleanly; forcing exit." >&2
             stop_group KILL "${brainco_pid}"
         fi
@@ -123,6 +202,7 @@ stop_brainco() {
 
     wait "${brainco_pid}" 2>/dev/null || true
     brainco_pid=""
+    rm -f "${BRAINCO_PID_FILE}"
 }
 
 
@@ -237,11 +317,11 @@ cleanup() {
         stop_group INT "${launch_pid}"
 
         # Up to 40 seconds for bridge-safe shutdown.
-        if ! wait_for_exit "${launch_pid}" 200; then
+        if ! wait_for_pid_exit "${launch_pid}" 200; then
             echo "WARN: ROS stack did not stop after SIGINT." >&2
             stop_group TERM "${launch_pid}"
 
-            if ! wait_for_exit "${launch_pid}" 25; then
+            if ! wait_for_pid_exit "${launch_pid}" 25; then
                 echo "WARN: forcing ROS stack shutdown." >&2
                 stop_group KILL "${launch_pid}"
             fi
@@ -253,11 +333,15 @@ cleanup() {
 
     stop_brainco
 
+    clear_runtime_files
+
     exit "${status}"
 }
 
 
 trap cleanup INT TERM EXIT
+mkdir -p "${RUNTIME_DIR}"
+printf '%s\n' "$$" > "${WRAPPER_PID_FILE}"
 
 
 # ---------------------------------------------------------------------------
@@ -281,6 +365,7 @@ setsid ros2 launch \
     event_interaction.launch.py &
 
 launch_pid=$!
+printf '%s\n' "${launch_pid}" > "${LAUNCH_PID_FILE}"
 
 
 # Give ros2 launch a brief chance to fail immediately if configuration

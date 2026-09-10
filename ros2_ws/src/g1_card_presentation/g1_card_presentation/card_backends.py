@@ -10,16 +10,14 @@ class CardArm:
         self.client = client
         self.profile = load_card_motion() if profile is None else profile
         # Validate the complete recipe before a workflow can begin.
-        card_arm_motion(self.profile, 1.0)
+        card_arm_motion(self.profile)
 
     def prepare_presentation(self):
         return self.client.prepare_motion()
 
-    def present(self, pose, fraction, execution_timeout_s):
-        if pose != 'left_card_presentation':
-            raise ValueError('unsupported card presentation pose')
+    def present(self, execution_timeout_s):
         return self.client.execute_motion(
-            card_arm_motion(self.profile, fraction), execution_timeout_s)
+            card_arm_motion(self.profile), execution_timeout_s)
 
     def release_presentation(self):
         return self.client.release_motion()
