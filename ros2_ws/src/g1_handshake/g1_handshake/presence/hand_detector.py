@@ -71,7 +71,7 @@ class HandDetector:
                 model_asset_path=model_path
             ),
             running_mode=RunningMode.IMAGE,
-            num_hands=1,
+            num_hands=2,
             min_hand_detection_confidence=(
                 self.min_detection_confidence
             ),
@@ -83,8 +83,8 @@ class HandDetector:
             )
         )
 
-    def detect(self, color_frame_bgr):
-        """Return the first detected hand, or None."""
+    def detect_all(self, color_frame_bgr):
+        """Return up to two detected hands in original-frame coordinates."""
         import cv2
         import mediapipe as mp
         import numpy as np
@@ -147,64 +147,46 @@ class HandDetector:
         result = self._landmarker.detect(image)
 
         if not result.hand_landmarks:
-            return None
+            return []
 
-        landmarks = result.hand_landmarks[0]
-
-        # Wrist and finger MCP joints define a stable palm centre. Averaging
-        # every landmark makes the target move when fingers or thumb curl.
-        palm_landmarks = [landmarks[index] for index in (0, 5, 9, 13, 17)]
-        center_x_normalized = sum(
-            landmark.x for landmark in palm_landmarks
-        ) / len(palm_landmarks)
-        center_y_normalized = sum(
-            landmark.y for landmark in palm_landmarks
-        ) / len(palm_landmarks)
-
-        # MediaPipe landmarks are normalized coordinates, therefore map
-        # directly back into the ORIGINAL camera image dimensions.
-        center_x = (
-            center_x_normalized
-            * original_width
-        )
-
-        center_y = (
-            center_y_normalized
-            * original_height
-        )
-
-        x_values = [landmark.x for landmark in landmarks]
-        y_values = [landmark.y for landmark in landmarks]
-        bbox = (
-            int(min(x_values) * original_width),
-            int(min(y_values) * original_height),
-            int(max(x_values) * original_width),
-            int(max(y_values) * original_height),
-        )
-        pixel_landmarks = tuple(
-            (
-                int(landmark.x * original_width),
-                int(landmark.y * original_height),
+        detected = []
+        for hand_index, landmarks in enumerate(result.hand_landmarks):
+            # Wrist and finger MCP joints define a stable palm centre.
+            palm = [landmarks[index] for index in (0, 5, 9, 13, 17)]
+            center_x = sum(point.x for point in palm) / len(palm)
+            center_y = sum(point.y for point in palm) / len(palm)
+            x_values = [point.x for point in landmarks]
+            y_values = [point.y for point in landmarks]
+            confidence = (
+                result.handedness[hand_index][0].score
+                if len(result.handedness) > hand_index
+                and result.handedness[hand_index]
+                else 1.0
             )
-            for landmark in landmarks
-        )
+            detected.append(DetectedHand(
+                center_x=center_x * original_width,
+                center_y=center_y * original_height,
+                confidence=confidence,
+                bbox=(
+                    int(min(x_values) * original_width),
+                    int(min(y_values) * original_height),
+                    int(max(x_values) * original_width),
+                    int(max(y_values) * original_height),
+                ),
+                landmarks=tuple(
+                    (
+                        int(point.x * original_width),
+                        int(point.y * original_height),
+                    )
+                    for point in landmarks
+                ),
+            ))
+        return detected
 
-        # This is MediaPipe's handedness classification score. It is useful
-        # diagnostically but is not the same quantity as the configured
-        # minimum hand-detection confidence.
-        confidence = (
-            result.handedness[0][0].score
-            if result.handedness
-            else 1.0
-        )
-
-        return DetectedHand(
-            center_x=center_x,
-            center_y=center_y,
-            confidence=confidence,
-            bbox=bbox,
-            landmarks=pixel_landmarks,
-        )
+    def detect(self, color_frame_bgr):
+        """Return the first detected hand, or None, for compatibility."""
+        hands = self.detect_all(color_frame_bgr)
+        return hands[0] if hands else None
 
     def stop(self):
         if self._landmarker is not None:

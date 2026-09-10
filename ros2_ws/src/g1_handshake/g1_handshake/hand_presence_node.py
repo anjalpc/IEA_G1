@@ -224,6 +224,11 @@ class HandPresenceNode(Node):
             "/event/handshake/hand_presence/debug/compressed",
             1,
         )
+        self._hand_publisher = self.create_publisher(
+            String,
+            "/g1/perception/hands",
+            10,
+        )
 
         self._grip_client = self.create_client(
             Trigger,
@@ -441,9 +446,11 @@ class HandPresenceNode(Node):
         )
 
         try:
-            hand = self.hand_detector.detect(
-                color_bgr
-            )
+            if hasattr(self.hand_detector, "detect_all"):
+                hands = self.hand_detector.detect_all(color_bgr)
+            else:
+                hand = self.hand_detector.detect(color_bgr)
+                hands = [] if hand is None else [hand]
 
         except Exception as exc:
             self.get_logger().error(
@@ -454,8 +461,33 @@ class HandPresenceNode(Node):
             self.detector.reset()
             return
 
+        hand_message = String()
+        hand_message.data = json.dumps(
+            {
+                "hands": [
+                    {
+                        "center_x": hand.center_x,
+                        "center_y": hand.center_y,
+                        "confidence": hand.confidence,
+                        "bbox": list(hand.bbox) if hand.bbox else None,
+                    }
+                    for hand in hands
+                ],
+            },
+            sort_keys=True,
+        )
+        self._hand_publisher.publish(hand_message)
+
         height, width = color_bgr.shape[:2]
-        rgb_hit = self.target_region.accepts(hand, width, height)
+        hand = next(
+            (
+                candidate
+                for candidate in hands
+                if self.target_region.accepts(candidate, width, height)
+            ),
+            None,
+        )
+        rgb_hit = hand is not None
 
         depth_hit = False
         try:

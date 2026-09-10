@@ -139,7 +139,14 @@ then return `show_calibration_windows` to `false`.
 An approaching hand uses the fast RGB-plus-depth stability window. A hand that
 is already waiting when presentation completes uses the longer absolute-depth
 window, so it is not incorrectly recorded as the empty RGB baseline. Both
-paths remain gated by `hand_state=GRIPPED` and `arm_state=PRESENTED`.
+paths remain gated by `hand_state=GRIPPED` and `arm_state=PRESENTED`. The
+handshake MediaPipe process publishes its current semantic hand detection on
+`/g1/perception/hands`; card handover additionally requires a fresh detected
+palm or hand box inside its separately configured hand region. RGB/depth
+changes from books and other
+non-hand objects therefore cannot trigger automatic release. As in handshake,
+a valid MediaPipe observation remains usable for one second so finger curl or
+brief landmark occlusion during the grasp does not reset the hand gate.
 - Graceful stack shutdown neutralizes bridge-owned hands and returns or
   releases bridge-owned arm control before stopping the BrainCo server.
 - Abrupt electrical power loss cannot execute software cleanup. Remove held

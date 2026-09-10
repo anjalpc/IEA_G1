@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from g1_card_presentation.card_node import CardPresentationNode
-from g1_card_presentation.handover_detector import depth_statistics
+from g1_card_presentation.handover_detector import depth_statistics, hand_in_roi
 
 
 class Response:
@@ -28,6 +28,30 @@ def test_depth_statistics_reports_median_and_near25():
 
     assert median == 550.0
     assert near25 == 475.0
+
+
+def test_card_handover_requires_semantic_hand_inside_rgb_region():
+    roi = (100, 200, 300, 400)
+
+    assert hand_in_roi(
+        {"hands": [{"center_x": 250, "center_y": 300}]},
+        roi,
+    )
+    assert not hand_in_roi({"hands": []}, roi)
+    assert not hand_in_roi(
+        {"hands": [{"center_x": 50, "center_y": 300}]},
+        roi,
+    )
+    assert hand_in_roi(
+        {
+            "hands": [{
+                "center_x": 250,
+                "center_y": 150,
+                "bbox": [200, 100, 300, 220],
+            }],
+        },
+        roi,
+    )
 
 
 class Sequence:

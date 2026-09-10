@@ -39,6 +39,38 @@ def rgb_change_ratio(frame, baseline, roi, pixel_delta):
     return float(np.count_nonzero(gray >= pixel_delta)) / gray.size
 
 
+def hand_in_roi(detection, roi):
+    """Return whether any semantic hand detection is centred in the RGB ROI."""
+    if not isinstance(detection, dict):
+        return False
+    hands = detection.get("hands")
+    if not isinstance(hands, list):
+        return False
+    x, y, width, height = roi
+    roi_right = x + width
+    roi_bottom = y + height
+    for hand in hands:
+        try:
+            center_x = float(hand["center_x"])
+            center_y = float(hand["center_y"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if x <= center_x <= roi_right and y <= center_y <= roi_bottom:
+            return True
+        bbox = hand.get("bbox")
+        if isinstance(bbox, list) and len(bbox) == 4:
+            try:
+                left, top, right, bottom = (float(value) for value in bbox)
+            except (TypeError, ValueError):
+                continue
+            if (
+                left <= roi_right and right >= x
+                and top <= roi_bottom and bottom >= y
+            ):
+                return True
+    return False
+
+
 class CardHandoverDetector(Node):
     """Trigger handover from fresh RGB and depth observations."""
 
@@ -51,10 +83,13 @@ class CardHandoverDetector(Node):
             "trigger_service": "/event/card/handover",
             "rgb_topic": "/g1/camera/rgb/compressed",
             "depth_topic": "/g1/camera/depth/image_raw",
+            "hand_topic": "/g1/perception/hands",
             "debug_topic": "/event/card/handover/debug/compressed",
             "poll_rate_hz": 10.0,
             "rgb_stale_after_s": 0.25,
             "depth_stale_after_s": 0.5,
+            "hand_stale_after_s": 0.5,
+            "hand_memory_s": 1.0,
             "baseline_delay_s": 0.5,
             "required_hits": 2,
             "window_size": 4,
@@ -65,6 +100,10 @@ class CardHandoverDetector(Node):
             "rgb_roi_y": 0,
             "rgb_roi_width": 1,
             "rgb_roi_height": 1,
+            "hand_roi_x": 0,
+            "hand_roi_y": 0,
+            "hand_roi_width": 1,
+            "hand_roi_height": 1,
             "depth_roi_x": 0,
             "depth_roi_y": 0,
             "depth_roi_width": 1,
@@ -86,6 +125,8 @@ class CardHandoverDetector(Node):
         self.enabled = bool(value("enabled"))
         self.rgb_stale_after_s = float(value("rgb_stale_after_s"))
         self.depth_stale_after_s = float(value("depth_stale_after_s"))
+        self.hand_stale_after_s = float(value("hand_stale_after_s"))
+        self.hand_memory_s = float(value("hand_memory_s"))
         self.baseline_delay_s = float(value("baseline_delay_s"))
         self.required_hits = int(value("required_hits"))
         self.window_size = int(value("window_size"))
@@ -103,6 +144,8 @@ class CardHandoverDetector(Node):
         self.show_windows = bool(value("show_calibration_windows"))
         self.rgb_roi = tuple(int(value(f"rgb_roi_{part}")) for part in (
             "x", "y", "width", "height"))
+        self.hand_roi = tuple(int(value(f"hand_roi_{part}")) for part in (
+            "x", "y", "width", "height"))
         self.depth_roi = tuple(int(value(f"depth_roi_{part}")) for part in (
             "x", "y", "width", "height"))
 
@@ -110,6 +153,10 @@ class CardHandoverDetector(Node):
             raise ValueError("required_hits must be between 1 and window_size")
         if self.gate_memory_s <= 0.0:
             raise ValueError("gate_memory_s must be positive")
+        if self.hand_stale_after_s <= 0.0:
+            raise ValueError("hand_stale_after_s must be positive")
+        if self.hand_memory_s <= 0.0:
+            raise ValueError("hand_memory_s must be positive")
         if not (
             1 <= self.waiting_hand_required_hits
             <= self.waiting_hand_window_size
@@ -117,8 +164,10 @@ class CardHandoverDetector(Node):
             raise ValueError(
                 "waiting_hand_required_hits must be between 1 and "
                 "waiting_hand_window_size")
-        if min(self.rgb_roi[2:] + self.depth_roi[2:]) < 1:
-            raise ValueError("RGB and depth ROI sizes must be positive")
+        if min(
+            self.rgb_roi[2:] + self.hand_roi[2:] + self.depth_roi[2:]
+        ) < 1:
+            raise ValueError("RGB, hand, and depth ROI sizes must be positive")
 
         self.armed = False
         self.fired = False
@@ -133,9 +182,12 @@ class CardHandoverDetector(Node):
         self.depth = None
         self.rgb_at = None
         self.depth_at = None
+        self.hand = None
+        self.hand_at = None
         self.last_log_at = 0.0
         self.last_rgb_hit_at = None
         self.last_depth_hit_at = None
+        self.last_hand_hit_at = None
         self.drag_start = {}
 
         self.client = self.create_client(
@@ -150,6 +202,8 @@ class CardHandoverDetector(Node):
         self.create_subscription(
             Image, str(value("depth_topic")), self.depth_callback,
             qos_profile_sensor_data)
+        self.create_subscription(
+            String, str(value("hand_topic")), self.hand_callback, 10)
         self.create_timer(1.0 / float(value("poll_rate_hz")), self.poll)
 
         if self.show_windows:
@@ -180,12 +234,14 @@ class CardHandoverDetector(Node):
             self.waiting_hand_hits.clear()
             self.last_rgb_hit_at = None
             self.last_depth_hit_at = None
+            self.last_hand_hit_at = None
             self.get_logger().info("card handover detector armed")
         elif not armed and self.armed:
             self.hits.clear()
             self.waiting_hand_hits.clear()
             self.last_rgb_hit_at = None
             self.last_depth_hit_at = None
+            self.last_hand_hit_at = None
             self.get_logger().info("card handover detector disarmed")
         self.armed = armed
 
@@ -208,6 +264,20 @@ class CardHandoverDetector(Node):
             np.float32)
         self.depth_at = time.monotonic()
 
+    def hand_callback(self, message):
+        """Retain the newest semantic MediaPipe result."""
+        try:
+            hand = json.loads(message.data)
+            if not isinstance(hand, dict) or not isinstance(
+                hand.get("hands"), list
+            ):
+                raise ValueError("invalid hand detection fields")
+        except (TypeError, ValueError, json.JSONDecodeError) as exc:
+            self.get_logger().error(f"invalid hand detection: {exc}")
+            return
+        self.hand = hand
+        self.hand_at = time.monotonic()
+
     def poll(self):
         """Evaluate the configured RGB and depth gates."""
         now = time.monotonic()
@@ -219,7 +289,20 @@ class CardHandoverDetector(Node):
             self.rgb is None or self.depth is None
             or now - self.rgb_at > self.rgb_stale_after_s
             or now - self.depth_at > self.depth_stale_after_s
+            or self.hand_at is None
+            or now - self.hand_at > self.hand_stale_after_s
         ):
+            self.hits.clear()
+            self.waiting_hand_hits.clear()
+            return
+
+        if hand_in_roi(self.hand, self.hand_roi):
+            self.last_hand_hit_at = now
+        recent_hand = (
+            self.last_hand_hit_at is not None
+            and now - self.last_hand_hit_at <= self.hand_memory_s
+        )
+        if not recent_hand:
             self.hits.clear()
             self.waiting_hand_hits.clear()
             return
@@ -387,6 +470,7 @@ class CardHandoverDetector(Node):
                 self.waiting_hand_hits.clear()
                 self.last_rgb_hit_at = None
                 self.last_depth_hit_at = None
+                self.last_hand_hit_at = None
                 self.get_logger().warning(f"selected {kind}_roi={roi}")
 
     def _show_calibration(self):

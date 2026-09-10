@@ -19,7 +19,7 @@ event_card_presentation:
     # BrainCo order: thumb, thumb_aux, index, middle, ring, pinky.
     grip_target: [0.780, 1.000, 0.400, 1.000, 1.000, 1.000]
     grip_ramp_s: 1.5
-    release_ramp_s: 0.5
+    release_ramp_s: 0.3
 
 card_handover_detector:
   ros__parameters:
@@ -28,23 +28,31 @@ card_handover_detector:
     trigger_service: /event/card/handover
     rgb_topic: /g1/camera/rgb/compressed
     depth_topic: /g1/camera/depth/image_raw
+    hand_topic: /g1/perception/hands
     debug_topic: /event/card/handover/debug/compressed
 
     poll_rate_hz: 10.0
     rgb_stale_after_s: 0.25
     depth_stale_after_s: 0.5
+    hand_stale_after_s: 0.5
+    hand_memory_s: 1.0
     baseline_delay_s: 0.5
     required_hits: 2
     window_size: 4
     gate_memory_s: 0.5
-    waiting_hand_required_hits: 5
-    waiting_hand_window_size: 7
+    waiting_hand_required_hits: 3
+    waiting_hand_window_size: 5
 
     # Set these by dragging boxes in the OpenCV calibration windows.
     rgb_roi_x: 595
     rgb_roi_y: 371
     rgb_roi_width: 650
     rgb_roi_height: 334
+    # Semantic hand region includes the free card end above the change ROI.
+    hand_roi_x: 595
+    hand_roi_y: 0
+    hand_roi_width: 650
+    hand_roi_height: 705
     depth_roi_x: 73
     depth_roi_y: 68
     depth_roi_width: 271

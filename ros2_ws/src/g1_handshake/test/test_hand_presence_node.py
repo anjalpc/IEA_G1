@@ -57,6 +57,14 @@ class FakeDetector:
         self.reset_count += 1
 
 
+class FakePublisher:
+    def __init__(self):
+        self.messages = []
+
+    def publish(self, message):
+        self.messages.append(message)
+
+
 class FakeHandDetector:
     def __init__(self, hands=None):
         self.hands = list(hands or [])
@@ -66,6 +74,14 @@ class FakeHandDetector:
             return self.hands.pop(0)
 
         return None
+
+
+class FakeMultiHandDetector:
+    def __init__(self, hands):
+        self.hands = list(hands)
+
+    def detect_all(self, _frame):
+        return list(self.hands)
 
 
 class FakeRgbClient:
@@ -152,6 +168,7 @@ def make_node(
     instance._depth_near25_mm = None
     instance._rgb_hit_state = None
     instance._depth_hit_state = None
+    instance._hand_publisher = FakePublisher()
     instance._latest_rgb = None
     instance._latest_depth = None
     instance._rgb_received_at = None
@@ -262,6 +279,31 @@ def test_detected_hand_is_a_hit():
     instance._poll()
 
     assert detector.observations == [True]
+
+
+def test_each_behavior_can_select_a_different_detected_hand():
+    detector = FakeDetector()
+    left = DetectedHand(
+        center_x=300, center_y=400, confidence=0.9,
+        bbox=(250, 350, 350, 450),
+    )
+    right = DetectedHand(
+        center_x=1500, center_y=400, confidence=0.9,
+        bbox=(1450, 350, 1550, 450),
+    )
+    instance, _logger, _grip_calls = make_node(
+        detector=detector,
+        hand_detector=FakeMultiHandDetector([left, right]),
+        rgb_client=FakeRgbClient([fresh_frame()]),
+    )
+    instance.target_region = TargetRegion(0.6, 0.0, 1.0, 1.0, 0.0)
+    instance._armed = True
+
+    instance._poll()
+
+    assert detector.observations == [True]
+    published = json.loads(instance._hand_publisher.messages[-1].data)
+    assert len(published["hands"]) == 2
 
 
 def test_gate_states_log_only_on_transition():
