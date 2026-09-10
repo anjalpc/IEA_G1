@@ -346,6 +346,7 @@ class ArmMotionController:
         # This becomes the trajectory origin and return pose.
         state = self.latest()
         self.capture_baseline(state)
+        self.trace_state("acquired")
 
         return True
 
@@ -367,6 +368,51 @@ class ArmMotionController:
             joint: state.motor_state[joint].q
             for joint in (12, 13, 14)
         }
+
+    def trace_state(self, stage, commanded=None, state=None):
+        """Emit a best-effort structured endpoint sample for validation."""
+        try:
+            if state is None:
+                state = self.latest()
+            payload = {
+                "schema_version": 1,
+                "stage": str(stage),
+                "time_monotonic": time.monotonic(),
+                "telemetry_tick": state.tick,
+                "fraction": self.fraction,
+                "phase_seconds": [
+                    self.prepare_seconds,
+                    self.extend_seconds,
+                ],
+                "weight": self.weight,
+                "measured_q": [
+                    state.motor_state[joint].q
+                    for joint in range(15, 29)
+                ],
+                "waist_q": [
+                    state.motor_state[joint].q
+                    for joint in (12, 13, 14)
+                ],
+                "roll": state.imu_state.rpy[0],
+                "pitch": state.imu_state.rpy[1],
+            }
+            if self.q_start is not None:
+                payload["q_start"] = [
+                    self.q_start[joint]
+                    for joint in range(15, 29)
+                ]
+            if commanded is not None:
+                payload["commanded_q"] = [
+                    commanded[joint]
+                    for joint in range(15, 29)
+                ]
+            print(
+                "ARM_TRACE=" + json.dumps(payload, sort_keys=True),
+                flush=True,
+            )
+        except Exception:
+            # Diagnostics must never affect physical control or recovery.
+            return
 
     def _waypoints(self):
         # Resolve only from the actual post-acquisition baseline. No behavior
@@ -477,13 +523,21 @@ class ArmMotionController:
         ):
             return False
 
+        self.trace_state("prepared", commanded=companion)
+
         self.extension_started = True
 
-        return self.move_phase(
+        target = self.target()
+
+        if not self.move_phase(
             companion,
-            self.target(),
+            target,
             self.extend_seconds,
-        )
+        ):
+            return False
+
+        self.trace_state("target", commanded=target)
+        return True
 
     def wait_for_release(self):
         """Hold the target posture until RELEASE."""
@@ -502,6 +556,7 @@ class ArmMotionController:
         return_weight = self.weight
 
         state = self.latest()
+        self.trace_state("recovery_started", state=state)
 
         # Always begin recovery from actual measured arm state.
         q_return_start = {
@@ -541,6 +596,8 @@ class ArmMotionController:
             self.latest()
             self.publish(return_weight)
             time.sleep(DT)
+
+        self.trace_state("recovered", commanded=self.q_start)
 
     def release_authority(self):
         """

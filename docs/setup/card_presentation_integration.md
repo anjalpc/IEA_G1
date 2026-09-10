@@ -88,6 +88,18 @@ exercise executor recovery phases, and reject invalid requests before worker
 startup. Reduced-fraction physical validation is required before deployment of
 this extraction. No physical validation of this refactor has been performed.
 
+During physical validation the Arm SDK worker emits versioned `ARM_TRACE=`
+JSON records at acquisition, preparation, target, recovery start, and recovered
+endpoints. The parent bridge forwards these records to its process output
+without treating them as command-protocol state. Each record includes the
+motion fraction, phase timing, telemetry tick, authority weight, measured arm
+joints, captured baseline, optional commanded endpoint, waist joints, and IMU
+roll/pitch.
+
+The tracked physical-validation configuration starts at `motion_fraction:
+0.25`. Promotion to `0.50` and then the previously validated full fraction must
+be explicit changes made only after the preceding trace is accepted.
+
 The live helper publishes a complete Unitree HG `LowCmd` with a CRC on every
 write. It keeps non-arm joints at the captured post-acquisition position and
 moves both arms through the measured bilateral companion posture.

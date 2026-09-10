@@ -70,6 +70,13 @@ class ArmMotionOutput:
                         for marker in ("PRESENTED=", "RELEASED="):
                             if line.startswith(marker):
                                 self.results[marker] = line[len(marker):].strip()
+                        if line.startswith("ARM_TRACE="):
+                            try:
+                                sys.stdout.write(line)
+                                sys.stdout.flush()
+                            except OSError:
+                                # Trace forwarding must not affect supervision.
+                                pass
                     else:
                         self.errors.append(line.strip())
                     self.condition.notify_all()

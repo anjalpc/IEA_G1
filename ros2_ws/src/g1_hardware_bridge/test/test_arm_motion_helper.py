@@ -1,6 +1,7 @@
 """Offline arm-motion regressions with DDS replaced by deterministic doubles."""
 
 import copy
+import json
 import os
 from types import SimpleNamespace
 
@@ -274,3 +275,24 @@ def test_trajectory_duration_comes_from_motion_phases(controller):
     assert instance.extend_seconds == 0.90
     assert instance.trajectory_duration == pytest.approx(
         0.30 + 0.90)
+
+
+def test_trace_state_emits_versioned_endpoint_sample(controller, capsys):
+    assert controller.acquire()
+    commanded = controller.target()
+
+    controller.trace_state("target", commanded=commanded)
+
+    trace_lines = [
+        line for line in capsys.readouterr().out.splitlines()
+        if line.startswith("ARM_TRACE=")
+    ]
+    payload = json.loads(trace_lines[-1].split("=", 1)[1])
+    assert payload["schema_version"] == 1
+    assert payload["stage"] == "target"
+    assert payload["fraction"] == 1.0
+    assert payload["phase_seconds"] == [0.3, 0.9]
+    assert len(payload["q_start"]) == 14
+    assert len(payload["measured_q"]) == 14
+    assert len(payload["commanded_q"]) == 14
+    assert len(payload["waist_q"]) == 3

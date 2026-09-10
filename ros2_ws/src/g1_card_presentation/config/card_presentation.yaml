@@ -3,7 +3,8 @@ event_card_presentation:
     bridge_name: hardware
     action_timeout_s: 5.0
     pose: left_card_presentation
-    motion_fraction: 1.0
+    # Physical validation stage. Increase only after reviewing ARM_TRACE data.
+    motion_fraction: 0.25
 
     # Total visible motion: 0.30 s bilateral preparation + 0.90 s extension.
     execution_timeout_s: 1.2
