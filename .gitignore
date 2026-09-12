@@ -23,10 +23,18 @@ simulation/*.mjb
 # Local simulator and editor state
 .idea/
 .vscode/
+.codex/
+graphify-out/
+/AGENTS.md
+.DS_Store
+Thumbs.db
 *.swp
 *.swo
 *~
 *.log
+*.bag
+*.db3
+*.mcap
 MUJOCO_LOG.TXT
 output/
 

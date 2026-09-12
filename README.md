@@ -1,439 +1,185 @@
-# IEA G1 ROS 2 workspace
+# IEA G1 interaction stack
 
-This repository contains ROS 2 applications, hardware integration, and MuJoCo
-simulation for the Unitree G1. Application logic is kept separate from robot
-drivers so the same workflow can use either the physical or simulated bridge.
+ROS 2 packages and operator scripts for running handshake and card-presentation interactions on a Unitree G1 with BrainCo Revo2 hands.
 
-The currently validated physical workflow presents the right arm with Unitree
-action 27, detects a person's hand using RGB and depth camera data, curls the
-BrainCo right hand, holds for the configured duration, opens the hand, and
-releases the arm with action 99. Manual grip remains available as a fallback.
+This repository has two distinct uses:
 
-## Supported environments
+- **Robot runtime (PC2):** ROS 2 Foxy nodes run on the robot and own the arms, hands, and cameras.
+- **Workstation development:** the repository's Docker container provides ROS 2 Humble, MuJoCo, Unitree SDKs, and test tools without changing the host machine.
 
-| Environment | Platform | ROS 2 | Purpose |
-| --- | --- | --- | --- |
-| Development container | Ubuntu 22.04 x86_64 | Humble | Build, tests, and MuJoCo development |
-| Unitree PC2 | Ubuntu 20.04 aarch64 | Foxy | Physical robot runtime |
+## Start here
 
-Packages deployed to PC2 must remain compatible with ROS 2 Foxy and Python
-3.8. Development and automated tests use ROS 2 Humble and Python 3.10.
+Choose the workflow that matches your machine:
 
-## Package architecture
+| Goal | Where it runs | Guide |
+|---|---|---|
+| Deploy or operate handshake/card | G1 robot (PC2) | [Robot deployment](docs/setup/robot-deployment.md) |
+| Build, test, or simulate | Linux workstation | [Development container](docs/setup/development-container.md) |
+| Tune card presentation | Robot and simulator | [Card presentation](docs/setup/card-presentation.md) |
+| Understand or run simulation | Development container | [Simulation guide](simulation/README.md) |
 
-The workspace contains six ROS 2 packages:
+Do not run the physical robot stack from the development container. The container is for development and simulation; the Foxy runtime executes directly on PC2.
+
+## Repository map
 
 ```text
-ros2_ws/src/
-├── g1_robot_interfaces/
-├── g1_hardware_bridge/
-├── g1_handshake/
-├── g1_card_presentation/
-├── g1_simulation_bridge/
-└── g1_bringup/
+IEA_G1/
+├── config/
+│   ├── cyclonedds_humble.xml       # ROS discovery for the dev container
+│   └── udev/*.rules.example        # optional BrainCo permission template
+├── docker/                          # reproducible Humble/MuJoCo dev image
+├── docs/setup/                      # focused setup and deployment guides
+├── ros2_ws/src/                     # ROS 2 source packages
+├── scripts/                         # supported operator entry points
+├── simulation/                      # models, mappings, validation, demos
+└── vendor/brainco_hand_server/      # pinned ARM64 BrainCo runtime for PC2
 ```
+
+Generated `ros2_ws/build`, `ros2_ws/install`, and `ros2_ws/log` directories are local outputs and are intentionally not committed.
+
+## ROS 2 packages
 
 ### `g1_robot_interfaces`
 
-Defines the backend-neutral, acknowledged command and feedback transport used
-between applications and bridges. It also owns shared command validation.
+Defines the internal command and feedback contract shared by the physical and simulated backends. Commands use validated JSON carried on ROS topics so the interaction state machines do not depend directly on a hardware SDK.
 
 ### `g1_hardware_bridge`
 
-Owns all physical hardware access on PC2:
+The hardware boundary for the physical robot. It is the only package that should directly command the G1 arms or BrainCo hands.
 
-```text
-g1_hardware_bridge/
-├── arm/           Unitree actions, state monitoring, and ownership guard
-├── hand/          BrainCo commands and helper process
-├── camera/
-│   ├── node.py           ROS camera publishers and coordination
-│   ├── depth.py          RealSense depth acquisition
-│   ├── rgb_transport.py  shared-memory RGB transport
-│   └── rgb_helper.py     isolated Unitree RGB acquisition process
-├── hardware_bridge_node.py
-└── settings.py
-```
+It contains:
 
-The package installs two ROS nodes:
+- `arm/`: Unitree arm ownership, command validation, motion execution, state monitoring, and safe release;
+- `hand/`: BrainCo hand commands and state helpers;
+- `camera/`: Unitree RGB shared-memory access and RealSense depth-camera access;
+- `hardware_bridge`: translates validated ROS commands into physical arm/hand operations;
+- `camera_bridge`: publishes camera data used by the interaction detectors;
+- `rgb_helper`: isolates access to the Unitree RGB camera;
+- `config/hardware.yaml` and `config/camera.yaml`: physical limits and device settings.
 
-- `/g1_hardware_bridge` handles guarded arm and hand commands.
-- `/g1_camera_bridge` publishes shared camera frames.
-
-`/g1_camera_bridge` is a node inside `g1_hardware_bridge`; there is no
-`g1_camera_bridge` package. Camera settings are stored in
-`g1_hardware_bridge/config/camera.yaml`, while arm and hand settings are in
-`g1_hardware_bridge/config/hardware.yaml`.
+Keeping hardware access here prevents handshake and card code from competing for arm ownership.
 
 ### `g1_handshake`
 
-Owns the handshake state machine, public services, timeouts, automatic
-hand-presence detection, and handshake-specific configuration. It consumes
-generic bridge commands and camera topics; it does not open physical devices
-or import camera drivers.
-
-Configuration files:
-
-- `config/handshake.yaml`: sequence, grip, hold, timeout, and release values.
-- `config/hand_presence.yaml`: RGB/depth region and trigger thresholds.
+Implements the handshake state machine and hand-presence detector. It exposes start, grip, and cancel services and publishes handshake state.
 
 ### `g1_card_presentation`
 
-Owns the validated left-hand card workflow. The PC2 configuration uses the
-live arm helper and the verified BrainCo left-hand target. The dashboard uses
-two toggle controls: **Hold** changes the hand between open and gripping, and
-**Present** changes the arm between down and presented without changing the
-hand. Releasing while presented automatically retracts after the hand opens;
-lowering through Present preserves the current grip.
-
-Its `config/card_presentation.yaml` also owns the card-handover RGB/depth
-regions, thresholds, calibration mode, and automatic-release switch.
-
-Implementation and physical validation details are described in
-[`docs/setup/card_presentation_integration.md`](docs/setup/card_presentation_integration.md).
+Implements the left-arm card workflow: hold, present, detect a handover, release, and return safely. It exposes hold, present, and cancel services and publishes card/arm state.
 
 ### `g1_simulation_bridge`
 
-Implements the same generic bridge operations for MuJoCo. Simulation-specific
-targets are stored in `config/simulation.yaml`. This package is not deployed
-as part of the physical PC2 runtime.
+Connects the same application-level command contract to simulation. It is a development package and is not required on PC2.
 
 ### `g1_bringup`
 
-Contains composition launch files only. The physical interaction launch starts
-and supervises these required processes:
+Owns the supported physical launch file, `event_interaction.launch.py`. It launches and supervises the hardware bridge, cameras, handshake nodes, card nodes, and detectors as one stack. If a required node exits, the launch shuts down rather than leaving a partially working robot stack.
 
-1. Unitree RGB helper;
-2. camera bridge;
-3. hardware bridge;
-4. handshake node;
-5. hand-presence node;
-6. card-handover presence node;
-7. card-presentation node.
+## Supported scripts
 
-If a required process exits, launch shuts down the complete stack so the
-hardware bridge can perform its guarded cleanup.
+| Script | Purpose | Run on |
+|---|---|---|
+| `scripts/build.sh` | Build the physical Foxy packages | PC2 |
+| `scripts/start.sh` | Start/stop BrainCo, ROS nodes, and the persistent event gateway | PC2 |
+| `scripts/status.sh` | Show processes, PID records, gateway socket, and ROS nodes | PC2 |
+| `scripts/event_control.sh` | Manual/fallback handshake and card ROS service calls | PC2 |
+| `scripts/event_gateway.py` | Persistent Unix-socket bridge for low-latency local commands | PC2, started automatically |
+| `scripts/dev.sh` | Build and enter the development container | Workstation |
+| `scripts/run_ros_handshake_sim.sh` | Run the real ROS handshake state machine against MuJoCo | Development container |
 
-## Camera data flow
+There is one supported physical launch path: `scripts/start.sh` -> `g1_bringup/event_interaction.launch.py`.
 
-Camera acquisition is centralized in `g1_hardware_bridge`:
+## Physical runtime lifecycle
 
-```text
-Unitree RGB camera (native DDS domain 0)
-  -> Unitree video helper
-  -> shared-memory frame transport
-  -> /g1_camera_bridge
-  -> /g1/camera/rgb/compressed
-
-RealSense depth camera
-  -> /g1_camera_bridge (sole device owner)
-  -> /g1/camera/depth/image_raw
-
-RGB + depth topics
-  -> /hand_presence
-  -> /event/handshake/grip
-
-RGB + depth topics
-  -> /card_handover_detector
-  -> /event/card/handover
-```
-
-The depth image uses `sensor_msgs/msg/Image` with `16UC1` millimetre values.
-The RGB stream uses `sensor_msgs/msg/CompressedImage`. Applications must
-subscribe to these ROS topics instead of opening the cameras directly. This
-also provides one reusable camera boundary for future navigation and vision
-features.
-
-Camera topics:
-
-| Topic | Type | Purpose |
-| --- | --- | --- |
-| `/g1/camera/rgb/compressed` | `sensor_msgs/msg/CompressedImage` | Shared RGB frames |
-| `/g1/camera/depth/image_raw` | `sensor_msgs/msg/Image` | Shared depth frames in millimetres |
-| `/event/handshake/hand_presence/debug/compressed` | `sensor_msgs/msg/CompressedImage` | Annotated handshake detector view |
-| `/event/card/handover/debug/compressed` | `sensor_msgs/msg/CompressedImage` | Annotated card-handover detector view |
-
-## Handshake workflow
-
-The operator-facing workflow uses two commands:
-
-1. `start` presents the right arm. Calling `start` again while presented opens
-   the hand and releases the arm.
-2. `grip` curls the right hand, holds it for the configured duration, opens it,
-   and releases the arm.
-
-When automatic grip is enabled, the hand-presence node calls `grip` only while
-the handshake is in `ARM_PRESENTED` and both configured gates are stable:
-
-- the RGB hand landmark is inside the configured palm region;
-- the depth region contains a sufficiently close object;
-- the required number of recent samples agree;
-- no grip request is already pending or completed for that presentation.
-
-A hand already inside the robot palm when presentation finishes is allowed to
-trigger. The region is calibrated for the current manually positioned robot
-head. Moving or tilting the head changes the camera geometry and can make the
-fixed region inaccurate; recalibrate `config/hand_presence.yaml` after such a
-change.
-
-The Unitree arm ownership guard prevents application commands from starting
-while another Unitree arm action is active. If controller takeover is detected
-during the workflow, the application opens the BrainCo hand but does not issue
-action 99 over the external controller action.
-
-## ROS interfaces
-
-Bridge topics:
-
-```text
-/g1/bridge/hardware/command
-/g1/bridge/hardware/feedback
-/g1/bridge/hardware/arm_ownership
-/g1/bridge/simulation/command
-/g1/bridge/simulation/feedback
-```
-
-Handshake API:
-
-| Type | Name | Purpose |
-| --- | --- | --- |
-| Service | `/event/handshake/start` | Present the arm or toggle an active presentation off |
-| Service | `/event/handshake/grip` | Run the timed grip and release sequence |
-| Service | `/event/handshake/cancel` | Request safe cancellation and release |
-| Topic | `/event/handshake/state` | Application state plus arm ownership information |
-
-Card-presentation API:
-
-| Type | Name | Purpose |
-| --- | --- | --- |
-| Service | `/event/card/hold` | Toggle the left hand between open and gripping |
-| Service | `/event/card/present` | Toggle the arm between down and presented without changing the hand |
-| Service | `/event/card/cancel` | Request guarded hand and arm cleanup |
-| Topic | `/event/card/state` | Hand, arm, event, bridge, and ownership state |
-
-The normal dashboard behavior is:
-
-| Current state | Hold | Present |
-| --- | --- | --- |
-| Hand open, arm down | Grip | Raise with hand open |
-| Hand gripped, arm down | Open hand | Raise while gripping |
-| Hand open, arm presented | Grip at the presented pose | Lower with hand open |
-| Hand gripped, arm presented | Open, then automatically lower | Lower while maintaining grip |
-
-Dashboard controls must be disabled while the affected subsystem is moving,
-preparing, cleaning up, unknown, or in an error state.
-
-## ROS domains
-
-| Traffic | Domain | Selected by |
-| --- | --- | --- |
-| Physical application API | `42` | `scripts/start.sh`, `scripts/pc2_handshake.sh`, and `scripts/status.sh` |
-| ROS simulation | `77` | `scripts/run_ros_handshake_sim.sh` |
-| Native Unitree and BrainCo helpers | `0` | Isolated helper processes |
-
-Runtime scripts select the correct domain automatically. Manual exports are
-only needed when running direct `ros2` diagnostics.
-
-For PC2 diagnostics:
-
-```bash
-source /opt/ros/foxy/setup.bash
-source /home/unitree/IEA_G1/ros2_ws/install/setup.bash
-export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-export ROS_DOMAIN_ID=42
-```
-
-Do not use domain `0` for application services.
-
-## Development environment
-
-Requirements are Linux, Git, Docker Engine, Docker Compose v2, and X11 plus
-`/dev/dri` access for GUI simulation.
-
-```bash
-git clone <COMPANY_GITLAB_REPOSITORY_URL> IEA_G1
-cd IEA_G1
-./scripts/dev.sh
-```
-
-Open another shell in the running container with:
-
-```bash
-./scripts/dev.sh shell
-```
-
-Start or recreate it with GUI access when required:
-
-```bash
-./scripts/dev.sh --gui
-```
-
-The repository is mounted at `/workspace/IEA_G1`. Detailed setup is in
-[`docs/setup/docker_setup.md`](docs/setup/docker_setup.md).
-
-## Build and test
-
-Inside the development container:
-
-```bash
-cd /workspace/IEA_G1/ros2_ws
-source /opt/ros/humble/setup.bash
-
-colcon build --symlink-install --packages-select \
-  g1_robot_interfaces \
-  g1_hardware_bridge \
-  g1_handshake \
-  g1_card_presentation \
-  g1_simulation_bridge \
-  g1_bringup
-
-source install/setup.bash
-
-colcon test --packages-select \
-  g1_robot_interfaces \
-  g1_hardware_bridge \
-  g1_handshake \
-  g1_card_presentation \
-  g1_simulation_bridge \
-  g1_bringup \
-  --event-handlers console_direct+
-
-colcon test-result --verbose
-```
-
-The final test summary must contain zero errors and zero failures.
-
-## Simulation
-
-From `/workspace/IEA_G1` inside the container:
-
-```bash
-python3 simulation/validate_config.py
-python3 simulation/run_g1_model.py --validate-only
-python3 simulation/run_handshake_demo.py --validate-only
-python3 simulation/run_handshake_demo.py --headless --duration 0.5
-./scripts/run_ros_handshake_sim.sh --headless
-```
-
-For the native model and Unitree balance controller:
-
-```bash
-python3 simulation/run_g1_model.py --native --balance
-```
-
-The native Unitree binaries require the pinned Unitree runtime libraries in
-`LD_LIBRARY_PATH`; use the repository scripts instead of invoking those
-binaries directly. See [`simulation/README.md`](simulation/README.md).
-
-## PC2 deployment and operation
-
-The physical runtime selection is:
-
-```text
-config/udev/70-brainco-hand.rules
-docs/setup/pc2_event_handshake.md
-ros2_ws/src/g1_robot_interfaces/
-ros2_ws/src/g1_hardware_bridge/
-ros2_ws/src/g1_handshake/
-ros2_ws/src/g1_bringup/
-scripts/build.sh
-scripts/start.sh
-scripts/status.sh
-scripts/pc2_handshake.sh
-vendor/brainco_hand_server/
-```
-
-Build and start on PC2:
+On PC2, after completing the deployment guide:
 
 ```bash
 cd /home/unitree/IEA_G1
 ./scripts/build.sh
-source /opt/ros/foxy/setup.bash
-source ros2_ws/install/setup.bash
 ./scripts/start.sh
 ```
 
-From another PC2 terminal:
+In another terminal:
 
 ```bash
 cd /home/unitree/IEA_G1
 ./scripts/status.sh
+```
+
+Stop cleanly with:
+
+```bash
+cd /home/unitree/IEA_G1
 ./scripts/start.sh stop
-./scripts/pc2_handshake.sh state
-./scripts/pc2_handshake.sh start
-./scripts/pc2_handshake.sh grip
-./scripts/pc2_handshake.sh cancel
 ```
 
-`./scripts/start.sh stop` requests the same supervised shutdown as Ctrl+C. It
-uses recorded process groups so it also works when the terminal that started
-the stack is no longer attached. For a console log while preserving Ctrl+C
-supervision, start with:
+`start.sh` verifies the vendored BrainCo runtime, starts the hand server, checks both hands, launches all physical ROS nodes, and starts the persistent event gateway. It records process IDs in `/tmp/g1_interaction_stack` and uses ROS domain `42` by default.
+
+Manual diagnostics:
 
 ```bash
-./scripts/start.sh > >(tee /tmp/g1_interaction.log) 2>&1
+./scripts/event_control.sh handshake start
+./scripts/event_control.sh handshake grip
+./scripts/event_control.sh handshake cancel
+./scripts/event_control.sh card hold
+./scripts/event_control.sh card present
+./scripts/event_control.sh card cancel
 ```
 
-The full installation, udev, network, deployment, update, and shutdown
-procedure is maintained in
-[`docs/setup/pc2_event_handshake.md`](docs/setup/pc2_event_handshake.md).
+## Development container
 
-## Manual-grip fallback and checkpoints
-
-Automatic grip is an extension of the previously validated manual workflow.
-The Git checkpoints are:
-
-- `manual-grip-baseline`: validated manual `start` and `grip` workflow;
-- `autonomous-grip-v1`: first RGB-depth automatic-grip implementation.
-
-Use the manual `/event/handshake/grip` service if automatic detection is
-disabled or unsuitable. Do not switch Git revisions on a powered robot without
-first stopping the running stack and confirming that both arms and hands are in
-a safe state.
-
-## Safety constraints
-
-- Keep people clear of both arms during startup, shutdown, and fault recovery.
-- Do not operate the application and Unitree controller arm actions
-  simultaneously.
-- Treat controller input as external ownership; the guard blocks or aborts the
-  application rather than competing for the arm.
-- Keep the RealSense device owned by the camera bridge only.
-- Revalidate camera regions whenever the robot head or camera mounting changes.
-- Test configuration and state-machine changes in simulation before physical
-  deployment.
-- Route card arm and hand commands through the guarded hardware bridge.
-
-## Repository layout
-
-```text
-config/udev/                physical-device permission rules
-docker/                     reproducible Humble development image
-docs/setup/                 workstation and PC2 procedures
-ros2_ws/src/                ROS 2 packages
-scripts/                    development, deployment, and operator commands
-simulation/                 MuJoCo models and validation tools
-vendor/brainco_hand_server/ physical BrainCo runtime and provenance
-```
-
-Generated `build`, `install`, `log`, caches, recordings, and machine-specific
-files must not be committed.
-
-## Contribution checklist
-
-Before committing:
+From a Linux workstation with Docker Engine and the Compose plugin:
 
 ```bash
-git status --short
-git diff --check
+git clone <REPOSITORY_URL> IEA_G1
+cd IEA_G1
+./scripts/dev.sh shell --headless
 ```
 
-Build and test every affected package, run the relevant simulation or physical
-validation, and document new nodes, topics, services, parameters, dependencies,
-and safety effects. Never commit credentials or captured personal data.
+The first build is large because it installs ROS Humble, MuJoCo, Unitree SDK2, Unitree MuJoCo, Unitree RL Lab, ONNX Runtime, and test dependencies. Later starts reuse Docker's cache.
 
-Stop the shared development container when finished:
+Inside the container:
 
 ```bash
-./scripts/dev.sh stop
+cd ros2_ws
+colcon build --symlink-install
+source install/setup.bash
+cd ..
+pytest -q
+python3 simulation/validate_config.py
 ```
+
+Use `./scripts/dev.sh shell --gui` on a Linux X11 host when you need the MuJoCo viewer.
+
+## What `simulation/` is for
+
+`simulation/` is a safe development and validation environment. It lets contributors check configuration, robot/hand model composition, state-machine behavior, joint mappings, motion limits, and policy compatibility before touching hardware.
+
+It contains:
+
+- redistributable Unitree G1 and BrainCo Revo2 descriptions/meshes under `simulation/vendor/`;
+- configuration contracts and joint mappings under `simulation/config/`;
+- a small surrogate model for fast tests under `simulation/models/`;
+- model composition, policy inspection, validation, and demo tools;
+- provenance and license information for vendored assets.
+
+Simulation is not copied to PC2 for normal operation. It does not prove a motion is safe on the physical robot; hardware promotion still requires review and low-risk testing.
+
+## Safety rules
+
+- Use only `g1_hardware_bridge` to command physical arms and hands.
+- Keep the configured joint, velocity, and workspace limits enabled.
+- Test state-machine and mapping changes in simulation first.
+- Keep an operator and emergency stop ready during physical tests.
+- Stop with `scripts/start.sh stop` so the bridge can neutralize the hand and release arm authority.
+- Never run two physical interaction stacks at the same time.
+
+## Before opening a change
+
+```bash
+bash -n scripts/*.sh
+python3 -m compileall -q scripts simulation ros2_ws/src
+python3 simulation/validate_config.py
+```
+
+Then run the package tests in the development container and document any physical validation separately.

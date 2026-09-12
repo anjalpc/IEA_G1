@@ -12,7 +12,7 @@ export ROS_DOMAIN_ID="${G1_APPLICATION_DOMAIN_ID:-42}"
 
 echo "Processes:"
 pgrep -af \
-    '[b]rainco_hand_server|[r]os2 launch g1_bringup|[h]ardware_bridge|[h]andshake_node|[h]and_presence_node|[r]gb_helper|[c]amera_bridge|[c]ard_presentation|[c]ard_handover_detector|[a]rm.state_helper' \
+    '[b]rainco_hand_server|[r]os2 launch g1_bringup|[h]ardware_bridge|[h]andshake_node|[h]and_presence_node|[r]gb_helper|[c]amera_bridge|[c]ard_presentation|[c]ard_handover_detector|[a]rm.state_helper|[e]vent_gateway.py' \
     || true
 echo
 echo "Supervisor PID records:"
@@ -23,6 +23,13 @@ if [[ -d "${G1_RUNTIME_DIR:-/tmp/g1_interaction_stack}" ]]; then
     done
 else
     echo "none"
+fi
+echo
+echo "Dashboard event socket:"
+if [[ -S "${G1_EVENT_SOCKET:-/tmp/g1_event_control.sock}" ]]; then
+    echo "READY: ${G1_EVENT_SOCKET:-/tmp/g1_event_control.sock}"
+else
+    echo "MISSING: ${G1_EVENT_SOCKET:-/tmp/g1_event_control.sock}"
 fi
 echo
 echo "ROS nodes:"

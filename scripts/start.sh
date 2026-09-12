@@ -6,10 +6,17 @@ set -eo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROS_SETUP="${ROS_SETUP:-/opt/ros/foxy/setup.bash}"
+# The robot's ARM64 RealSense binding is installed outside the system Python
+# directories. Docker starts this script over non-interactive SSH, which does
+# not inherit the interactive shell's PYTHONPATH.
+REALSENSE_PYTHON_PATH="${REALSENSE_PYTHON_PATH:-/home/unitree/librealsense-install/lib/python3.8/site-packages}"
+REALSENSE_LIBRARY_PATH="${REALSENSE_LIBRARY_PATH:-/home/unitree/librealsense-install/lib}"
 RUNTIME_DIR="${G1_RUNTIME_DIR:-/tmp/g1_interaction_stack}"
 WRAPPER_PID_FILE="${RUNTIME_DIR}/start.pid"
 LAUNCH_PID_FILE="${RUNTIME_DIR}/launch.pid"
 BRAINCO_PID_FILE="${RUNTIME_DIR}/brainco.pid"
+GATEWAY_PID_FILE="${RUNTIME_DIR}/gateway.pid"
+EVENT_SOCKET="${G1_EVENT_SOCKET:-/tmp/g1_event_control.sock}"
 
 SERVER_ROOT="${PROJECT_ROOT}/vendor/brainco_hand_server"
 SERVER_BINARY="${SERVER_ROOT}/bin/brainco_hand_server"
@@ -20,10 +27,12 @@ PROCESS_PATTERN='[b]rainco_hand_server|[r]os2 launch g1_bringup'
 PROCESS_PATTERN+='|[h]ardware_bridge|[h]andshake_node|[h]and_presence_node'
 PROCESS_PATTERN+='|[r]gb_helper|[c]amera_bridge|[c]ard_presentation'
 PROCESS_PATTERN+='|[c]ard_handover_detector|[a]rm.state_helper'
+PROCESS_PATTERN+='|[e]vent_gateway.py'
 
 
 clear_runtime_files() {
     rm -f "${WRAPPER_PID_FILE}" "${LAUNCH_PID_FILE}" "${BRAINCO_PID_FILE}"
+    rm -f "${GATEWAY_PID_FILE}" "${EVENT_SOCKET}"
     rmdir "${RUNTIME_DIR}" 2>/dev/null || true
 }
 
@@ -55,10 +64,12 @@ stop_recorded_stack() {
     local wrapper_pid=""
     local recorded_launch_pid=""
     local recorded_brainco_pid=""
+    local recorded_gateway_pid=""
 
     [[ -f "${WRAPPER_PID_FILE}" ]] && wrapper_pid="$(cat "${WRAPPER_PID_FILE}")"
     [[ -f "${LAUNCH_PID_FILE}" ]] && recorded_launch_pid="$(cat "${LAUNCH_PID_FILE}")"
     [[ -f "${BRAINCO_PID_FILE}" ]] && recorded_brainco_pid="$(cat "${BRAINCO_PID_FILE}")"
+    [[ -f "${GATEWAY_PID_FILE}" ]] && recorded_gateway_pid="$(cat "${GATEWAY_PID_FILE}")"
 
     if pid_matches "${wrapper_pid}" "scripts/start.sh"; then
         echo "Requesting supervised G1 shutdown..."
@@ -79,6 +90,12 @@ stop_recorded_stack() {
             kill -TERM -- "-${recorded_launch_pid}" 2>/dev/null || true
             wait_for_pid_exit "${recorded_launch_pid}" 25 || true
         fi
+    fi
+
+    if pid_matches "${recorded_gateway_pid}" "scripts/event_gateway.py"; then
+        echo "Stopping dashboard event gateway..."
+        kill -TERM "${recorded_gateway_pid}" 2>/dev/null || true
+        wait_for_pid_exit "${recorded_gateway_pid}" 25 || true
     fi
 
     if pid_matches "${recorded_brainco_pid}" "brainco_hand_server"; then
@@ -115,6 +132,9 @@ esac
 
 source "${ROS_SETUP}"
 source "${PROJECT_ROOT}/ros2_ws/install/setup.bash"
+# ROS setup rebuilds PYTHONPATH, so append the custom ARM64 binding afterwards.
+export PYTHONPATH="${REALSENSE_PYTHON_PATH}${PYTHONPATH:+:${PYTHONPATH}}"
+export LD_LIBRARY_PATH="${REALSENSE_LIBRARY_PATH}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 
 set -u
 
@@ -153,6 +173,7 @@ fi
 
 brainco_pid=""
 launch_pid=""
+gateway_pid=""
 
 
 # ---------------------------------------------------------------------------
@@ -331,6 +352,13 @@ cleanup() {
         launch_pid=""
     fi
 
+    if [[ -n "${gateway_pid}" ]] && kill -0 "${gateway_pid}" 2>/dev/null; then
+        kill -TERM "${gateway_pid}" 2>/dev/null || true
+        wait_for_pid_exit "${gateway_pid}" 25 || true
+        wait "${gateway_pid}" 2>/dev/null || true
+        gateway_pid=""
+    fi
+
     stop_brainco
 
     clear_runtime_files
@@ -377,6 +405,21 @@ if ! kill -0 "${launch_pid}" 2>/dev/null; then
     exit 1
 fi
 
+python3 -u "${PROJECT_ROOT}/scripts/event_gateway.py" &
+gateway_pid=$!
+printf '%s\n' "${gateway_pid}" > "${GATEWAY_PID_FILE}"
+
+for _ in {1..30}; do
+    [[ -S "${EVENT_SOCKET}" ]] && break
+    kill -0 "${gateway_pid}" 2>/dev/null || break
+    sleep 0.1
+done
+
+if [[ ! -S "${EVENT_SOCKET}" ]]; then
+    echo "ERROR: persistent event gateway failed during startup." >&2
+    exit 1
+fi
+
 
 echo
 echo "=========================================="
@@ -393,14 +436,15 @@ echo
 # Supervision
 # ---------------------------------------------------------------------------
 
-# BrainCo and ROS are both required.
+# BrainCo, ROS, and the dashboard event gateway are required.
 # If either exits unexpectedly, tear down the surviving sibling.
 
 set +e
 
 wait -n \
     "${brainco_pid}" \
-    "${launch_pid}"
+    "${launch_pid}" \
+    "${gateway_pid}"
 
 status=$?
 

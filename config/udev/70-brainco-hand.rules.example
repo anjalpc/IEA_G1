@@ -1,0 +1,7 @@
+# Optional permission template for a BrainCo FTDI USB serial adapter.
+#
+# This file is not used by ROS and should not be installed unchanged.
+# Replace REPLACE_WITH_DEVICE_SERIAL with the serial reported by:
+#   udevadm info --attribute-walk --name=/dev/ttyUSB0
+# The administrator must create the brainco group and add the operator to it.
+SUBSYSTEM=="tty", ATTRS{idVendor}=="0403", ATTRS{idProduct}=="6011", ATTRS{serial}=="REPLACE_WITH_DEVICE_SERIAL", GROUP="brainco", MODE="0660"
