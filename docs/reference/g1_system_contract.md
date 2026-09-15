@@ -1,0 +1,286 @@
+# IEA G1 system contract
+
+This is the local quick reference for the physical robot, simulation, SDK,
+BrainCo hands, and stair-climbing RL task. It is intended to eliminate routine
+dependence on upstream websites. The machine-readable YAML files linked below
+remain authoritative when this summary and a configuration disagree.
+
+Last reviewed: 2026-09-13
+
+## Robot identity
+
+| Property | Project value |
+|---|---|
+| Manufacturer | Unitree |
+| Family | G1 |
+| Variant | G1 EDU U7 |
+| Machine type (`mode_machine`) | **5** |
+| Body degrees of freedom | 29 |
+| Hip pitch / roll gear ratio | 14.3 / 22.5 |
+| Wrist motor generation | 4010 |
+| Waist | 3 active joints |
+| Hand system | Dual BrainCo Revo2 Basic |
+| Hand channels | 6 per hand; 12 total |
+| Locomotion policy outputs | 29 body joints only |
+
+`mode_machine` is a physical hardware identifier read from
+`unitree_hg/LowState`; it is not a software-selectable locomotion mode. A
+mode-15 policy or robot model must not be substituted for this mode-5 robot.
+Mode 15 uses 22.5/22.5 hip gearing and newer 5010 wrist motors.
+
+Authoritative local configuration:
+
+- [`simulation/config/robot.yaml`](../../simulation/config/robot.yaml)
+- [`simulation/config/joint_mapping.yaml`](../../simulation/config/joint_mapping.yaml)
+- [`isaac_lab/g1_stairs/sources.yaml`](../../isaac_lab/g1_stairs/sources.yaml)
+
+## Timing, frames, and policy interface
+
+| Contract | Value |
+|---|---|
+| Physics rate | 200 Hz (`dt = 0.005 s`) |
+| Policy/control rate | 50 Hz (`step_dt = 0.02 s`) |
+| Policy input | `[1, 480]` for the pinned reference velocity policy |
+| Policy output | `[1, 29]` |
+| World frame | Right-handed, +Z up |
+| IMU quaternion order | `wxyz` |
+| Angular velocity frame | Body |
+| Initial velocity command | Zero |
+| Body message family | `unitree_hg` |
+| Body command topic | `rt/lowcmd` |
+| Body state topic | `rt/lowstate` |
+| Motor mode | 1 |
+
+The trained stair policy must retain the 29-output action order below and must
+export to ONNX before MuJoCo sim-to-sim evaluation.
+
+## Body joint order
+
+`Policy` is the neural-network action index. `SDK` is the index in Unitree
+`LowCmd.motor_cmd` and `LowState.motor_state`.
+
+| Policy | SDK | Joint |
+|---:|---:|---|
+| 0 | 0 | `left_hip_pitch_joint` |
+| 1 | 6 | `right_hip_pitch_joint` |
+| 2 | 12 | `waist_yaw_joint` |
+| 3 | 1 | `left_hip_roll_joint` |
+| 4 | 7 | `right_hip_roll_joint` |
+| 5 | 13 | `waist_roll_joint` |
+| 6 | 2 | `left_hip_yaw_joint` |
+| 7 | 8 | `right_hip_yaw_joint` |
+| 8 | 14 | `waist_pitch_joint` |
+| 9 | 3 | `left_knee_joint` |
+| 10 | 9 | `right_knee_joint` |
+| 11 | 15 | `left_shoulder_pitch_joint` |
+| 12 | 22 | `right_shoulder_pitch_joint` |
+| 13 | 4 | `left_ankle_pitch_joint` |
+| 14 | 10 | `right_ankle_pitch_joint` |
+| 15 | 16 | `left_shoulder_roll_joint` |
+| 16 | 23 | `right_shoulder_roll_joint` |
+| 17 | 5 | `left_ankle_roll_joint` |
+| 18 | 11 | `right_ankle_roll_joint` |
+| 19 | 17 | `left_shoulder_yaw_joint` |
+| 20 | 24 | `right_shoulder_yaw_joint` |
+| 21 | 18 | `left_elbow_joint` |
+| 22 | 25 | `right_elbow_joint` |
+| 23 | 19 | `left_wrist_roll_joint` |
+| 24 | 26 | `right_wrist_roll_joint` |
+| 25 | 20 | `left_wrist_pitch_joint` |
+| 26 | 27 | `right_wrist_pitch_joint` |
+| 27 | 21 | `left_wrist_yaw_joint` |
+| 28 | 28 | `right_wrist_yaw_joint` |
+
+Safety invariants: commands require an explicit motor mode; unknown names,
+duplicate SDK indices, and non-finite values are rejected.
+
+## BrainCo hands
+
+The BrainCo hands affect whole-body mass, inertia, collision, and arm-swing
+dynamics, but their 12 channels are not locomotion-policy actions. During the
+initial stair task they remain in a neutral pose.
+
+Each vendored hand declares 22 links and 0.390 kg of link mass. Five fixed tip
+links per side have no separate inertial mass and must be checked after Isaac
+URDF import/fixed-joint merging.
+
+| Channel | Function | Right URDF joint | Left URDF joint | Range (rad) |
+|---:|---|---|---|---:|
+| 0 | Thumb flexion | `right_thumb_proximal_joint` | `left_thumb_proximal_joint` | 0–1.0472 |
+| 1 | Thumb auxiliary | `right_thumb_metacarpal_joint` | `left_thumb_metacarpal_joint` | 0–1.55334 |
+| 2 | Index | `right_index_proximal_joint` | `left_index_proximal_joint` | 0–1.41 |
+| 3 | Middle | `right_middle_proximal_joint` | `left_middle_proximal_joint` | 0–1.41 |
+| 4 | Ring | `right_ring_proximal_joint` | `left_ring_proximal_joint` | 0–1.41 |
+| 5 | Pinky | `right_pinky_proximal_joint` | `left_pinky_proximal_joint` | 0–1.41 |
+
+Hand DDS uses hardware domain 0. Commands are normalized to 0–1 at the project
+boundary. Both hands are physically verified. The right hand records firmware
+`1.0.16.U` and device ID 127. The left hand was validated through the guarded
+physical card-presentation workflow, including gripping and releasing the
+card; its firmware and device ID were not recorded and remain `null` rather
+than being inferred.
+
+The current MuJoCo attachment transforms in
+[`simulation/model_composition.py`](../../simulation/model_composition.py) are
+simulation-derived. Physical wrist-adapter translation, orientation, and mass
+must be measured before the Isaac asset is considered deployment-grade.
+
+Authoritative hand contract:
+[`simulation/config/brainco_revo2.yaml`](../../simulation/config/brainco_revo2.yaml).
+
+## SDK, runtime, and DDS isolation
+
+| Component | Pinned version/revision |
+|---|---|
+| Unitree SDK2 | `9754cd153af3da471b0fe5f3aa535e426fb11db3` |
+| Unitree SDK2 Python | `65691c8a8bc53b98d3976dba4dbf9d5d20b2e7f5` |
+| Unitree MuJoCo | `ae6a8403e272733e9996ef59990880330496177f` |
+| Unitree RL Lab deployment subset | `4960b84732b0c2ec593dccbfe963fda1bcd7b1e3` |
+| MuJoCo | 3.3.6 |
+| ONNX Runtime | 1.20.1 Python; pinned Unitree native runtime for deployment |
+| NumPy | 1.26.4 |
+| ROS development environment | ROS 2 Humble |
+| Physical PC2 environment | ROS 2 Foxy |
+
+DDS/network separation is mandatory:
+
+| Environment | Domain | Interface |
+|---|---:|---|
+| Physical Unitree/BrainCo traffic | 0 | Deployment-specific physical NIC |
+| Native MuJoCo simulation | 1 | Loopback (`lo`) |
+| Project ROS application stack | 42 | Configured CycloneDDS interface |
+
+Never run simulation on hardware domain 0. Never run two low-level physical
+controllers simultaneously. The physical hardware bridge is the only project
+component permitted to command the robot directly.
+
+Dependency definition: [`docker/Dockerfile`](../../docker/Dockerfile).
+
+## Model and policy assets
+
+### Active local assets
+
+- G1 mode-5-compatible reference: vendored Unitree 29-DoF MJCF and meshes under
+  `simulation/vendor/unitree_g1/`.
+- BrainCo Revo2: vendored URDF/Xacro and meshes under
+  `simulation/vendor/brainco_revo2/`.
+- Combined MuJoCo model: constructed at runtime by
+  `simulation/model_composition.py`.
+- Reference balance/velocity policy: installed into the development image,
+  not stored in Git.
+
+### Isaac Lab asset decision
+
+Use the official `g1_29dof_rev_1_0` mode-5 body and compose both BrainCo Revo2
+hands. Do not use Unitree's ready-made
+`g1_29dof_mode_15_brainco_hand.urdf` as the training body: its gearing and
+wrist motors describe different hardware.
+
+Exact upstream provenance and candidate paths are recorded locally in
+[`isaac_lab/g1_stairs/sources.yaml`](../../isaac_lab/g1_stairs/sources.yaml).
+Licenses and vendored revisions are documented in
+[`simulation/PROVENANCE.md`](../../simulation/PROVENANCE.md).
+
+## Stair-climbing task
+
+| Parameter | Initial value |
+|---|---:|
+| Direction | Ascending, +X |
+| Riser height | 0.20 m |
+| Tread depth | 0.25 m |
+| Steps | 3 |
+| Total rise | 0.60 m |
+| Stair run | 0.75 m |
+| Width | 2.00 m |
+| Approach length | 2.00 m |
+| Upper platform length in training scene | 3.00 m |
+| Required post-stair continuation | 2.00 m |
+
+Initial fixed base pose:
+
+- position: `(1.00, 0.00, 0.80)` m;
+- roll/pitch/yaw: `(0, 0, 0)` rad;
+- first-riser distance: 1.00 m;
+- position/yaw randomization: disabled until nominal ascent is learned.
+
+Training uses PPO, initialized from human stair-ascent motion tracking. The
+policy observes proprioception, commands, previous actions, and a local terrain
+height scan. Training-only privileged observations may not become undeclared
+deployment inputs.
+
+Acceptance gates:
+
+- at least 99% completion on the exact nominal staircase;
+- at least 95% completion over the approved randomized evaluation set;
+- no torso, pelvis, knee, forearm, or hand contacts in nominal evaluation;
+- stable forward continuation for at least 2 m on the top platform;
+- ONNX export passes the 29-output contract;
+- independent MuJoCo sim-to-sim validation passes before hardware work.
+
+Task configuration:
+[`isaac_lab/g1_stairs/task.yaml`](../../isaac_lab/g1_stairs/task.yaml).
+
+Isaac training integration contract:
+
+- task ID: `Unitree-IEA-G1-29dof-Stairs-v0` (the `Unitree` prefix is required
+  by the pinned Unitree RL Lab launcher task filter);
+- compatibility target: Isaac Sim 5.1.0, Isaac Lab 2.3.0, Unitree RL Lab
+  revision `4960b847c9fd5bad4cfcfcb2b828f78a2c4ca079`, and RSL-RL 2.3.x;
+- Unitree RL Lab's `UNITREE_MODEL_DIR` placeholder must be replaced with the
+  absolute path to its G1 model checkout on the training machine;
+- the first executable cloud gate is a 32-environment, one-iteration training
+  smoke test. Playback follows only after that run creates a checkpoint.
+
+## Safety and promotion sequence
+
+1. Validate configuration and all 29 body-joint mappings.
+2. Reproduce the unmodified Unitree flat-ground policy in Isaac Lab.
+3. Validate the composed mode-5 G1 plus BrainCo asset at rest.
+4. Train and evaluate the stair policy in Isaac Lab.
+5. Export ONNX and inspect input/output shapes and finite zero inference.
+6. Run the policy in MuJoCo on DDS domain 1 with the elastic harness attached.
+7. Test adverse cases and confirm fall/limit/stale-state transitions stop the controller.
+8. Require explicit human review before releasing the simulated harness.
+9. Design a separate, supervised physical promotion plan with an operator and emergency stop.
+
+Simulation success is not evidence that physical execution is safe. The
+physical controller must start from fresh state, preserve exclusive low-level
+ownership, and transition to passive on stale state, fall, limit violation, or
+non-finite command.
+
+## Local validation commands
+
+Run inside the project development container unless stated otherwise:
+
+```bash
+python3 simulation/validate_config.py
+python3 simulation/run_g1_model.py --validate-only
+python3 simulation/inspect_policy.py "$UNITREE_BALANCE_POLICY" \
+  --require-g1-velocity-contract --zero-inference
+python3 -m unittest discover -s isaac_lab/g1_stairs/tests -v
+python3 isaac_lab/g1_stairs/audit_assets.py
+pytest -q
+```
+
+Native harness-assisted balance validation:
+
+```bash
+python3 simulation/run_g1_model.py --native --balance
+```
+
+Keep the harness attached while loading or changing a controller. Harness
+release remains an explicit operator decision.
+
+## Maintenance rule
+
+Update this document in the same change whenever any of these change:
+
+- physical G1 machine type or motor hardware;
+- joint order, policy shape, timing, gains, or observation contract;
+- hand firmware, mass, adapter, mounting transform, or verification status;
+- SDK, simulator, model, or policy revision;
+- DDS domain/interface ownership;
+- stair geometry, fixed start pose, curriculum, or evaluation gates.
+
+After such a change, run `simulation/validate_config.py`, the stair geometry
+tests, and `graphify update .`.

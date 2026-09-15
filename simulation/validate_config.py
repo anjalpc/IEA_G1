@@ -13,6 +13,7 @@ import yaml
 SIMULATION_ROOT = Path(__file__).resolve().parent
 REPOSITORY_ROOT = SIMULATION_ROOT.parent
 CONFIG_ROOT = SIMULATION_ROOT / "config"
+SYSTEM_CONTRACT = REPOSITORY_ROOT / "docs" / "reference" / "g1_system_contract.md"
 
 
 def load(name: str) -> dict:
@@ -36,6 +37,8 @@ def validate_contracts() -> dict:
     balance = load("balance_gate.yaml")
 
     require(robot["robot"]["body_dofs"] == 29, "robot must use 29 body DoFs")
+    require(robot["control"]["mode_machine"] == 5,
+            "this project is confirmed for G1 mode_machine 5")
     require(robot["robot"]["hands_included_in_body_dofs"] is False,
             "hand channels must stay outside the body policy")
     require(robot["dds"]["simulation_domain_id"] == simulator["domain_id"],
@@ -60,6 +63,13 @@ def validate_contracts() -> dict:
                 f"joint mapping mismatch at policy index {policy_index}")
 
     for side in ("right", "left"):
+        availability = hand["hands"][side]["availability"]
+        require(availability["physical"] is True,
+                f"{side} BrainCo hand must be physically available")
+        require(availability["physically_verified"] is True,
+                f"{side} BrainCo hand physical validation is not recorded")
+        require(hand["hands"][side]["dds"]["topics_verified"] is True,
+                f"{side} BrainCo DDS topics are not verified")
         joints = hand["hands"][side]["joints"]
         require(len(joints) == 6, f"{side} hand must define six channels")
         require([joint["index"] for joint in joints] == list(range(6)),
@@ -68,6 +78,9 @@ def validate_contracts() -> dict:
                 f"{side} hand channel names must be unique")
     require(hand["safety"]["human_hand_testing_approved"] is False,
             "repository defaults must not approve human-hand testing")
+    require(hand["safety"]["left_hardware_test_status"] ==
+            "guarded_card_presentation",
+            "left BrainCo validation must retain its guarded card evidence")
     require(balance["initialization"]["elastic_harness_required"] is True,
             "balance gate must require the elastic harness")
     require(balance["controller"]["included"] is True,
@@ -95,6 +108,15 @@ def validate_contracts() -> dict:
                 f"missing vendored G1 {key}")
     require((SIMULATION_ROOT / "vendor" / "unitree_g1" / "LICENSE").is_file(),
             "missing Unitree BSD license")
+
+    require(SYSTEM_CONTRACT.is_file(), "missing consolidated G1 system contract")
+    contract_text = SYSTEM_CONTRACT.read_text(encoding="utf-8")
+    require("| Machine type (`mode_machine`) | **5** |" in contract_text,
+            "G1 system contract does not record mode_machine 5")
+    require("simulation/config/joint_mapping.yaml" in contract_text,
+            "G1 system contract does not link the joint mapping")
+    require("isaac_lab/g1_stairs/task.yaml" in contract_text,
+            "G1 system contract does not link the stair task")
 
     hand_root = REPOSITORY_ROOT / hand["reference"]["vendored_directory"]
     require((hand_root / "LICENSE").is_file(), "missing BrainCo license")

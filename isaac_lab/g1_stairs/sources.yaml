@@ -1,0 +1,47 @@
+contract_version: 1
+
+isaac_training_stack:
+  isaac_sim:
+    compatibility_target: 5.1.0
+    source: https://docs.isaacsim.omniverse.nvidia.com/5.1.0/
+  isaac_lab:
+    compatibility_target: 2.3.0
+    source: https://github.com/isaac-sim/IsaacLab/tree/v2.3.0
+  unitree_rl_lab:
+    revision: 4960b847c9fd5bad4cfcfcb2b828f78a2c4ca079
+    source: https://github.com/unitreerobotics/unitree_rl_lab/tree/4960b847c9fd5bad4cfcfcb2b828f78a2c4ca079
+    asset_configuration_required: UNITREE_MODEL_DIR
+  rsl_rl:
+    compatibility_target: 2.3.x
+    source: https://github.com/leggedrobotics/rsl_rl
+
+unitree_combined_g1_brainco:
+  repository: https://github.com/unitreerobotics/unitree_ros.git
+  revision: 7d6075f7f58588b189b940130e3edab3c839b2df
+  path: robots/g1_with_brainco_hand/g1_29dof_mode_15_brainco_hand.urdf
+  license: BSD-3-Clause
+  audit:
+    body_revolute_joints: 29
+    total_revolute_joints: 61
+    status: reference_only
+    blocker: published asset is mode 15 while this project declares mode-machine 5
+
+unitree_g1_training_asset:
+  repository: https://github.com/unitreerobotics/unitree_ros.git
+  revision: 7d6075f7f58588b189b940130e3edab3c839b2df
+  path: robots/g1_description/g1_29dof_rev_1_0.urdf
+  license: BSD-3-Clause
+  status: candidate_pending_hardware_revision_confirmation
+
+brainco_multiformat_description:
+  repository: https://github.com/BrainCoTech/brainco-description.git
+  revision: f332a6f0dc944e26b82976b637074b03f7ee8a2c
+  paths:
+    - revo2_system/urdf/revo2_left.urdf
+    - revo2_system/urdf/revo2_right.urdf
+    - revo2_system/usd/revo2_left.usd
+    - revo2_system/usd/revo2_right.usd
+    - revo2_system/mjcf/revo2_left.xml
+    - revo2_system/mjcf/revo2_right.xml
+  license_file_present_at_revision: false
+  status: reference_pending_license_clarification_and_isaac_import_test

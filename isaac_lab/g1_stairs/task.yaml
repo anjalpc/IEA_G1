@@ -1,0 +1,58 @@
+contract_version: 1
+task_id: Unitree-IEA-G1-29dof-Stairs-v0
+
+robot:
+  variant: G1_EDU_U7
+  policy_dofs: 29
+  policy_rate_hz: 50
+  physics_rate_hz: 200
+  hands:
+    type: BrainCo_Revo2
+    count: 2
+    locomotion_action_channels: 0
+    neutral_during_training: true
+    include_mass_inertia_and_collision: true
+    wrist_mount_measurement_required: true
+
+terrain:
+  direction: ascending_positive_x
+  riser_height_m: 0.20
+  tread_depth_m: 0.25
+  step_count: 3
+  total_rise_m: 0.60
+  approach_length_m: 2.0
+  width_m: 2.0
+  top_platform_length_m: 3.0
+  top_platform_continues_from_third_step: true
+  curriculum_riser_height_m: [0.05, 0.20]
+  fixed_start:
+    enabled: true
+    base_position_m: [1.0, 0.0, 0.80]
+    base_orientation_rpy_rad: [0.0, 0.0, 0.0]
+    first_riser_distance_m: 1.0
+    position_randomization_m: [0.0, 0.0, 0.0]
+    yaw_randomization_rad: 0.0
+
+training:
+  baseline_task: Unitree-G1-29dof-Velocity
+  algorithm: PPO
+  initial_forward_command_mps: 0.35
+  initial_parallel_environments: 4096
+  initialization: motion_tracking_stair_ascent
+  policy_observations:
+    - base_angular_velocity
+    - projected_gravity
+    - velocity_command
+    - joint_position_offset
+    - joint_velocity
+    - previous_action
+    - local_terrain_height_scan
+  privileged_observations_are_not_deployable: true
+
+evaluation:
+  nominal_completion_rate_min: 0.99
+  randomized_completion_rate_min: 0.95
+  top_platform_continuation_m: 2.0
+  forbidden_contacts: [torso, pelvis, knee, forearm, hand]
+  require_onnx_export: true
+  require_mujoco_sim2sim: true

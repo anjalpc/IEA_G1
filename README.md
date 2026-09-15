@@ -9,6 +9,9 @@ This repository has two distinct uses:
 
 ## Start here
 
+The consolidated hardware, SDK, simulation, and stair-training reference is
+[IEA G1 system contract](docs/reference/g1_system_contract.md).
+
 Choose the workflow that matches your machine:
 
 | Goal | Where it runs | Guide |

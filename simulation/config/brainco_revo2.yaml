@@ -33,9 +33,11 @@ hands:
   left:
     availability:
       simulation: true
-      physical: unverified
-      physically_verified: false
+      physical: true
+      physically_verified: true
     hardware:
+      # The guarded card-presentation workflow physically validated this hand.
+      # Firmware and device ID were not recorded during that validation.
       verified_firmware: null
       verified_device_id: null
       serial_device: deployment_local
@@ -44,7 +46,7 @@ hands:
       domain_id: 0
       command_topic: rt/brainco/left/cmd
       state_topic: rt/brainco/left/state
-      topics_verified: false
+      topics_verified: true
     joints:
       - {index: 0, dds_name: thumb, urdf_joint: left_thumb_proximal_joint, range_rad: [0.0, 1.0472]}
       - {index: 1, dds_name: thumb_aux, urdf_joint: left_thumb_metacarpal_joint, range_rad: [0.0, 1.55334], direction_requires_validation: true}
@@ -73,7 +75,7 @@ safety:
   reopen_after_test: true
   human_hand_testing_approved: false
   right_hardware_test_status: guarded_object_only
-  left_hardware_test_status: unverified
+  left_hardware_test_status: guarded_card_presentation
 
 reference:
   source_repository: https://github.com/BrainCoTech/revo2_description.git
