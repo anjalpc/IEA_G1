@@ -46,3 +46,12 @@ output/
 *.key
 *.p12
 *.pfx
+
+
+# RL experiment outputs
+/runs/
+/experiments/checkpoints/*
+!/experiments/checkpoints/README.md
+*.mp4
+*.webm
+events.out.tfevents.*

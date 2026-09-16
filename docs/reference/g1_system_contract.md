@@ -231,6 +231,51 @@ Isaac training integration contract:
 - the first executable cloud gate is a 32-environment, one-iteration training
   smoke test. Playback follows only after that run creates a checkpoint.
 
+## Experiment recording and independent evaluation
+
+Version-controlled experiment definitions live under `experiments/configs/`.
+Generated run artifacts live under the repository-root `runs/` directory and
+must not be committed to Git.
+
+Every retained experiment run must contain:
+
+- the recursively resolved experiment configuration;
+- a run manifest recording Git, host, GPU, package, and configuration facts;
+- the complete console log;
+- training and reward-component metrics;
+- independent per-episode evaluation outcomes;
+- an evaluation summary;
+- checkpoint-associated evaluation videos when recording is enabled.
+
+The recorded-run launcher rejects dirty worktrees by default. The
+`--allow-dirty` option is permitted only for local infrastructure testing and
+must not be used for thesis experiment results.
+
+Training reward and task termination are not accepted as independent evidence
+of stair completion. The simulator-independent evaluator determines success
+and assigns a deterministic primary failure reason.
+
+Nominal success requires:
+
+- completion of the approach;
+- all three stair levels reached;
+- entry onto the continuous upper platform;
+- at least 2.00 m of forward platform continuation;
+- at least 1.00 s of upright dwell;
+- no earlier fall, forbidden contact, joint, torque, velocity, direction,
+  slip, stall, invalid-state, or timeout failure.
+
+The metrics contract produces:
+
+- `training_metrics.csv`;
+- `reward_components.csv`, including raw, weight, and weighted values;
+- `evaluation_episodes.csv`;
+- `evaluation_summary.json`, including a 95% Wilson success-rate interval.
+
+The independent evaluator and metrics writer have simulator-independent unit
+coverage. The nominal learning experiment remains launch-blocked until their
+Isaac Lab adapter and live logging integration are validated.
+
 ## Safety and promotion sequence
 
 1. Validate configuration and all 29 body-joint mappings.

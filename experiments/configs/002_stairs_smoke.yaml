@@ -1,0 +1,206 @@
+schema_version: 1
+
+experiment:
+  id: 002_stairs_smoke
+  purpose: Verify custom staircase registration, initialization, tensors, PPO update, and checkpoint output
+  type: infrastructure_smoke_test
+  status: planned
+  meaningful_stair_training: false
+
+inheritance:
+  base_config: experiments/configs/001_upstream_flat_ground.yaml
+  resolved_config_required: true
+  note: All non-overridden action, PPO, timing, and upstream reward values are inherited and must be expanded into resolved_config.yaml at launch
+
+code:
+  project_branch: g1-stair-rl
+  project_commit: 803ea2e51044af46d8a1a9487eb3469e39b6f1e5
+  require_clean_worktree: true
+  unitree_rl_lab_commit: 4960b847c9fd5bad4cfcfcb2b828f78a2c4ca079
+
+execution:
+  provider: aws
+  instance_type: g6.4xlarge
+  device: cuda:0
+  headless: true
+  environments: 32
+  maximum_iterations: 1
+  training_seed: 42
+  evaluation_seeds: [1001, 1002, 1003]
+
+task:
+  id: Unitree-IEA-G1-29dof-Stairs-v0
+  custom_stair_task_active: true
+  episode_length_s: 18.0
+
+robot:
+  variant: G1_EDU_U7
+  mode_machine: 5
+  policy_dofs: 29
+  brainco_hands:
+    physically_present_on_robot: true
+    included_in_smoke_asset: false
+    locomotion_action_channels: 0
+    final_composed_asset_pending: true
+
+timing:
+  physics_timestep_s: 0.005
+  physics_frequency_hz: 200
+  decimation: 4
+  control_timestep_s: 0.020
+  control_frequency_hz: 50
+  policy_frequency_hz: 50
+
+observations:
+  history_length: 5
+  corruption_enabled: true
+  policy_order:
+    - base_angular_velocity
+    - projected_gravity
+    - velocity_command
+    - joint_position_offset
+    - joint_velocity
+    - previous_action
+    - local_terrain_height_scan
+  additions:
+    local_terrain_height_scan:
+      frame: yaw_aligned_robot_frame
+      clipping: [-1.0, 1.0]
+      sensor: height_scanner
+      actor_input: true
+      critic_input: true
+  deployment_warning: Local terrain height scan requires an explicitly defined deployable sensing source before hardware promotion
+
+actions:
+  inherit_complete_definition_from: experiments/configs/001_upstream_flat_ground.yaml
+  type: joint_position_offset
+  dimension: 29
+  scale: 0.25
+  use_default_joint_offset: true
+
+commands:
+  forward_velocity_mps: [0.35, 0.35]
+  lateral_velocity_mps: [0.0, 0.0]
+  yaw_velocity_radps: [0.0, 0.0]
+  standing_environment_fraction: 0.0
+  heading_environment_fraction: 0.0
+  heading_command: false
+
+terrain:
+  type: three_step_ascent
+  direction: positive_x
+  course_size_m: [5.75, 2.0]
+  approach_length_m: 2.0
+  riser_height_m:
+    curriculum_range: [0.05, 0.20]
+    nominal_target: 0.20
+    initial_smoke_level: 0.05
+  tread_depth_m: 0.25
+  step_count: 3
+  stair_run_m: 0.75
+  nominal_total_rise_m: 0.60
+  platform_length_m: 3.0
+  platform_starts_immediately_after_third_tread: true
+  collision_representation: non_overlapping_trimesh_boxes
+  horizontal_resolution_m: 0.05
+  vertical_resolution_m: 0.005
+
+start_pose:
+  distribution: fixed
+  terrain_origin_m: [1.0, 1.0, 0.0]
+  base_height_from_robot_asset_m: 0.80
+  orientation_rpy_rad: [0.0, 0.0, 0.0]
+  distance_before_first_riser_m: 1.0
+  position_randomization_m: [0.0, 0.0, 0.0]
+  yaw_randomization_rad: 0.0
+
+reset_distribution:
+  base_pose_offset: fixed_zero
+  base_velocity: fixed_zero
+  joint_position_scale: [1.0, 1.0]
+  joint_velocity_radps: [0.0, 0.0]
+
+domain_randomization:
+  rigid_body_material:
+    enabled: false
+  torso_added_mass:
+    enabled: false
+  external_push:
+    enabled: false
+
+reward_overrides:
+  base_height:
+    enabled: false
+    reason: Absolute world-height tracking is invalid during a 0.60 m ascent
+  vertical_linear_velocity:
+    formula: squared_l2
+    weight: -0.5
+  arm_joint_deviation:
+    formula: absolute_l1
+    weight: -0.02
+  feet_clearance:
+    formula: foot_clearance
+    weight: 1.5
+    target_m: 0.22
+  undesired_contacts:
+    formula: contact_force_above_threshold
+    weight: -5.0
+  warning: These are inherited flat-ground shaping terms, not the final stair reward
+
+terminations:
+  inherited:
+    - timeout
+    - base_height_fall
+    - bad_orientation_fall
+  independent_stair_success_evaluator_active: false
+  reason: Implemented in Phase 4 before meaningful training
+
+curriculum:
+  terrain_riser_height:
+    enabled: true
+    range_m: [0.05, 0.20]
+    initial_level: 0
+  command_curriculum:
+    inherited_from_upstream: true
+
+ppo:
+  inherit_complete_definition_from: experiments/configs/001_upstream_flat_ground.yaml
+  rollout_steps_per_environment: 24
+  maximum_iterations: 1
+
+checkpointing:
+  require_final_smoke_checkpoint: true
+  never_overwrite: true
+  attach_project_commit: true
+  attach_resolved_config: true
+  calculate_sha256: true
+
+required_outputs:
+  - resolved_config.yaml
+  - run_manifest.yaml
+  - console.log
+  - environment.log
+  - tensorboard
+  - final_checkpoint
+  - checkpoint_sha256
+
+acceptance:
+  task_registration_succeeds: true
+  environments_initialized: 32
+  resets_succeed: true
+  observations_are_finite: true
+  actions_are_finite: true
+  action_dimension: 29
+  one_ppo_iteration_completes: true
+  checkpoint_is_written: true
+  logs_are_written: true
+  simulator_error_count: 0
+  nan_count: 0
+
+hard_blockers:
+  - nan_detected
+  - infinity_detected
+  - tensor_shape_mismatch
+  - invalid_reset
+  - unstable_physics
+  - corrupted_checkpoint

@@ -1,0 +1,82 @@
+schema_version: 1
+
+record:
+  purpose: Freeze the initial G1 stair-RL repository and AWS environment
+  date: 2026-09-16
+  status: recorded
+
+code:
+  repository: git@github.com:anjalpc/IEA_G1.git
+  branch: g1-stair-rl
+  commit: 803ea2e51044af46d8a1a9487eb3469e39b6f1e5
+  clean_at_freeze: true
+  remote_commit_verified: true
+
+training_stack:
+  isaac_sim: 5.1.0
+  isaac_lab: 2.3.0
+  unitree_rl_lab:
+    repository: https://github.com/unitreerobotics/unitree_rl_lab.git
+    commit: 4960b847c9fd5bad4cfcfcb2b828f78a2c4ca079
+  rsl_rl: 2.3.x
+
+task:
+  id: Unitree-IEA-G1-29dof-Stairs-v0
+  terrain_revision: 803ea2e51044af46d8a1a9487eb3469e39b6f1e5
+  staircase:
+    riser_height_m: 0.20
+    tread_depth_m: 0.25
+    step_count: 3
+    continuing_platform: true
+    fixed_start_distance_m: 1.0
+
+robot:
+  variant: G1_EDU_U7
+  mode_machine: 5
+  policy_dofs: 29
+  training_asset:
+    model: g1_29dof_rev_1_0
+    source_repository: https://github.com/unitreerobotics/unitree_ros.git
+    source_revision: 7d6075f7f58588b189b940130e3edab3c839b2df
+    status: candidate_pending_cloud_import_validation
+  hands:
+    model: BrainCo_Revo2
+    count: 2
+    status: final_composed_isaac_asset_pending
+
+aws:
+  provisioning: manual
+  instance_type: g6.4xlarge
+  operating_system: Ubuntu 22.04.5 LTS
+  architecture: x86_64
+  gpu:
+    count: 1
+    model: NVIDIA L4
+    memory_mib: 23034
+    driver: 595.91.07
+  cpu:
+    vcpu_count: pending_recording
+  memory_gib: 60
+  storage:
+    persistent_ebs_gb: 300
+    ephemeral_nvme_gb: 558.8
+  software:
+    git: 2.34.1
+    python: 3.10.12
+    docker: 29.8.0
+    docker_compose: 5.5.1
+    nvidia_container_toolkit: 1.20.0
+    cuda_toolkit: 13.2
+  network:
+    ssh_access: true
+    outbound_internet: false
+    status: blocked_pending_network_fix
+
+phase_status:
+  phase_1_repository_freeze: complete
+  phase_2_experiment_infrastructure: complete
+  phase_3_run_manifest: complete_locally_validated
+  phase_4_independent_evaluator: core_complete_pending_isaac_adapter
+  phase_5_metrics_logging: core_complete_pending_isaac_integration
+  phase_6_aws_provisioning: complete_manual
+  phase_7_aws_validation: blocked_on_outbound_internet

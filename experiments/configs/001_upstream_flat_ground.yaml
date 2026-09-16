@@ -1,0 +1,287 @@
+schema_version: 1
+
+experiment:
+  id: 001_upstream_flat_ground
+  purpose: Validate the unmodified upstream Unitree G1 29-DoF task
+  type: infrastructure_smoke_test
+  status: planned
+  meaningful_stair_training: false
+
+code:
+  project_branch: g1-stair-rl
+  project_commit: 803ea2e51044af46d8a1a9487eb3469e39b6f1e5
+  require_clean_worktree: true
+  unitree_rl_lab_commit: 4960b847c9fd5bad4cfcfcb2b828f78a2c4ca079
+
+software:
+  isaac_sim: 5.1.0
+  isaac_lab: 2.3.0
+  rsl_rl: 2.3.x
+
+execution:
+  provider: aws
+  instance_type: g6.4xlarge
+  device: cuda:0
+  headless: true
+  environments: 32
+  maximum_iterations: 1
+  training_seed: 42
+  evaluation_seeds: [1001, 1002, 1003]
+  deterministic_torch: false
+
+task:
+  id: Unitree-G1-29dof-Velocity
+  custom_stair_task_active: false
+  episode_length_s: 20.0
+
+robot:
+  variant: G1_EDU_U7
+  mode_machine: 5
+  policy_dofs: 29
+  asset: UNITREE_G1_29DOF_CFG
+  asset_revision: resolved_from_pinned_unitree_rl_lab
+  brainco_hands_present: false
+
+timing:
+  physics_timestep_s: 0.005
+  physics_frequency_hz: 200
+  decimation: 4
+  control_timestep_s: 0.020
+  control_frequency_hz: 50
+  policy_frequency_hz: 50
+  observation_latency_s: 0.0
+  action_latency_s: 0.0
+
+observations:
+  history_length: 5
+  corruption_enabled: true
+  concatenated: true
+  policy_order:
+    - name: base_angular_velocity
+      frame: body
+      scale: 0.2
+      noise_uniform: [-0.2, 0.2]
+    - name: projected_gravity
+      frame: body
+      noise_uniform: [-0.05, 0.05]
+    - name: velocity_command
+      frame: yaw
+    - name: joint_position_offset
+      units: rad
+      noise_uniform: [-0.01, 0.01]
+    - name: joint_velocity
+      units: rad_per_s
+      scale: 0.05
+      noise_uniform: [-1.5, 1.5]
+    - name: previous_action
+      units: normalized_joint_position_offset
+
+actions:
+  type: joint_position_offset
+  dimension: 29
+  scale: 0.25
+  clipping: resolved_from_upstream_environment
+  use_default_joint_offset: true
+  smoothing: none
+  joint_order:
+    - left_hip_pitch_joint
+    - right_hip_pitch_joint
+    - waist_yaw_joint
+    - left_hip_roll_joint
+    - right_hip_roll_joint
+    - waist_roll_joint
+    - left_hip_yaw_joint
+    - right_hip_yaw_joint
+    - waist_pitch_joint
+    - left_knee_joint
+    - right_knee_joint
+    - left_shoulder_pitch_joint
+    - right_shoulder_pitch_joint
+    - left_ankle_pitch_joint
+    - right_ankle_pitch_joint
+    - left_shoulder_roll_joint
+    - right_shoulder_roll_joint
+    - left_ankle_roll_joint
+    - right_ankle_roll_joint
+    - left_shoulder_yaw_joint
+    - right_shoulder_yaw_joint
+    - left_elbow_joint
+    - right_elbow_joint
+    - left_wrist_roll_joint
+    - right_wrist_roll_joint
+    - left_wrist_pitch_joint
+    - right_wrist_pitch_joint
+    - left_wrist_yaw_joint
+    - right_wrist_yaw_joint
+
+commands:
+  resampling_time_s: 10.0
+  initial_ranges:
+    linear_x_mps: [-0.1, 0.1]
+    linear_y_mps: [-0.1, 0.1]
+    angular_z_radps: [-0.1, 0.1]
+  limit_ranges:
+    linear_x_mps: [-0.5, 1.0]
+    linear_y_mps: [-0.3, 0.3]
+    angular_z_radps: [-0.2, 0.2]
+
+terrain:
+  type: upstream_flat_ground
+  stair_geometry_applicable: false
+  stair_riser_height_m: null
+  stair_tread_depth_m: null
+  stair_step_count: 0
+  start_pose: upstream_distribution
+
+reset_distribution:
+  base_position_x_m: [-0.5, 0.5]
+  base_position_y_m: [-0.5, 0.5]
+  base_yaw_rad: [-3.14, 3.14]
+  base_velocity: zero
+  joint_position_scale: [1.0, 1.0]
+  joint_velocity_radps: [-1.0, 1.0]
+
+domain_randomization:
+  rigid_body_material:
+    enabled: true
+    static_friction: [0.3, 1.0]
+    dynamic_friction: [0.3, 1.0]
+    restitution: [0.0, 0.0]
+    buckets: 64
+  torso_added_mass_kg:
+    enabled: true
+    range: [-1.0, 3.0]
+  push_velocity_mps:
+    enabled: true
+    interval_s: 5.0
+    linear_x: [-0.5, 0.5]
+    linear_y: [-0.5, 0.5]
+
+rewards:
+  aggregation: weighted_sum_per_step
+  terms:
+    track_linear_velocity_xy:
+      formula: exponential_command_tracking
+      weight: 1.0
+      standard_deviation: 0.5
+    track_angular_velocity_z:
+      formula: exponential_command_tracking
+      weight: 0.5
+      standard_deviation: 0.5
+    alive:
+      formula: is_alive
+      weight: 0.15
+    vertical_linear_velocity:
+      formula: squared_l2
+      weight: -2.0
+    roll_pitch_angular_velocity:
+      formula: squared_l2
+      weight: -0.05
+    joint_velocity:
+      formula: squared_l2
+      weight: -0.001
+    joint_acceleration:
+      formula: squared_l2
+      weight: -0.00000025
+    action_rate:
+      formula: squared_l2
+      weight: -0.05
+    joint_position_limits:
+      formula: limit_violation
+      weight: -5.0
+    energy:
+      formula: torque_times_velocity
+      weight: -0.00002
+    arm_joint_deviation:
+      formula: absolute_l1
+      weight: -0.1
+    waist_joint_deviation:
+      formula: absolute_l1
+      weight: -1.0
+    leg_joint_deviation:
+      formula: absolute_l1
+      weight: -1.0
+    flat_orientation:
+      formula: squared_l2
+      weight: -5.0
+    base_height:
+      formula: squared_error
+      weight: -10.0
+      target_m: 0.78
+    gait:
+      formula: alternating_feet_gait
+      weight: 0.5
+      period_s: 0.8
+    feet_slide:
+      formula: contact_foot_slip
+      weight: -0.2
+    feet_clearance:
+      formula: foot_clearance
+      weight: 1.0
+      target_m: 0.1
+    undesired_contacts:
+      formula: contact_force_above_threshold
+      weight: -1.0
+      threshold: 1.0
+
+terminations:
+  - name: timeout
+    primary_category: timeout
+    threshold_s: 20.0
+  - name: base_height
+    primary_category: fall
+    minimum_height_m: 0.2
+  - name: bad_orientation
+    primary_category: fall
+    maximum_tilt_rad: 0.8
+
+curriculum:
+  terrain_levels: enabled
+  linear_velocity_command_levels: enabled
+
+ppo:
+  rollout_steps_per_environment: 24
+  actor_hidden_dimensions: [512, 256, 128]
+  critic_hidden_dimensions: [512, 256, 128]
+  activation: elu
+  initial_action_noise_std: 1.0
+  value_loss_coefficient: 1.0
+  clipped_value_loss: true
+  clip_range: 0.2
+  entropy_coefficient: 0.005
+  learning_epochs: 5
+  minibatches: 4
+  learning_rate: 0.001
+  learning_rate_schedule: adaptive
+  discount_gamma: 0.99
+  gae_lambda: 0.95
+  desired_kl: 0.01
+  maximum_gradient_norm: 1.0
+  observation_normalization: false
+
+checkpointing:
+  upstream_interval_iterations: 500
+  require_final_smoke_checkpoint: true
+  never_overwrite: true
+
+required_outputs:
+  - resolved_config.yaml
+  - run_manifest.yaml
+  - console.log
+  - tensorboard
+  - final_checkpoint
+  - checkpoint_sha256
+
+acceptance:
+  isaac_sim_starts: true
+  task_registration_succeeds: true
+  gpu_is_used: true
+  all_environments_initialize: true
+  observations_are_finite: true
+  actions_are_finite: true
+  one_ppo_iteration_completes: true
+  checkpoint_is_written: true
+  logs_are_written: true
+  checkpoint_can_be_downloaded: true
+  simulator_error_count: 0
+  nan_count: 0
