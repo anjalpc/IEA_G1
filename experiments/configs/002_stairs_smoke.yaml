@@ -16,7 +16,7 @@ code:
   project_branch: g1-stair-rl
   project_commit: 803ea2e51044af46d8a1a9487eb3469e39b6f1e5
   require_clean_worktree: true
-  unitree_rl_lab_commit: 4960b847c9fd5bad4cfcfcb2b828f78a2c4ca079
+  unitree_rl_lab_commit: 4960b84732b0c2ec593dccbfe963fda1bcd7b1e3
 
 execution:
   provider: aws

@@ -17,7 +17,7 @@ training_stack:
   isaac_lab: 2.3.0
   unitree_rl_lab:
     repository: https://github.com/unitreerobotics/unitree_rl_lab.git
-    commit: 4960b847c9fd5bad4cfcfcb2b828f78a2c4ca079
+    commit: 4960b84732b0c2ec593dccbfe963fda1bcd7b1e3
   rsl_rl: 2.3.x
 
 task:

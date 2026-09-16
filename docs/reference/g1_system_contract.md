@@ -225,7 +225,7 @@ Isaac training integration contract:
 - task ID: `Unitree-IEA-G1-29dof-Stairs-v0` (the `Unitree` prefix is required
   by the pinned Unitree RL Lab launcher task filter);
 - compatibility target: Isaac Sim 5.1.0, Isaac Lab 2.3.0, Unitree RL Lab
-  revision `4960b847c9fd5bad4cfcfcb2b828f78a2c4ca079`, and RSL-RL 2.3.x;
+  revision `4960b84732b0c2ec593dccbfe963fda1bcd7b1e3`, and RSL-RL 2.3.x;
 - Unitree RL Lab's `UNITREE_MODEL_DIR` placeholder must be replaced with the
   absolute path to its G1 model checkout on the training machine;
 - the first executable cloud gate is a 32-environment, one-iteration training
