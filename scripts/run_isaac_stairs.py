@@ -34,7 +34,24 @@ def main() -> None:
 
     if "--task" not in sys.argv:
         sys.argv.extend(("--task", TASK_ID))
-    runpy.run_path(str(script), run_name="__main__")
+
+    # Unitree RL Lab launchers import sibling modules such as cli_args.
+    # runpy does not automatically add the launcher's directory to
+    # sys.path as direct script execution would.
+    script_dir = str(script.parent)
+    inserted_script_dir = script_dir not in sys.path
+
+    if inserted_script_dir:
+        sys.path.insert(0, script_dir)
+
+    try:
+        runpy.run_path(str(script), run_name="__main__")
+    finally:
+        if inserted_script_dir:
+            try:
+                sys.path.remove(script_dir)
+            except ValueError:
+                pass
 
 
 if __name__ == "__main__":
