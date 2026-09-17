@@ -30,6 +30,11 @@ _UPSTREAM = importlib.import_module(
     "unitree_rl_lab.tasks.locomotion.robots.g1.29dof.velocity_env_cfg"
 )
 
+# Isaac Lab @configclass fields are instance attributes after decoration.
+# Keep one upstream environment instance as the immutable template for
+# scene, command, and reward terms that we deep-copy below.
+_UPSTREAM_CFG = _UPSTREAM.RobotEnvCfg()
+
 COURSE_SIZE = (5.75, 2.0)
 STAIR_TERRAIN_CFG = terrain_gen.TerrainGeneratorCfg(
     size=COURSE_SIZE,
@@ -66,7 +71,7 @@ STAIR_TERRAIN_CFG = terrain_gen.TerrainGeneratorCfg(
 class StairSceneCfg(_UPSTREAM.RobotSceneCfg):
     """Unitree G1 scene using only the three-step curriculum terrain."""
 
-    terrain = copy.deepcopy(_UPSTREAM.RobotSceneCfg.terrain)
+    terrain = copy.deepcopy(_UPSTREAM_CFG.scene.terrain)
     terrain.terrain_generator = STAIR_TERRAIN_CFG
     terrain.max_init_terrain_level = 0
 
@@ -112,7 +117,7 @@ class StairObservationsCfg(_UPSTREAM.ObservationsCfg):
 class StairCommandsCfg(_UPSTREAM.CommandsCfg):
     """Use one deterministic forward command during nominal learning."""
 
-    base_velocity = copy.deepcopy(_UPSTREAM.CommandsCfg.base_velocity)
+    base_velocity = copy.deepcopy(_UPSTREAM_CFG.commands.base_velocity)
     base_velocity.ranges.lin_vel_x = (
         FIXED_FORWARD_COMMAND_MPS,
         FIXED_FORWARD_COMMAND_MPS,
@@ -160,14 +165,14 @@ class StairRewardsCfg(_UPSTREAM.RewardsCfg):
 
     # Absolute world-height tracking is invalid once the robot climbs 0.60 m.
     base_height = None
-    base_linear_velocity = copy.deepcopy(_UPSTREAM.RewardsCfg.base_linear_velocity)
+    base_linear_velocity = copy.deepcopy(_UPSTREAM_CFG.rewards.base_linear_velocity)
     base_linear_velocity.weight = -0.5
-    joint_deviation_arms = copy.deepcopy(_UPSTREAM.RewardsCfg.joint_deviation_arms)
+    joint_deviation_arms = copy.deepcopy(_UPSTREAM_CFG.rewards.joint_deviation_arms)
     joint_deviation_arms.weight = -0.02
-    feet_clearance = copy.deepcopy(_UPSTREAM.RewardsCfg.feet_clearance)
+    feet_clearance = copy.deepcopy(_UPSTREAM_CFG.rewards.feet_clearance)
     feet_clearance.weight = 1.5
     feet_clearance.params["target_height"] = 0.22
-    undesired_contacts = copy.deepcopy(_UPSTREAM.RewardsCfg.undesired_contacts)
+    undesired_contacts = copy.deepcopy(_UPSTREAM_CFG.rewards.undesired_contacts)
     undesired_contacts.weight = -5.0
 
 
