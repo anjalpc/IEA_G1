@@ -35,7 +35,7 @@ _UPSTREAM = importlib.import_module(
 # scene, command, and reward terms that we deep-copy below.
 _UPSTREAM_CFG = _UPSTREAM.RobotEnvCfg()
 
-COURSE_SIZE = (5.75, 2.0)
+COURSE_SIZE = (5.75, 1.2)
 STAIR_TERRAIN_CFG = terrain_gen.TerrainGeneratorCfg(
     size=COURSE_SIZE,
     border_width=1.0,

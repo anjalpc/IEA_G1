@@ -89,7 +89,7 @@ commands:
 terrain:
   type: three_step_ascent
   direction: positive_x
-  course_size_m: [5.75, 2.0]
+  course_size_m: [5.75, 1.2]
   approach_length_m: 2.0
   riser_height_m:
     curriculum_range: [0.05, 0.20]

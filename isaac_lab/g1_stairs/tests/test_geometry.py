@@ -17,6 +17,7 @@ class StaircaseGeometryTest(unittest.TestCase):
         self.assertAlmostEqual(stairs.total_rise, 0.60)
         self.assertAlmostEqual(stairs.stair_run, 0.75)
         self.assertAlmostEqual(stairs.course_length, 5.75)
+        self.assertAlmostEqual(stairs.width, 1.20)
         self.assertEqual(stairs.fixed_start_xy_yaw, (1.0, 0.0, 0.0))
 
     def test_initial_training_uses_exact_nominal_riser(self):

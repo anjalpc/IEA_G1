@@ -20,7 +20,7 @@ class StaircaseSpec:
     riser_height: float = 0.20
     tread_depth: float = 0.25
     step_count: int = 3
-    width: float = 2.0
+    width: float = 1.2
     approach_length: float = 2.0
     platform_length: float = 3.0
     foundation_depth: float = 0.10

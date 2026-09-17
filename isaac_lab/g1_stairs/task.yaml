@@ -21,7 +21,7 @@ terrain:
   step_count: 3
   total_rise_m: 0.60
   approach_length_m: 2.0
-  width_m: 2.0
+  width_m: 1.2
   top_platform_length_m: 3.0
   top_platform_continues_from_third_step: true
   initial_training_riser_height_m: 0.20

@@ -191,7 +191,7 @@ Licenses and vendored revisions are documented in
 | Steps | 3 |
 | Total rise | 0.60 m |
 | Stair run | 0.75 m |
-| Width | 2.00 m |
+| Width | 1.20 m |
 | Approach length | 2.00 m |
 | Upper platform length in training scene | 3.00 m |
 | Required post-stair continuation | 2.00 m |
