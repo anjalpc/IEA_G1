@@ -24,7 +24,9 @@ terrain:
   width_m: 2.0
   top_platform_length_m: 3.0
   top_platform_continues_from_third_step: true
-  curriculum_riser_height_m: [0.05, 0.20]
+  initial_training_riser_height_m: 0.20
+  curriculum_enabled_initially: false
+  planned_curriculum_riser_height_m: [0.05, 0.20]
   fixed_start:
     enabled: true
     base_position_m: [1.0, 0.0, 0.80]

@@ -3,7 +3,11 @@ from pathlib import Path
 
 import yaml
 
-from isaac_lab.g1_stairs.contracts import BODY_JOINTS, MODE_MACHINE
+from isaac_lab.g1_stairs.contracts import (
+    BODY_JOINTS,
+    MODE_MACHINE,
+    NOMINAL_RISER_HEIGHT_M,
+)
 from isaac_lab.g1_stairs.geometry import StaircaseSpec, nominal_staircase
 
 
@@ -14,6 +18,23 @@ class StaircaseGeometryTest(unittest.TestCase):
         self.assertAlmostEqual(stairs.stair_run, 0.75)
         self.assertAlmostEqual(stairs.course_length, 5.75)
         self.assertEqual(stairs.fixed_start_xy_yaw, (1.0, 0.0, 0.0))
+
+    def test_initial_training_uses_exact_nominal_riser(self):
+        root = Path(__file__).resolve().parents[3]
+        task = yaml.safe_load(
+            (root / "isaac_lab/g1_stairs/task.yaml").read_text()
+        )
+        terrain = task["terrain"]
+
+        self.assertAlmostEqual(
+            terrain["initial_training_riser_height_m"],
+            NOMINAL_RISER_HEIGHT_M,
+        )
+        self.assertFalse(terrain["curriculum_enabled_initially"])
+        self.assertEqual(
+            terrain["planned_curriculum_riser_height_m"],
+            [0.05, 0.20],
+        )
 
     def test_three_treads_then_continuous_platform(self):
         stairs = nominal_staircase()

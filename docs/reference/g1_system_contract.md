@@ -203,6 +203,11 @@ Initial fixed base pose:
 - first-riser distance: 1.00 m;
 - position/yaw randomization: disabled until nominal ascent is learned.
 
+The initial executable training and visual-inspection task uses the exact
+`0.20 m` riser height in every environment. The planned `0.05–0.20 m`
+riser-height curriculum remains disabled until the nominal staircase passes
+its smoke and evaluation gates.
+
 Training uses PPO, initialized from human stair-ascent motion tracking. The
 policy observes proprioception, commands, previous actions, and a local terrain
 height scan. Training-only privileged observations may not become undeclared

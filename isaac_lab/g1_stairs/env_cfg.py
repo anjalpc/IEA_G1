@@ -18,7 +18,11 @@ from isaaclab.utils import configclass
 
 from unitree_rl_lab.tasks.locomotion import mdp
 
-from .contracts import BODY_JOINTS, FIXED_FORWARD_COMMAND_MPS
+from .contracts import (
+    BODY_JOINTS,
+    FIXED_FORWARD_COMMAND_MPS,
+    NOMINAL_RISER_HEIGHT_M,
+)
 from .isaac_terrain import ThreeStepStairsCfg
 
 
@@ -41,7 +45,13 @@ STAIR_TERRAIN_CFG = terrain_gen.TerrainGeneratorCfg(
         "three_step_ascent": ThreeStepStairsCfg(
             proportion=1.0,
             size=COURSE_SIZE,
-            riser_height_range=(0.05, 0.20),
+            # Begin with the exact thesis staircase. The 5–20 cm
+            # curriculum will be introduced only after the nominal task
+            # passes its smoke and evaluation gates.
+            riser_height_range=(
+                NOMINAL_RISER_HEIGHT_M,
+                NOMINAL_RISER_HEIGHT_M,
+            ),
             tread_depth=0.25,
             step_count=3,
             approach_length=2.0,
