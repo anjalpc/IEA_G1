@@ -206,7 +206,10 @@ Initial fixed base pose:
 The initial executable training and visual-inspection task uses the exact
 `0.20 m` riser height in every environment. The planned `0.05–0.20 m`
 riser-height curriculum remains disabled until the nominal staircase passes
-its smoke and evaluation gates.
+its smoke and evaluation gates. During this phase, observation corruption,
+external-force resets, terrain progression, and velocity progression are also
+disabled. Proprioception retains five control steps of history, while the local
+terrain height scan uses only its current frame.
 
 Training uses PPO, initialized from human stair-ascent motion tracking. The
 policy observes proprioception, commands, previous actions, and a local terrain

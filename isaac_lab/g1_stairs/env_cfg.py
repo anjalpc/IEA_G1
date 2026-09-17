@@ -69,7 +69,7 @@ STAIR_TERRAIN_CFG = terrain_gen.TerrainGeneratorCfg(
 
 @configclass
 class StairSceneCfg(_UPSTREAM.RobotSceneCfg):
-    """Unitree G1 scene using only the three-step curriculum terrain."""
+    """Unitree G1 scene using the exact nominal three-step terrain."""
 
     terrain = copy.deepcopy(_UPSTREAM_CFG.scene.terrain)
     terrain.terrain_generator = STAIR_TERRAIN_CFG
@@ -98,7 +98,12 @@ class StairObservationsCfg(_UPSTREAM.ObservationsCfg):
             func=mdp.height_scan,
             params={"sensor_cfg": SceneEntityCfg("height_scanner")},
             clip=(-1.0, 1.0),
+            history_length=1,
         )
+
+        def __post_init__(self):
+            super().__post_init__()
+            self.enable_corruption = False
 
     policy: PolicyCfg = PolicyCfg()
 
@@ -108,6 +113,7 @@ class StairObservationsCfg(_UPSTREAM.ObservationsCfg):
             func=mdp.height_scan,
             params={"sensor_cfg": SceneEntityCfg("height_scanner")},
             clip=(-1.0, 1.0),
+            history_length=1,
         )
 
     critic: CriticCfg = CriticCfg()
@@ -154,9 +160,18 @@ class StairEventsCfg(_UPSTREAM.EventCfg):
         mode="reset",
         params={"position_range": (1.0, 1.0), "velocity_range": (0.0, 0.0)},
     )
+    base_external_force_torque = None
     physics_material = None
     add_base_mass = None
     push_robot = None
+
+
+@configclass
+class StairCurriculumCfg(_UPSTREAM.CurriculumCfg):
+    """Disable all curricula during the exact nominal training phase."""
+
+    terrain_levels = None
+    lin_vel_cmd_levels = None
 
 
 @configclass
@@ -178,7 +193,7 @@ class StairRewardsCfg(_UPSTREAM.RewardsCfg):
 
 @configclass
 class StairEnvCfg(_UPSTREAM.RobotEnvCfg):
-    """Training configuration for the initial stair curriculum."""
+    """Deterministic training configuration for the nominal staircase."""
 
     scene: InteractiveSceneCfg = StairSceneCfg(num_envs=4096, env_spacing=6.0)
     observations: StairObservationsCfg = StairObservationsCfg()
@@ -186,6 +201,7 @@ class StairEnvCfg(_UPSTREAM.RobotEnvCfg):
     commands: StairCommandsCfg = StairCommandsCfg()
     rewards: StairRewardsCfg = StairRewardsCfg()
     events: StairEventsCfg = StairEventsCfg()
+    curriculum: StairCurriculumCfg = StairCurriculumCfg()
 
     def __post_init__(self):
         super().__post_init__()

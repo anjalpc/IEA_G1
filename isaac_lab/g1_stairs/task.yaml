@@ -41,6 +41,14 @@ training:
   initial_forward_command_mps: 0.35
   initial_parallel_environments: 4096
   initialization: motion_tracking_stair_ascent
+  initial_randomization:
+    policy_observation_corruption: false
+    external_force_reset: false
+    terrain_curriculum: false
+    velocity_curriculum: false
+  observation_history:
+    proprioception_steps: 5
+    terrain_height_scan_steps: 1
   policy_observations:
     - base_angular_velocity
     - projected_gravity

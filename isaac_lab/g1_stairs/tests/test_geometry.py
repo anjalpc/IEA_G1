@@ -36,6 +36,25 @@ class StaircaseGeometryTest(unittest.TestCase):
             [0.05, 0.20],
         )
 
+        training = task["training"]
+        self.assertEqual(
+            training["observation_history"]["proprioception_steps"],
+            5,
+        )
+        self.assertEqual(
+            training["observation_history"]["terrain_height_scan_steps"],
+            1,
+        )
+        self.assertEqual(
+            training["initial_randomization"],
+            {
+                "policy_observation_corruption": False,
+                "external_force_reset": False,
+                "terrain_curriculum": False,
+                "velocity_curriculum": False,
+            },
+        )
+
     def test_three_treads_then_continuous_platform(self):
         stairs = nominal_staircase()
         boxes = stairs.collision_boxes()
