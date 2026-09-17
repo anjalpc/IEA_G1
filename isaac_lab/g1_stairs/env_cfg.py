@@ -9,6 +9,7 @@ from __future__ import annotations
 import copy
 import importlib
 
+import isaaclab.sim as sim_utils
 import isaaclab.terrains as terrain_gen
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationTermCfg as ObsTerm
@@ -74,6 +75,14 @@ class StairSceneCfg(_UPSTREAM.RobotSceneCfg):
     terrain = copy.deepcopy(_UPSTREAM_CFG.scene.terrain)
     terrain.terrain_generator = STAIR_TERRAIN_CFG
     terrain.max_init_terrain_level = 0
+
+    # Visual-only material for clearer evaluation recordings.
+    # Collision geometry remains unchanged.
+    terrain.visual_material = sim_utils.PreviewSurfaceCfg(
+        diffuse_color=(0.34, 0.36, 0.39),
+        roughness=0.82,
+        metallic=0.0,
+    )
 
 
 @configclass
