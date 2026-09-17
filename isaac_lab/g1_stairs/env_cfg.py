@@ -103,7 +103,21 @@ class StairObservationsCfg(_UPSTREAM.ObservationsCfg):
 
         def __post_init__(self):
             super().__post_init__()
+
+            # Do not apply one history length to every observation term.
+            # Keep five frames of proprioception, but only the current
+            # terrain scan.
+            self.history_length = 0
+            self.flatten_history_dim = True
             self.enable_corruption = False
+
+            self.base_ang_vel.history_length = 5
+            self.projected_gravity.history_length = 5
+            self.velocity_commands.history_length = 5
+            self.joint_pos_rel.history_length = 5
+            self.joint_vel_rel.history_length = 5
+            self.last_action.history_length = 5
+            self.height_scan.history_length = 1
 
     policy: PolicyCfg = PolicyCfg()
 
@@ -115,6 +129,23 @@ class StairObservationsCfg(_UPSTREAM.ObservationsCfg):
             clip=(-1.0, 1.0),
             history_length=1,
         )
+
+        def __post_init__(self):
+            super().__post_init__()
+
+            # Privileged critic keeps five frames of proprioception and
+            # linear velocity, but only the current terrain scan.
+            self.history_length = 0
+            self.flatten_history_dim = True
+
+            self.base_lin_vel.history_length = 5
+            self.base_ang_vel.history_length = 5
+            self.projected_gravity.history_length = 5
+            self.velocity_commands.history_length = 5
+            self.joint_pos_rel.history_length = 5
+            self.joint_vel_rel.history_length = 5
+            self.last_action.history_length = 5
+            self.height_scan.history_length = 1
 
     critic: CriticCfg = CriticCfg()
 
