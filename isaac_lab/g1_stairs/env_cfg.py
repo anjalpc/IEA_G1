@@ -107,7 +107,7 @@ class StairObservationsCfg(_UPSTREAM.ObservationsCfg):
             # Do not apply one history length to every observation term.
             # Keep five frames of proprioception, but only the current
             # terrain scan.
-            self.history_length = 0
+            self.history_length = None
             self.flatten_history_dim = True
             self.enable_corruption = False
 
@@ -135,7 +135,7 @@ class StairObservationsCfg(_UPSTREAM.ObservationsCfg):
 
             # Privileged critic keeps five frames of proprioception and
             # linear velocity, but only the current terrain scan.
-            self.history_length = 0
+            self.history_length = None
             self.flatten_history_dim = True
 
             self.base_lin_vel.history_length = 5
