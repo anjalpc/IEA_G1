@@ -15,6 +15,10 @@ import yaml
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from experiments.runtime_contract import validate_runtime_versions
 
 
 def load_yaml(path: Path) -> dict[str, Any]:
@@ -273,6 +277,7 @@ def main() -> int:
 
     run_dir, resolved_path, manifest_path = prepare_run(args)
     resolved = load_yaml(resolved_path)
+    manifest = load_yaml(manifest_path)
 
     print(f"Prepared run directory: {run_dir}")
     print(f"Resolved configuration: {resolved_path}")
@@ -295,6 +300,16 @@ def main() -> int:
         return 0
 
     try:
+        packages = manifest.get("packages", {})
+        software = resolved.get("software", {})
+        validate_runtime_versions(
+            isaac_lab=packages.get("isaac_lab"),
+            rsl_rl=packages.get("rsl_rl"),
+        )
+        validate_runtime_versions(
+            isaac_lab=software.get("isaac_lab"),
+            rsl_rl=software.get("rsl_rl"),
+        )
         command = build_training_command(
             resolved,
             args.extra_training_arguments,

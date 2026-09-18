@@ -196,7 +196,6 @@ def main() -> None:
     import gymnasium as gym
     import torch
 
-    from importlib.metadata import version
 
     from rsl_rl.runners import OnPolicyRunner
 
@@ -355,9 +354,6 @@ def main() -> None:
     print(f"step_dt={metadata['step_dt']}")
 
     obs = env.get_observations()
-
-    if version("rsl-rl-lib").startswith("2.3."):
-        obs, _ = env.get_observations()
 
     # Apply the evaluation camera only after the environment has completed
     # its initialization/reset path. This is the authoritative camera pose.

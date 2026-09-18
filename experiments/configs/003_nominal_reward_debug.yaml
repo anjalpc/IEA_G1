@@ -39,10 +39,10 @@ launch_gates:
 
 metric_deferrals:
   approximate_kl:
-    reason: RSL-RL 2.3.1 computes adaptive KL internally but does not expose it in loss_dict
+    reason: RSL-RL 3.0.1 computes adaptive KL internally but does not expose it in loss_dict
     required_before: PPO ablation studies
   clip_fraction:
-    reason: RSL-RL 2.3.1 does not expose clipped-sample fraction
+    reason: RSL-RL 3.0.1 does not expose clipped-sample fraction
     required_before: PPO ablation studies
   inactive_reward_components:
     reason: Experiment A instantiates only forward and stair progress by design

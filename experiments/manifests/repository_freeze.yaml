@@ -18,7 +18,7 @@ training_stack:
   unitree_rl_lab:
     repository: https://github.com/unitreerobotics/unitree_rl_lab.git
     commit: 4960b84732b0c2ec593dccbfe963fda1bcd7b1e3
-  rsl_rl: 2.3.x
+  rsl_rl: 3.0.1
 
 task:
   id: Unitree-IEA-G1-29dof-Stairs-v0

@@ -18,6 +18,14 @@ import yaml
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from experiments.runtime_contract import (
+    EXPECTED_ISAAC_LAB_VERSION,
+    EXPECTED_RSL_RL_VERSION,
+    isaac_lab_checkout_version,
+)
 
 
 def run_command(*args: str) -> str | None:
@@ -229,10 +237,15 @@ def main() -> int:
         },
         "packages": {
             "isaac_sim": package_version("isaacsim"),
-            "isaac_lab": package_version("isaaclab"),
+            "isaac_lab": isaac_lab_checkout_version(),
+            "isaac_lab_distribution": package_version("isaaclab"),
             "rsl_rl": package_version("rsl-rl-lib", "rsl_rl"),
             "torch": package_version("torch"),
             "pyyaml": package_version("PyYAML"),
+        },
+        "runtime_contract": {
+            "isaac_lab": EXPECTED_ISAAC_LAB_VERSION,
+            "rsl_rl": EXPECTED_RSL_RL_VERSION,
         },
     }
 

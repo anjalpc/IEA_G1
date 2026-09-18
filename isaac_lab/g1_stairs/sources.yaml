@@ -12,8 +12,8 @@ isaac_training_stack:
     source: https://github.com/unitreerobotics/unitree_rl_lab/tree/4960b84732b0c2ec593dccbfe963fda1bcd7b1e3
     asset_configuration_required: UNITREE_MODEL_DIR
   rsl_rl:
-    compatibility_target: 2.3.x
-    source: https://github.com/leggedrobotics/rsl_rl
+    compatibility_target: 3.0.1
+    source: https://github.com/leggedrobotics/rsl_rl/tree/v3.0.1
 
 unitree_combined_g1_brainco:
   repository: https://github.com/unitreerobotics/unitree_ros.git

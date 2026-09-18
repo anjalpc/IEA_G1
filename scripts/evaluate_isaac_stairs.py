@@ -70,8 +70,6 @@ def disable_native_terminations(env_cfg) -> tuple[str, ...]:
 
 
 def main() -> None:
-    from importlib.metadata import version
-
     import gymnasium as gym
     import torch
     from rsl_rl.runners import OnPolicyRunner
@@ -129,8 +127,6 @@ def main() -> None:
     policy = runner.get_inference_policy(device=env.unwrapped.device)
 
     obs = env.get_observations()
-    if version("rsl-rl-lib").startswith("2.3."):
-        obs, _ = env.get_observations()
 
     evaluator = StairOutcomeEvaluator()
     writer = RunMetricsWriter(output_dir, output_dir.name)

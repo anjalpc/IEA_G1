@@ -32,7 +32,7 @@ python3 isaac_lab/g1_stairs/audit_assets.py
 ## Cloud launch
 
 Compatibility target: Isaac Sim 5.1.0, Isaac Lab 2.3.0, Unitree RL Lab commit
-`4960b84732b0c2ec593dccbfe963fda1bcd7b1e3`, and RSL-RL 2.3.x.
+`4960b84732b0c2ec593dccbfe963fda1bcd7b1e3`, and RSL-RL 3.0.1 exactly.
 
 Install this repository and the pinned Unitree RL Lab checkout into the Isaac
 Lab Python environment. In Unitree RL Lab's

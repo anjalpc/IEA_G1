@@ -238,7 +238,7 @@ Isaac training integration contract:
 - task ID: `Unitree-IEA-G1-29dof-Stairs-v0` (the `Unitree` prefix is required
   by the pinned Unitree RL Lab launcher task filter);
 - compatibility target: Isaac Sim 5.1.0, Isaac Lab 2.3.0, Unitree RL Lab
-  revision `4960b84732b0c2ec593dccbfe963fda1bcd7b1e3`, and RSL-RL 2.3.x;
+  revision `4960b84732b0c2ec593dccbfe963fda1bcd7b1e3`, and RSL-RL 3.0.1 exactly;
 - Unitree RL Lab's `UNITREE_MODEL_DIR` placeholder must be replaced with the
   absolute path to its G1 model checkout on the training machine;
 - the first executable cloud gate is a 32-environment, one-iteration training
@@ -288,7 +288,7 @@ The metrics contract produces:
 Experiment A uses the project-owned `StairPPORunnerCfg` rather than relying on
 unverified upstream defaults. Each RSL-RL iteration writes structured training,
 active reward-component, constraint, motion, PPO, performance, GPU-memory, and
-non-finite-state metrics into the recorded run directory. RSL-RL 2.3.1 does
+non-finite-state metrics into the recorded run directory. RSL-RL 3.0.1 does
 not expose approximate KL or clip fraction through its runner loss dictionary;
 those two diagnostics are explicitly deferred until PPO ablation work rather
 than being represented as measured values.

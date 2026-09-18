@@ -16,7 +16,7 @@ code:
 software:
   isaac_sim: 5.1.0
   isaac_lab: 2.3.0
-  rsl_rl: 2.3.x
+  rsl_rl: 3.0.1
 
 execution:
   provider: aws
