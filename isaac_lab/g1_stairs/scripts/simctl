@@ -101,7 +101,7 @@ cmd_status() {
     fi
 
     if [ -f "$METRICS" ]; then
-        python3 - "$METRICS" "${RUN_DIR}/resolved_config.yaml" <<'PY'
+        python3 - "$METRICS" "${RUN_DIR}/resolved_config.yaml" "$MANIFEST" <<'PY'
 import csv
 import re
 import sys
@@ -109,6 +109,7 @@ from pathlib import Path
 
 metrics = Path(sys.argv[1])
 config = Path(sys.argv[2])
+manifest = Path(sys.argv[3])
 
 with metrics.open(newline="") as f:
     rows = list(csv.DictReader(f))
@@ -127,12 +128,27 @@ platform = row.get("platform_reached_rate", "")
 action_rate = row.get("action_rate_mean", "")
 power = row.get("mechanical_power_mean", "")
 
+# The run manifest is authoritative because it records the command
+# that was actually executed.
 target = None
-if config.exists():
-    text = config.read_text()
-    values = re.findall(r"maximum_iterations:\s*(\d+)", text)
+
+if manifest.exists():
+    manifest_text = manifest.read_text()
+    match = re.search(
+        r"(?m)^\s*-\s*--max_iterations\s*$\n"
+        r"^\s*-\s*['\"]?(\d+)['\"]?\s*$",
+        manifest_text,
+    )
+    if match:
+        target = int(match.group(1))
+
+# Fallback for older manifests. The top-level training value is the
+# first maximum_iterations entry in our resolved experiment schema.
+if target is None and config.exists():
+    config_text = config.read_text()
+    values = re.findall(r"maximum_iterations:\s*(\d+)", config_text)
     if values:
-        target = int(values[-1])
+        target = int(values[0])
 
 print()
 if target:
