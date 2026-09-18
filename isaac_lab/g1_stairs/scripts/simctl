@@ -378,7 +378,6 @@ cd /workspace/IEA_G1
   --output-dir '${OUTPUT_DIR}' \
   --max-steps 900 \
   --seed 42 \
-  --num_envs 1 \
   --headless \
   --device cuda:0
 "
