@@ -56,6 +56,22 @@ class StaircaseGeometryTest(unittest.TestCase):
             },
         )
 
+        smoke = yaml.safe_load(
+            (root / "experiments/configs/002_stairs_smoke.yaml").read_text()
+        )
+        self.assertEqual(smoke["terrain"]["course_size_m"], [5.75, 1.2])
+        self.assertAlmostEqual(
+            smoke["terrain"]["riser_height_m"]["initial_smoke_level"],
+            NOMINAL_RISER_HEIGHT_M,
+        )
+        self.assertFalse(smoke["observations"]["corruption_enabled"])
+        self.assertFalse(smoke["curriculum"]["terrain_riser_height"]["enabled"])
+        self.assertFalse(
+            smoke["curriculum"]["command_curriculum"][
+                "inherited_from_upstream"
+            ]
+        )
+
     def test_three_treads_then_continuous_platform(self):
         stairs = nominal_staircase()
         boxes = stairs.collision_boxes()

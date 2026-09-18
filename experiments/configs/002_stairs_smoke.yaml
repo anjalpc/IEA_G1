@@ -14,7 +14,7 @@ inheritance:
 
 code:
   project_branch: g1-stair-rl
-  project_commit: 803ea2e51044af46d8a1a9487eb3469e39b6f1e5
+  project_commit: resolved_from_clean_worktree_at_launch
   require_clean_worktree: true
   unitree_rl_lab_commit: 4960b84732b0c2ec593dccbfe963fda1bcd7b1e3
 
@@ -53,7 +53,7 @@ timing:
 
 observations:
   history_length: 5
-  corruption_enabled: true
+  corruption_enabled: false
   policy_order:
     - base_angular_velocity
     - projected_gravity
@@ -94,7 +94,7 @@ terrain:
   riser_height_m:
     curriculum_range: [0.05, 0.20]
     nominal_target: 0.20
-    initial_smoke_level: 0.05
+    initial_smoke_level: 0.20
   tread_depth_m: 0.25
   step_count: 3
   stair_run_m: 0.75
@@ -107,7 +107,7 @@ terrain:
 
 start_pose:
   distribution: fixed
-  terrain_origin_m: [1.0, 1.0, 0.0]
+  terrain_origin_m: [1.0, 0.6, 0.0]
   base_height_from_robot_asset_m: 0.80
   orientation_rpy_rad: [0.0, 0.0, 0.0]
   distance_before_first_riser_m: 1.0
@@ -157,11 +157,11 @@ terminations:
 
 curriculum:
   terrain_riser_height:
-    enabled: true
+    enabled: false
     range_m: [0.05, 0.20]
-    initial_level: 0
+    initial_level: nominal_exact
   command_curriculum:
-    inherited_from_upstream: true
+    inherited_from_upstream: false
 
 ppo:
   inherit_complete_definition_from: experiments/configs/001_upstream_flat_ground.yaml
