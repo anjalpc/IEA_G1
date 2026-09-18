@@ -99,45 +99,99 @@ def main() -> None:
     try:
         if args.audit_evaluation_inputs:
             robot = env.unwrapped.scene["robot"]
-            print("=== EVALUATION INPUT AUDIT ===")
-            print(f"body_names={list(robot.body_names)}")
-            print(f"joint_names={list(robot.joint_names)}")
-            print(
-                "robot_data_fields="
-                + repr(
-                    sorted(
-                        name
-                        for name in dir(robot.data)
-                        if any(
-                            token in name
-                            for token in (
-                                "root_",
-                                "joint_",
-                                "torque",
-                                "effort",
-                                "body_lin_vel",
-                            )
-                        )
+
+            print("=== EVALUATION INPUT AUDIT ===", flush=True)
+            print(f"body_names={list(robot.body_names)}", flush=True)
+            print(f"joint_names={list(robot.joint_names)}", flush=True)
+
+            print("--- ARTICULATION TENSORS ---", flush=True)
+
+            for field in (
+                "root_pos_w",
+                "root_quat_w",
+                "root_lin_vel_w",
+                "joint_pos",
+                "joint_vel",
+                "joint_acc",
+                "applied_torque",
+                "computed_torque",
+                "joint_effort_target",
+                "joint_effort_limits",
+                "joint_pos_limits",
+                "soft_joint_pos_limits",
+                "body_incoming_joint_wrench_b",
+            ):
+                try:
+                    value = getattr(robot.data, field)
+                    print(
+                        f"{field}: "
+                        f"type={type(value).__name__}, "
+                        f"shape={getattr(value, 'shape', None)}",
+                        flush=True,
                     )
-                )
-            )
-            print(
-                "sensor_names="
-                + repr(sorted(env.unwrapped.scene.sensors.keys()))
-            )
-            for name, sensor in env.unwrapped.scene.sensors.items():
-                print(f"sensor={name}")
-                print(f"sensor_body_names={list(getattr(sensor, 'body_names', []))}")
+                except Exception as exc:
+                    print(
+                        f"{field}: ERROR "
+                        f"{type(exc).__name__}: {exc}",
+                        flush=True,
+                    )
+
+            print("--- SCENE SENSORS ---", flush=True)
+
+            try:
+                sensors = env.unwrapped.scene.sensors
                 print(
-                    "sensor_data_fields="
-                    + repr(
-                        sorted(
-                            field
-                            for field in dir(sensor.data)
-                            if "force" in field or "contact" in field
-                        )
-                    )
+                    f"sensor_names={list(sensors.keys())}",
+                    flush=True,
                 )
+            except Exception as exc:
+                print(
+                    f"sensor_registry: ERROR "
+                    f"{type(exc).__name__}: {exc}",
+                    flush=True,
+                )
+                sensors = {}
+
+            for name, sensor in sensors.items():
+                print(f"sensor={name}", flush=True)
+                print(
+                    f"sensor_type={type(sensor).__name__}",
+                    flush=True,
+                )
+                print(
+                    f"sensor_body_names="
+                    f"{list(getattr(sensor, 'body_names', []))}",
+                    flush=True,
+                )
+
+                data = getattr(sensor, "data", None)
+
+                if data is None:
+                    print("sensor_data=None", flush=True)
+                    continue
+
+                for field in (
+                    "net_forces_w",
+                    "net_forces_w_history",
+                    "force_matrix_w",
+                    "force_matrix_w_history",
+                ):
+                    try:
+                        value = getattr(data, field)
+                        print(
+                            f"{field}: "
+                            f"type={type(value).__name__}, "
+                            f"shape={getattr(value, 'shape', None)}",
+                            flush=True,
+                        )
+                    except Exception as exc:
+                        print(
+                            f"{field}: ERROR "
+                            f"{type(exc).__name__}: {exc}",
+                            flush=True,
+                        )
+
+            print("=== END EVALUATION INPUT AUDIT ===", flush=True)
             return
 
         if args.simulate:
