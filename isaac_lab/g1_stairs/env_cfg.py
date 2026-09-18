@@ -13,6 +13,7 @@ import isaaclab.sim as sim_utils
 import isaaclab.terrains as terrain_gen
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationTermCfg as ObsTerm
+from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.utils import configclass
@@ -25,6 +26,7 @@ from .contracts import (
     NOMINAL_RISER_HEIGHT_M,
 )
 from .isaac_terrain import ThreeStepStairsCfg
+from . import rewards as stair_rewards
 
 
 _UPSTREAM = importlib.import_module(
@@ -215,20 +217,22 @@ class StairCurriculumCfg(_UPSTREAM.CurriculumCfg):
 
 
 @configclass
-class StairRewardsCfg(_UPSTREAM.RewardsCfg):
-    """Adapt flat-ground shaping without pretending it is the final reward."""
+class StairRewardsCfg:
+    """Phase 12 Experiment A: progress only, with no shaping rewards."""
 
-    # Absolute world-height tracking is invalid once the robot climbs 0.60 m.
-    base_height = None
-    base_linear_velocity = copy.deepcopy(_UPSTREAM_CFG.rewards.base_linear_velocity)
-    base_linear_velocity.weight = -0.5
-    joint_deviation_arms = copy.deepcopy(_UPSTREAM_CFG.rewards.joint_deviation_arms)
-    joint_deviation_arms.weight = -0.02
-    feet_clearance = copy.deepcopy(_UPSTREAM_CFG.rewards.feet_clearance)
-    feet_clearance.weight = 1.5
-    feet_clearance.params["target_height"] = 0.22
-    undesired_contacts = copy.deepcopy(_UPSTREAM_CFG.rewards.undesired_contacts)
-    undesired_contacts.weight = -5.0
+    forward_progress = RewTerm(
+        func=stair_rewards.forward_progress,
+        weight=1.0,
+        params={"asset_cfg": SceneEntityCfg("robot")},
+    )
+    stair_progress = RewTerm(
+        func=stair_rewards.stair_progress,
+        weight=1.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "step_edges_m": (1.0, 1.25, 1.50),
+        },
+    )
 
 
 @configclass

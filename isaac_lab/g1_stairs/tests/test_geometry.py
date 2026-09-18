@@ -1,4 +1,5 @@
 import unittest
+import ast
 from pathlib import Path
 
 import yaml
@@ -71,6 +72,11 @@ class StaircaseGeometryTest(unittest.TestCase):
                 "inherited_from_upstream"
             ]
         )
+        self.assertEqual(
+            set(smoke["rewards"]["active_terms"]),
+            {"forward_progress", "stair_progress"},
+        )
+        self.assertFalse(smoke["rewards"]["inherited_flat_ground_terms_active"])
 
     def test_three_treads_then_continuous_platform(self):
         stairs = nominal_staircase()
@@ -99,6 +105,36 @@ class StaircaseGeometryTest(unittest.TestCase):
         robot = yaml.safe_load((root / "simulation/config/robot.yaml").read_text())
         self.assertEqual(tuple(mapping["policy_order"]), BODY_JOINTS)
         self.assertEqual(robot["control"]["mode_machine"], MODE_MACHINE)
+
+    def test_experiment_a_declares_only_progress_rewards(self):
+        root = Path(__file__).resolve().parents[3]
+        experiment = yaml.safe_load(
+            (root / "experiments/configs/003_nominal_reward_debug.yaml").read_text()
+        )
+        enabled = experiment["rewards"]["stage_plan"]["A_progress_only"][
+            "enabled_terms"
+        ]
+        self.assertEqual(
+            enabled,
+            {"forward_progress_raw": 1.0, "stair_progress_raw": 1.0},
+        )
+
+        tree = ast.parse(
+            (root / "isaac_lab/g1_stairs/env_cfg.py").read_text(encoding="utf-8")
+        )
+        reward_class = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.ClassDef) and node.name == "StairRewardsCfg"
+        )
+        configured = {
+            target.id
+            for node in reward_class.body
+            if isinstance(node, ast.Assign)
+            for target in node.targets
+            if isinstance(target, ast.Name)
+        }
+        self.assertEqual(configured, {"forward_progress", "stair_progress"})
 
 
 if __name__ == "__main__":

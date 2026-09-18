@@ -14,7 +14,7 @@ inheritance:
 
 code:
   project_branch: g1-stair-rl
-  project_commit: pending_phase_2_to_5_commit
+  project_commit: resolved_from_clean_worktree_at_launch
   require_clean_worktree: true
   unitree_rl_lab_commit: 4960b84732b0c2ec593dccbfe963fda1bcd7b1e3
 
@@ -32,9 +32,9 @@ execution:
 launch_gates:
   independent_evaluator_implemented: false
   essential_metrics_implemented: false
-  fixed_evaluation_cameras_implemented: false
-  aws_upstream_validation_passed: false
-  staircase_geometry_validation_passed: false
+  fixed_evaluation_cameras_implemented: true
+  aws_upstream_validation_passed: true
+  staircase_geometry_validation_passed: true
   allow_launch: false
 
 task:
@@ -143,7 +143,7 @@ rewards:
     upward_progress_raw:
       formula: positive_part_of_base_height_t_minus_base_height_previous
       units: m_per_step
-      active_weight: 0.5
+      active_weight: 0.0
 
     stair_progress_raw:
       formula: maximum_step_index_reached_minus_previous_maximum_step_index
@@ -202,7 +202,6 @@ rewards:
     A_progress_only:
       enabled_terms:
         forward_progress_raw: 1.0
-        upward_progress_raw: 0.5
         stair_progress_raw: 1.0
 
     B_add_upright:

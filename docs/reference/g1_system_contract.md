@@ -216,6 +216,11 @@ policy observes proprioception, commands, previous actions, and a local terrain
 height scan. Training-only privileged observations may not become undeclared
 deployment inputs.
 
+Phase 12 begins with an intentionally minimal Experiment A reward: integrated
+forward +X progress and a one-time reward for each newly reached stair level.
+No inherited flat-ground shaping, completion, safety, foot-control, constraint,
+or smoothness rewards are active in Experiment A.
+
 Acceptance gates:
 
 - at least 99% completion on the exact nominal staircase;

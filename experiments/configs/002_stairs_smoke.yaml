@@ -128,24 +128,16 @@ domain_randomization:
   external_push:
     enabled: false
 
-reward_overrides:
-  base_height:
-    enabled: false
-    reason: Absolute world-height tracking is invalid during a 0.60 m ascent
-  vertical_linear_velocity:
-    formula: squared_l2
-    weight: -0.5
-  arm_joint_deviation:
-    formula: absolute_l1
-    weight: -0.02
-  feet_clearance:
-    formula: foot_clearance
-    weight: 1.5
-    target_m: 0.22
-  undesired_contacts:
-    formula: contact_force_above_threshold
-    weight: -5.0
-  warning: These are inherited flat-ground shaping terms, not the final stair reward
+rewards:
+  phase: A_progress_only
+  active_terms:
+    forward_progress:
+      weight: 1.0
+      units_before_reward_manager_integration: m_per_s
+    stair_progress:
+      weight: 1.0
+      step_edges_from_robot_start_m: [1.0, 1.25, 1.50]
+  inherited_flat_ground_terms_active: false
 
 terminations:
   inherited:
@@ -153,7 +145,7 @@ terminations:
     - base_height_fall
     - bad_orientation_fall
   independent_stair_success_evaluator_active: false
-  reason: Implemented in Phase 4 before meaningful training
+  reason: Simulator-independent evaluator exists; live Isaac Lab adapter remains required
 
 curriculum:
   terrain_riser_height:
