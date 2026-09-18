@@ -106,18 +106,38 @@ class StaircaseGeometryTest(unittest.TestCase):
         self.assertEqual(tuple(mapping["policy_order"]), BODY_JOINTS)
         self.assertEqual(robot["control"]["mode_machine"], MODE_MACHINE)
 
-    def test_experiment_a_declares_only_progress_rewards(self):
+    def test_reward_stage_plan_preserves_a_and_adds_only_upright_in_b(self):
         root = Path(__file__).resolve().parents[3]
         experiment = yaml.safe_load(
             (root / "experiments/configs/003_nominal_reward_debug.yaml").read_text()
         )
-        enabled = experiment["rewards"]["stage_plan"]["A_progress_only"][
+        stage_plan = experiment["rewards"]["stage_plan"]
+        experiment_a = stage_plan["A_progress_only"][
             "enabled_terms"
         ]
         self.assertEqual(
-            enabled,
+            experiment_a,
             {"forward_progress_raw": 1.0, "stair_progress_raw": 1.0},
         )
+        self.assertEqual(
+            stage_plan["B_add_upright"]["enabled_terms"],
+            {"upright_raw": -1.0},
+        )
+        self.assertEqual(
+            experiment["reward_experiment"]["active_stage"],
+            "B_add_upright",
+        )
+        self.assertEqual(
+            experiment["rewards"]["always_logged"]["upright_raw"],
+            {
+                "formula": "squared_xy_projected_gravity",
+                "interpretation": "zero_when_upright_increases_with_tilt",
+                "active_weight": -1.0,
+            },
+        )
+
+    def test_experiment_b_runtime_rewards_are_exact(self):
+        root = Path(__file__).resolve().parents[3]
 
         tree = ast.parse(
             (root / "isaac_lab/g1_stairs/env_cfg.py").read_text(encoding="utf-8")
@@ -134,7 +154,27 @@ class StaircaseGeometryTest(unittest.TestCase):
             for target in node.targets
             if isinstance(target, ast.Name)
         }
-        self.assertEqual(configured, {"forward_progress", "stair_progress"})
+        self.assertEqual(
+            configured,
+            {"forward_progress", "stair_progress", "upright"},
+        )
+        assignments = {
+            node.targets[0].id: node.value
+            for node in reward_class.body
+            if isinstance(node, ast.Assign)
+            and len(node.targets) == 1
+            and isinstance(node.targets[0], ast.Name)
+        }
+        expected = {
+            "forward_progress": ("stair_rewards.forward_progress", 1.0),
+            "stair_progress": ("stair_rewards.stair_progress", 1.0),
+            "upright": ("mdp.flat_orientation_l2", -1.0),
+        }
+        for name, (function, weight) in expected.items():
+            call = assignments[name]
+            keywords = {item.arg: item.value for item in call.keywords}
+            self.assertEqual(ast.unparse(keywords["func"]), function)
+            self.assertEqual(ast.literal_eval(keywords["weight"]), weight)
 
     def test_metrics_gate_is_open_after_live_smoke(self):
         root = Path(__file__).resolve().parents[3]

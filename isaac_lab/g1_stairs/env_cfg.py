@@ -218,7 +218,7 @@ class StairCurriculumCfg(_UPSTREAM.CurriculumCfg):
 
 @configclass
 class StairRewardsCfg:
-    """Phase 12 Experiment A: progress only, with no shaping rewards."""
+    """Phase 12 Experiment B: progress plus upright posture."""
 
     forward_progress = RewTerm(
         func=stair_rewards.forward_progress,
@@ -232,6 +232,11 @@ class StairRewardsCfg:
             "asset_cfg": SceneEntityCfg("robot"),
             "step_edges_m": (1.0, 1.25, 1.50),
         },
+    )
+    upright = RewTerm(
+        func=mdp.flat_orientation_l2,
+        weight=-1.0,
+        params={"asset_cfg": SceneEntityCfg("robot")},
     )
 
 

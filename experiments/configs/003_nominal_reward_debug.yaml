@@ -135,7 +135,7 @@ domain_randomization:
   action_latency: false
 
 reward_experiment:
-  active_stage: A_progress_only
+  active_stage: B_add_upright
   rule: Change only one reward group between experiments
   reject_change_if:
     - validation_success_decreases
@@ -169,8 +169,9 @@ rewards:
       active_weight: 0.0
 
     upright_raw:
-      formula: projected_gravity_alignment
-      active_weight: 0.0
+      formula: squared_xy_projected_gravity
+      interpretation: zero_when_upright_increases_with_tilt
+      active_weight: -1.0
 
     forbidden_contact_raw:
       formula: count_of_new_forbidden_contact_events
@@ -220,7 +221,7 @@ rewards:
 
     B_add_upright:
       enabled_terms:
-        upright_raw: pending_tuning
+        upright_raw: -1.0
 
     C_add_completion:
       enabled_terms:

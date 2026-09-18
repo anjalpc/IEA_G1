@@ -216,10 +216,11 @@ policy observes proprioception, commands, previous actions, and a local terrain
 height scan. Training-only privileged observations may not become undeclared
 deployment inputs.
 
-Phase 12 begins with an intentionally minimal Experiment A reward: integrated
-forward +X progress and a one-time reward for each newly reached stair level.
-No inherited flat-ground shaping, completion, safety, foot-control, constraint,
-or smoothness rewards are active in Experiment A.
+Phase 12 Experiment A used integrated forward +X progress and a one-time reward
+for each newly reached stair level. Experiment B starts from a fresh policy and
+adds only Isaac Lab's `flat_orientation_l2` term at weight `-1.0`. No inherited
+flat-ground shaping, completion, safety, foot-control, constraint, power,
+action-rate, or jerk rewards are active in Experiment B.
 
 Acceptance gates:
 
