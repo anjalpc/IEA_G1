@@ -20,5 +20,5 @@ docker exec \
   "${ISAACLAB_CONTAINER}" \
   /workspace/isaaclab/isaaclab.sh \
   -p \
-  scripts/run_recorded_experiment.py \
+  isaac_lab/g1_stairs/scripts/training/run_recorded_experiment.py \
   "$@"

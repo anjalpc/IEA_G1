@@ -63,7 +63,7 @@ Do not bypass `launch_gates.allow_launch: false` simply to start training.
 From the repository root:
 
 ```bash
-python3 scripts/prepare_experiment.py \
+python3 isaac_lab/g1_stairs/scripts/training/prepare_experiment.py \
   experiments/configs/001_upstream_flat_ground.yaml \
   --run-id upstream_flat_ground_001
 ```
@@ -73,7 +73,7 @@ training. Canonical AWS launches must use the host-side wrapper so the source
 checkout identity is passed into the container:
 
 ```bash
-scripts/run_aws_recorded_experiment.sh \
+isaac_lab/g1_stairs/scripts/training/run_aws_recorded_experiment.sh \
   experiments/configs/003_nominal_reward_debug.yaml \
   --run-id experiment_a_seed42
 ```
