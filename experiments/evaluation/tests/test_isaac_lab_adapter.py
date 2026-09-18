@@ -4,6 +4,7 @@ import unittest
 from experiments.evaluation.isaac_lab_adapter import (
     IsaacLabStepState,
     quaternion_wxyz_to_roll_pitch,
+    resolve_body_indices,
     step_index_from_course_x,
     to_step_sample,
 )
@@ -71,6 +72,20 @@ class IsaacLabAdapterTest(unittest.TestCase):
         self.assertTrue(sample.torque_violation)
         self.assertTrue(sample.slip_violation)
         self.assertTrue(sample.timed_out)
+
+    def test_body_indices_are_resolved_by_name(self):
+        indices = resolve_body_indices(
+            ("torso_link", "pelvis", "left_ankle_roll_link"),
+            ("pelvis", "left_ankle_roll_link"),
+        )
+        self.assertEqual(indices, {"pelvis": 1, "left_ankle_roll_link": 2})
+
+    def test_missing_required_body_fails_closed(self):
+        with self.assertRaisesRegex(ValueError, "right_ankle_roll_link"):
+            resolve_body_indices(
+                ("pelvis", "left_ankle_roll_link"),
+                ("left_ankle_roll_link", "right_ankle_roll_link"),
+            )
 
 
 if __name__ == "__main__":
