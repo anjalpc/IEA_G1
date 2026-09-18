@@ -31,11 +31,11 @@ execution:
 
 launch_gates:
   independent_evaluator_implemented: true
-  essential_metrics_implemented: false
+  essential_metrics_implemented: true
   fixed_evaluation_cameras_implemented: true
   aws_upstream_validation_passed: true
   staircase_geometry_validation_passed: true
-  allow_launch: false
+  allow_launch: true
 
 metric_deferrals:
   approximate_kl:

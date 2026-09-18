@@ -294,8 +294,9 @@ those two diagnostics are explicitly deferred until PPO ablation work rather
 than being represented as measured values.
 
 The independent evaluator and metrics writer have simulator-independent unit
-coverage. The nominal learning experiment remains launch-blocked until their
-Isaac Lab adapter and live logging integration are validated.
+coverage. Their Isaac Lab adapter and live logging integration passed the
+one-iteration AWS metrics smoke, so the nominal Experiment A launch gate is
+open.
 
 ## Safety and promotion sequence
 
