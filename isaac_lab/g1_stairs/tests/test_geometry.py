@@ -136,6 +136,25 @@ class StaircaseGeometryTest(unittest.TestCase):
         }
         self.assertEqual(configured, {"forward_progress", "stair_progress"})
 
+    def test_metrics_gate_waits_for_live_smoke(self):
+        root = Path(__file__).resolve().parents[3]
+        experiment = yaml.safe_load(
+            (root / "experiments/configs/003_nominal_reward_debug.yaml").read_text()
+        )
+        gates = experiment["launch_gates"]
+        self.assertTrue(gates["independent_evaluator_implemented"])
+        self.assertFalse(gates["essential_metrics_implemented"])
+        self.assertFalse(gates["allow_launch"])
+        self.assertEqual(
+            set(experiment["metric_deferrals"]),
+            {
+                "approximate_kl",
+                "clip_fraction",
+                "inactive_reward_components",
+                "automatic_periodic_evaluation",
+            },
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

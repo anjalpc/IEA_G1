@@ -30,12 +30,26 @@ execution:
   deterministic_torch: false
 
 launch_gates:
-  independent_evaluator_implemented: false
+  independent_evaluator_implemented: true
   essential_metrics_implemented: false
   fixed_evaluation_cameras_implemented: true
   aws_upstream_validation_passed: true
   staircase_geometry_validation_passed: true
   allow_launch: false
+
+metric_deferrals:
+  approximate_kl:
+    reason: RSL-RL 2.3.1 computes adaptive KL internally but does not expose it in loss_dict
+    required_before: PPO ablation studies
+  clip_fraction:
+    reason: RSL-RL 2.3.1 does not expose clipped-sample fraction
+    required_before: PPO ablation studies
+  inactive_reward_components:
+    reason: Experiment A instantiates only forward and stair progress by design
+    required_before: activating the corresponding B-to-G reward stage
+  automatic_periodic_evaluation:
+    reason: Checkpoints are persisted every 50 iterations; independent evaluation is launched separately
+    required_before: final multi-seed checkpoint selection
 
 task:
   id: Unitree-IEA-G1-29dof-Stairs-v0

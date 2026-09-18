@@ -285,6 +285,14 @@ The metrics contract produces:
 - `evaluation_episodes.csv`;
 - `evaluation_summary.json`, including a 95% Wilson success-rate interval.
 
+Experiment A uses the project-owned `StairPPORunnerCfg` rather than relying on
+unverified upstream defaults. Each RSL-RL iteration writes structured training,
+active reward-component, constraint, motion, PPO, performance, GPU-memory, and
+non-finite-state metrics into the recorded run directory. RSL-RL 2.3.1 does
+not expose approximate KL or clip fraction through its runner loss dictionary;
+those two diagnostics are explicitly deferred until PPO ablation work rather
+than being represented as measured values.
+
 The independent evaluator and metrics writer have simulator-independent unit
 coverage. The nominal learning experiment remains launch-blocked until their
 Isaac Lab adapter and live logging integration are validated.

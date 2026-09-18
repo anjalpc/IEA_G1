@@ -25,7 +25,10 @@ def main() -> None:
     root_value = os.environ.get("UNITREE_RL_LAB_ROOT")
     if not root_value:
         raise SystemExit("set UNITREE_RL_LAB_ROOT to the Unitree RL Lab checkout")
-    script = Path(root_value).resolve() / "scripts" / "rsl_rl" / f"{mode}.py"
+    if mode == "train":
+        script = REPO_ROOT / "scripts" / "train_isaac_stairs.py"
+    else:
+        script = Path(root_value).resolve() / "scripts" / "rsl_rl" / "play.py"
     if not script.is_file():
         raise SystemExit(f"missing Unitree RL Lab launcher: {script}")
     # Registration imports Gymnasium/Isaac Lab, which only exist in the cloud

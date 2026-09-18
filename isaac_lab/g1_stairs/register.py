@@ -16,8 +16,7 @@ def register() -> None:
             "env_cfg_entry_point": "isaac_lab.g1_stairs.env_cfg:StairEnvCfg",
             "play_env_cfg_entry_point": "isaac_lab.g1_stairs.env_cfg:StairPlayEnvCfg",
             "rsl_rl_cfg_entry_point": (
-                "unitree_rl_lab.tasks.locomotion.agents.rsl_rl_ppo_cfg:"
-                "BasePPORunnerCfg"
+                "isaac_lab.g1_stairs.agent_cfg:StairPPORunnerCfg"
             ),
         },
     )

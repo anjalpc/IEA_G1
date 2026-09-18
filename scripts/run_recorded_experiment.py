@@ -172,12 +172,16 @@ def update_manifest(
 def stream_training_process(
     command: list[str],
     console_path: Path,
+    run_dir: Path,
 ) -> int:
     """Run training while streaming and preserving combined output."""
     process: subprocess.Popen[str] | None = None
 
     try:
         with console_path.open("w", encoding="utf-8") as log:
+            environment = os.environ.copy()
+            environment["IEA_G1_METRICS_DIR"] = str(run_dir)
+            environment["IEA_G1_RUN_ID"] = run_dir.name
             process = subprocess.Popen(
                 command,
                 cwd=REPO_ROOT,
@@ -185,6 +189,7 @@ def stream_training_process(
                 stderr=subprocess.STDOUT,
                 text=True,
                 bufsize=1,
+                env=environment,
             )
 
             if process.stdout is None:
@@ -327,6 +332,7 @@ def main() -> int:
     exit_code = stream_training_process(
         command,
         console_path,
+        run_dir,
     )
 
     update_manifest(
