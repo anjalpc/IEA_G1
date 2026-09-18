@@ -1,0 +1,267 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+REPO="/home/ubuntu/workspace/IEA_G1"
+WORKSPACE="/home/ubuntu/workspace"
+CURRENT_RUN="${WORKSPACE}/current_training_run.txt"
+TRAIN_WRAPPER="${REPO}/isaac_lab/g1_stairs/scripts/training/run_aws_recorded_experiment.sh"
+TB_PORT=6006
+CONTAINER="isaac-lab-fixed"
+
+cd "$REPO"
+
+usage() {
+    cat <<USAGE
+Usage:
+  simctl train <config.yaml>
+  simctl status
+  simctl info
+  simctl tensorboard
+  simctl help
+USAGE
+}
+
+current_run() {
+    if [ ! -f "$CURRENT_RUN" ]; then
+        echo "No current training run recorded." >&2
+        exit 1
+    fi
+    cat "$CURRENT_RUN"
+}
+
+cmd_train() {
+    if [ $# -lt 1 ]; then
+        echo "Missing experiment config."
+        usage
+        exit 1
+    fi
+
+    CONFIG="$1"
+
+    if [ ! -f "$CONFIG" ]; then
+        echo "Config not found: $CONFIG"
+        exit 1
+    fi
+
+    if [ -n "$(git status --porcelain)" ]; then
+        echo "Refusing to train from a dirty worktree."
+        git status --short
+        exit 1
+    fi
+
+    BASE="$(basename "$CONFIG" .yaml)"
+    RUN_ID="${BASE}_$(date -u +%Y%m%d_%H%M%S)"
+    LOG="${WORKSPACE}/${RUN_ID}_launcher.log"
+
+    printf '%s\n' "$RUN_ID" > "$CURRENT_RUN"
+
+    echo "========================================"
+    echo " G1 STAIR TRAINING"
+    echo "========================================"
+    echo "Config: $CONFIG"
+    echo "Run:    $RUN_ID"
+    echo "Log:    $LOG"
+    echo
+
+    nohup "$TRAIN_WRAPPER" \
+        "$CONFIG" \
+        --run-id "$RUN_ID" \
+        > "$LOG" 2>&1 &
+
+    PID=$!
+
+    echo "$PID" > "${WORKSPACE}/current_training_pid.txt"
+
+    echo "Started."
+    echo "PID: $PID"
+    echo
+    echo "Use:"
+    echo "  isaac_lab/g1_stairs/scripts/simctl status"
+}
+
+cmd_status() {
+    RUN_ID="$(current_run)"
+    RUN_DIR="${REPO}/runs/${RUN_ID}"
+    MANIFEST="${RUN_DIR}/run_manifest.yaml"
+    METRICS="${RUN_DIR}/training_metrics.csv"
+    LOG="${WORKSPACE}/${RUN_ID}_launcher.log"
+
+    echo "========================================"
+    echo " G1 TRAINING STATUS"
+    echo "========================================"
+    echo "Run: $RUN_ID"
+
+    if [ -f "$MANIFEST" ]; then
+        STATUS="$(grep -E '^  status:' "$MANIFEST" | tail -n 1 | sed 's/^  status:[[:space:]]*//')"
+        EXIT_CODE="$(grep -E '^  exit_code:' "$MANIFEST" | tail -n 1 | sed 's/^  exit_code:[[:space:]]*//' || true)"
+        echo "Status: ${STATUS:-unknown}"
+        [ -n "${EXIT_CODE:-}" ] && echo "Exit code: $EXIT_CODE"
+    else
+        echo "Status: starting"
+    fi
+
+    if [ -f "$METRICS" ]; then
+        python3 - "$METRICS" "${RUN_DIR}/resolved_config.yaml" <<'PY'
+import csv
+import re
+import sys
+from pathlib import Path
+
+metrics = Path(sys.argv[1])
+config = Path(sys.argv[2])
+
+with metrics.open(newline="") as f:
+    rows = list(csv.DictReader(f))
+
+if not rows:
+    raise SystemExit
+
+row = rows[-1]
+
+iteration = int(float(row["iteration"]))
+wall = float(row.get("wall_time_s") or 0)
+reward = row.get("episode_return_mean", "")
+max_x = row.get("maximum_x_mean_m", "")
+step = row.get("maximum_step_reached_mean", "")
+platform = row.get("platform_reached_rate", "")
+action_rate = row.get("action_rate_mean", "")
+power = row.get("mechanical_power_mean", "")
+
+target = None
+if config.exists():
+    text = config.read_text()
+    values = re.findall(r"maximum_iterations:\s*(\d+)", text)
+    if values:
+        target = int(values[-1])
+
+print()
+if target:
+    completed = iteration + 1
+    pct = 100.0 * completed / target
+    print(f"Iteration: {iteration}/{target - 1}  ({pct:.1f}%)")
+
+    if wall > 0 and completed > 0:
+        eta = wall / completed * max(target - completed, 0)
+        h = int(eta // 3600)
+        m = int((eta % 3600) // 60)
+        s = int(eta % 60)
+        print(f"Estimated remaining: {h:02d}:{m:02d}:{s:02d}")
+else:
+    print(f"Iteration: {iteration}")
+
+if reward:
+    print(f"Mean return: {reward}")
+if max_x:
+    print(f"Maximum X mean: {max_x} m")
+if step:
+    print(f"Maximum step: {step}")
+if platform:
+    print(f"Platform reached: {platform}")
+if action_rate:
+    print(f"Action rate: {action_rate}")
+if power:
+    print(f"Mechanical power: {power}")
+PY
+    fi
+
+    echo
+    echo "Latest checkpoint:"
+
+    if [ -f "$LOG" ]; then
+        TRAIN_DIR="$(
+            grep -oE '/workspace/IEA_G1/logs/rsl_rl/[^[:space:]]+' "$LOG" \
+            | head -n 1 || true
+        )"
+
+        if [ -n "$TRAIN_DIR" ]; then
+            HOST_DIR="${TRAIN_DIR/\/workspace\/IEA_G1/$REPO}"
+
+            find "$HOST_DIR" -maxdepth 1 -type f -name 'model_*.pt' \
+                2>/dev/null \
+                | sed -E 's/.*model_([0-9]+)\.pt/\1 &/' \
+                | sort -n \
+                | tail -n 1 \
+                | cut -d' ' -f2- || true
+        else
+            echo "Not resolved yet."
+        fi
+    fi
+
+    echo
+    echo "TensorBoard: http://localhost:${TB_PORT}"
+    echo "========================================"
+}
+
+cmd_tensorboard() {
+    if docker exec "$CONTAINER" bash -lc \
+        "ps aux | grep '[t]ensorboard.main.*--port ${TB_PORT}'" \
+        >/dev/null 2>&1
+    then
+        echo "TensorBoard already running."
+    else
+        echo "Starting TensorBoard..."
+
+        docker exec -d \
+            "$CONTAINER" \
+            bash -lc "
+            /workspace/isaaclab/isaaclab.sh -p -m tensorboard.main \
+              --logdir /workspace/IEA_G1/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0 \
+              --host 0.0.0.0 \
+              --port ${TB_PORT} \
+              > /tmp/tensorboard.log 2>&1
+            "
+
+        sleep 2
+        echo "TensorBoard started."
+    fi
+
+    echo "Open: http://localhost:${TB_PORT}"
+}
+
+cmd_info() {
+    RUN_ID="$(current_run)"
+
+    echo "Current run:"
+    echo "  $RUN_ID"
+    echo
+    echo "Run directory:"
+    echo "  ${REPO}/runs/${RUN_ID}"
+    echo
+    echo "Launcher log:"
+    echo "  ${WORKSPACE}/${RUN_ID}_launcher.log"
+    echo
+    echo "Project commit:"
+    git rev-parse HEAD
+    echo
+    echo "Git status:"
+    if [ -z "$(git status --porcelain)" ]; then
+        echo "  clean"
+    else
+        git status --short
+    fi
+}
+
+case "${1:-help}" in
+    train)
+        shift
+        cmd_train "$@"
+        ;;
+    status)
+        cmd_status
+        ;;
+    tensorboard)
+        cmd_tensorboard
+        ;;
+    info)
+        cmd_info
+        ;;
+    help|-h|--help)
+        usage
+        ;;
+    *)
+        echo "Unknown command: $1"
+        echo
+        usage
+        exit 1
+        ;;
+esac
