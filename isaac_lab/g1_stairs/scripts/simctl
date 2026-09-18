@@ -18,6 +18,7 @@ Usage:
   simctl info
   simctl tensorboard
   simctl video <checkpoint>
+  simctl evaluate <checkpoint>
   simctl help
 USAGE
 }
@@ -328,6 +329,71 @@ cd /workspace/IEA_G1
     find "$HOST_OUTPUT" -type f -name '*.mp4' -print || true
 }
 
+cmd_evaluate() {
+    if [ $# -ne 1 ]; then
+        echo "Usage: simctl evaluate <checkpoint>"
+        exit 1
+    fi
+
+    CHECKPOINT="$1"
+
+    if ! [[ "$CHECKPOINT" =~ ^[0-9]+$ ]]; then
+        echo "Checkpoint must be an integer, for example: 1999"
+        exit 1
+    fi
+
+    RUN_ID="$(current_run)"
+    TRAIN_DIR="$(resolve_train_dir)"
+    MODEL="${TRAIN_DIR}/model_${CHECKPOINT}.pt"
+
+    if [ ! -f "$MODEL" ]; then
+        echo "Checkpoint not found:"
+        echo "  $MODEL"
+        exit 1
+    fi
+
+    CONTAINER_MODEL="${MODEL/$REPO/\/workspace\/IEA_G1}"
+    OUTPUT_DIR="/workspace/IEA_G1/outputs/evaluation/${RUN_ID}/model_${CHECKPOINT}_seed42"
+
+    echo "========================================"
+    echo " G1 CHECKPOINT EVALUATION"
+    echo "========================================"
+    echo "Run:        $RUN_ID"
+    echo "Checkpoint: model_${CHECKPOINT}.pt"
+    echo "Seed:       42"
+    echo "Max steps:  900"
+    echo
+
+    docker exec \
+      --env PYTHONPATH=/workspace/IEA_G1 \
+      --env UNITREE_RL_LAB_ROOT=/workspace/unitree_rl_lab \
+      "$CONTAINER" \
+      bash -lc "
+cd /workspace/IEA_G1
+
+/workspace/isaaclab/isaaclab.sh -p \
+  isaac_lab/g1_stairs/scripts/evaluation/evaluate_isaac_stairs.py \
+  --task Unitree-IEA-G1-29dof-Stairs-v0 \
+  --checkpoint '${CONTAINER_MODEL}' \
+  --output-dir '${OUTPUT_DIR}' \
+  --max-steps 900 \
+  --seed 42 \
+  --num_envs 1 \
+  --headless \
+  --device cuda:0
+"
+
+    HOST_OUTPUT="${OUTPUT_DIR/\/workspace\/IEA_G1/$REPO}"
+
+    echo
+    echo "Evaluation output:"
+    if [ -d "$HOST_OUTPUT" ]; then
+        find "$HOST_OUTPUT" -maxdepth 2 -type f -printf '%p\n' | sort
+    else
+        echo "  Output directory was not created."
+    fi
+}
+
 cmd_info() {
     RUN_ID="$(current_run)"
 
@@ -365,6 +431,10 @@ case "${1:-help}" in
     video)
         shift
         cmd_video "$@"
+        ;;
+    evaluate)
+        shift
+        cmd_evaluate "$@"
         ;;
     info)
         cmd_info
