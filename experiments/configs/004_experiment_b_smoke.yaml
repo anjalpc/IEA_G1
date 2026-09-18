@@ -1,0 +1,14 @@
+schema_version: 1
+
+experiment:
+  id: 004_experiment_b_smoke
+  purpose: One-iteration validation of Experiment B upright reward
+  type: reward_smoke_test
+  meaningful_stair_training: false
+
+inheritance:
+  base_config: experiments/configs/003_nominal_reward_debug.yaml
+  resolved_config_required: true
+
+execution:
+  maximum_iterations: 1

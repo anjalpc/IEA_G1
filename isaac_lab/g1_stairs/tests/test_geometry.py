@@ -10,6 +10,7 @@ from isaac_lab.g1_stairs.contracts import (
     NOMINAL_RISER_HEIGHT_M,
 )
 from isaac_lab.g1_stairs.geometry import StaircaseSpec, nominal_staircase
+from scripts.prepare_experiment import resolve_config
 
 
 class StaircaseGeometryTest(unittest.TestCase):
@@ -175,6 +176,40 @@ class StaircaseGeometryTest(unittest.TestCase):
             keywords = {item.arg: item.value for item in call.keywords}
             self.assertEqual(ast.unparse(keywords["func"]), function)
             self.assertEqual(ast.literal_eval(keywords["weight"]), weight)
+
+    def test_experiment_b_smoke_changes_only_iteration_count(self):
+        root = Path(__file__).resolve().parents[3]
+        smoke_path = root / "experiments/configs/004_experiment_b_smoke.yaml"
+        leaf = yaml.safe_load(smoke_path.read_text(encoding="utf-8"))
+        self.assertEqual(
+            set(leaf),
+            {"schema_version", "experiment", "inheritance", "execution"},
+        )
+        self.assertEqual(leaf["execution"], {"maximum_iterations": 1})
+
+        resolved, sources = resolve_config(smoke_path)
+        self.assertEqual(
+            sources,
+            [
+                "experiments/configs/001_upstream_flat_ground.yaml",
+                "experiments/configs/002_stairs_smoke.yaml",
+                "experiments/configs/003_nominal_reward_debug.yaml",
+                "experiments/configs/004_experiment_b_smoke.yaml",
+            ],
+        )
+        self.assertEqual(resolved["execution"]["maximum_iterations"], 1)
+        self.assertEqual(resolved["execution"]["environments"], 128)
+        self.assertEqual(resolved["execution"]["training_seed"], 42)
+        self.assertEqual(
+            resolved["reward_experiment"]["active_stage"],
+            "B_add_upright",
+        )
+        self.assertEqual(
+            resolved["rewards"]["stage_plan"]["B_add_upright"][
+                "enabled_terms"
+            ],
+            {"upright_raw": -1.0},
+        )
 
     def test_metrics_gate_is_open_after_live_smoke(self):
         root = Path(__file__).resolve().parents[3]
