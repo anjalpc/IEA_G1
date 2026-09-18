@@ -301,13 +301,16 @@ def main() -> int:
 
     try:
         packages = manifest.get("packages", {})
+        provenance = manifest.get("source_provenance", {})
         software = resolved.get("software", {})
         validate_runtime_versions(
-            isaac_lab=packages.get("isaac_lab"),
+            isaac_lab_source_commit=provenance.get("isaac_lab_commit"),
+            isaac_lab_source_tag=provenance.get("isaac_lab_tag"),
             rsl_rl=packages.get("rsl_rl"),
         )
         validate_runtime_versions(
-            isaac_lab=software.get("isaac_lab"),
+            isaac_lab_source_commit=software.get("isaac_lab_commit"),
+            isaac_lab_source_tag=software.get("isaac_lab_tag"),
             rsl_rl=software.get("rsl_rl"),
         )
         command = build_training_command(

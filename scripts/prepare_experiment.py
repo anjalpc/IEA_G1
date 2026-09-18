@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import importlib.metadata
+import os
 import platform
 from pathlib import Path
 import socket
@@ -22,9 +23,11 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from experiments.runtime_contract import (
+    EXPECTED_ISAAC_LAB_COMMIT,
+    EXPECTED_ISAAC_LAB_TAG,
     EXPECTED_ISAAC_LAB_VERSION,
     EXPECTED_RSL_RL_VERSION,
-    isaac_lab_checkout_version,
+    normalize_release_tag,
 )
 
 
@@ -210,6 +213,8 @@ def main() -> int:
         encoding="utf-8",
     )
 
+    isaac_lab_source_commit = os.environ.get("ISAACLAB_SOURCE_COMMIT")
+    isaac_lab_source_tag = os.environ.get("ISAACLAB_SOURCE_TAG")
     manifest = {
         "schema_version": 1,
         "run": {
@@ -237,14 +242,23 @@ def main() -> int:
         },
         "packages": {
             "isaac_sim": package_version("isaacsim"),
-            "isaac_lab": isaac_lab_checkout_version(),
             "isaac_lab_distribution": package_version("isaaclab"),
+            "isaac_lab_rl_distribution": package_version("isaaclab-rl"),
             "rsl_rl": package_version("rsl-rl-lib", "rsl_rl"),
             "torch": package_version("torch"),
             "pyyaml": package_version("PyYAML"),
         },
+        "source_provenance": {
+            "isaac_lab_release": normalize_release_tag(
+                isaac_lab_source_tag
+            ),
+            "isaac_lab_tag": isaac_lab_source_tag,
+            "isaac_lab_commit": isaac_lab_source_commit,
+        },
         "runtime_contract": {
-            "isaac_lab": EXPECTED_ISAAC_LAB_VERSION,
+            "isaac_lab_release": EXPECTED_ISAAC_LAB_VERSION,
+            "isaac_lab_tag": EXPECTED_ISAAC_LAB_TAG,
+            "isaac_lab_commit": EXPECTED_ISAAC_LAB_COMMIT,
             "rsl_rl": EXPECTED_RSL_RL_VERSION,
         },
     }

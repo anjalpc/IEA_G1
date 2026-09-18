@@ -239,6 +239,10 @@ Isaac training integration contract:
   by the pinned Unitree RL Lab launcher task filter);
 - compatibility target: Isaac Sim 5.1.0, Isaac Lab 2.3.0, Unitree RL Lab
   revision `4960b84732b0c2ec593dccbfe963fda1bcd7b1e3`, and RSL-RL 3.0.1 exactly;
+- the AWS host supplies Isaac Lab source tag `v2.3.0` and immutable commit
+  `3c6e67bb5c7ada942a6d1884ab69338f57596f77` to the container; canonical
+  launches reject absent or mismatched provenance and never require `.git`
+  metadata inside `/workspace/isaaclab`;
 - Unitree RL Lab's `UNITREE_MODEL_DIR` placeholder must be replaced with the
   absolute path to its G1 model checkout on the training machine;
 - the first executable cloud gate is a 32-environment, one-iteration training

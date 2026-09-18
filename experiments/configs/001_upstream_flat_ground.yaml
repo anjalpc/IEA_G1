@@ -15,7 +15,9 @@ code:
 
 software:
   isaac_sim: 5.1.0
-  isaac_lab: 2.3.0
+  isaac_lab_release: 2.3.0
+  isaac_lab_tag: v2.3.0
+  isaac_lab_commit: 3c6e67bb5c7ada942a6d1884ab69338f57596f77
   rsl_rl: 3.0.1
 
 execution:

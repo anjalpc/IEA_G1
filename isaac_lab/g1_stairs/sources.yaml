@@ -6,6 +6,7 @@ isaac_training_stack:
     source: https://docs.isaacsim.omniverse.nvidia.com/5.1.0/
   isaac_lab:
     compatibility_target: 2.3.0
+    revision: 3c6e67bb5c7ada942a6d1884ab69338f57596f77
     source: https://github.com/isaac-sim/IsaacLab/tree/v2.3.0
   unitree_rl_lab:
     revision: 4960b84732b0c2ec593dccbfe963fda1bcd7b1e3

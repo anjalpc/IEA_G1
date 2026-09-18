@@ -66,3 +66,19 @@ From the repository root:
 python3 scripts/prepare_experiment.py \
   experiments/configs/001_upstream_flat_ground.yaml \
   --run-id upstream_flat_ground_001
+```
+
+Preparation-only runs may omit AWS provenance because they do not launch
+training. Canonical AWS launches must use the host-side wrapper so the source
+checkout identity is passed into the container:
+
+```bash
+scripts/run_aws_recorded_experiment.sh \
+  experiments/configs/003_nominal_reward_debug.yaml \
+  --run-id experiment_a_seed42
+```
+
+The wrapper reads tag and commit from
+`/home/ubuntu/workspace/src/IsaacLab`. The container records those values as
+source provenance and records `isaaclab`, `isaaclab-rl`, and `rsl-rl-lib`
+distribution versions separately as runtime metadata.

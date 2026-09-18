@@ -14,7 +14,9 @@ code:
 
 training_stack:
   isaac_sim: 5.1.0
-  isaac_lab: 2.3.0
+  isaac_lab_release: 2.3.0
+  isaac_lab_tag: v2.3.0
+  isaac_lab_commit: 3c6e67bb5c7ada942a6d1884ab69338f57596f77
   unitree_rl_lab:
     repository: https://github.com/unitreerobotics/unitree_rl_lab.git
     commit: 4960b84732b0c2ec593dccbfe963fda1bcd7b1e3

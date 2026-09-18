@@ -2,14 +2,12 @@
 
 from __future__ import annotations
 
-import os
-from pathlib import Path
-import subprocess
-
-
 EXPECTED_ISAAC_LAB_VERSION = "2.3.0"
+EXPECTED_ISAAC_LAB_TAG = "v2.3.0"
+EXPECTED_ISAAC_LAB_COMMIT = (
+    "3c6e67bb5c7ada942a6d1884ab69338f57596f77"
+)
 EXPECTED_RSL_RL_VERSION = "3.0.1"
-DEFAULT_ISAAC_LAB_ROOT = Path("/workspace/isaaclab")
 
 
 class RuntimeVersionMismatch(RuntimeError):
@@ -24,44 +22,26 @@ def normalize_release_tag(value: str | None) -> str | None:
     return value[1:] if value.startswith("v") else value
 
 
-def isaac_lab_checkout_version(root: Path | None = None) -> str | None:
-    """Return the exact Isaac Lab Git release checked out for this runtime."""
-    if root is None:
-        root = Path(
-            os.environ.get("ISAAC_LAB_ROOT", DEFAULT_ISAAC_LAB_ROOT)
-        )
-    try:
-        result = subprocess.run(
-            (
-                "git",
-                "-C",
-                str(root),
-                "describe",
-                "--tags",
-                "--exact-match",
-            ),
-            check=True,
-            capture_output=True,
-            text=True,
-        )
-    except (FileNotFoundError, subprocess.CalledProcessError):
-        return None
-    return normalize_release_tag(result.stdout)
-
-
 def validate_runtime_versions(
     *,
-    isaac_lab: str | None,
+    isaac_lab_source_commit: str | None,
+    isaac_lab_source_tag: str | None,
     rsl_rl: str | None,
-    expected_isaac_lab: str = EXPECTED_ISAAC_LAB_VERSION,
+    expected_isaac_lab_commit: str = EXPECTED_ISAAC_LAB_COMMIT,
+    expected_isaac_lab_tag: str = EXPECTED_ISAAC_LAB_TAG,
     expected_rsl_rl: str = EXPECTED_RSL_RL_VERSION,
 ) -> None:
-    """Require exact frozen versions before any canonical training launch."""
+    """Require host-supplied source provenance and the frozen RSL runtime."""
     mismatches = []
-    if isaac_lab != expected_isaac_lab:
+    if isaac_lab_source_commit != expected_isaac_lab_commit:
         mismatches.append(
-            f"Isaac Lab expected {expected_isaac_lab}, found "
-            f"{isaac_lab or 'unavailable'}"
+            f"Isaac Lab commit expected {expected_isaac_lab_commit}, found "
+            f"{isaac_lab_source_commit or 'unavailable'}"
+        )
+    if isaac_lab_source_tag != expected_isaac_lab_tag:
+        mismatches.append(
+            f"Isaac Lab tag expected {expected_isaac_lab_tag}, found "
+            f"{isaac_lab_source_tag or 'unavailable'}"
         )
     if rsl_rl != expected_rsl_rl:
         mismatches.append(

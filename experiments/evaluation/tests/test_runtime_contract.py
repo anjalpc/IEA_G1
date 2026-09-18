@@ -1,6 +1,8 @@
 import unittest
 
 from experiments.runtime_contract import (
+    EXPECTED_ISAAC_LAB_COMMIT,
+    EXPECTED_ISAAC_LAB_TAG,
     RuntimeVersionMismatch,
     normalize_release_tag,
     validate_runtime_versions,
@@ -9,15 +11,43 @@ from experiments.runtime_contract import (
 
 class RuntimeContractTest(unittest.TestCase):
     def test_exact_frozen_versions_are_accepted(self):
-        validate_runtime_versions(isaac_lab="2.3.0", rsl_rl="3.0.1")
+        validate_runtime_versions(
+            isaac_lab_source_commit=EXPECTED_ISAAC_LAB_COMMIT,
+            isaac_lab_source_tag=EXPECTED_ISAAC_LAB_TAG,
+            rsl_rl="3.0.1",
+        )
 
-    def test_mismatched_isaac_lab_is_rejected(self):
+    def test_missing_source_provenance_is_rejected(self):
         with self.assertRaisesRegex(
             RuntimeVersionMismatch,
-            "Isaac Lab expected 2.3.0, found 2.2.1",
+            "found unavailable",
         ):
             validate_runtime_versions(
-                isaac_lab="2.2.1", rsl_rl="3.0.1"
+                isaac_lab_source_commit=None,
+                isaac_lab_source_tag=None,
+                rsl_rl="3.0.1",
+            )
+
+    def test_wrong_isaac_lab_commit_is_rejected(self):
+        with self.assertRaisesRegex(
+            RuntimeVersionMismatch,
+            "Isaac Lab commit expected",
+        ):
+            validate_runtime_versions(
+                isaac_lab_source_commit="0" * 40,
+                isaac_lab_source_tag=EXPECTED_ISAAC_LAB_TAG,
+                rsl_rl="3.0.1",
+            )
+
+    def test_wrong_isaac_lab_tag_is_rejected(self):
+        with self.assertRaisesRegex(
+            RuntimeVersionMismatch,
+            "Isaac Lab tag expected v2.3.0, found v2.2.1",
+        ):
+            validate_runtime_versions(
+                isaac_lab_source_commit=EXPECTED_ISAAC_LAB_COMMIT,
+                isaac_lab_source_tag="v2.2.1",
+                rsl_rl="3.0.1",
             )
 
     def test_mismatched_rsl_rl_is_rejected(self):
@@ -26,7 +56,9 @@ class RuntimeContractTest(unittest.TestCase):
             "RSL-RL expected 3.0.1, found 2.3.1",
         ):
             validate_runtime_versions(
-                isaac_lab="2.3.0", rsl_rl="2.3.1"
+                isaac_lab_source_commit=EXPECTED_ISAAC_LAB_COMMIT,
+                isaac_lab_source_tag=EXPECTED_ISAAC_LAB_TAG,
+                rsl_rl="2.3.1",
             )
 
     def test_release_tag_normalization_is_explicit(self):
