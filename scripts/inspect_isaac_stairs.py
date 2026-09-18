@@ -27,6 +27,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Advance physics using zero actions; the robot may fall.",
     )
+    parser.add_argument(
+        "--audit-evaluation-inputs",
+        action="store_true",
+        help="Print the live robot/contact fields required by the evaluator and exit.",
+    )
     AppLauncher.add_app_launcher_args(parser)
     return parser.parse_args()
 
@@ -92,6 +97,49 @@ def main() -> None:
     env.reset()
 
     try:
+        if args.audit_evaluation_inputs:
+            robot = env.unwrapped.scene["robot"]
+            print("=== EVALUATION INPUT AUDIT ===")
+            print(f"body_names={list(robot.body_names)}")
+            print(f"joint_names={list(robot.joint_names)}")
+            print(
+                "robot_data_fields="
+                + repr(
+                    sorted(
+                        name
+                        for name in dir(robot.data)
+                        if any(
+                            token in name
+                            for token in (
+                                "root_",
+                                "joint_",
+                                "torque",
+                                "effort",
+                                "body_lin_vel",
+                            )
+                        )
+                    )
+                )
+            )
+            print(
+                "sensor_names="
+                + repr(sorted(env.unwrapped.scene.sensors.keys()))
+            )
+            for name, sensor in env.unwrapped.scene.sensors.items():
+                print(f"sensor={name}")
+                print(f"sensor_body_names={list(getattr(sensor, 'body_names', []))}")
+                print(
+                    "sensor_data_fields="
+                    + repr(
+                        sorted(
+                            field
+                            for field in dir(sensor.data)
+                            if "force" in field or "contact" in field
+                        )
+                    )
+                )
+            return
+
         if args.simulate:
             action_dim = env.unwrapped.action_manager.total_action_dim
             actions = torch.zeros(
