@@ -17,6 +17,7 @@ Usage:
   simctl status
   simctl info
   simctl tensorboard
+  simctl video <checkpoint>
   simctl help
 USAGE
 }
@@ -234,6 +235,99 @@ cmd_tensorboard() {
     echo "Open: http://localhost:${TB_PORT}"
 }
 
+resolve_train_dir() {
+    RUN_ID="$(current_run)"
+    LOG="${WORKSPACE}/${RUN_ID}_launcher.log"
+
+    if [ ! -f "$LOG" ]; then
+        echo "Launcher log not found: $LOG" >&2
+        exit 1
+    fi
+
+    TRAIN_DIR="$(
+        grep -oE '/workspace/IEA_G1/logs/rsl_rl/[^[:space:]]+' "$LOG" \
+        | head -n 1 || true
+    )"
+
+    if [ -z "$TRAIN_DIR" ]; then
+        echo "Could not resolve RSL-RL training directory for run: $RUN_ID" >&2
+        exit 1
+    fi
+
+    echo "${TRAIN_DIR/\/workspace\/IEA_G1/$REPO}"
+}
+
+cmd_video() {
+    if [ $# -ne 1 ]; then
+        echo "Usage: simctl video <checkpoint>"
+        exit 1
+    fi
+
+    CHECKPOINT="$1"
+
+    if ! [[ "$CHECKPOINT" =~ ^[0-9]+$ ]]; then
+        echo "Checkpoint must be an integer, for example: 800"
+        exit 1
+    fi
+
+    RUN_ID="$(current_run)"
+    TRAIN_DIR="$(resolve_train_dir)"
+    MODEL="${TRAIN_DIR}/model_${CHECKPOINT}.pt"
+
+    if [ ! -f "$MODEL" ]; then
+        echo "Checkpoint not found:"
+        echo "  $MODEL"
+        exit 1
+    fi
+
+    OUTPUT_DIR="/workspace/IEA_G1/outputs/videos/${RUN_ID}/model_${CHECKPOINT}_side"
+
+    PROJECT_COMMIT="$(git rev-parse HEAD)"
+    ISAACLAB_COMMIT="3c6e67bb5c7ada942a6d1884ab69338f57596f77"
+    UNITREE_RL_COMMIT="4960b84732b0c2ec593dccbfe963fda1bcd7b1e3"
+    UNITREE_DIFF_SHA256="54a60bd3ed9de27514530c82936cb43e6b1c5074fee173e81ee271b7ca238b1f"
+
+    CONTAINER_MODEL="${MODEL/$REPO/\/workspace\/IEA_G1}"
+
+    echo "========================================"
+    echo " G1 VIDEO RECORDING"
+    echo "========================================"
+    echo "Run:        $RUN_ID"
+    echo "Checkpoint: model_${CHECKPOINT}.pt"
+    echo "View:       side"
+    echo
+
+    docker exec \
+      --env PYTHONPATH=/workspace/IEA_G1 \
+      --env UNITREE_RL_LAB_ROOT=/workspace/unitree_rl_lab \
+      "$CONTAINER" \
+      bash -lc "
+cd /workspace/IEA_G1
+
+/workspace/isaaclab/isaaclab.sh -p \
+  isaac_lab/g1_stairs/scripts/visualization/record_view.py \
+  --task Unitree-IEA-G1-29dof-Stairs-v0 \
+  --view side \
+  --output_dir '${OUTPUT_DIR}' \
+  --video_length 600 \
+  --seed 42 \
+  --num_envs 1 \
+  --checkpoint '${CONTAINER_MODEL}' \
+  --project_commit '${PROJECT_COMMIT}' \
+  --isaaclab_commit '${ISAACLAB_COMMIT}' \
+  --unitree_rl_commit '${UNITREE_RL_COMMIT}' \
+  --unitree_diff_sha256 '${UNITREE_DIFF_SHA256}' \
+  --headless \
+  --device cuda:0
+"
+
+    HOST_OUTPUT="${OUTPUT_DIR/\/workspace\/IEA_G1/$REPO}"
+
+    echo
+    echo "Video output:"
+    find "$HOST_OUTPUT" -type f -name '*.mp4' -print || true
+}
+
 cmd_info() {
     RUN_ID="$(current_run)"
 
@@ -267,6 +361,10 @@ case "${1:-help}" in
         ;;
     tensorboard)
         cmd_tensorboard
+        ;;
+    video)
+        shift
+        cmd_video "$@"
         ;;
     info)
         cmd_info
