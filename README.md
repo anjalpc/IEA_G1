@@ -30,11 +30,18 @@ IEA_G1/
 ├── config/
 │   ├── cyclonedds_humble.xml       # ROS discovery for the dev container
 │   └── udev/*.rules.example        # optional BrainCo permission template
-├── docker/                          # container definitions
-├── docs/setup/                      # focused setup and deployment guides
+├── docker/
+│   ├── development/                # ROS 2 Humble development container
+│   └── isaac-lab/                  # pinned Isaac Lab runtime wrapper
+├── docs/                            # setup and reference documentation
+├── experiments/
+│   └── g1_stairs/                  # experiment definitions, archive, local generated data
 ├── ros2_ws/src/                     # ROS 2 source packages
 ├── scripts/                         # supported operator entry points
-├── simulation/mujoco/                      # models, mappings, validation, demos
+├── simulation/
+│   ├── mujoco/                     # MuJoCo models, mappings, validation, demos
+│   └── isaac_lab/
+│       └── g1_stairs/              # stair task, training, evaluation, visualization
 └── vendor/brainco_hand_server/      # pinned ARM64 BrainCo runtime for PC2
 ```
 

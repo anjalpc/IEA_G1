@@ -1,7 +1,7 @@
 # G1 stair-climbing experiments
 
-This directory contains the reproducible experiment definitions and the
-simulator-independent evaluation framework for the Unitree G1 EDU U7
+This directory contains the reproducible experiment definitions, archived
+experiment evidence, and generated run data for the Unitree G1 EDU U7
 stair-climbing project.
 
 The physical robot contract remains `mode_machine: 5`. Policies and assets for
@@ -11,20 +11,24 @@ the mode-15 G1 must not be substituted.
 
 - `configs/`: version-controlled experiment definitions.
 - `manifests/`: repository and dependency freeze records.
-- `evaluation/`: independent outcome evaluation, metrics, and tests.
-- `checkpoints/`: local generated model files; checkpoint binaries are ignored.
-- `runs/`: generated run directories under `experiments/g1_stairs/`; ignored by Git.
+- `checkpoints/`: checkpoint documentation; checkpoint binaries are ignored.
+- `archive/`: committed experiment evidence and provenance snapshots.
+- `runs/`: generated recorded-run metadata and metrics; ignored by Git.
+- `logs/`: generated RSL-RL training logs and checkpoints; ignored by Git.
+- `outputs/`: generated videos and evaluation outputs; ignored by Git.
 
-The experiment framework lives outside `simulation/isaac_lab/g1_stairs/` intentionally:
+Executable stair-training and evaluation code lives under
+`simulation/isaac_lab/g1_stairs/`:
 
-- `simulation/isaac_lab/g1_stairs/` defines the Isaac Lab task and simulator adapter.
-- `experiments/` defines simulator-independent experiment records, acceptance
-  criteria, outcomes, and metrics.
-- `scripts/` contains command-line orchestration shared by the experiment
-  framework and Isaac Lab.
+- `evaluation/` contains outcome evaluation and metrics implementation.
+- `scripts/training/` contains preparation and recorded-training launchers.
+- `scripts/evaluation/` contains checkpoint evaluation commands.
+- `scripts/visualization/` contains video recording tools.
+- `runtime_contract.py` validates the recorded runtime dependency contract.
 
-This separation allows the evaluator and reproducibility records to be tested
-without importing Isaac Sim.
+The `experiments/g1_stairs/` tree therefore stores experiment definitions and
+evidence, while `simulation/isaac_lab/g1_stairs/` stores executable simulation,
+training, evaluation, and analysis code.
 
 ## Experiment progression
 
