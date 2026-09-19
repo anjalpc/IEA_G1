@@ -26,6 +26,7 @@ from .contracts import (
     NOMINAL_RISER_HEIGHT_M,
 )
 from .isaac_terrain import ThreeStepStairsCfg
+from .robot_cfg import G1_STAIRS_ROBOT_CFG
 from . import rewards as stair_rewards
 
 
@@ -77,6 +78,13 @@ class StairSceneCfg(_UPSTREAM.RobotSceneCfg):
     terrain = copy.deepcopy(_UPSTREAM_CFG.scene.terrain)
     terrain.terrain_generator = STAIR_TERRAIN_CFG
     terrain.max_init_terrain_level = 0
+
+    # Project-owned mode-5 G1 asset. Keep the upstream actuator, initial-state,
+    # SDK-joint, and limit configuration, but load the pinned unitree_ros URDF
+    # instead of Unitree RL Lab's placeholder model path.
+    robot = G1_STAIRS_ROBOT_CFG.replace(
+        prim_path="{ENV_REGEX_NS}/Robot"
+    )
 
     # Visual-only material for clearer evaluation recordings.
     # Collision geometry remains unchanged.
