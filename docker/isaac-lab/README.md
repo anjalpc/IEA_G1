@@ -84,6 +84,6 @@ Isaac Lab source, scripts, tools, caches, logs, and data are inherited from the 
 
 Use:
 
-    isaac_lab/g1_stairs/scripts/simctl
+    simulation/isaac_lab/g1_stairs/scripts/simctl
 
 Scientific experiment parameters belong in committed experiment YAML files, not Docker runtime configuration.

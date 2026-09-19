@@ -13,7 +13,7 @@ import sys
 from isaaclab.app import AppLauncher
 
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
+REPO_ROOT = Path(__file__).resolve().parents[5]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
@@ -75,7 +75,7 @@ def main() -> None:
     from rsl_rl.runners import OnPolicyRunner
 
     import unitree_rl_lab.tasks  # noqa: F401
-    import isaac_lab.g1_stairs.register  # noqa: F401
+    import simulation.isaac_lab.g1_stairs.register  # noqa: F401
 
     from isaaclab.envs import DirectMARLEnv, multi_agent_to_single_agent
     from isaaclab.utils.assets import retrieve_file_path

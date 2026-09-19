@@ -202,7 +202,7 @@ def main() -> None:
     import unitree_rl_lab.tasks  # noqa: F401
 
     # Register thesis task.
-    import isaac_lab.g1_stairs.register  # noqa: F401
+    import simulation.isaac_lab.g1_stairs.register  # noqa: F401
 
     from isaaclab.envs import DirectMARLEnv, multi_agent_to_single_agent
     from isaaclab.utils.assets import retrieve_file_path

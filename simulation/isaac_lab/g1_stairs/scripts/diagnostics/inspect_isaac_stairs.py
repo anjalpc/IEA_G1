@@ -10,7 +10,7 @@ import sys
 from isaaclab.app import AppLauncher
 
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
+REPO_ROOT = Path(__file__).resolve().parents[5]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
@@ -46,12 +46,12 @@ def main() -> None:
     import gymnasium as gym
     import torch
 
-    from isaac_lab.g1_stairs.contracts import (
+    from simulation.isaac_lab.g1_stairs.contracts import (
         NOMINAL_RISER_HEIGHT_M,
         TASK_ID,
     )
-    from isaac_lab.g1_stairs.env_cfg import StairPlayEnvCfg
-    from isaac_lab.g1_stairs.register import register
+    from simulation.isaac_lab.g1_stairs.env_cfg import StairPlayEnvCfg
+    from simulation.isaac_lab.g1_stairs.register import register
 
     register()
 

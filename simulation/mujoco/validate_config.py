@@ -115,7 +115,7 @@ def validate_contracts() -> dict:
             "G1 system contract does not record mode_machine 5")
     require("simulation/mujoco/config/joint_mapping.yaml" in contract_text,
             "G1 system contract does not link the joint mapping")
-    require("isaac_lab/g1_stairs/task.yaml" in contract_text,
+    require("simulation/isaac_lab/g1_stairs/task.yaml" in contract_text,
             "G1 system contract does not link the stair task")
 
     hand_root = REPOSITORY_ROOT / hand["reference"]["vendored_directory"]

@@ -14,8 +14,8 @@ nominal motion is learned.
 ## Local checks
 
 ```bash
-python3 -m unittest discover -s isaac_lab/g1_stairs/tests -v
-python3 isaac_lab/g1_stairs/audit_assets.py
+python3 -m unittest discover -s simulation/isaac_lab/g1_stairs/tests -v
+python3 simulation/isaac_lab/g1_stairs/audit_assets.py
 ```
 
 ## First cloud milestones
@@ -43,15 +43,15 @@ before handing control to Unitree's unmodified RSL-RL scripts:
 
 ```bash
 export UNITREE_RL_LAB_ROOT=/path/to/unitree_rl_lab
-python3 isaac_lab/g1_stairs/scripts/training/run_isaac_stairs.py train --headless --num_envs 32 --max_iterations 1
-python3 isaac_lab/g1_stairs/scripts/training/run_isaac_stairs.py train --headless --num_envs 4096
+python3 simulation/isaac_lab/g1_stairs/scripts/training/run_isaac_stairs.py train --headless --num_envs 32 --max_iterations 1
+python3 simulation/isaac_lab/g1_stairs/scripts/training/run_isaac_stairs.py train --headless --num_envs 4096
 ```
 
 `play` requires a checkpoint, so run it only after the smoke training creates
 one:
 
 ```bash
-python3 isaac_lab/g1_stairs/scripts/training/run_isaac_stairs.py play --num_envs 32 --checkpoint /absolute/path/to/model.pt
+python3 simulation/isaac_lab/g1_stairs/scripts/training/run_isaac_stairs.py play --num_envs 32 --checkpoint /absolute/path/to/model.pt
 ```
 
 The first slice intentionally uses a deterministic 0.35 m/s forward command,

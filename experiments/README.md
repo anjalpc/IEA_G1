@@ -15,9 +15,9 @@ the mode-15 G1 must not be substituted.
 - `checkpoints/`: local generated model files; checkpoint binaries are ignored.
 - `/runs/`: generated run directories at the repository root; ignored by Git.
 
-The experiment framework lives outside `isaac_lab/g1_stairs/` intentionally:
+The experiment framework lives outside `simulation/isaac_lab/g1_stairs/` intentionally:
 
-- `isaac_lab/g1_stairs/` defines the Isaac Lab task and simulator adapter.
+- `simulation/isaac_lab/g1_stairs/` defines the Isaac Lab task and simulator adapter.
 - `experiments/` defines simulator-independent experiment records, acceptance
   criteria, outcomes, and metrics.
 - `scripts/` contains command-line orchestration shared by the experiment
@@ -63,7 +63,7 @@ Do not bypass `launch_gates.allow_launch: false` simply to start training.
 From the repository root:
 
 ```bash
-python3 isaac_lab/g1_stairs/scripts/training/prepare_experiment.py \
+python3 simulation/isaac_lab/g1_stairs/scripts/training/prepare_experiment.py \
   experiments/configs/001_upstream_flat_ground.yaml \
   --run-id upstream_flat_ground_001
 ```
@@ -73,7 +73,7 @@ training. Canonical AWS launches must use the host-side wrapper so the source
 checkout identity is passed into the container:
 
 ```bash
-isaac_lab/g1_stairs/scripts/training/run_aws_recorded_experiment.sh \
+simulation/isaac_lab/g1_stairs/scripts/training/run_aws_recorded_experiment.sh \
   experiments/configs/003_nominal_reward_debug.yaml \
   --run-id experiment_a_seed42
 ```

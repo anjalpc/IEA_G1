@@ -92,6 +92,7 @@ docker run \
   --volume "${PROJECT_HOST}:/workspace/IEA_G1:rw" \
   --env ACCEPT_EULA=Y \
   --env PRIVACY_CONSENT=Y \
+  --env UNITREE_RL_LAB_ROOT=/workspace/unitree_rl_lab \
   --env HTTP_PROXY="${HTTP_PROXY:-}" \
   --env HTTPS_PROXY="${HTTPS_PROXY:-}" \
   --env NO_PROXY="${NO_PROXY:-}" \

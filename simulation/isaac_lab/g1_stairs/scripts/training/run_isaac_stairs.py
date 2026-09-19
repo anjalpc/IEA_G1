@@ -9,11 +9,11 @@ import runpy
 import sys
 
 # Direct execution adds scripts/, not the repository root, to sys.path.
-REPO_ROOT = Path(__file__).resolve().parents[4]
+REPO_ROOT = Path(__file__).resolve().parents[5]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from isaac_lab.g1_stairs.contracts import TASK_ID
+from simulation.isaac_lab.g1_stairs.contracts import TASK_ID
 
 
 def main() -> None:
@@ -26,14 +26,14 @@ def main() -> None:
     if not root_value:
         raise SystemExit("set UNITREE_RL_LAB_ROOT to the Unitree RL Lab checkout")
     if mode == "train":
-        script = REPO_ROOT / "isaac_lab" / "g1_stairs" / "scripts" / "training" / "train_isaac_stairs.py"
+        script = REPO_ROOT / "simulation" / "isaac_lab" / "g1_stairs" / "scripts" / "training" / "train_isaac_stairs.py"
     else:
         script = Path(root_value).resolve() / "scripts" / "rsl_rl" / "play.py"
     if not script.is_file():
         raise SystemExit(f"missing Unitree RL Lab launcher: {script}")
     # Registration imports Gymnasium/Isaac Lab, which only exist in the cloud
     # training environment. Delay it until local argument/path checks pass.
-    from isaac_lab.g1_stairs import register as _register  # noqa: F401
+    from simulation.isaac_lab.g1_stairs import register as _register  # noqa: F401
 
     if "--task" not in sys.argv:
         sys.argv.extend(("--task", TASK_ID))

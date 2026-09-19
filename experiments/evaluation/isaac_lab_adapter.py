@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 
-from isaac_lab.g1_stairs.geometry import nominal_staircase
+from simulation.isaac_lab.g1_stairs.geometry import nominal_staircase
 from experiments.evaluation.stair_outcomes import StepSample
 from experiments.evaluation.stair_outcomes import StairOutcomeConfig
 

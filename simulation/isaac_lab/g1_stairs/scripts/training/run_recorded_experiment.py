@@ -14,7 +14,7 @@ from typing import Any
 import yaml
 
 
-REPO_ROOT = Path(__file__).resolve().parents[4]
+REPO_ROOT = Path(__file__).resolve().parents[5]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
@@ -41,7 +41,7 @@ def prepare_run(args: argparse.Namespace) -> tuple[Path, Path, Path]:
     """Resolve the experiment and generate its initial manifest."""
     command = [
         sys.executable,
-        str(REPO_ROOT / "isaac_lab" / "g1_stairs" / "scripts" / "training" / "prepare_experiment.py"),
+        str(REPO_ROOT / "simulation" / "isaac_lab" / "g1_stairs" / "scripts" / "training" / "prepare_experiment.py"),
         str(args.config),
         "--output-root",
         str(args.output_root),
@@ -114,7 +114,7 @@ def build_training_command(
     if custom_task:
         command = [
             sys.executable,
-            str(REPO_ROOT / "isaac_lab" / "g1_stairs" / "scripts" / "training" / "run_isaac_stairs.py"),
+            str(REPO_ROOT / "simulation" / "isaac_lab" / "g1_stairs" / "scripts" / "training" / "run_isaac_stairs.py"),
             "train",
         ]
     else:

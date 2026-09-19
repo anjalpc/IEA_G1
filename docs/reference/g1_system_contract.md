@@ -32,7 +32,7 @@ Authoritative local configuration:
 
 - [`simulation/mujoco/config/robot.yaml`](../../simulation/mujoco/config/robot.yaml)
 - [`simulation/mujoco/config/joint_mapping.yaml`](../../simulation/mujoco/config/joint_mapping.yaml)
-- [`isaac_lab/g1_stairs/sources.yaml`](../../isaac_lab/g1_stairs/sources.yaml)
+- [`simulation/isaac_lab/g1_stairs/sources.yaml`](../../simulation/isaac_lab/g1_stairs/sources.yaml)
 
 ## Timing, frames, and policy interface
 
@@ -177,7 +177,7 @@ hands. Do not use Unitree's ready-made
 wrist motors describe different hardware.
 
 Exact upstream provenance and candidate paths are recorded locally in
-[`isaac_lab/g1_stairs/sources.yaml`](../../isaac_lab/g1_stairs/sources.yaml).
+[`simulation/isaac_lab/g1_stairs/sources.yaml`](../../simulation/isaac_lab/g1_stairs/sources.yaml).
 Licenses and vendored revisions are documented in
 [`simulation/mujoco/PROVENANCE.md`](../../simulation/mujoco/PROVENANCE.md).
 
@@ -232,7 +232,7 @@ Acceptance gates:
 - independent MuJoCo sim-to-sim validation passes before hardware work.
 
 Task configuration:
-[`isaac_lab/g1_stairs/task.yaml`](../../isaac_lab/g1_stairs/task.yaml).
+[`simulation/isaac_lab/g1_stairs/task.yaml`](../../simulation/isaac_lab/g1_stairs/task.yaml).
 
 Isaac training integration contract:
 
@@ -329,8 +329,8 @@ python3 simulation/mujoco/validate_config.py
 python3 simulation/mujoco/run_g1_model.py --validate-only
 python3 simulation/mujoco/inspect_policy.py "$UNITREE_BALANCE_POLICY" \
   --require-g1-velocity-contract --zero-inference
-python3 -m unittest discover -s isaac_lab/g1_stairs/tests -v
-python3 isaac_lab/g1_stairs/audit_assets.py
+python3 -m unittest discover -s simulation/isaac_lab/g1_stairs/tests -v
+python3 simulation/isaac_lab/g1_stairs/audit_assets.py
 pytest -q
 ```
 

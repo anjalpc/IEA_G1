@@ -7,7 +7,7 @@ STATE_DIR="${WORKSPACE}/state/IEA_G1"
 LAUNCHER_LOG_DIR="${STATE_DIR}/launcher_logs"
 CURRENT_RUN="${STATE_DIR}/current_run"
 CURRENT_PID="${STATE_DIR}/current_pid"
-TRAIN_WRAPPER="${REPO}/isaac_lab/g1_stairs/scripts/training/run_aws_recorded_experiment.sh"
+TRAIN_WRAPPER="${REPO}/simulation/isaac_lab/g1_stairs/scripts/training/run_aws_recorded_experiment.sh"
 TB_PORT=6006
 CONTAINER="isaac-lab-fixed"
 
@@ -200,7 +200,7 @@ cmd_train() {
     echo "PID: $PID"
     echo
     echo "Use:"
-    echo "  isaac_lab/g1_stairs/scripts/simctl status"
+    echo "  simulation/isaac_lab/g1_stairs/scripts/simctl status"
 }
 
 cmd_status() {
@@ -432,7 +432,7 @@ cmd_video() {
 cd /workspace/IEA_G1
 
 /workspace/isaaclab/isaaclab.sh -p \
-  isaac_lab/g1_stairs/scripts/visualization/record_view.py \
+  simulation/isaac_lab/g1_stairs/scripts/visualization/record_view.py \
   --task Unitree-IEA-G1-29dof-Stairs-v0 \
   --view side \
   --output_dir '${OUTPUT_DIR}' \
@@ -500,7 +500,7 @@ cmd_evaluate() {
 cd /workspace/IEA_G1
 
 /workspace/isaaclab/isaaclab.sh -p \
-  isaac_lab/g1_stairs/scripts/evaluation/evaluate_isaac_stairs.py \
+  simulation/isaac_lab/g1_stairs/scripts/evaluation/evaluate_isaac_stairs.py \
   --task Unitree-IEA-G1-29dof-Stairs-v0 \
   --checkpoint '${CONTAINER_MODEL}' \
   --output-dir '${OUTPUT_DIR}' \

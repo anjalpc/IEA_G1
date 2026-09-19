@@ -27,7 +27,7 @@ def main() -> None:
     parser.add_argument(
         "--simulation-root",
         type=Path,
-        default=Path(__file__).resolve().parents[2] / "simulation",
+        default=Path(__file__).resolve().parents[3] / "simulation" / "mujoco",
     )
     args = parser.parse_args()
     root = args.simulation_root.resolve()

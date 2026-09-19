@@ -4,13 +4,13 @@ from pathlib import Path
 
 import yaml
 
-from isaac_lab.g1_stairs.contracts import (
+from simulation.isaac_lab.g1_stairs.contracts import (
     BODY_JOINTS,
     MODE_MACHINE,
     NOMINAL_RISER_HEIGHT_M,
 )
-from isaac_lab.g1_stairs.geometry import StaircaseSpec, nominal_staircase
-from scripts.prepare_experiment import resolve_config
+from simulation.isaac_lab.g1_stairs.geometry import StaircaseSpec, nominal_staircase
+from simulation.isaac_lab.g1_stairs.scripts.training.prepare_experiment import resolve_config
 
 
 class StaircaseGeometryTest(unittest.TestCase):
@@ -23,9 +23,9 @@ class StaircaseGeometryTest(unittest.TestCase):
         self.assertEqual(stairs.fixed_start_xy_yaw, (1.0, 0.0, 0.0))
 
     def test_initial_training_uses_exact_nominal_riser(self):
-        root = Path(__file__).resolve().parents[3]
+        root = Path(__file__).resolve().parents[4]
         task = yaml.safe_load(
-            (root / "isaac_lab/g1_stairs/task.yaml").read_text()
+            (root / "simulation/isaac_lab/g1_stairs/task.yaml").read_text()
         )
         terrain = task["terrain"]
 
@@ -99,7 +99,7 @@ class StaircaseGeometryTest(unittest.TestCase):
             StaircaseSpec(start_clearance=2.0).collision_boxes()
 
     def test_training_joint_order_matches_deployment_contract(self):
-        root = Path(__file__).resolve().parents[3]
+        root = Path(__file__).resolve().parents[4]
         mapping = yaml.safe_load(
             (root / "simulation/mujoco/config/joint_mapping.yaml").read_text()
         )
@@ -108,7 +108,7 @@ class StaircaseGeometryTest(unittest.TestCase):
         self.assertEqual(robot["control"]["mode_machine"], MODE_MACHINE)
 
     def test_reward_stage_plan_preserves_a_and_adds_only_upright_in_b(self):
-        root = Path(__file__).resolve().parents[3]
+        root = Path(__file__).resolve().parents[4]
         experiment = yaml.safe_load(
             (root / "experiments/configs/003_nominal_reward_debug.yaml").read_text()
         )
@@ -138,10 +138,10 @@ class StaircaseGeometryTest(unittest.TestCase):
         )
 
     def test_experiment_b_runtime_rewards_are_exact(self):
-        root = Path(__file__).resolve().parents[3]
+        root = Path(__file__).resolve().parents[4]
 
         tree = ast.parse(
-            (root / "isaac_lab/g1_stairs/env_cfg.py").read_text(encoding="utf-8")
+            (root / "simulation/isaac_lab/g1_stairs/env_cfg.py").read_text(encoding="utf-8")
         )
         reward_class = next(
             node
@@ -178,7 +178,7 @@ class StaircaseGeometryTest(unittest.TestCase):
             self.assertEqual(ast.literal_eval(keywords["weight"]), weight)
 
     def test_experiment_b_smoke_changes_only_iteration_count(self):
-        root = Path(__file__).resolve().parents[3]
+        root = Path(__file__).resolve().parents[4]
         smoke_path = root / "experiments/configs/004_experiment_b_smoke.yaml"
         leaf = yaml.safe_load(smoke_path.read_text(encoding="utf-8"))
         self.assertEqual(
@@ -212,7 +212,7 @@ class StaircaseGeometryTest(unittest.TestCase):
         )
 
     def test_metrics_gate_is_open_after_live_smoke(self):
-        root = Path(__file__).resolve().parents[3]
+        root = Path(__file__).resolve().parents[4]
         experiment = yaml.safe_load(
             (root / "experiments/configs/003_nominal_reward_debug.yaml").read_text()
         )
