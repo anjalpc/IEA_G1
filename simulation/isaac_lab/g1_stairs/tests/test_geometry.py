@@ -59,7 +59,7 @@ class StaircaseGeometryTest(unittest.TestCase):
         )
 
         smoke = yaml.safe_load(
-            (root / "experiments/configs/002_stairs_smoke.yaml").read_text()
+            (root / "experiments/g1_stairs/configs/002_stairs_smoke.yaml").read_text()
         )
         self.assertEqual(smoke["terrain"]["course_size_m"], [5.75, 1.2])
         self.assertAlmostEqual(
@@ -110,7 +110,7 @@ class StaircaseGeometryTest(unittest.TestCase):
     def test_reward_stage_plan_preserves_a_and_adds_only_upright_in_b(self):
         root = Path(__file__).resolve().parents[4]
         experiment = yaml.safe_load(
-            (root / "experiments/configs/003_nominal_reward_debug.yaml").read_text()
+            (root / "experiments/g1_stairs/configs/003_nominal_reward_debug.yaml").read_text()
         )
         stage_plan = experiment["rewards"]["stage_plan"]
         experiment_a = stage_plan["A_progress_only"][
@@ -179,7 +179,7 @@ class StaircaseGeometryTest(unittest.TestCase):
 
     def test_experiment_b_smoke_changes_only_iteration_count(self):
         root = Path(__file__).resolve().parents[4]
-        smoke_path = root / "experiments/configs/004_experiment_b_smoke.yaml"
+        smoke_path = root / "experiments/g1_stairs/configs/004_experiment_b_smoke.yaml"
         leaf = yaml.safe_load(smoke_path.read_text(encoding="utf-8"))
         self.assertEqual(
             set(leaf),
@@ -191,10 +191,10 @@ class StaircaseGeometryTest(unittest.TestCase):
         self.assertEqual(
             sources,
             [
-                "experiments/configs/001_upstream_flat_ground.yaml",
-                "experiments/configs/002_stairs_smoke.yaml",
-                "experiments/configs/003_nominal_reward_debug.yaml",
-                "experiments/configs/004_experiment_b_smoke.yaml",
+                "experiments/g1_stairs/configs/001_upstream_flat_ground.yaml",
+                "experiments/g1_stairs/configs/002_stairs_smoke.yaml",
+                "experiments/g1_stairs/configs/003_nominal_reward_debug.yaml",
+                "experiments/g1_stairs/configs/004_experiment_b_smoke.yaml",
             ],
         )
         self.assertEqual(resolved["execution"]["maximum_iterations"], 1)
@@ -214,7 +214,7 @@ class StaircaseGeometryTest(unittest.TestCase):
     def test_metrics_gate_is_open_after_live_smoke(self):
         root = Path(__file__).resolve().parents[4]
         experiment = yaml.safe_load(
-            (root / "experiments/configs/003_nominal_reward_debug.yaml").read_text()
+            (root / "experiments/g1_stairs/configs/003_nominal_reward_debug.yaml").read_text()
         )
         gates = experiment["launch_gates"]
         self.assertTrue(gates["independent_evaluator_implemented"])

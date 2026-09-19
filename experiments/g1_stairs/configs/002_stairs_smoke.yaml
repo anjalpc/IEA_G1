@@ -8,7 +8,7 @@ experiment:
   meaningful_stair_training: false
 
 inheritance:
-  base_config: experiments/configs/001_upstream_flat_ground.yaml
+  base_config: experiments/g1_stairs/configs/001_upstream_flat_ground.yaml
   resolved_config_required: true
   note: All non-overridden action, PPO, timing, and upstream reward values are inherited and must be expanded into resolved_config.yaml at launch
 
@@ -72,7 +72,7 @@ observations:
   deployment_warning: Local terrain height scan requires an explicitly defined deployable sensing source before hardware promotion
 
 actions:
-  inherit_complete_definition_from: experiments/configs/001_upstream_flat_ground.yaml
+  inherit_complete_definition_from: experiments/g1_stairs/configs/001_upstream_flat_ground.yaml
   type: joint_position_offset
   dimension: 29
   scale: 0.25
@@ -156,7 +156,7 @@ curriculum:
     inherited_from_upstream: false
 
 ppo:
-  inherit_complete_definition_from: experiments/configs/001_upstream_flat_ground.yaml
+  inherit_complete_definition_from: experiments/g1_stairs/configs/001_upstream_flat_ground.yaml
   rollout_steps_per_environment: 24
   maximum_iterations: 1
 

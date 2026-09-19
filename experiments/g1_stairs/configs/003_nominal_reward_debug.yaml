@@ -8,7 +8,7 @@ experiment:
   meaningful_stair_training: true
 
 inheritance:
-  base_config: experiments/configs/002_stairs_smoke.yaml
+  base_config: experiments/g1_stairs/configs/002_stairs_smoke.yaml
   resolved_config_required: true
   note: All inherited values must be expanded into resolved_config.yaml before launch
 
@@ -90,7 +90,7 @@ observations:
   terrain_scan_in_critic: true
 
 actions:
-  inherit_complete_definition_from: experiments/configs/001_upstream_flat_ground.yaml
+  inherit_complete_definition_from: experiments/g1_stairs/configs/001_upstream_flat_ground.yaml
   type: joint_position_offset
   dimension: 29
   scale: 0.25

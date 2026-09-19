@@ -7,7 +7,7 @@ experiment:
   meaningful_stair_training: false
 
 inheritance:
-  base_config: experiments/configs/003_nominal_reward_debug.yaml
+  base_config: experiments/g1_stairs/configs/003_nominal_reward_debug.yaml
   resolved_config_required: true
 
 execution:

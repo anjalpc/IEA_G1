@@ -49,11 +49,14 @@ output/
 
 
 # RL experiment outputs
-/runs/
-/experiments/checkpoints/*
-!/experiments/checkpoints/README.md
+/experiments/g1_stairs/runs/
+/experiments/g1_stairs/checkpoints/*
+!/experiments/g1_stairs/checkpoints/README.md
 *.mp4
 *.webm
 events.out.tfevents.*
+/experiments/g1_stairs/logs/
+/experiments/g1_stairs/outputs/
+/runs/
 /logs/
 /outputs/
