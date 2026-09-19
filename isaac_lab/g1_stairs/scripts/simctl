@@ -16,6 +16,8 @@ Usage:
   simctl train <config.yaml>
   simctl status
   simctl info
+  simctl runs
+  simctl use <run_id>
   simctl tensorboard
   simctl video <checkpoint>
   simctl evaluate <checkpoint>
@@ -29,6 +31,77 @@ current_run() {
         exit 1
     fi
     cat "$CURRENT_RUN"
+}
+
+cmd_runs() {
+    echo "========================================"
+    echo " AVAILABLE RECORDED RUNS"
+    echo "========================================"
+
+    CURRENT=""
+    if [ -f "$CURRENT_RUN" ]; then
+        CURRENT="$(cat "$CURRENT_RUN")"
+    fi
+
+    found=0
+
+    for dir in "$REPO"/runs/*; do
+        [ -d "$dir" ] || continue
+
+        run_id="$(basename "$dir")"
+        manifest="$dir/run_manifest.yaml"
+
+        if [ -f "$manifest" ]; then
+            status="$(
+                grep -E '^  status:' "$manifest" \
+                | tail -n 1 \
+                | sed 's/^  status:[[:space:]]*//' \
+                || true
+            )"
+        else
+            status="unknown"
+        fi
+
+        marker=" "
+        if [ "$run_id" = "$CURRENT" ]; then
+            marker="*"
+        fi
+
+        printf "%s %-55s %s\n" "$marker" "$run_id" "${status:-unknown}"
+        found=1
+    done
+
+    if [ "$found" -eq 0 ]; then
+        echo "No recorded runs found."
+    fi
+
+    echo
+    echo "* = currently selected run"
+}
+
+cmd_use() {
+    if [ $# -ne 1 ]; then
+        echo "Usage: simctl use <run_id>"
+        exit 1
+    fi
+
+    RUN_ID="$1"
+    RUN_DIR="${REPO}/runs/${RUN_ID}"
+
+    if [ ! -d "$RUN_DIR" ]; then
+        echo "Run not found:"
+        echo "  $RUN_DIR"
+        echo
+        echo "Use 'simctl runs' to list available runs."
+        exit 1
+    fi
+
+    printf '%s\n' "$RUN_ID" > "$CURRENT_RUN"
+
+    echo "Selected run:"
+    echo "  $RUN_ID"
+    echo
+    echo "Commands such as status, video and evaluate now use this run."
 }
 
 cmd_train() {
@@ -423,6 +496,13 @@ case "${1:-help}" in
         ;;
     status)
         cmd_status
+        ;;
+    runs)
+        cmd_runs
+        ;;
+    use)
+        shift
+        cmd_use "$@"
         ;;
     tensorboard)
         cmd_tensorboard
