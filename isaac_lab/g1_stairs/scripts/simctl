@@ -3,10 +3,17 @@ set -euo pipefail
 
 REPO="/home/ubuntu/workspace/IEA_G1"
 WORKSPACE="/home/ubuntu/workspace"
-CURRENT_RUN="${WORKSPACE}/current_training_run.txt"
+STATE_DIR="${WORKSPACE}/state/IEA_G1"
+LAUNCHER_LOG_DIR="${STATE_DIR}/launcher_logs"
+CURRENT_RUN="${STATE_DIR}/current_run"
+CURRENT_PID="${STATE_DIR}/current_pid"
 TRAIN_WRAPPER="${REPO}/isaac_lab/g1_stairs/scripts/training/run_aws_recorded_experiment.sh"
 TB_PORT=6006
 CONTAINER="isaac-lab-fixed"
+
+ensure_state_dirs() {
+    mkdir -p "$STATE_DIR" "$LAUNCHER_LOG_DIR"
+}
 
 cd "$REPO"
 
@@ -134,6 +141,7 @@ cmd_use() {
         exit 1
     fi
 
+    ensure_state_dirs
     printf '%s\n' "$RUN_ID" > "$CURRENT_RUN"
 
     echo "Selected run:"
@@ -166,8 +174,9 @@ cmd_train() {
 
     BASE="$(basename "$CONFIG" .yaml)"
     RUN_ID="${BASE}_$(date -u +%Y%m%d_%H%M%S)"
-    LOG="${WORKSPACE}/${RUN_ID}_launcher.log"
+    LOG="${LAUNCHER_LOG_DIR}/${RUN_ID}_launcher.log"
 
+    ensure_state_dirs
     printf '%s\n' "$RUN_ID" > "$CURRENT_RUN"
 
     echo "========================================"
@@ -185,7 +194,7 @@ cmd_train() {
 
     PID=$!
 
-    echo "$PID" > "${WORKSPACE}/current_training_pid.txt"
+    echo "$PID" > "$CURRENT_PID"
 
     echo "Started."
     echo "PID: $PID"
@@ -199,7 +208,7 @@ cmd_status() {
     RUN_DIR="${REPO}/runs/${RUN_ID}"
     MANIFEST="${RUN_DIR}/run_manifest.yaml"
     METRICS="${RUN_DIR}/training_metrics.csv"
-    LOG="${WORKSPACE}/${RUN_ID}_launcher.log"
+    LOG="${LAUNCHER_LOG_DIR}/${RUN_ID}_launcher.log"
 
     echo "========================================"
     echo " G1 TRAINING STATUS"
@@ -353,7 +362,7 @@ cmd_tensorboard() {
 
 resolve_train_dir() {
     RUN_ID="$(current_run)"
-    LOG="${WORKSPACE}/${RUN_ID}_launcher.log"
+    LOG="${LAUNCHER_LOG_DIR}/${RUN_ID}_launcher.log"
 
     if [ ! -f "$LOG" ]; then
         echo "Launcher log not found: $LOG" >&2
@@ -522,7 +531,7 @@ cmd_info() {
     echo "  ${REPO}/runs/${RUN_ID}"
     echo
     echo "Launcher log:"
-    echo "  ${WORKSPACE}/${RUN_ID}_launcher.log"
+    echo "  ${LAUNCHER_LOG_DIR}/${RUN_ID}_launcher.log"
     echo
     echo "Project commit:"
     git rev-parse HEAD
