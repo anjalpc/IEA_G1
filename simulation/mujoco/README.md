@@ -50,8 +50,8 @@ All commands below are run inside the container.
 ## 1. Validate the robot configuration
 
 ```bash
-python3 simulation/validate_config.py
-python3 simulation/run_g1_model.py --validate-only
+python3 simulation/mujoco/validate_config.py
+python3 simulation/mujoco/run_g1_model.py --validate-only
 ```
 
 This checks:
@@ -73,8 +73,8 @@ This checks:
 For a headless smoke test:
 
 ```bash
-python3 simulation/run_g1_model.py --headless --steps 1000
-python3 simulation/run_g1_model.py --headless --steps 1000 --hand-position 0.5
+python3 simulation/mujoco/run_g1_model.py --headless --steps 1000
+python3 simulation/mujoco/run_g1_model.py --headless --steps 1000 --hand-position 0.5
 ```
 
 Start the GUI-enabled development container from the host:
@@ -86,7 +86,7 @@ Start the GUI-enabled development container from the host:
 Then run the interactive viewer inside that container:
 
 ```bash
-python3 simulation/run_g1_model.py --native
+python3 simulation/mujoco/run_g1_model.py --native
 ```
 
 This exports the composed model, verifies the OpenGL renderer with `glxinfo`,
@@ -132,7 +132,7 @@ Inside the development container, start the native simulator and pinned
 Unitree G1 29-DoF velocity policy together:
 
 ```bash
-python3 simulation/run_g1_model.py --native --balance
+python3 simulation/mujoco/run_g1_model.py --native --balance
 ```
 
 The controller uses Unitree's deployment observation history, joint mapping,
@@ -175,14 +175,14 @@ $UNITREE_BALANCE_POLICY
 Inspect its input/output contract and run a zero-input inference:
 
 ```bash
-python3 simulation/inspect_policy.py "$UNITREE_BALANCE_POLICY" \
+python3 simulation/mujoco/inspect_policy.py "$UNITREE_BALANCE_POLICY" \
   --require-g1-velocity-contract --zero-inference
 ```
 
 Inspect another ONNX policy by passing any path mounted inside the container:
 
 ```bash
-python3 simulation/inspect_policy.py /workspace/IEA_G1/policies/candidate.onnx \
+python3 simulation/mujoco/inspect_policy.py /workspace/IEA_G1/policies/candidate.onnx \
   --zero-inference
 ```
 
@@ -201,9 +201,9 @@ The handshake is an example of an application using the shared simulation
 pipeline, not the purpose of the whole directory:
 
 ```bash
-python3 simulation/run_handshake_demo.py --duration 5.0
-python3 simulation/run_handshake_demo.py --headless --duration 0.25
-python3 simulation/run_handshake_demo.py --headless --duration 0.5 \
+python3 simulation/mujoco/run_handshake_demo.py --duration 5.0
+python3 simulation/mujoco/run_handshake_demo.py --headless --duration 0.25
+python3 simulation/mujoco/run_handshake_demo.py --headless --duration 0.5 \
   --cancel-after 0.05
 ```
 
@@ -217,7 +217,7 @@ actively held open, and the elastic harness remains attached throughout.
 Perfect the hand profile without the approximate arm action first:
 
 ```bash
-python3 simulation/run_handshake_demo.py --hand-only --duration 5.0
+python3 simulation/mujoco/run_handshake_demo.py --hand-only --duration 5.0
 ```
 
 By default this uses the operator-validated target in BrainCo manufacturer
@@ -228,7 +228,7 @@ To tune the six channels independently in simulation, pass them in manufacturer
 order (`thumb thumb_aux index middle ring pinky`):
 
 ```bash
-python3 simulation/run_handshake_demo.py --hand-only --duration 2.0 \
+python3 simulation/mujoco/run_handshake_demo.py --hand-only --duration 2.0 \
   --curl-target 0.48 0.45 0.15 0.20 0.25 0.20
 ```
 
@@ -288,7 +288,7 @@ use the same acknowledged transport, but every new capability—velocity,
 sensors, navigation state, or another actuator—must add and test a named bridge
 handler rather than sending arbitrary unvalidated commands.
 
-The adapter loads the project MuJoCo backend from `simulation/` while keeping
+The adapter loads the project MuJoCo backend from `simulation/mujoco/` while keeping
 application packages isolated from simulator implementation details. The
 current arm handler supports presentation action `27` and safe release action
 `99`; hand operations support six-channel right-hand positions. This is an

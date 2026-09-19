@@ -30,8 +30,8 @@ Mode 15 uses 22.5/22.5 hip gearing and newer 5010 wrist motors.
 
 Authoritative local configuration:
 
-- [`simulation/config/robot.yaml`](../../simulation/config/robot.yaml)
-- [`simulation/config/joint_mapping.yaml`](../../simulation/config/joint_mapping.yaml)
+- [`simulation/mujoco/config/robot.yaml`](../../simulation/mujoco/config/robot.yaml)
+- [`simulation/mujoco/config/joint_mapping.yaml`](../../simulation/mujoco/config/joint_mapping.yaml)
 - [`isaac_lab/g1_stairs/sources.yaml`](../../isaac_lab/g1_stairs/sources.yaml)
 
 ## Timing, frames, and policy interface
@@ -121,12 +121,12 @@ card; its firmware and device ID were not recorded and remain `null` rather
 than being inferred.
 
 The current MuJoCo attachment transforms in
-[`simulation/model_composition.py`](../../simulation/model_composition.py) are
+[`simulation/mujoco/model_composition.py`](../../simulation/mujoco/model_composition.py) are
 simulation-derived. Physical wrist-adapter translation, orientation, and mass
 must be measured before the Isaac asset is considered deployment-grade.
 
 Authoritative hand contract:
-[`simulation/config/brainco_revo2.yaml`](../../simulation/config/brainco_revo2.yaml).
+[`simulation/mujoco/config/brainco_revo2.yaml`](../../simulation/mujoco/config/brainco_revo2.yaml).
 
 ## SDK, runtime, and DDS isolation
 
@@ -161,11 +161,11 @@ Dependency definition: [`docker/development/Dockerfile`](../../docker/developmen
 ### Active local assets
 
 - G1 mode-5-compatible reference: vendored Unitree 29-DoF MJCF and meshes under
-  `simulation/vendor/unitree_g1/`.
+  `simulation/mujoco/vendor/unitree_g1/`.
 - BrainCo Revo2: vendored URDF/Xacro and meshes under
-  `simulation/vendor/brainco_revo2/`.
+  `simulation/mujoco/vendor/brainco_revo2/`.
 - Combined MuJoCo model: constructed at runtime by
-  `simulation/model_composition.py`.
+  `simulation/mujoco/model_composition.py`.
 - Reference balance/velocity policy: installed into the development image,
   not stored in Git.
 
@@ -179,7 +179,7 @@ wrist motors describe different hardware.
 Exact upstream provenance and candidate paths are recorded locally in
 [`isaac_lab/g1_stairs/sources.yaml`](../../isaac_lab/g1_stairs/sources.yaml).
 Licenses and vendored revisions are documented in
-[`simulation/PROVENANCE.md`](../../simulation/PROVENANCE.md).
+[`simulation/mujoco/PROVENANCE.md`](../../simulation/mujoco/PROVENANCE.md).
 
 ## Stair-climbing task
 
@@ -325,9 +325,9 @@ non-finite command.
 Run inside the project development container unless stated otherwise:
 
 ```bash
-python3 simulation/validate_config.py
-python3 simulation/run_g1_model.py --validate-only
-python3 simulation/inspect_policy.py "$UNITREE_BALANCE_POLICY" \
+python3 simulation/mujoco/validate_config.py
+python3 simulation/mujoco/run_g1_model.py --validate-only
+python3 simulation/mujoco/inspect_policy.py "$UNITREE_BALANCE_POLICY" \
   --require-g1-velocity-contract --zero-inference
 python3 -m unittest discover -s isaac_lab/g1_stairs/tests -v
 python3 isaac_lab/g1_stairs/audit_assets.py
@@ -337,7 +337,7 @@ pytest -q
 Native harness-assisted balance validation:
 
 ```bash
-python3 simulation/run_g1_model.py --native --balance
+python3 simulation/mujoco/run_g1_model.py --native --balance
 ```
 
 Keep the harness attached while loading or changing a controller. Harness
@@ -354,5 +354,5 @@ Update this document in the same change whenever any of these change:
 - DDS domain/interface ownership;
 - stair geometry, fixed start pose, curriculum, or evaluation gates.
 
-After such a change, run `simulation/validate_config.py`, the stair geometry
+After such a change, run `simulation/mujoco/validate_config.py`, the stair geometry
 tests, and `graphify update .`.

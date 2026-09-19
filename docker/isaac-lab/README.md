@@ -34,15 +34,20 @@ Optional overrides:
 
 ## Network configuration
 
-Do not commit proxy credentials or site-specific proxy addresses.
+Proxy use is optional.
 
-Copy `env.example` to:
+Normal network:
 
-    docker/isaac-lab/.env.local
+    docker/isaac-lab/build.sh
+    docker/isaac-lab/run.sh
 
-and fill in the required local values.
+Proxy-restricted network:
 
-`.env.local` is ignored by Git.
+    docker/isaac-lab/build.sh --proxy
+    docker/isaac-lab/run.sh --proxy
+
+Proxy values belong in `docker/isaac-lab/.env.local`.
+This file is ignored by Git. Do not commit proxy addresses or credentials.
 
 ## Build
 

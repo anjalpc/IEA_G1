@@ -41,7 +41,7 @@ def main() -> None:
         print(f"BrainCo {side}: {link_count} links, declared mass {mass:.3f} kg, {urdf}")
         if missing:
             print(f"  massless fixed tip links: {', '.join(missing)}")
-    print("Mount contract: simulation/model_composition.py HAND_MOUNTS (measurement required)")
+    print("Mount contract: simulation/mujoco/model_composition.py HAND_MOUNTS (measurement required)")
 
 
 if __name__ == "__main__":

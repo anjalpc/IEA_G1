@@ -10,8 +10,8 @@ robot:
 model:
   source_repository: https://github.com/unitreerobotics/unitree_mujoco.git
   verified_revision: ae6a8403e272733e9996ef59990880330496177f
-  mjcf: simulation/vendor/unitree_g1/g1_29dof.xml
-  scene: simulation/vendor/unitree_g1/scene_29dof.xml
+  mjcf: simulation/mujoco/vendor/unitree_g1/g1_29dof.xml
+  scene: simulation/mujoco/vendor/unitree_g1/scene_29dof.xml
   license: BSD-3-Clause
   robot_specific_files_vendored: true
 

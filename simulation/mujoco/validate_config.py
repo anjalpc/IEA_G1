@@ -11,7 +11,7 @@ import yaml
 
 
 SIMULATION_ROOT = Path(__file__).resolve().parent
-REPOSITORY_ROOT = SIMULATION_ROOT.parent
+REPOSITORY_ROOT = SIMULATION_ROOT.parent.parent
 CONFIG_ROOT = SIMULATION_ROOT / "config"
 SYSTEM_CONTRACT = REPOSITORY_ROOT / "docs" / "reference" / "g1_system_contract.md"
 
@@ -113,7 +113,7 @@ def validate_contracts() -> dict:
     contract_text = SYSTEM_CONTRACT.read_text(encoding="utf-8")
     require("| Machine type (`mode_machine`) | **5** |" in contract_text,
             "G1 system contract does not record mode_machine 5")
-    require("simulation/config/joint_mapping.yaml" in contract_text,
+    require("simulation/mujoco/config/joint_mapping.yaml" in contract_text,
             "G1 system contract does not link the joint mapping")
     require("isaac_lab/g1_stairs/task.yaml" in contract_text,
             "G1 system contract does not link the stair task")

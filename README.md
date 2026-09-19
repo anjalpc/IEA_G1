@@ -19,7 +19,7 @@ Choose the workflow that matches your machine:
 | Deploy or operate handshake/card | G1 robot (PC2) | [Robot deployment](docs/setup/robot-deployment.md) |
 | Build, test, or simulate | Linux workstation | [Development container](docs/setup/development-container.md) |
 | Tune card presentation | Robot and simulator | [Card presentation](docs/setup/card-presentation.md) |
-| Understand or run simulation | Development container | [Simulation guide](simulation/README.md) |
+| Understand or run simulation | Development container | [Simulation guide](simulation/mujoco/README.md) |
 
 Do not run the physical robot stack from the development container. The container is for development and simulation; the Foxy runtime executes directly on PC2.
 
@@ -34,7 +34,7 @@ IEA_G1/
 ├── docs/setup/                      # focused setup and deployment guides
 ├── ros2_ws/src/                     # ROS 2 source packages
 ├── scripts/                         # supported operator entry points
-├── simulation/                      # models, mappings, validation, demos
+├── simulation/mujoco/                      # models, mappings, validation, demos
 └── vendor/brainco_hand_server/      # pinned ARM64 BrainCo runtime for PC2
 ```
 
@@ -149,20 +149,20 @@ colcon build --symlink-install
 source install/setup.bash
 cd ..
 pytest -q
-python3 simulation/validate_config.py
+python3 simulation/mujoco/validate_config.py
 ```
 
 Use `./scripts/dev.sh shell --gui` on a Linux X11 host when you need the MuJoCo viewer.
 
-## What `simulation/` is for
+## What `simulation/mujoco/` is for
 
-`simulation/` is a safe development and validation environment. It lets contributors check configuration, robot/hand model composition, state-machine behavior, joint mappings, motion limits, and policy compatibility before touching hardware.
+`simulation/mujoco/` is a safe development and validation environment. It lets contributors check configuration, robot/hand model composition, state-machine behavior, joint mappings, motion limits, and policy compatibility before touching hardware.
 
 It contains:
 
-- redistributable Unitree G1 and BrainCo Revo2 descriptions/meshes under `simulation/vendor/`;
-- configuration contracts and joint mappings under `simulation/config/`;
-- a small surrogate model for fast tests under `simulation/models/`;
+- redistributable Unitree G1 and BrainCo Revo2 descriptions/meshes under `simulation/mujoco/vendor/`;
+- configuration contracts and joint mappings under `simulation/mujoco/config/`;
+- a small surrogate model for fast tests under `simulation/mujoco/models/`;
 - model composition, policy inspection, validation, and demo tools;
 - provenance and license information for vendored assets.
 
@@ -182,7 +182,7 @@ Simulation is not copied to PC2 for normal operation. It does not prove a motion
 ```bash
 bash -n scripts/*.sh
 python3 -m compileall -q scripts simulation ros2_ws/src
-python3 simulation/validate_config.py
+python3 simulation/mujoco/validate_config.py
 ```
 
 Then run the package tests in the development container and document any physical validation separately.

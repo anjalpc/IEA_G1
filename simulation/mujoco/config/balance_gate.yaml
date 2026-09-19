@@ -22,7 +22,7 @@ controller:
   reference_policy_available_in_docker: true
   policy_execution_adapter_included: true
   implementation: pinned_unitree_rl_lab_g1_29dof_controller
-  startup_command: python3 simulation/run_g1_model.py --native --balance
+  startup_command: python3 simulation/mujoco/run_g1_model.py --native --balance
   dds_domain: 1
   dds_interface: lo
   initial_command: zero_velocity

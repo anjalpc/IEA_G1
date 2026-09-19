@@ -24,7 +24,7 @@ python3 isaac_lab/g1_stairs/audit_assets.py
 2. Reproduce `Unitree-G1-29dof-Velocity` unchanged.
 3. Convert or compose an Isaac asset containing the G1 and both BrainCo hands.
 4. Measure and replace the provisional wrist transforms in
-   `simulation/model_composition.py::HAND_MOUNTS`.
+   `simulation/mujoco/model_composition.py::HAND_MOUNTS`.
 5. Register `ThreeStepStairsCfg` in a copied G1 velocity environment and run a
    32-environment, one-iteration training smoke test before large-scale training.
 6. Add stair-ascent motion data and tracking rewards before PPO robustness fine-tuning.
@@ -60,7 +60,7 @@ successful 32-environment import/reset/play smoke test. Human motion tracking,
 task-completion rewards, and domain randomization follow only after that proof.
 
 The BrainCo URDFs help because they contain visual/collision meshes, inertial
-data, and joint limits. The G1 source under `simulation/vendor/unitree_g1` is
+data, and joint limits. The G1 source under `simulation/mujoco/vendor/unitree_g1` is
 MJCF, not URDF; for Isaac Lab, use Unitree's matching 29-DoF USD/URDF as the
 authoritative base and validate it against this repository's joint contract.
 

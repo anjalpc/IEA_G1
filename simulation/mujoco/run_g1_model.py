@@ -148,7 +148,7 @@ def run_native_viewer(balance: bool = False, card_presentation: bool = False) ->
     native_env["LD_LIBRARY_PATH"] = ":".join(
         [unitree_library, *library_paths])
     if card_presentation:
-        project_root = Path(__file__).resolve().parent.parent
+        project_root = Path(__file__).resolve().parents[2]
         overlay = project_root / "docker" / "native_card_overlay.h"
         patcher = project_root / "docker" / "patch_native_card_overlay.py"
         subprocess.run(

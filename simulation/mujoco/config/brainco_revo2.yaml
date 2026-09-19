@@ -79,6 +79,6 @@ safety:
 
 reference:
   source_repository: https://github.com/BrainCoTech/revo2_description.git
-  vendored_directory: simulation/vendor/brainco_revo2
+  vendored_directory: simulation/mujoco/vendor/brainco_revo2
   license: Apache-2.0
   robot_specific_files_vendored: true

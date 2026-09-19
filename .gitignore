@@ -15,10 +15,10 @@ ros2_ws/log/
 cmake-build-*/
 
 # Company simulation outputs
-simulation/.venv/
-simulation/output/
-simulation/*.onnx
-simulation/*.mjb
+simulation/mujoco/.venv/
+simulation/mujoco/output/
+simulation/mujoco/*.onnx
+simulation/mujoco/*.mjb
 
 # Local simulator and editor state
 .idea/

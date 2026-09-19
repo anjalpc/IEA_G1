@@ -32,7 +32,7 @@ colcon build --symlink-install
 source install/setup.bash
 cd ..
 pytest -q
-python3 simulation/validate_config.py
+python3 simulation/mujoco/validate_config.py
 ```
 
 To build selected packages:
@@ -81,7 +81,7 @@ On a Linux X11 host:
 ./scripts/dev.sh shell --gui
 ```
 
-The GUI mode passes X11 authentication and GPU devices through to the container. If the host has no active `DISPLAY`, use `--headless` and follow [the simulation guide](../../simulation/README.md) for non-visual checks.
+The GUI mode passes X11 authentication and GPU devices through to the container. If the host has no active `DISPLAY`, use `--headless` and follow [the simulation guide](../../simulation/mujoco/README.md) for non-visual checks.
 
 ## What the image contains
 
@@ -112,3 +112,26 @@ docker compose -f docker/development/docker-compose.yml build --no-cache iea_g1_
 ```
 
 Avoid `--no-cache` during normal development because it redownloads every dependency.
+
+
+## Proxy configuration
+
+Proxy use is optional.
+
+Normal network:
+
+    ./scripts/dev.sh build
+
+Proxy-restricted network:
+
+    ./scripts/dev.sh build --proxy
+
+Store machine-local proxy values in:
+
+    docker/development/.env.local
+
+The file is ignored by Git. Without `--proxy`, proxy variables are cleared.
+
+Start an already-built container with:
+
+    ./scripts/dev.sh start --headless --no-build

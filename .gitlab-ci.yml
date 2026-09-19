@@ -33,11 +33,11 @@ simulation_gate:
   stage: test
   image: python:3.10-slim
   before_script:
-    - python -m pip install --disable-pip-version-check -r simulation/requirements.txt
+    - python -m pip install --disable-pip-version-check -r simulation/mujoco/requirements.txt
   script:
-    - python simulation/validate_config.py
-    - python simulation/run_g1_model.py --validate-only
-    - python simulation/run_g1_model.py --headless --steps 1000 --hand-position 0.5
-    - python simulation/run_handshake_demo.py --validate-only
-    - python simulation/run_handshake_demo.py --headless --duration 0.05
-    - python simulation/run_handshake_demo.py --headless --duration 0.5 --cancel-after 0.05
+    - python simulation/mujoco/validate_config.py
+    - python simulation/mujoco/run_g1_model.py --validate-only
+    - python simulation/mujoco/run_g1_model.py --headless --steps 1000 --hand-position 0.5
+    - python simulation/mujoco/run_handshake_demo.py --validate-only
+    - python simulation/mujoco/run_handshake_demo.py --headless --duration 0.05
+    - python simulation/mujoco/run_handshake_demo.py --headless --duration 0.5 --cancel-after 0.05

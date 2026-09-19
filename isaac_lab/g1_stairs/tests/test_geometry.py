@@ -101,9 +101,9 @@ class StaircaseGeometryTest(unittest.TestCase):
     def test_training_joint_order_matches_deployment_contract(self):
         root = Path(__file__).resolve().parents[3]
         mapping = yaml.safe_load(
-            (root / "simulation/config/joint_mapping.yaml").read_text()
+            (root / "simulation/mujoco/config/joint_mapping.yaml").read_text()
         )
-        robot = yaml.safe_load((root / "simulation/config/robot.yaml").read_text())
+        robot = yaml.safe_load((root / "simulation/mujoco/config/robot.yaml").read_text())
         self.assertEqual(tuple(mapping["policy_order"]), BODY_JOINTS)
         self.assertEqual(robot["control"]["mode_machine"], MODE_MACHINE)
 

@@ -15,7 +15,7 @@ import numpy as np
 import yaml
 
 
-REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 INTERFACES_SOURCE = REPOSITORY_ROOT / "ros2_ws" / "src" / "g1_robot_interfaces"
 HANDSHAKE_SOURCE = REPOSITORY_ROOT / "ros2_ws" / "src" / "g1_handshake"
 MODEL_PATH = Path(__file__).resolve().parent / "models" / "handshake_surrogate.xml"
