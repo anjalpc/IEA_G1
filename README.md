@@ -42,7 +42,7 @@ IEA_G1/
 │   ├── mujoco/                     # MuJoCo models, mappings, validation, demos
 │   └── isaac_lab/
 │       └── g1_stairs/              # stair task, training, evaluation, visualization
-└── vendor/brainco_hand_server/      # pinned ARM64 BrainCo runtime for PC2
+└── third_party/brainco_hand_server/      # pinned ARM64 BrainCo runtime for PC2
 ```
 
 Generated `ros2_ws/build`, `ros2_ws/install`, and `ros2_ws/log` directories are local outputs and are intentionally not committed.

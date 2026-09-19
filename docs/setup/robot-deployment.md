@@ -74,7 +74,7 @@ If the installation is elsewhere, set `REALSENSE_PYTHON_PATH` and `REALSENSE_LIB
 Verify the bundled BrainCo files:
 
 ```bash
-cd /home/unitree/IEA_G1/vendor/brainco_hand_server
+cd /home/unitree/IEA_G1/third_party/brainco_hand_server
 sha256sum -c SHA256SUMS
 ```
 

@@ -18,7 +18,7 @@ BRAINCO_PID_FILE="${RUNTIME_DIR}/brainco.pid"
 GATEWAY_PID_FILE="${RUNTIME_DIR}/gateway.pid"
 EVENT_SOCKET="${G1_EVENT_SOCKET:-/tmp/g1_event_control.sock}"
 
-SERVER_ROOT="${PROJECT_ROOT}/vendor/brainco_hand_server"
+SERVER_ROOT="${PROJECT_ROOT}/third_party/brainco_hand_server"
 SERVER_BINARY="${SERVER_ROOT}/bin/brainco_hand_server"
 SERVER_LIBRARY="${SERVER_ROOT}/lib/aarch64"
 
