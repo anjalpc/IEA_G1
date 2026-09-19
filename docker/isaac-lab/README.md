@@ -65,9 +65,9 @@ Expected image:
 
 This recreates the `isaac-lab-fixed` container with:
 
-    IEA_G1                     -> /workspace/IEA_G1
-    integration/unitree_rl_lab -> /workspace/unitree_rl_lab
-    src/unitree_ros            -> /workspace/unitree_ros
+    IEA_G1                -> /workspace/IEA_G1              (read-write)
+    src/unitree_rl_lab     -> /workspace/unitree_rl_lab      (read-only)
+    src/unitree_ros        -> /workspace/unitree_ros         (read-only)
 
 Isaac Lab source, scripts, tools, caches, logs, and data are inherited from the validated `isaac-lab-base` container.
 

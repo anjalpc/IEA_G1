@@ -38,7 +38,7 @@ fi
 REPO_ROOT="$(cd "${SCRIPT_DIR}/../.." && pwd)"
 WORKSPACE="${IEA_WORKSPACE:-$(dirname "${REPO_ROOT}")}"
 
-UNITREE_RL_HOST="${UNITREE_RL_HOST:-${WORKSPACE}/integration/unitree_rl_lab}"
+UNITREE_RL_HOST="${UNITREE_RL_HOST:-${WORKSPACE}/src/unitree_rl_lab}"
 UNITREE_ROS_HOST="${UNITREE_ROS_HOST:-${WORKSPACE}/src/unitree_ros}"
 PROJECT_HOST="${PROJECT_HOST:-${REPO_ROOT}}"
 
@@ -87,12 +87,13 @@ docker run \
   --ipc=host \
   --entrypoint bash \
   --volumes-from "${VOLUME_SOURCE_CONTAINER}" \
-  --volume "${UNITREE_RL_HOST}:/workspace/unitree_rl_lab:rw" \
+  --volume "${UNITREE_RL_HOST}:/workspace/unitree_rl_lab:ro" \
   --volume "${UNITREE_ROS_HOST}:/workspace/unitree_ros:ro" \
   --volume "${PROJECT_HOST}:/workspace/IEA_G1:rw" \
   --env ACCEPT_EULA=Y \
   --env PRIVACY_CONSENT=Y \
   --env UNITREE_RL_LAB_ROOT=/workspace/unitree_rl_lab \
+  --env PYTHONPATH=/workspace/IEA_G1:/workspace/unitree_rl_lab/source/unitree_rl_lab \
   --env HTTP_PROXY="${HTTP_PROXY:-}" \
   --env HTTPS_PROXY="${HTTPS_PROXY:-}" \
   --env NO_PROXY="${NO_PROXY:-}" \
