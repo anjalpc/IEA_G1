@@ -67,7 +67,7 @@ Stop it:
 ./scripts/dev.sh stop
 ```
 
-Rebuild after changing `docker/Dockerfile` or its overlay files:
+Rebuild after changing `docker/development/Dockerfile` or its overlay files:
 
 ```bash
 ./scripts/dev.sh shell --headless
@@ -85,7 +85,7 @@ The GUI mode passes X11 authentication and GPU devices through to the container.
 
 ## What the image contains
 
-`docker/Dockerfile` is the reproducible dependency definition. `docker/docker-compose.yml` supplies host networking and mounts the checkout. `docker/docker-compose.gui.yml` adds X11 and graphics devices. `scripts/dev.sh` is the supported wrapper around those Compose files.
+`docker/development/Dockerfile` is the reproducible dependency definition. `docker/development/docker-compose.yml` supplies host networking and mounts the checkout. `docker/development/docker-compose.gui.yml` adds X11 and graphics devices. `scripts/dev.sh` is the supported wrapper around those Compose files.
 
 The image is intentionally larger than the codebase because it includes compilers, simulators, robot SDKs, policy runtime libraries, ROS, and test tooling. None of these image layers are copied into Git.
 
@@ -101,14 +101,14 @@ docker compose version
 Inspect the container:
 
 ```bash
-docker compose -f docker/docker-compose.yml ps
-docker compose -f docker/docker-compose.yml logs --tail=100
+docker compose -f docker/development/docker-compose.yml ps
+docker compose -f docker/development/docker-compose.yml logs --tail=100
 ```
 
 If a cached image is genuinely stale, rebuild explicitly:
 
 ```bash
-docker compose -f docker/docker-compose.yml build --no-cache iea_g1_dev
+docker compose -f docker/development/docker-compose.yml build --no-cache iea_g1_dev
 ```
 
 Avoid `--no-cache` during normal development because it redownloads every dependency.

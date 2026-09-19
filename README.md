@@ -30,7 +30,7 @@ IEA_G1/
 ├── config/
 │   ├── cyclonedds_humble.xml       # ROS discovery for the dev container
 │   └── udev/*.rules.example        # optional BrainCo permission template
-├── docker/                          # reproducible Humble/MuJoCo dev image
+├── docker/                          # container definitions
 ├── docs/setup/                      # focused setup and deployment guides
 ├── ros2_ws/src/                     # ROS 2 source packages
 ├── scripts/                         # supported operator entry points

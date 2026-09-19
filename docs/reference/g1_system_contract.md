@@ -154,7 +154,7 @@ Never run simulation on hardware domain 0. Never run two low-level physical
 controllers simultaneously. The physical hardware bridge is the only project
 component permitted to command the robot directly.
 
-Dependency definition: [`docker/Dockerfile`](../../docker/Dockerfile).
+Dependency definition: [`docker/development/Dockerfile`](../../docker/development/Dockerfile).
 
 ## Model and policy assets
 

@@ -13,7 +13,7 @@ services:
     network_mode: host
 
     volumes:
-      - ../:/workspace/IEA_G1
+      - ../../:/workspace/IEA_G1
 
     working_dir: /workspace/IEA_G1
 

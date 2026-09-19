@@ -3,7 +3,7 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-DOCKER_DIR="${PROJECT_ROOT}/docker"
+DOCKER_DIR="${PROJECT_ROOT}/docker/development"
 SERVICE="iea_g1_dev"
 
 action="shell"
