@@ -18,10 +18,25 @@ Choose the workflow that matches your machine:
 |---|---|---|
 | Deploy or operate handshake/card | G1 robot (PC2) | [Robot deployment](docs/setup/robot-deployment.md) |
 | Build, test, or simulate | Linux workstation | [Development container](docs/setup/development-container.md) |
+| Train or evaluate stair locomotion | NVIDIA GPU workstation / AWS | [Isaac Lab reproducibility](docs/setup/reproducibility.md) |
 | Tune card presentation | Robot and simulator | [Card presentation](docs/setup/card-presentation.md) |
 | Understand or run simulation | Development container | [Simulation guide](simulation/mujoco/README.md) |
 
 Do not run the physical robot stack from the development container. The container is for development and simulation; the Foxy runtime executes directly on PC2.
+
+### Stair-training quick start
+
+```bash
+./scripts/setup_workspace.sh
+docker/isaac-lab/build.sh
+docker/isaac-lab/run.sh
+
+simulation/isaac_lab/g1_stairs/scripts/simctl \
+  train experiments/g1_stairs/configs/004_experiment_b_smoke.yaml
+```
+
+See [Isaac Lab reproducibility](docs/setup/reproducibility.md) for pinned revisions and expected results.
+
 
 ## Repository map
 

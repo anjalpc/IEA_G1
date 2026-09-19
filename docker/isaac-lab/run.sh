@@ -77,7 +77,7 @@ docker rm \
   2>/dev/null || true
 
 echo
-echo "=== START FIXED INTEGRATION CONTAINER ==="
+echo "=== START FIXED ISAAC CONTAINER ==="
 
 docker run \
   --detach \
