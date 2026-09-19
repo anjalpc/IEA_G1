@@ -252,7 +252,7 @@ Isaac training integration contract:
 ## Experiment recording and independent evaluation
 
 Version-controlled experiment definitions live under `experiments/g1_stairs/configs/`.
-Generated run artifacts live under the repository-root `runs/` directory and
+Generated run artifacts live under `experiments/g1_stairs/runs/` and
 must not be committed to Git.
 
 Every retained experiment run must contain:

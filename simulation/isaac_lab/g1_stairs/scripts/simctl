@@ -3,6 +3,11 @@ set -euo pipefail
 
 REPO="/home/ubuntu/workspace/IEA_G1"
 WORKSPACE="/home/ubuntu/workspace"
+
+EXPERIMENT_ROOT="${REPO}/experiments/g1_stairs"
+RUN_ROOT="${EXPERIMENT_ROOT}/runs"
+LOG_ROOT="${EXPERIMENT_ROOT}/logs"
+OUTPUT_ROOT="${EXPERIMENT_ROOT}/outputs"
 STATE_DIR="${WORKSPACE}/state/IEA_G1"
 LAUNCHER_LOG_DIR="${STATE_DIR}/launcher_logs"
 CURRENT_RUN="${STATE_DIR}/current_run"
@@ -78,6 +83,24 @@ current_run() {
     cat "$CURRENT_RUN"
 }
 
+train_dir_to_host() {
+    local train_dir="$1"
+
+    case "$train_dir" in
+        /workspace/IEA_G1/experiments/g1_stairs/logs/*)
+            echo "${train_dir/\/workspace\/IEA_G1/$REPO}"
+            ;;
+        /workspace/IEA_G1/logs/*)
+            local relative="${train_dir#/workspace/IEA_G1/logs/}"
+            echo "${LOG_ROOT}/${relative}"
+            ;;
+        *)
+            echo "Unsupported training directory: $train_dir" >&2
+            return 1
+            ;;
+    esac
+}
+
 cmd_runs() {
     echo "========================================"
     echo " AVAILABLE RECORDED RUNS"
@@ -90,7 +113,7 @@ cmd_runs() {
 
     found=0
 
-    for dir in "$REPO"/runs/*; do
+    for dir in "$RUN_ROOT"/*; do
         [ -d "$dir" ] || continue
 
         run_id="$(basename "$dir")"
@@ -131,7 +154,7 @@ cmd_use() {
     fi
 
     RUN_ID="$1"
-    RUN_DIR="${REPO}/runs/${RUN_ID}"
+    RUN_DIR="${RUN_ROOT}/${RUN_ID}"
 
     if [ ! -d "$RUN_DIR" ]; then
         echo "Run not found:"
@@ -205,7 +228,7 @@ cmd_train() {
 
 cmd_status() {
     RUN_ID="$(current_run)"
-    RUN_DIR="${REPO}/runs/${RUN_ID}"
+    RUN_DIR="${RUN_ROOT}/${RUN_ID}"
     MANIFEST="${RUN_DIR}/run_manifest.yaml"
     METRICS="${RUN_DIR}/training_metrics.csv"
     LOG="${LAUNCHER_LOG_DIR}/${RUN_ID}_launcher.log"
@@ -309,12 +332,12 @@ PY
 
     if [ -f "$LOG" ]; then
         TRAIN_DIR="$(
-            grep -oE '/workspace/IEA_G1/logs/rsl_rl/[^[:space:]]+' "$LOG" \
+            grep -oE '/workspace/IEA_G1/(experiments/g1_stairs/)?logs/rsl_rl/[^[:space:]]+' "$LOG" \
             | head -n 1 || true
         )"
 
         if [ -n "$TRAIN_DIR" ]; then
-            HOST_DIR="${TRAIN_DIR/\/workspace\/IEA_G1/$REPO}"
+            HOST_DIR="$(train_dir_to_host "$TRAIN_DIR")"
 
             find "$HOST_DIR" -maxdepth 1 -type f -name 'model_*.pt' \
                 2>/dev/null \
@@ -347,7 +370,7 @@ cmd_tensorboard() {
             "$CONTAINER" \
             bash -lc "
             /workspace/isaaclab/isaaclab.sh -p -m tensorboard.main \
-              --logdir /workspace/IEA_G1/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0 \
+              --logdir /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0 \
               --host 0.0.0.0 \
               --port ${TB_PORT} \
               > /tmp/tensorboard.log 2>&1
@@ -370,7 +393,7 @@ resolve_train_dir() {
     fi
 
     TRAIN_DIR="$(
-        grep -oE '/workspace/IEA_G1/logs/rsl_rl/[^[:space:]]+' "$LOG" \
+        grep -oE '/workspace/IEA_G1/(experiments/g1_stairs/)?logs/rsl_rl/[^[:space:]]+' "$LOG" \
         | head -n 1 || true
     )"
 
@@ -379,7 +402,7 @@ resolve_train_dir() {
         exit 1
     fi
 
-    echo "${TRAIN_DIR/\/workspace\/IEA_G1/$REPO}"
+    train_dir_to_host "$TRAIN_DIR"
 }
 
 cmd_video() {
@@ -407,7 +430,7 @@ cmd_video() {
 
     ensure_container_running
 
-    OUTPUT_DIR="/workspace/IEA_G1/outputs/videos/${RUN_ID}/model_${CHECKPOINT}_side"
+    OUTPUT_DIR="/workspace/IEA_G1/experiments/g1_stairs/outputs/videos/${RUN_ID}/model_${CHECKPOINT}_side"
 
     PROJECT_COMMIT="$(git rev-parse HEAD)"
     ISAACLAB_COMMIT="3c6e67bb5c7ada942a6d1884ab69338f57596f77"
@@ -481,7 +504,7 @@ cmd_evaluate() {
     ensure_container_running
 
     CONTAINER_MODEL="${MODEL/$REPO/\/workspace\/IEA_G1}"
-    OUTPUT_DIR="/workspace/IEA_G1/outputs/evaluation/${RUN_ID}/model_${CHECKPOINT}_seed42"
+    OUTPUT_DIR="/workspace/IEA_G1/experiments/g1_stairs/outputs/evaluation/${RUN_ID}/model_${CHECKPOINT}_seed42"
 
     echo "========================================"
     echo " G1 CHECKPOINT EVALUATION"
@@ -528,7 +551,7 @@ cmd_info() {
     echo "  $RUN_ID"
     echo
     echo "Run directory:"
-    echo "  ${REPO}/runs/${RUN_ID}"
+    echo "  ${RUN_ROOT}/${RUN_ID}"
     echo
     echo "Launcher log:"
     echo "  ${LAUNCHER_LOG_DIR}/${RUN_ID}_launcher.log"

@@ -70,7 +70,13 @@ def main() -> None:
     if args.max_iterations is not None:
         agent_cfg.max_iterations = args.max_iterations
 
-    log_root = Path("logs") / "rsl_rl" / agent_cfg.experiment_name
+    log_root = (
+        Path("experiments")
+        / "g1_stairs"
+        / "logs"
+        / "rsl_rl"
+        / agent_cfg.experiment_name
+    )
     log_dir = log_root / datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     log_dir = log_dir.resolve()
     print(f"[INFO] Logging experiment in directory: {log_dir}")

@@ -238,7 +238,7 @@ def parse_arguments() -> argparse.Namespace:
     parser.add_argument(
         "--output-root",
         type=Path,
-        default=REPO_ROOT / "runs",
+        default=REPO_ROOT / "experiments" / "g1_stairs" / "runs",
         help="Directory under which the run directory is created",
     )
 

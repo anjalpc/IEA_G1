@@ -160,7 +160,7 @@ def main() -> int:
     parser.add_argument(
         "--output-root",
         type=Path,
-        default=REPO_ROOT / "runs",
+        default=REPO_ROOT / "experiments" / "g1_stairs" / "runs",
     )
     parser.add_argument("--run-id")
     parser.add_argument("--allow-dirty", action="store_true")

@@ -13,7 +13,7 @@ the mode-15 G1 must not be substituted.
 - `manifests/`: repository and dependency freeze records.
 - `evaluation/`: independent outcome evaluation, metrics, and tests.
 - `checkpoints/`: local generated model files; checkpoint binaries are ignored.
-- `/runs/`: generated run directories at the repository root; ignored by Git.
+- `runs/`: generated run directories under `experiments/g1_stairs/`; ignored by Git.
 
 The experiment framework lives outside `simulation/isaac_lab/g1_stairs/` intentionally:
 
