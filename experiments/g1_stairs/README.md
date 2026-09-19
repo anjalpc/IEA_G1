@@ -32,23 +32,25 @@ training, evaluation, and analysis code.
 
 ## Experiment progression
 
+The committed YAML files form a small progression of reproducible checks and experiments:
+
 1. `001_upstream_flat_ground.yaml`
-   - Reproduce the unmodified upstream G1 flat-ground task.
-   - Uses 32 environments and one learning iteration.
-   - Validates the installed Isaac Lab, Unitree RL Lab, RSL-RL, and GPU stack.
+   - One-iteration infrastructure check based on the upstream G1 task.
+   - Validates the Isaac Lab, Unitree RL Lab, RSL-RL, and GPU stack.
 
 2. `002_stairs_smoke.yaml`
-   - Load the project stair task.
-   - Uses the fixed initial position, 32 environments, and one iteration.
-   - Validates task registration, asset loading, staircase geometry, stepping,
-     logging, and checkpoint creation.
+   - One-iteration smoke test for the project stair task.
+   - Validates task registration, G1 asset loading, nominal staircase geometry, and stepping.
 
 3. `003_nominal_reward_debug.yaml`
-   - First meaningful fixed-stair learning experiment.
-   - Targets the exact three-step staircase.
-   - Remains launch-blocked until every launch gate has been validated.
+   - Nominal fixed-stair training configuration.
+   - Uses the exact three-step course and the current progress-plus-upright reward stage.
 
-Do not bypass `launch_gates.allow_launch: false` simply to start training.
+4. `004_experiment_b_smoke.yaml`
+   - One-iteration reward and infrastructure smoke derived from the nominal configuration.
+   - Use this after environment or runtime changes before launching longer training.
+
+Historical experiment evidence belongs under `archive/`. Do not rewrite archived paths or results to match later repository reorganizations.
 
 ## Nominal staircase
 
@@ -62,27 +64,29 @@ Do not bypass `launch_gates.allow_launch: false` simply to start training.
 - Initial base position: `(1.00, 0.00, 0.80)` m.
 - Initial position and yaw randomization: disabled.
 
-## Preparing a run
+## Running an experiment
 
-From the repository root:
-
-```bash
-python3 simulation/isaac_lab/g1_stairs/scripts/training/prepare_experiment.py \
-  experiments/g1_stairs/configs/001_upstream_flat_ground.yaml \
-  --run-id upstream_flat_ground_001
-```
-
-Preparation-only runs may omit AWS provenance because they do not launch
-training. Canonical AWS launches must use the host-side wrapper so the source
-checkout identity is passed into the container:
+Use `simctl` as the normal operator entry point:
 
 ```bash
-simulation/isaac_lab/g1_stairs/scripts/training/run_aws_recorded_experiment.sh \
-  experiments/g1_stairs/configs/003_nominal_reward_debug.yaml \
-  --run-id experiment_a_seed42
+simulation/isaac_lab/g1_stairs/scripts/simctl \
+  train experiments/g1_stairs/configs/004_experiment_b_smoke.yaml
 ```
 
-The wrapper reads tag and commit from
-`/home/ubuntu/workspace/src/IsaacLab`. The container records those values as
-source provenance and records `isaaclab`, `isaaclab-rl`, and `rsl-rl-lib`
-distribution versions separately as runtime metadata.
+Check the selected run:
+
+```bash
+simulation/isaac_lab/g1_stairs/scripts/simctl status
+```
+
+List recorded runs:
+
+```bash
+simulation/isaac_lab/g1_stairs/scripts/simctl runs
+```
+
+Scientific parameters belong in committed experiment YAML files. Do not change a recorded experiment by casually appending different training parameters on the command line.
+
+Canonical training records the resolved configuration, exact IEA_G1 Git commit and branch, clean/dirty state, Isaac Lab source revision, runtime package versions, and host/GPU information.
+
+The lower-level preparation and AWS wrapper scripts under `simulation/isaac_lab/g1_stairs/scripts/training/` remain implementation details used by `simctl` and by debugging workflows.

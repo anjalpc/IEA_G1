@@ -16,13 +16,14 @@ The fixed image installs the missing core `isaaclab` package and its required `f
 
     <workspace>/
     ├── IEA_G1/
-    ├── src/
-    │   ├── IsaacLab/
-    │   └── unitree_ros/
-    └── integration/
-        └── unitree_rl_lab/
+    └── src/
+        ├── IsaacLab/
+        ├── unitree_rl_lab/
+        └── unitree_ros/
 
 The workspace root is derived automatically from the location of `IEA_G1`.
+Run `./scripts/setup_workspace.sh` from `IEA_G1` to create or verify the pinned
+external repositories.
 
 Optional overrides:
 

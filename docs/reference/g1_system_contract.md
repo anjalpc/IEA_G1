@@ -244,10 +244,13 @@ Isaac training integration contract:
   `3c6e67bb5c7ada942a6d1884ab69338f57596f77` to the container; canonical
   launches reject absent or mismatched provenance and never require `.git`
   metadata inside `/workspace/isaaclab`;
-- Unitree RL Lab's `UNITREE_MODEL_DIR` placeholder must be replaced with the
-  absolute path to its G1 model checkout on the training machine;
-- the first executable cloud gate is a 32-environment, one-iteration training
-  smoke test. Playback follows only after that run creates a checkpoint.
+- Unitree RL Lab remains pristine. The project-specific G1 asset override lives
+  in `simulation/isaac_lab/g1_stairs/robot_cfg.py` and loads the pinned mode-5
+  `g1_29dof_rev_1_0.urdf` from the read-only Unitree ROS checkout;
+- the supported infrastructure gate is the committed
+  `experiments/g1_stairs/configs/004_experiment_b_smoke.yaml` run through
+  `simctl`. It uses one training iteration to validate the complete runtime
+  path and may complete without producing a resolved checkpoint.
 
 ## Experiment recording and independent evaluation
 

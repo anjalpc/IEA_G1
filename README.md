@@ -1,11 +1,12 @@
-# IEA G1 interaction stack
+# IEA G1 research and robotics stack
 
-ROS 2 packages and operator scripts for running handshake and card-presentation interactions on a Unitree G1 with BrainCo Revo2 hands.
+Robotics development, simulation, training, and runtime stack for a Unitree G1 with BrainCo Revo2 hands.
 
-This repository has two distinct uses:
+This repository has three main workflows:
 
 - **Robot runtime (PC2):** ROS 2 Foxy nodes run on the robot and own the arms, hands, and cameras.
-- **Workstation development:** the repository's Docker container provides ROS 2 Humble, MuJoCo, Unitree SDKs, and test tools without changing the host machine.
+- **Workstation development:** the development container provides ROS 2 Humble, MuJoCo, Unitree SDKs, and test tools without changing the host machine.
+- **Isaac Lab stair training:** a separate GPU container runs the pinned reinforcement-learning environment and recorded stair experiments.
 
 ## Start here
 
