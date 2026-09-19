@@ -25,6 +25,44 @@ Usage:
 USAGE
 }
 
+ensure_container_running() {
+    if ! docker inspect "$CONTAINER" >/dev/null 2>&1; then
+        echo "Required container does not exist: $CONTAINER" >&2
+        echo "Refusing to recreate it automatically." >&2
+        exit 1
+    fi
+
+    RUNNING="$(
+        docker inspect \
+          --format '{{.State.Running}}' \
+          "$CONTAINER"
+    )"
+
+    if [ "$RUNNING" != "true" ]; then
+        echo "Starting container: $CONTAINER"
+
+        docker start "$CONTAINER" >/dev/null
+
+        for _ in {1..10}; do
+            RUNNING="$(
+                docker inspect \
+                  --format '{{.State.Running}}' \
+                  "$CONTAINER"
+            )"
+
+            if [ "$RUNNING" = "true" ]; then
+                echo "Container running."
+                return 0
+            fi
+
+            sleep 1
+        done
+
+        echo "Container failed to start: $CONTAINER" >&2
+        exit 1
+    fi
+}
+
 current_run() {
     if [ ! -f "$CURRENT_RUN" ]; then
         echo "No current training run recorded." >&2
@@ -123,6 +161,8 @@ cmd_train() {
         git status --short
         exit 1
     fi
+
+    ensure_container_running
 
     BASE="$(basename "$CONFIG" .yaml)"
     RUN_ID="${BASE}_$(date -u +%Y%m%d_%H%M%S)"
@@ -284,6 +324,8 @@ PY
 }
 
 cmd_tensorboard() {
+    ensure_container_running
+
     if docker exec "$CONTAINER" bash -lc \
         "ps aux | grep '[t]ensorboard.main.*--port ${TB_PORT}'" \
         >/dev/null 2>&1
@@ -353,6 +395,8 @@ cmd_video() {
         echo "  $MODEL"
         exit 1
     fi
+
+    ensure_container_running
 
     OUTPUT_DIR="/workspace/IEA_G1/outputs/videos/${RUN_ID}/model_${CHECKPOINT}_side"
 
@@ -424,6 +468,8 @@ cmd_evaluate() {
         echo "  $MODEL"
         exit 1
     fi
+
+    ensure_container_running
 
     CONTAINER_MODEL="${MODEL/$REPO/\/workspace\/IEA_G1}"
     OUTPUT_DIR="/workspace/IEA_G1/outputs/evaluation/${RUN_ID}/model_${CHECKPOINT}_seed42"
