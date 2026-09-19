@@ -103,6 +103,10 @@ docker run \
   "${IMAGE_NAME}" \
   -lc 'sleep infinity'
 
+docker exec \
+  "${CONTAINER_NAME}" \
+  git config --global --add safe.directory /workspace/IEA_G1
+
 echo
 echo "=== CONTAINER STATE ==="
 
