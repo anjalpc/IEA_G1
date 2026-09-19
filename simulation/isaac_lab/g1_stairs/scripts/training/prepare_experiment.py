@@ -22,7 +22,7 @@ REPO_ROOT = Path(__file__).resolve().parents[5]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from experiments.runtime_contract import (
+from simulation.isaac_lab.g1_stairs.runtime_contract import (
     EXPECTED_ISAAC_LAB_COMMIT,
     EXPECTED_ISAAC_LAB_TAG,
     EXPECTED_ISAAC_LAB_VERSION,

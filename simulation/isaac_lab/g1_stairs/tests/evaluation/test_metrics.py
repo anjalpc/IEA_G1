@@ -6,11 +6,11 @@ from pathlib import Path
 import tempfile
 import unittest
 
-from experiments.evaluation.metrics import (
+from simulation.isaac_lab.g1_stairs.evaluation.metrics import (
     RunMetricsWriter,
     wilson_interval,
 )
-from experiments.evaluation.stair_outcomes import (
+from simulation.isaac_lab.g1_stairs.evaluation.stair_outcomes import (
     EpisodeResult,
     Outcome,
 )

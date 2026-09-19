@@ -1,7 +1,7 @@
 import math
 import unittest
 
-from experiments.evaluation.isaac_lab_adapter import (
+from simulation.isaac_lab.g1_stairs.evaluation.isaac_lab_adapter import (
     IsaacLabStepState,
     quaternion_wxyz_to_roll_pitch,
     resolve_body_indices,

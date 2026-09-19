@@ -9,7 +9,7 @@ import math
 from pathlib import Path
 from typing import Any, Mapping
 
-from experiments.evaluation.stair_outcomes import EpisodeResult
+from simulation.isaac_lab.g1_stairs.evaluation.stair_outcomes import EpisodeResult
 
 
 TRAINING_FIELDS = (

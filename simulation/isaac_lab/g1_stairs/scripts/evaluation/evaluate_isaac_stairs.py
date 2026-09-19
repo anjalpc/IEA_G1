@@ -82,12 +82,12 @@ def main() -> None:
     from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
     from unitree_rl_lab.utils.parser_cfg import parse_env_cfg
 
-    from experiments.evaluation.isaac_lab_adapter import (
+    from simulation.isaac_lab.g1_stairs.evaluation.isaac_lab_adapter import (
         capture_isaac_lab_state,
         to_step_sample,
     )
-    from experiments.evaluation.metrics import RunMetricsWriter
-    from experiments.evaluation.stair_outcomes import StairOutcomeEvaluator
+    from simulation.isaac_lab.g1_stairs.evaluation.metrics import RunMetricsWriter
+    from simulation.isaac_lab.g1_stairs.evaluation.stair_outcomes import StairOutcomeEvaluator
 
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)

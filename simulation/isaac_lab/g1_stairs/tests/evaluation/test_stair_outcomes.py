@@ -3,7 +3,7 @@
 import math
 import unittest
 
-from experiments.evaluation.stair_outcomes import (
+from simulation.isaac_lab.g1_stairs.evaluation.stair_outcomes import (
     Outcome,
     StairOutcomeEvaluator,
     StepSample,

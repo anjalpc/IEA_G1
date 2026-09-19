@@ -1,6 +1,6 @@
 import unittest
 
-from experiments.runtime_contract import (
+from simulation.isaac_lab.g1_stairs.runtime_contract import (
     EXPECTED_ISAAC_LAB_COMMIT,
     EXPECTED_ISAAC_LAB_TAG,
     RuntimeVersionMismatch,

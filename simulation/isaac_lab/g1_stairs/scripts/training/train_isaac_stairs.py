@@ -45,7 +45,7 @@ def main() -> None:
     from unitree_rl_lab.utils.export_deploy_cfg import export_deploy_cfg
     from unitree_rl_lab.utils.parser_cfg import parse_env_cfg
 
-    from experiments.evaluation.isaac_training_metrics import (
+    from simulation.isaac_lab.g1_stairs.evaluation.isaac_training_metrics import (
         InstrumentedRslRlVecEnvWrapper,
         MetricsOnPolicyRunnerMixin,
     )

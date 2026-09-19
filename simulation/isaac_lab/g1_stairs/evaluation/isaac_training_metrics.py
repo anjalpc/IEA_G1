@@ -6,7 +6,7 @@ import math
 import statistics
 from pathlib import Path
 
-from experiments.evaluation.metrics import RunMetricsWriter
+from simulation.isaac_lab.g1_stairs.evaluation.metrics import RunMetricsWriter
 
 
 class InstrumentedRslRlVecEnvWrapper:
