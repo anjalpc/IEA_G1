@@ -177,6 +177,7 @@ def stream_training_process(
     command: list[str],
     console_path: Path,
     run_dir: Path,
+    resolved_path: Path,
 ) -> int:
     """Run training while streaming and preserving combined output."""
     process: subprocess.Popen[str] | None = None
@@ -186,6 +187,7 @@ def stream_training_process(
             environment = os.environ.copy()
             environment["IEA_G1_METRICS_DIR"] = str(run_dir)
             environment["IEA_G1_RUN_ID"] = run_dir.name
+            environment["IEA_G1_RESOLVED_CONFIG"] = str(resolved_path)
             process = subprocess.Popen(
                 command,
                 cwd=REPO_ROOT,
@@ -351,6 +353,7 @@ def main() -> int:
         command,
         console_path,
         run_dir,
+        resolved_path,
     )
 
     update_manifest(

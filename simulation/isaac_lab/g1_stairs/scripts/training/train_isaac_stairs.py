@@ -52,9 +52,11 @@ def main() -> None:
 
     metrics_dir_value = os.environ.get("IEA_G1_METRICS_DIR")
     run_id = os.environ.get("IEA_G1_RUN_ID")
-    if not metrics_dir_value or not run_id:
+    resolved_config_value = os.environ.get("IEA_G1_RESOLVED_CONFIG")
+    if not metrics_dir_value or not run_id or not resolved_config_value:
         raise RuntimeError(
-            "IEA_G1_METRICS_DIR and IEA_G1_RUN_ID are required"
+            "IEA_G1_METRICS_DIR, IEA_G1_RUN_ID, and "
+            "IEA_G1_RESOLVED_CONFIG are required"
         )
 
     env_cfg = parse_env_cfg(
@@ -65,6 +67,17 @@ def main() -> None:
         entry_point_key="env_cfg_entry_point",
     )
     env_cfg.seed = args.seed
+
+    from simulation.isaac_lab.g1_stairs.reward_runtime import (
+        apply_resolved_rewards,
+        load_resolved_config,
+    )
+
+    resolved_config = load_resolved_config(Path(resolved_config_value))
+    active_rewards = apply_resolved_rewards(env_cfg, resolved_config)
+    print("[INFO] Active reward stage:", resolved_config["reward_experiment"]["active_stage"])
+    print("[INFO] Active rewards:", active_rewards)
+
     agent_cfg = cli_args.parse_rsl_rl_cfg(args.task, args)
     agent_cfg.seed = args.seed
     if args.max_iterations is not None:
