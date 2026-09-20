@@ -14,7 +14,6 @@ ISAACLAB_SOURCE_TAG="$(
 docker exec \
   --env "ISAACLAB_SOURCE_COMMIT=${ISAACLAB_SOURCE_COMMIT}" \
   --env "ISAACLAB_SOURCE_TAG=${ISAACLAB_SOURCE_TAG}" \
-  --env PYTHONPATH=/workspace/IEA_G1 \
   --env UNITREE_RL_LAB_ROOT=/workspace/unitree_rl_lab \
   --workdir /workspace/IEA_G1 \
   "${ISAACLAB_CONTAINER}" \
