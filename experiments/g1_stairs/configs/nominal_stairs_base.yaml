@@ -233,6 +233,19 @@ curriculum:
     initial_level: nominal_exact
   command_curriculum:
     enabled: false
+policy_initialization:
+  type: unitree_velocity_onnx_transfer
+  source:
+    task: Unitree-G1-29dof-Velocity
+    path: /workspace/unitree_rl_lab/deploy/robots/g1_29dof/config/policy/velocity/v0/exported/policy.onnx
+  locomotion_observations: 480
+  terrain_observations: 187
+  stair_observations: 667
+  actions: 29
+  terrain_initialization: zero
+  critic_initialization: fresh
+  pretrained_actor_trainable: true
+
 ppo:
   rollout_steps_per_environment: 24
   actor_hidden_dimensions:

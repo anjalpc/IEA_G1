@@ -155,6 +155,11 @@ parser.add_argument(
 )
 
 parser.add_argument(
+    "--policy_onnx",
+    default=None,
+)
+
+parser.add_argument(
     "--project_commit",
     required=True,
 )
@@ -179,8 +184,10 @@ AppLauncher.add_app_launcher_args(parser)
 
 args = parser.parse_args()
 
-if not args.checkpoint:
-    parser.error("--checkpoint is required")
+if bool(args.checkpoint) == bool(args.policy_onnx):
+    parser.error(
+        "Exactly one of --checkpoint or --policy_onnx is required"
+    )
 
 if args.num_envs != 1:
     parser.error("Phase 11 requires --num_envs 1")
@@ -204,6 +211,10 @@ def main() -> None:
     # Register thesis task.
     import simulation.isaac_lab.g1_stairs.register  # noqa: F401
 
+    from simulation.isaac_lab.g1_stairs.policy_initialization import (
+        initialize_actor_from_unitree_onnx,
+    )
+
     from isaaclab.envs import DirectMARLEnv, multi_agent_to_single_agent
     from isaaclab.utils.assets import retrieve_file_path
     from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
@@ -213,12 +224,21 @@ def main() -> None:
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
 
-    checkpoint = Path(
-        retrieve_file_path(args.checkpoint)
-    ).resolve()
+    checkpoint = None
+    policy_onnx = None
 
-    if not checkpoint.is_file():
-        raise FileNotFoundError(checkpoint)
+    if args.checkpoint:
+        checkpoint = Path(
+            retrieve_file_path(args.checkpoint)
+        ).resolve()
+
+        if not checkpoint.is_file():
+            raise FileNotFoundError(checkpoint)
+    else:
+        policy_onnx = Path(args.policy_onnx).resolve()
+
+        if not policy_onnx.is_file():
+            raise FileNotFoundError(policy_onnx)
 
     view = VIEWS[args.view]
 
@@ -296,7 +316,15 @@ def main() -> None:
         device=agent_cfg.device,
     )
 
-    runner.load(str(checkpoint))
+    initialization_metadata = None
+
+    if checkpoint is not None:
+        runner.load(str(checkpoint))
+    else:
+        initialization_metadata = initialize_actor_from_unitree_onnx(
+            runner=runner,
+            onnx_path=policy_onnx,
+        )
 
     policy = runner.get_inference_policy(
         device=env.unwrapped.device
@@ -315,8 +343,17 @@ def main() -> None:
         "seed": args.seed,
         "num_envs": 1,
         "video_length_steps": args.video_length,
-        "checkpoint": str(checkpoint),
-        "checkpoint_sha256": sha256(checkpoint),
+        "checkpoint": (
+            str(checkpoint)
+            if checkpoint is not None
+            else None
+        ),
+        "checkpoint_sha256": (
+            sha256(checkpoint)
+            if checkpoint is not None
+            else None
+        ),
+        "policy_initialization": initialization_metadata,
         "project_commit": args.project_commit,
         "isaaclab_commit": args.isaaclab_commit,
         "unitree_rl_commit": args.unitree_rl_commit,
@@ -342,11 +379,18 @@ def main() -> None:
     print("origin_type=world")
     print("env_index=0")
     print(f"seed={args.seed}")
-    print(f"checkpoint={checkpoint}")
-    print(
-        "checkpoint_sha256="
-        f"{metadata['checkpoint_sha256']}"
-    )
+    if checkpoint is not None:
+        print(f"checkpoint={checkpoint}")
+        print(
+            "checkpoint_sha256="
+            f"{metadata['checkpoint_sha256']}"
+        )
+    else:
+        print(f"policy_onnx={policy_onnx}")
+        print(
+            "policy_initialization="
+            f"{initialization_metadata}"
+        )
     print(
         "unitree_integration_diff_sha256="
         f"{metadata['unitree_integration_diff_sha256']}"

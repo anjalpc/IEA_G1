@@ -50,6 +50,10 @@ def main() -> None:
         MetricsOnPolicyRunnerMixin,
     )
 
+    from simulation.isaac_lab.g1_stairs.policy_initialization import (
+        initialize_actor_from_unitree_onnx,
+    )
+
     metrics_dir_value = os.environ.get("IEA_G1_METRICS_DIR")
     run_id = os.environ.get("IEA_G1_RUN_ID")
     resolved_config_value = os.environ.get("IEA_G1_RESOLVED_CONFIG")
@@ -109,6 +113,26 @@ def main() -> None:
         log_dir=str(log_dir),
         device=agent_cfg.device,
     )
+
+    initialization_cfg = resolved_config.get(
+        "policy_initialization",
+        {},
+    )
+    initialization_type = initialization_cfg.get("type")
+
+    if initialization_type == "unitree_velocity_onnx_transfer":
+        initialize_actor_from_unitree_onnx(
+            runner=runner,
+            onnx_path=Path(
+                initialization_cfg["source"]["path"]
+            ),
+        )
+    elif initialization_type not in (None, "random"):
+        raise RuntimeError(
+            "Unsupported policy initialization: "
+            f"{initialization_type}"
+        )
+
     runner.configure_metrics(Path(metrics_dir_value), run_id)
     runner.add_git_repo_to_log(__file__)
 

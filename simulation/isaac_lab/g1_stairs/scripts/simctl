@@ -32,6 +32,7 @@ Usage:
   simctl use <run_id>
   simctl tensorboard {start|status|stop}
   simctl video <checkpoint>
+  simctl baseline
   simctl evaluate <checkpoint>
   simctl help
 USAGE
@@ -538,6 +539,73 @@ cd /workspace/IEA_G1
     find "$HOST_OUTPUT" -type f -name '*.mp4' -print || true
 }
 
+
+cmd_baseline() {
+    if [ $# -ne 0 ]; then
+        echo "Usage: simctl baseline"
+        exit 1
+    fi
+
+    ensure_container_running
+
+    STAMP="$(date -u +%Y%m%d_%H%M%S)"
+    BASELINE_ID="t0_unitree_velocity_prior_${STAMP}"
+
+    OUTPUT_DIR="/workspace/IEA_G1/experiments/g1_stairs/outputs/baselines/${BASELINE_ID}/side"
+
+    PROJECT_COMMIT="$(git rev-parse HEAD)"
+    ISAACLAB_COMMIT="3c6e67bb5c7ada942a6d1884ab69338f57596f77"
+    UNITREE_RL_COMMIT="4960b84732b0c2ec593dccbfe963fda1bcd7b1e3"
+    UNITREE_DIFF_SHA256="54a60bd3ed9de27514530c82936cb43e6b1c5074fee173e81ee271b7ca238b1f"
+
+    POLICY_ONNX="/workspace/unitree_rl_lab/deploy/robots/g1_29dof/config/policy/velocity/v0/exported/policy.onnx"
+
+    echo "========================================"
+    echo " G1 T0 LOCOMOTION PRIOR BASELINE"
+    echo "========================================"
+    echo "Baseline:    $BASELINE_ID"
+    echo "Policy:      Unitree-G1-29dof-Velocity"
+    echo "PPO updates: 0"
+    echo "Exploration: deterministic inference"
+    echo "View:        side"
+    echo
+
+    docker exec \
+      --env UNITREE_RL_LAB_ROOT=/workspace/unitree_rl_lab \
+      "$CONTAINER" \
+      bash -lc "
+cd /workspace/IEA_G1
+
+/workspace/isaaclab/isaaclab.sh -p \
+  simulation/isaac_lab/g1_stairs/scripts/visualization/record_view.py \
+  --task Unitree-IEA-G1-29dof-Stairs-v0 \
+  --view side \
+  --output_dir '${OUTPUT_DIR}' \
+  --video_length 600 \
+  --seed 42 \
+  --num_envs 1 \
+  --policy_onnx '${POLICY_ONNX}' \
+  --project_commit '${PROJECT_COMMIT}' \
+  --isaaclab_commit '${ISAACLAB_COMMIT}' \
+  --unitree_rl_commit '${UNITREE_RL_COMMIT}' \
+  --unitree_diff_sha256 '${UNITREE_DIFF_SHA256}' \
+  --headless \
+  --device cuda:0
+"
+
+    HOST_OUTPUT="${OUTPUT_DIR/\/workspace\/IEA_G1/$REPO}"
+
+    echo
+    echo "Baseline output:"
+    echo "  $HOST_OUTPUT"
+    echo
+    echo "Video:"
+    find "$HOST_OUTPUT" -type f -name '*.mp4' -print || true
+    echo
+    echo "Metadata:"
+    find "$HOST_OUTPUT" -type f -name 'metadata.json' -print || true
+}
+
 cmd_evaluate() {
     if [ $# -ne 1 ]; then
         echo "Usage: simctl evaluate <checkpoint>"
@@ -648,6 +716,10 @@ case "${1:-help}" in
     video)
         shift
         cmd_video "$@"
+        ;;
+    baseline)
+        shift
+        cmd_baseline "$@"
         ;;
     evaluate)
         shift
