@@ -226,7 +226,7 @@ class StairCurriculumCfg(_UPSTREAM.CurriculumCfg):
 
 @configclass
 class StairRewardsCfg:
-    """Phase 12 Experiment B: progress plus upright posture."""
+    """Phase 12 reward catalog; the resolved experiment selects active terms."""
 
     forward_progress = RewTerm(
         func=stair_rewards.forward_progress,
@@ -245,6 +245,23 @@ class StairRewardsCfg:
         func=mdp.flat_orientation_l2,
         weight=-1.0,
         params={"asset_cfg": SceneEntityCfg("robot")},
+    )
+
+    platform_entry = RewTerm(
+        func=stair_rewards.progress_threshold_event,
+        weight=1.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "threshold_m": 1.75,
+        },
+    )
+    task_completion = RewTerm(
+        func=stair_rewards.progress_threshold_event,
+        weight=3.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "threshold_m": 3.75,
+        },
     )
 
 

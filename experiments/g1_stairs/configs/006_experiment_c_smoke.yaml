@@ -1,0 +1,14 @@
+schema_version: 1
+
+experiment:
+  id: 006_experiment_c_smoke
+  purpose: One-iteration validation of Experiment C completion rewards
+  type: reward_smoke_test
+  meaningful_stair_training: false
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/005_experiment_c_completion.yaml
+  resolved_config_required: true
+
+execution:
+  maximum_iterations: 1

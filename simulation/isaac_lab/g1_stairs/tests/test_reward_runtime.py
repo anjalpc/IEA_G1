@@ -26,6 +26,37 @@ class RewardRuntimeTests(unittest.TestCase):
             },
         )
 
+    def test_experiment_c_resolves_exact_runtime_rewards(self):
+        root = Path(__file__).resolve().parents[4]
+        config = (
+            root
+            / "experiments/g1_stairs/configs/"
+            "005_experiment_c_completion.yaml"
+        )
+        resolved, sources = resolve_config(config)
+
+        self.assertEqual(
+            sources,
+            [
+                "experiments/g1_stairs/configs/nominal_stairs_base.yaml",
+                "experiments/g1_stairs/configs/005_experiment_c_completion.yaml",
+            ],
+        )
+        self.assertEqual(
+            resolved["reward_experiment"]["active_stage"],
+            "C_add_completion",
+        )
+        self.assertEqual(
+            active_reward_weights(resolved),
+            {
+                "forward_progress": 1.0,
+                "stair_progress": 1.0,
+                "upright": -1.0,
+                "platform_entry": 1.0,
+                "task_completion": 3.0,
+            },
+        )
+
     def test_unknown_stage_is_rejected(self):
         resolved = {
             "reward_experiment": {"active_stage": "does_not_exist"},
@@ -50,7 +81,7 @@ class RewardRuntimeTests(unittest.TestCase):
                         "enabled_terms": {"forward_progress_raw": 1.0}
                     },
                     "C_add_completion": {
-                        "enabled_terms": {"completion_raw": 3.0}
+                        "enabled_terms": {"unknown_reward_raw": 3.0}
                     },
                 }
             },

@@ -12,6 +12,8 @@ RAW_TO_RUNTIME_TERM = {
     "forward_progress_raw": "forward_progress",
     "stair_progress_raw": "stair_progress",
     "upright_raw": "upright",
+    "platform_entry_raw": "platform_entry",
+    "task_completion_raw": "task_completion",
 }
 
 

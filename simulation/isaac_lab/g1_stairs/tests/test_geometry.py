@@ -109,8 +109,8 @@ class StaircaseGeometryTest(unittest.TestCase):
 
     def test_reward_stage_plan_preserves_a_and_adds_only_upright_in_b(self):
         root = Path(__file__).resolve().parents[4]
-        experiment = yaml.safe_load(
-            (root / "experiments/g1_stairs/configs/003_nominal_reward_debug.yaml").read_text()
+        experiment, _ = resolve_config(
+            root / "experiments/g1_stairs/configs/003_nominal_reward_debug.yaml"
         )
         stage_plan = experiment["rewards"]["stage_plan"]
         experiment_a = stage_plan["A_progress_only"][
@@ -157,7 +157,13 @@ class StaircaseGeometryTest(unittest.TestCase):
         }
         self.assertEqual(
             configured,
-            {"forward_progress", "stair_progress", "upright"},
+            {
+                "forward_progress",
+                "stair_progress",
+                "upright",
+                "platform_entry",
+                "task_completion",
+            },
         )
         assignments = {
             node.targets[0].id: node.value
@@ -170,6 +176,14 @@ class StaircaseGeometryTest(unittest.TestCase):
             "forward_progress": ("stair_rewards.forward_progress", 1.0),
             "stair_progress": ("stair_rewards.stair_progress", 1.0),
             "upright": ("mdp.flat_orientation_l2", -1.0),
+            "platform_entry": (
+                "stair_rewards.progress_threshold_event",
+                1.0,
+            ),
+            "task_completion": (
+                "stair_rewards.progress_threshold_event",
+                3.0,
+            ),
         }
         for name, (function, weight) in expected.items():
             call = assignments[name]
@@ -191,8 +205,7 @@ class StaircaseGeometryTest(unittest.TestCase):
         self.assertEqual(
             sources,
             [
-                "experiments/g1_stairs/configs/001_upstream_flat_ground.yaml",
-                "experiments/g1_stairs/configs/002_stairs_smoke.yaml",
+                "experiments/g1_stairs/configs/nominal_stairs_base.yaml",
                 "experiments/g1_stairs/configs/003_nominal_reward_debug.yaml",
                 "experiments/g1_stairs/configs/004_experiment_b_smoke.yaml",
             ],
@@ -211,10 +224,69 @@ class StaircaseGeometryTest(unittest.TestCase):
             {"upright_raw": -1.0},
         )
 
+    def test_nominal_base_and_experiment_c_contract(self):
+        root = Path(__file__).resolve().parents[4]
+        config_root = root / "experiments/g1_stairs/configs"
+
+        base = yaml.safe_load(
+            (config_root / "nominal_stairs_base.yaml").read_text()
+        )
+        self.assertNotIn("inheritance", base)
+        self.assertNotIn("reward_experiment", base)
+        self.assertNotIn("stage_plan", base["rewards"])
+
+        experiment_c, sources = resolve_config(
+            config_root / "005_experiment_c_completion.yaml"
+        )
+        self.assertEqual(
+            sources,
+            [
+                "experiments/g1_stairs/configs/nominal_stairs_base.yaml",
+                "experiments/g1_stairs/configs/005_experiment_c_completion.yaml",
+            ],
+        )
+
+        stage_plan = experiment_c["rewards"]["stage_plan"]
+        self.assertEqual(
+            stage_plan["C_add_completion"]["enabled_terms"],
+            {
+                "platform_entry_raw": 1.0,
+                "task_completion_raw": 3.0,
+            },
+        )
+
+        catalog = experiment_c["rewards"]["always_logged"]
+        self.assertAlmostEqual(
+            catalog["platform_entry_raw"]["threshold_robot_relative_x_m"],
+            1.75,
+        )
+        self.assertAlmostEqual(
+            catalog["task_completion_raw"]["threshold_robot_relative_x_m"],
+            3.75,
+        )
+
+        smoke, smoke_sources = resolve_config(
+            config_root / "006_experiment_c_smoke.yaml"
+        )
+        self.assertEqual(
+            smoke_sources,
+            [
+                "experiments/g1_stairs/configs/nominal_stairs_base.yaml",
+                "experiments/g1_stairs/configs/005_experiment_c_completion.yaml",
+                "experiments/g1_stairs/configs/006_experiment_c_smoke.yaml",
+            ],
+        )
+        self.assertEqual(smoke["execution"]["maximum_iterations"], 1)
+        self.assertEqual(
+            smoke["reward_experiment"]["active_stage"],
+            "C_add_completion",
+        )
+
+
     def test_metrics_gate_is_open_after_live_smoke(self):
         root = Path(__file__).resolve().parents[4]
-        experiment = yaml.safe_load(
-            (root / "experiments/g1_stairs/configs/003_nominal_reward_debug.yaml").read_text()
+        experiment, _ = resolve_config(
+            root / "experiments/g1_stairs/configs/003_nominal_reward_debug.yaml"
         )
         gates = experiment["launch_gates"]
         self.assertTrue(gates["independent_evaluator_implemented"])

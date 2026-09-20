@@ -1,0 +1,49 @@
+schema_version: 1
+
+experiment:
+  id: 005_experiment_c_completion
+  purpose: Experiment C - add upper-platform entry and required 2 m completion rewards
+  type: tiny_overfit_learning_test
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/nominal_stairs_base.yaml
+  resolved_config_required: true
+
+reward_experiment:
+  active_stage: C_add_completion
+  rule: Change only one reward group between experiments
+  reject_change_if:
+    - validation_success_decreases
+    - fall_rate_increases
+    - forbidden_contacts_increase
+    - torque_violations_increase
+    - motion_jerk_increases_badly
+
+rewards:
+  always_logged:
+    forward_progress_raw:
+      active_weight: 1.0
+    stair_progress_raw:
+      active_weight: 1.0
+    upright_raw:
+      active_weight: -1.0
+    platform_entry_raw:
+      active_weight: 1.0
+    task_completion_raw:
+      active_weight: 3.0
+
+  stage_plan:
+    A_progress_only:
+      enabled_terms:
+        forward_progress_raw: 1.0
+        stair_progress_raw: 1.0
+
+    B_add_upright:
+      enabled_terms:
+        upright_raw: -1.0
+
+    C_add_completion:
+      enabled_terms:
+        platform_entry_raw: 1.0
+        task_completion_raw: 3.0
