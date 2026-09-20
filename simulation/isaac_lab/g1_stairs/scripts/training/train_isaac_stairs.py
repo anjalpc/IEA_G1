@@ -75,8 +75,8 @@ def main() -> None:
 
     resolved_config = load_resolved_config(Path(resolved_config_value))
     active_rewards = apply_resolved_rewards(env_cfg, resolved_config)
-    print("[INFO] Active reward stage:", resolved_config["reward_experiment"]["active_stage"])
-    print("[INFO] Active rewards:", active_rewards)
+    print("[INFO] Active reward stage:", resolved_config["reward_experiment"]["active_stage"], flush=True)
+    print("[INFO] Active rewards:", active_rewards, flush=True)
 
     agent_cfg = cli_args.parse_rsl_rl_cfg(args.task, args)
     agent_cfg.seed = args.seed
@@ -127,6 +127,16 @@ def main() -> None:
         init_at_random_ep_len=False,
     )
     env.close()
+
+    completion_marker = Path(metrics_dir_value) / "training_complete.yaml"
+    completion_marker.write_text(
+        f"status: completed\nrun_id: {run_id}\n",
+        encoding="utf-8",
+    )
+    print(
+        f"[INFO] Training completion marker: {completion_marker}",
+        flush=True,
+    )
 
 
 if __name__ == "__main__":

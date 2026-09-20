@@ -356,6 +356,14 @@ def main() -> int:
         resolved_path,
     )
 
+    completion_marker = run_dir / "training_complete.yaml"
+    if exit_code == 0 and not completion_marker.is_file():
+        print(
+            "ERROR: training exited 0 without a completion marker",
+            file=sys.stderr,
+        )
+        exit_code = 1
+
     update_manifest(
         manifest_path,
         {
