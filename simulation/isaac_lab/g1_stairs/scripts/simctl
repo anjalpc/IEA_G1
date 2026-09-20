@@ -509,7 +509,6 @@ cmd_video() {
     echo
 
     docker exec \
-      --env PYTHONPATH=/workspace/IEA_G1 \
       --env UNITREE_RL_LAB_ROOT=/workspace/unitree_rl_lab \
       "$CONTAINER" \
       bash -lc "
@@ -577,7 +576,6 @@ cmd_evaluate() {
     echo
 
     docker exec \
-      --env PYTHONPATH=/workspace/IEA_G1 \
       --env UNITREE_RL_LAB_ROOT=/workspace/unitree_rl_lab \
       "$CONTAINER" \
       bash -lc "
