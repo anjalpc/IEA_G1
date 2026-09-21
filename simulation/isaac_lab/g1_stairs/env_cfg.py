@@ -368,10 +368,10 @@ class StairRewardsCfg:
             ],
             "first_riser_x_m": 1.0,
             "nominal_ankle_height_m": 0.10,
-            "lookahead_m": 0.50,
-            "stop_before_riser_m": 0.01,
+            "lookahead_m": 0.45,
             "safety_clearance_m": 0.06,
-            "min_horizontal_speed_mps": 0.04,
+            "min_forward_speed_mps": 0.03,
+            "vertical_speed_scale_mps": 0.30,
         },
     )
 
