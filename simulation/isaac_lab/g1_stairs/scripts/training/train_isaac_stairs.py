@@ -33,6 +33,7 @@ simulation_app = app_launcher.app
 
 def main() -> None:
     import gymnasium as gym
+    import rsl_rl.runners.on_policy_runner as on_policy_runner_module
     from rsl_rl.runners import OnPolicyRunner
 
     import unitree_rl_lab.tasks  # noqa: F401
@@ -215,7 +216,17 @@ def main() -> None:
     env = InstrumentedRslRlVecEnvWrapper(env)
 
     class MetricsOnPolicyRunner(MetricsOnPolicyRunnerMixin, OnPolicyRunner):
-        pass
+        def save(self, path: str, infos=None):
+            print(
+                f"[POST_UPDATE] checkpoint_save ENTER path={path}",
+                flush=True,
+            )
+            result = super().save(path, infos=infos)
+            print(
+                f"[POST_UPDATE] checkpoint_save EXIT path={path}",
+                flush=True,
+            )
+            return result
 
     runner = MetricsOnPolicyRunner(
         env,
@@ -223,6 +234,20 @@ def main() -> None:
         log_dir=str(log_dir),
         device=agent_cfg.device,
     )
+
+    original_store_code_state = on_policy_runner_module.store_code_state
+
+    def traced_store_code_state(log_dir, repositories):
+        print(
+            "[POST_UPDATE] store_code_state ENTER "
+            f"repositories={repositories}",
+            flush=True,
+        )
+        result = original_store_code_state(log_dir, repositories)
+        print("[POST_UPDATE] store_code_state EXIT", flush=True)
+        return result
+
+    on_policy_runner_module.store_code_state = traced_store_code_state
 
     initialization_cfg = resolved_config.get(
         "policy_initialization",

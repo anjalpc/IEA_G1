@@ -161,8 +161,13 @@ class MetricsOnPolicyRunnerMixin:
         self._metrics_writer = RunMetricsWriter(output_directory, run_id)
 
     def log(self, locs: dict, width: int = 80, pad: int = 35):
+        print("[POST_UPDATE] base_log ENTER", flush=True)
         super().log(locs, width=width, pad=pad)
+        print("[POST_UPDATE] base_log EXIT", flush=True)
+
+        print("[POST_UPDATE] consume_metrics ENTER", flush=True)
         snapshot, rewards = self.env.consume_metrics()
+        print("[POST_UPDATE] consume_metrics EXIT", flush=True)
         collection_size = self.num_steps_per_env * self.env.num_envs * self.gpu_world_size
         duration = locs["collection_time"] + locs["learn_time"]
         loss = locs["loss_dict"]
@@ -197,4 +202,6 @@ class MetricsOnPolicyRunnerMixin:
             )
         except Exception:
             snapshot["gpu_memory_used_mib"] = None
+        print("[POST_UPDATE] metrics_write ENTER", flush=True)
         self._metrics_writer.record_training_snapshot(snapshot, rewards)
+        print("[POST_UPDATE] metrics_write EXIT", flush=True)
