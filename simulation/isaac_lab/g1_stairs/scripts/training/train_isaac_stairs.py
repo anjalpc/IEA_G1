@@ -219,14 +219,20 @@ def main() -> None:
     log_dir = log_dir.resolve()
     print(f"[INFO] Logging experiment in directory: {log_dir}")
 
+    if halfway_cfg is not None:
+        print("[021] before gym.make", flush=True)
     env = gym.make(args.task, cfg=env_cfg, render_mode=None)
+    if halfway_cfg is not None:
+        print("[021] environment constructed", flush=True)
     if isinstance(env.unwrapped, DirectMARLEnv):
         env = multi_agent_to_single_agent(env)
 
     halfway_summary = None
     if halfway_cfg is not None:
         env.reset()
+        print("[021] first reset complete", flush=True)
         for _ in range(halfway_cfg.settle_steps):
+            env.unwrapped.scene.write_data_to_sim()
             env.unwrapped.sim.step(render=False)
             env.unwrapped.scene.update(env.unwrapped.physics_dt)
         halfway_summary = validate_halfway_reset(
@@ -242,6 +248,7 @@ def main() -> None:
         print("=== 021 HALFWAY RESET SMOKE ===", flush=True)
         for name, value in halfway_summary.items():
             print(f"{name}: {value}", flush=True)
+        print("[021] halfway reset validated", flush=True)
         print("PASS", flush=True)
 
     env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)

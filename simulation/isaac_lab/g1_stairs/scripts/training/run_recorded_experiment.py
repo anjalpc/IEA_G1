@@ -380,12 +380,25 @@ def main() -> int:
     print("Launching:", " ".join(command))
     print(f"Console output: {console_path}")
 
-    exit_code = stream_training_process(
-        command,
-        console_path,
-        run_dir,
-        resolved_path,
-    )
+    try:
+        exit_code = stream_training_process(
+            command,
+            console_path,
+            run_dir,
+            resolved_path,
+        )
+    except BaseException as error:
+        # Once the manifest says running, every launcher-side failure must
+        # close that state even when no child exit code can be recorded.
+        update_manifest(
+            manifest_path,
+            {
+                "status": "failed",
+                "finished_at_utc": datetime.now(timezone.utc).isoformat(),
+                "error": f"{type(error).__name__}: {error}",
+            },
+        )
+        raise
 
     completion_marker = run_dir / "training_complete.yaml"
     if exit_code == 0 and not completion_marker.is_file():

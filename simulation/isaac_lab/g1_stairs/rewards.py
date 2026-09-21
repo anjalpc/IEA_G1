@@ -492,6 +492,19 @@ class halfway_step_transition(ManagerTermBase):
         super().__init__(cfg, env)
         import math
 
+        duration = float(cfg.params.get("minimum_support_duration_s", 0.15))
+        self._required_support_steps = max(1, math.ceil(duration / env.step_dt))
+        # RewardManager constructs callable terms while gym.make() is still
+        # assembling the environment.  Do not allocate CUDA state or inspect
+        # live scene data at that boundary.  State is created on the first
+        # reward evaluation, after scene and manager initialization complete.
+        self._state = None
+        self._support_steps = None
+        self._both_support_start_x = None
+
+    def _initialize_runtime(self, env: "ManagerBasedRLEnv") -> None:
+        if self._state is not None:
+            return
         self._state = torch.full(
             (env.num_envs,), 1, dtype=torch.long, device=env.device
         )
@@ -501,10 +514,10 @@ class halfway_step_transition(ManagerTermBase):
         self._both_support_start_x = torch.zeros(
             env.num_envs, dtype=torch.float, device=env.device
         )
-        duration = float(cfg.params.get("minimum_support_duration_s", 0.15))
-        self._required_support_steps = max(1, math.ceil(duration / env.step_dt))
 
     def reset(self, env_ids: Sequence[int] | None = None) -> None:
+        if self._state is None:
+            return
         if env_ids is None:
             env_ids = slice(None)
         self._state[env_ids] = 1
@@ -531,6 +544,7 @@ class halfway_step_transition(ManagerTermBase):
         del minimum_support_duration_s
         if transition not in self._TRANSITIONS:
             raise ValueError(f"unknown halfway transition: {transition}")
+        self._initialize_runtime(env)
 
         robot = env.scene[asset_cfg.name]
         sensor = env.scene.sensors[sensor_cfg.name]

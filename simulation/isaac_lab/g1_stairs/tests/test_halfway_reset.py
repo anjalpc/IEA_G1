@@ -1,6 +1,7 @@
 """Tests for the deterministic Experiment 021 halfway fixture."""
 
 from dataclasses import replace
+import ast
 import importlib.util
 from pathlib import Path
 import unittest
@@ -67,6 +68,31 @@ class HalfwayResetTest(unittest.TestCase):
         self.assertIsInstance(params, dict)
         self.assertIsInstance(params["config"], dict)
         self.assertNotIsInstance(params["config"], HalfwayResetConfig)
+
+    def test_transition_term_defers_tensor_state_until_runtime_call(self):
+        root = Path(__file__).resolve().parents[4]
+        source = (
+            root / "simulation/isaac_lab/g1_stairs/rewards.py"
+        ).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        transition = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.ClassDef)
+            and node.name == "halfway_step_transition"
+        )
+        initializer = next(
+            node
+            for node in transition.body
+            if isinstance(node, ast.FunctionDef) and node.name == "__init__"
+        )
+        calls = {
+            ast.unparse(node.func)
+            for node in ast.walk(initializer)
+            if isinstance(node, ast.Call)
+        }
+        self.assertNotIn("torch.full", calls)
+        self.assertNotIn("torch.zeros", calls)
 
     def test_default_config_does_not_enable_halfway_reset(self):
         root = Path(__file__).resolve().parents[4]
