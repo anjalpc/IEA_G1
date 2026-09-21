@@ -45,6 +45,16 @@ parser.add_argument("--output-dir", required=True)
 parser.add_argument("--max-steps", type=int, default=900)
 parser.add_argument("--seed", type=int, default=42)
 parser.add_argument("--policy_onnx", default=None)
+parser.add_argument(
+    "--resolved-config",
+    default=None,
+    help="Replay terrain and command settings from a recorded experiment.",
+)
+parser.add_argument(
+    "--validate-step-up-detector",
+    action="store_true",
+    help="Run physical single-step detector validation during evaluation.",
+)
 cli_args.add_rsl_rl_args(parser)
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
@@ -95,6 +105,10 @@ def main() -> None:
     from simulation.isaac_lab.g1_stairs.policy_initialization import (
         initialize_actor_from_unitree_onnx,
     )
+    from simulation.isaac_lab.g1_stairs.evaluation.step_up_checkpoint_validation import (
+        StepUpCheckpointValidator,
+        apply_resolved_replay_config,
+    )
 
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -122,6 +136,32 @@ def main() -> None:
     )
     env_cfg.seed = args.seed
     env_cfg.commands.base_velocity.debug_vis = False
+
+    replay_config = None
+    if args.resolved_config is not None:
+        resolved_config_path = Path(args.resolved_config).resolve()
+        if not resolved_config_path.is_file():
+            raise FileNotFoundError(resolved_config_path)
+
+        replay_config = apply_resolved_replay_config(
+            env_cfg,
+            resolved_config_path,
+        )
+
+        print(
+            "[INFO] Evaluation replay config: "
+            f"riser={replay_config.riser_height_m} "
+            f"tread={replay_config.tread_depth_m} "
+            f"steps={replay_config.step_count} "
+            f"command={replay_config.forward_velocity_mps}",
+            flush=True,
+        )
+
+    if args.validate_step_up_detector and replay_config is None:
+        raise RuntimeError(
+            "--validate-step-up-detector requires --resolved-config"
+        )
+
     terrain_generator = env_cfg.scene.terrain.terrain_generator
     terrain_generator.num_rows = 1
     terrain_generator.num_cols = 1
@@ -316,6 +356,18 @@ def main() -> None:
     mid_approach_error = float("inf")
     pre_riser_max_x = float("-inf")
 
+    step_up_validator = None
+
+    if args.validate_step_up_detector:
+        step_up_validator = StepUpCheckpointValidator(
+            env.unwrapped,
+            replay=replay_config,
+            dt=float(env.unwrapped.step_dt),
+        )
+
+        # Capture the initialized pose as part of force/base calibration.
+        step_up_validator.update()
+
     result = evaluator.update(initial_sample)
     steps = 0
 
@@ -332,6 +384,9 @@ def main() -> None:
         )
         sample = to_step_sample(state)
         diagnostic_sample = posture_sample(sample)
+
+        if step_up_validator is not None:
+            step_up_validator.update()
 
         pre_terminal_trace.append(
             diagnostic_sample
@@ -462,6 +517,23 @@ def main() -> None:
         encoding="utf-8",
     )
 
+    step_up_summary = None
+
+    if step_up_validator is not None:
+        step_up_summary = step_up_validator.summary()
+
+        (
+            output_dir / "step_up_detector_validation.json"
+        ).write_text(
+            json.dumps(
+                step_up_summary,
+                indent=2,
+                sort_keys=True,
+            )
+            + "\n",
+            encoding="utf-8",
+        )
+
     env.close()
 
     print("=== INDEPENDENT STAIR EVALUATION ===")
@@ -489,6 +561,59 @@ def main() -> None:
     print(f"episode_csv={writer.episode_path}")
     print(f"summary_json={writer.summary_path}")
     print(f"summary_episode_count={summary['episode_count']}")
+
+    if step_up_summary is not None:
+        print("")
+        print("=== STEP-UP DETECTOR VALIDATION ===")
+        print(f"checkpoint={policy_source}")
+        print(
+            "stance_force_median_n="
+            f"{step_up_summary['stance_force_median_n']:.6f}"
+        )
+        print(
+            "support_threshold_n="
+            f"{step_up_summary['support_threshold_n']:.6f}"
+        )
+        print(
+            "lower_base_height_m="
+            f"{step_up_summary['lower_base_height_m']:.6f}"
+        )
+        print(
+            "max_left_fz_n="
+            f"{step_up_summary['max_left_fz_n']:.6f}"
+        )
+        print(
+            "max_right_fz_n="
+            f"{step_up_summary['max_right_fz_n']:.6f}"
+        )
+        print(
+            "first_support_events="
+            f"{step_up_summary['first_support_events']}"
+        )
+        print(
+            "base_above_events="
+            f"{step_up_summary['base_above_events']}"
+        )
+        print(
+            "both_feet_supported_events="
+            f"{step_up_summary['both_feet_supported_events']}"
+        )
+        print(
+            "completed_events="
+            f"{step_up_summary['completed_events']}"
+        )
+        print(
+            "maximum_state="
+            f"{step_up_summary['maximum_state']}"
+        )
+        print(
+            "forbidden_contact_steps="
+            f"{step_up_summary['forbidden_contact_steps']}"
+        )
+        print(
+            "PASS/FAIL="
+            + ("PASS" if step_up_summary["passed"] else "FAIL")
+        )
 
 
 if __name__ == "__main__":
