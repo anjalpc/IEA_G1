@@ -446,25 +446,65 @@ cmd_tensorboard() {
 }
 
 resolve_train_dir() {
+    local RUN_ID
+    local LOG
+    local TRAIN_DIR
+    local HOST_DIR
+    local FALLBACK
+
     RUN_ID="$(current_run)"
     LOG="${LAUNCHER_LOG_DIR}/${RUN_ID}_launcher.log"
 
-    if [ ! -f "$LOG" ]; then
-        echo "Launcher log not found: $LOG" >&2
-        exit 1
+    # Preferred path:
+    # runs launched through `simctl train` have a launcher log containing
+    # the exact RSL-RL training directory.
+    if [ -f "$LOG" ]; then
+        TRAIN_DIR="$(
+            grep -oE '/workspace/IEA_G1/(experiments/g1_stairs/)?logs/rsl_rl/[^[:space:]]+' "$LOG" \
+            | head -n 1 || true
+        )"
+
+        if [ -n "$TRAIN_DIR" ]; then
+            HOST_DIR="$(train_dir_to_host "$TRAIN_DIR")"
+
+            if [ -d "$HOST_DIR" ]; then
+                echo "$HOST_DIR"
+                return 0
+            fi
+        fi
     fi
 
-    TRAIN_DIR="$(
-        grep -oE '/workspace/IEA_G1/(experiments/g1_stairs/)?logs/rsl_rl/[^[:space:]]+' "$LOG" \
-        | head -n 1 || true
+    # Fallback:
+    # recorded experiments may be launched directly through
+    # run_aws_recorded_experiment.sh and therefore have no simctl launcher
+    # log.  Their RSL-RL directory still uses RUN_ID as the final directory
+    # name, so resolve it directly from the recorded log tree.
+    FALLBACK="$(
+        find \
+          "${LOG_ROOT}/rsl_rl" \
+          -mindepth 2 \
+          -maxdepth 2 \
+          -type d \
+          -name "$RUN_ID" \
+          -print \
+          2>/dev/null \
+          | head -n 1
     )"
 
-    if [ -z "$TRAIN_DIR" ]; then
-        echo "Could not resolve RSL-RL training directory for run: $RUN_ID" >&2
-        exit 1
+    if [ -n "$FALLBACK" ] && [ -d "$FALLBACK" ]; then
+        echo "$FALLBACK"
+        return 0
     fi
 
-    train_dir_to_host "$TRAIN_DIR"
+    echo "Could not resolve RSL-RL training directory for run:" >&2
+    echo "  $RUN_ID" >&2
+    echo >&2
+    echo "Checked launcher log:" >&2
+    echo "  $LOG" >&2
+    echo >&2
+    echo "Checked recorded log root:" >&2
+    echo "  ${LOG_ROOT}/rsl_rl" >&2
+    return 1
 }
 
 cmd_video() {
