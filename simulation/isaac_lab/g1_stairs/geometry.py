@@ -96,3 +96,38 @@ class StaircaseSpec:
 def nominal_staircase() -> StaircaseSpec:
     """Return the agreed 20 cm rise, 25 cm tread, three-step course."""
     return StaircaseSpec()
+
+
+def effective_platform_length(
+    *,
+    terrain_size_x: float,
+    approach_length: float,
+    step_count: int,
+    tread_depth: float,
+    minimum_platform_length: float,
+) -> float:
+    """Return platform length that makes the stair course fill its terrain tile."""
+
+    if step_count < 1:
+        raise ValueError("step_count must be at least 1")
+
+    stair_run = step_count * tread_depth
+
+    platform_length = (
+        terrain_size_x
+        - approach_length
+        - stair_run
+    )
+
+    if platform_length <= 0.0:
+        raise ValueError(
+            "approach and stair run leave no room for a platform"
+        )
+
+    if platform_length + 1e-9 < minimum_platform_length:
+        raise ValueError(
+            "terrain tile is too short for the requested staircase "
+            "and minimum platform length"
+        )
+
+    return platform_length

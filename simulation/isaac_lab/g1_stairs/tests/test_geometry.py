@@ -1,3 +1,4 @@
+from simulation.isaac_lab.g1_stairs.geometry import effective_platform_length
 import unittest
 import ast
 from pathlib import Path
@@ -288,6 +289,68 @@ class StaircaseGeometryTest(unittest.TestCase):
             },
         )
 
+
+
+
+class TestVariableStepTerrainGeometry(unittest.TestCase):
+    def test_platform_fills_fixed_tile_for_one_to_three_steps(self):
+        expected = {
+            1: 3.50,
+            2: 3.25,
+            3: 3.00,
+        }
+
+        for step_count, expected_platform in expected.items():
+            platform = effective_platform_length(
+                terrain_size_x=5.75,
+                approach_length=2.0,
+                step_count=step_count,
+                tread_depth=0.25,
+                minimum_platform_length=3.0,
+            )
+
+            self.assertAlmostEqual(
+                platform,
+                expected_platform,
+                places=8,
+            )
+
+            course_length = (
+                2.0
+                + step_count * 0.25
+                + platform
+            )
+
+            self.assertAlmostEqual(
+                course_length,
+                5.75,
+                places=8,
+            )
+
+    def test_nominal_three_step_geometry_is_unchanged(self):
+        platform = effective_platform_length(
+            terrain_size_x=5.75,
+            approach_length=2.0,
+            step_count=3,
+            tread_depth=0.25,
+            minimum_platform_length=3.0,
+        )
+
+        self.assertAlmostEqual(
+            platform,
+            3.0,
+            places=8,
+        )
+
+    def test_invalid_step_count_rejected(self):
+        with self.assertRaises(ValueError):
+            effective_platform_length(
+                terrain_size_x=5.75,
+                approach_length=2.0,
+                step_count=0,
+                tread_depth=0.25,
+                minimum_platform_length=3.0,
+            )
 
 if __name__ == "__main__":
     unittest.main()

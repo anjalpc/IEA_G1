@@ -12,7 +12,7 @@ import trimesh
 from isaaclab.terrains import SubTerrainBaseCfg
 from isaaclab.utils import configclass
 
-from .geometry import StaircaseSpec
+from .geometry import StaircaseSpec, effective_platform_length
 
 
 def three_step_stairs(
@@ -24,18 +24,37 @@ def three_step_stairs(
     riser = cfg.riser_height_range[0] + difficulty * (
         cfg.riser_height_range[1] - cfg.riser_height_range[0]
     )
+    # Isaac Lab places terrain tiles according to cfg.size, so every generated
+    # sub-terrain must cover the full tile length.  The nominal three-step
+    # course already does this exactly:
+    #
+    #   2.00 m approach + 3 * 0.25 m tread + 3.00 m platform = 5.75 m
+    #
+    # Reducing step_count without extending the platform previously left an
+    # uncovered X gap at the end of the tile.  Keep the tile size fixed and
+    # extend the upper platform to consume the remaining length.
+    platform_length = effective_platform_length(
+        terrain_size_x=cfg.size[0],
+        approach_length=cfg.approach_length,
+        step_count=cfg.step_count,
+        tread_depth=cfg.tread_depth,
+        minimum_platform_length=cfg.platform_length,
+    )
+
     spec = StaircaseSpec(
         riser_height=riser,
         tread_depth=cfg.tread_depth,
         step_count=cfg.step_count,
         width=cfg.size[1],
         approach_length=cfg.approach_length,
-        platform_length=cfg.platform_length,
+        platform_length=platform_length,
         start_clearance=cfg.start_clearance,
     )
-    if spec.course_length > cfg.size[0]:
+
+    if not np.isclose(spec.course_length, cfg.size[0], atol=1e-9):
         raise ValueError(
-            f"stair course length {spec.course_length} exceeds terrain X size {cfg.size[0]}"
+            "generated stair course must exactly fill the terrain tile: "
+            f"course_length={spec.course_length}, terrain_size_x={cfg.size[0]}"
         )
     meshes = []
     for box in spec.collision_boxes():
