@@ -229,41 +229,94 @@ def main() -> None:
 
     halfway_summary = None
     if halfway_cfg is not None:
+        import torch
+
+        print("[021] resetting halfway environment", flush=True)
+
         reset_result = env.reset()
         reset_observations = (
             reset_result[0]
             if isinstance(reset_result, tuple)
             else reset_result
         )
+
         print("[021] first reset complete", flush=True)
 
-        # Halfway reset already writes the root/joint state atomically.
-        # Only advance a very small, bounded number of physics steps so
-        # contacts and body-state buffers match the newly written pose.
-        settle_steps = min(int(halfway_cfg.settle_steps), 2)
+        # IMPORTANT:
+        # Do not drive PhysX manually here.
+        #
+        # Use the normal ManagerBasedRLEnv stepping path so actions,
+        # scene writes, physics, sensors, observations and managers are
+        # synchronized exactly as they are during PPO training.
+        action_dim = env.unwrapped.action_manager.total_action_dim
+
+        zero_actions = torch.zeros(
+            (env.unwrapped.num_envs, action_dim),
+            dtype=torch.float32,
+            device=env.unwrapped.device,
+        )
+
+        warmup_steps = max(
+            1,
+            min(int(halfway_cfg.settle_steps), 2),
+        )
+
+        observations = reset_observations
+
         print(
-            f"[021] settling halfway pose for {settle_steps} physics steps",
+            f"[021] bounded contact warmup: {warmup_steps} env steps",
             flush=True,
         )
-        for _ in range(settle_steps):
-            env.unwrapped.sim.step(render=False)
-            env.unwrapped.scene.update(env.unwrapped.physics_dt)
 
-        print("[021] halfway pose settled", flush=True)
+        for step_index in range(warmup_steps):
+            print(
+                f"[021] warmup step {step_index + 1}/{warmup_steps} ENTER",
+                flush=True,
+            )
+
+            step_result = env.step(zero_actions)
+
+            observations = (
+                step_result[0]
+                if isinstance(step_result, tuple)
+                else step_result
+            )
+
+            print(
+                f"[021] warmup step {step_index + 1}/{warmup_steps} EXIT",
+                flush=True,
+            )
+
+        print("[021] validating halfway reset", flush=True)
 
         halfway_summary = validate_halfway_reset(
             env.unwrapped,
             halfway_cfg,
+            observations=observations,
         )
+
+        print("[021] halfway reset validation complete", flush=True)
+
         halfway_summary["ppo_iteration_completed"] = False
-        summary_path = Path(metrics_dir_value) / "halfway_reset_smoke.yaml"
+
+        summary_path = (
+            Path(metrics_dir_value)
+            / "halfway_reset_smoke.yaml"
+        )
+
         summary_path.write_text(
-            yaml.safe_dump(halfway_summary, sort_keys=False),
+            yaml.safe_dump(
+                halfway_summary,
+                sort_keys=False,
+            ),
             encoding="utf-8",
         )
+
         print("=== 021 HALFWAY RESET SMOKE ===", flush=True)
+
         for name, value in halfway_summary.items():
             print(f"{name}: {value}", flush=True)
+
         print("[021] halfway reset validated", flush=True)
         print("PASS", flush=True)
 
