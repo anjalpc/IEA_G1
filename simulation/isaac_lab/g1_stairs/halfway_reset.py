@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 import math
 from typing import Any
 
@@ -76,10 +76,16 @@ def solve_leading_leg_pose(cfg: HalfwayResetConfig) -> tuple[float, float, float
     return hip, knee, ankle
 
 
-def apply_halfway_reset(env, env_ids, *, config: HalfwayResetConfig) -> None:
+def halfway_reset_event_params(cfg: HalfwayResetConfig) -> dict[str, Any]:
+    """Return only plain data suitable for Isaac manager configuration."""
+    return {"config": asdict(cfg)}
+
+
+def apply_halfway_reset(env, env_ids, *, config: dict[str, Any]) -> None:
     """Isaac reset event: write the deterministic pose and zero velocities."""
     import torch
 
+    reset_cfg = HalfwayResetConfig(**config)
     robot = env.scene["robot"]
     if env_ids is None:
         env_ids = torch.arange(env.num_envs, device=env.device)
@@ -87,16 +93,18 @@ def apply_halfway_reset(env, env_ids, *, config: HalfwayResetConfig) -> None:
     joint_pos = robot.data.default_joint_pos[env_ids].clone()
     joint_vel = torch.zeros_like(joint_pos)
     index = {name: i for i, name in enumerate(robot.joint_names)}
-    hip, knee, ankle = solve_leading_leg_pose(config)
-    prefix = config.leading_leg
+    hip, knee, ankle = solve_leading_leg_pose(reset_cfg)
+    prefix = reset_cfg.leading_leg
     joint_pos[:, index[f"{prefix}_hip_pitch_joint"]] = hip
     joint_pos[:, index[f"{prefix}_knee_joint"]] = knee
     joint_pos[:, index[f"{prefix}_ankle_pitch_joint"]] = ankle
 
     root_pose = robot.data.default_root_state[env_ids, :7].clone()
     root_pose[:, :3] += env.scene.env_origins[env_ids]
-    root_pose[:, 0] += config.root_x_m
-    root_pose[:, 2] = env.scene.env_origins[env_ids, 2] + config.root_height_m
+    root_pose[:, 0] += reset_cfg.root_x_m
+    root_pose[:, 2] = (
+        env.scene.env_origins[env_ids, 2] + reset_cfg.root_height_m
+    )
     root_pose[:, 3:7] = torch.tensor(
         (1.0, 0.0, 0.0, 0.0),
         dtype=root_pose.dtype,
@@ -117,7 +125,10 @@ def configure_halfway_reset(env_cfg, cfg: HalfwayResetConfig) -> None:
     env_cfg.events.reset_base = EventTerm(
         func=apply_halfway_reset,
         mode="reset",
-        params={"config": cfg},
+        # Isaac manager configuration must contain plain serializable values.
+        # Reconstruct HalfwayResetConfig only when the event runs, after the
+        # scene and articulation have been created.
+        params=halfway_reset_event_params(cfg),
     )
     env_cfg.events.reset_robot_joints = None
 

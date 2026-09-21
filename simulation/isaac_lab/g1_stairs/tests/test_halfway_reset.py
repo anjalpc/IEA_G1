@@ -1,11 +1,13 @@
 """Tests for the deterministic Experiment 021 halfway fixture."""
 
 from dataclasses import replace
+import importlib.util
 from pathlib import Path
 import unittest
 
 from simulation.isaac_lab.g1_stairs.halfway_reset import (
     HalfwayResetConfig,
+    halfway_reset_event_params,
     parse_halfway_reset_config,
     solve_leading_leg_pose,
 )
@@ -16,6 +18,18 @@ from simulation.isaac_lab.g1_stairs.scripts.training.prepare_experiment import (
 
 
 class HalfwayResetTest(unittest.TestCase):
+    @unittest.skipUnless(
+        importlib.util.find_spec("isaaclab")
+        and importlib.util.find_spec("unitree_rl_lab"),
+        "Isaac Lab runtime is not installed",
+    )
+    def test_normal_stair_env_cfg_instantiates_without_halfway_reset(self):
+        from simulation.isaac_lab.g1_stairs.env_cfg import StairEnvCfg
+
+        cfg = StairEnvCfg()
+        self.assertIsNotNone(cfg.events.reset_base)
+        self.assertIsNotNone(cfg.events.reset_robot_joints)
+
     def test_021_config_parses_and_preserves_onnx_initialization(self):
         root = Path(__file__).resolve().parents[4]
         path = root / "experiments/g1_stairs/configs/021_halfway_support_05m_smoke.yaml"
@@ -47,6 +61,18 @@ class HalfwayResetTest(unittest.TestCase):
         hip, knee, ankle = solve_leading_leg_pose(HalfwayResetConfig())
         self.assertAlmostEqual(hip + knee + ankle, 0.0)
         self.assertGreater(knee, 0.30)
+
+    def test_manager_params_contain_only_plain_configuration_data(self):
+        params = halfway_reset_event_params(HalfwayResetConfig())
+        self.assertIsInstance(params, dict)
+        self.assertIsInstance(params["config"], dict)
+        self.assertNotIsInstance(params["config"], HalfwayResetConfig)
+
+    def test_default_config_does_not_enable_halfway_reset(self):
+        root = Path(__file__).resolve().parents[4]
+        path = root / "experiments/g1_stairs/configs/nominal_stairs_base.yaml"
+        resolved, _ = resolve_config(path)
+        self.assertIsNone(parse_halfway_reset_config(resolved))
 
     def test_invalid_halfway_pose_is_rejected(self):
         invalid = replace(

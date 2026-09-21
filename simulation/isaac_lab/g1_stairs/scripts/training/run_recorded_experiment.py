@@ -4,9 +4,11 @@
 from __future__ import annotations
 
 import argparse
+import codecs
 from datetime import datetime, timezone
 import os
 from pathlib import Path
+import selectors
 import subprocess
 import sys
 from typing import Any
@@ -180,7 +182,7 @@ def stream_training_process(
     resolved_path: Path,
 ) -> int:
     """Run training while streaming and preserving combined output."""
-    process: subprocess.Popen[str] | None = None
+    process: subprocess.Popen[bytes] | None = None
 
     try:
         with console_path.open("w", encoding="utf-8") as log:
@@ -193,8 +195,8 @@ def stream_training_process(
                 cwd=REPO_ROOT,
                 stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
+                text=False,
+                bufsize=0,
                 env=environment,
             )
 
@@ -203,12 +205,41 @@ def stream_training_process(
                     "training process did not provide an output stream"
                 )
 
-            for line in process.stdout:
-                print(line, end="")
-                log.write(line)
-                log.flush()
+            decoder = codecs.getincrementaldecoder("utf-8")(
+                errors="replace"
+            )
+            selector = selectors.DefaultSelector()
+            selector.register(process.stdout, selectors.EVENT_READ)
 
-            return process.wait()
+            while True:
+                for key, _ in selector.select(timeout=0.5):
+                    chunk = os.read(key.fileobj.fileno(), 65536)
+                    if not chunk:
+                        selector.unregister(key.fileobj)
+                        continue
+                    text = decoder.decode(chunk)
+                    print(text, end="", flush=True)
+                    log.write(text)
+                    log.flush()
+
+                exit_code = process.poll()
+                if exit_code is not None:
+                    # Do not wait forever for an Isaac descendant that
+                    # inherited stdout after the actual training child died.
+                    for key, _ in selector.select(timeout=0):
+                        chunk = os.read(key.fileobj.fileno(), 65536)
+                        if chunk:
+                            text = decoder.decode(chunk)
+                            print(text, end="", flush=True)
+                            log.write(text)
+                    tail = decoder.decode(b"", final=True)
+                    if tail:
+                        print(tail, end="", flush=True)
+                        log.write(tail)
+                    log.flush()
+                    selector.close()
+                    process.stdout.close()
+                    return exit_code
 
     except KeyboardInterrupt:
         if process is not None and process.poll() is None:
