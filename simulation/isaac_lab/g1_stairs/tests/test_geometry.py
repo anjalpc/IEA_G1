@@ -173,6 +173,7 @@ class StaircaseGeometryTest(unittest.TestCase):
                 "stair_swing_clearance",
                 "anticipatory_swing_clearance",
                 "contact_gated_stair_clearance",
+                "validated_tread_contact",
             },
         )
 

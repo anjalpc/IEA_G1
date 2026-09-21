@@ -101,6 +101,28 @@ def main() -> None:
             flush=True,
         )
 
+    command_cfg = resolved_config.get("command", {})
+    if "forward_velocity_mps" in command_cfg:
+        forward_velocity_mps = float(
+            command_cfg["forward_velocity_mps"]
+        )
+
+        if not 0.0 < forward_velocity_mps <= 0.50:
+            raise ValueError(
+                "command.forward_velocity_mps must be in (0.0, 0.50]"
+            )
+
+        env_cfg.commands.base_velocity.ranges.lin_vel_x = (
+            forward_velocity_mps,
+            forward_velocity_mps,
+        )
+
+        print(
+            "[INFO] Forward command m/s:",
+            forward_velocity_mps,
+            flush=True,
+        )
+
     active_rewards = apply_resolved_rewards(env_cfg, resolved_config)
     print("[INFO] Active reward stage:", resolved_config["reward_experiment"]["active_stage"], flush=True)
     print("[INFO] Active rewards:", active_rewards, flush=True)

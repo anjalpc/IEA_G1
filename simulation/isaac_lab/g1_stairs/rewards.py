@@ -373,3 +373,107 @@ def contact_gated_stair_clearance(
         previous_tread_height = tread_height_m
 
     return penalty
+
+
+def validated_tread_contact(
+    env: "ManagerBasedRLEnv",
+    asset_cfg: SceneEntityCfg,
+    sensor_cfg: SceneEntityCfg,
+    first_riser_x_m: float = 1.0,
+    tread_depth_m: float = 0.25,
+    step_count: int = 3,
+    nominal_ankle_height_m: float = 0.10,
+    x_margin_m: float = 0.02,
+    z_tolerance_m: float = 0.04,
+    upright_min: float = 0.80,
+) -> torch.Tensor:
+    """Reward real foot contact on progressively higher stair treads.
+
+    A step counts only when:
+    - an ankle is physically in contact,
+    - its X position lies on that tread,
+    - its ankle height matches the tread surface,
+    - the robot remains upright.
+
+    Returns 0, 1/3, 2/3, or 1 for a three-step staircase.
+    """
+
+    robot = env.scene[asset_cfg.name]
+    contact_sensor = env.scene.sensors[sensor_cfg.name]
+
+    terrain_generator = env.scene.terrain.cfg.terrain_generator
+    stair_cfg = terrain_generator.sub_terrains["three_step_ascent"]
+
+    riser_height_m = float(stair_cfg.riser_height_range[0])
+
+    foot_pos_w = robot.data.body_pos_w[:, asset_cfg.body_ids, :]
+
+    foot_x = (
+        foot_pos_w[:, :, 0]
+        - env.scene.env_origins[:, 0].unsqueeze(1)
+    )
+    foot_z = (
+        foot_pos_w[:, :, 2]
+        - env.scene.env_origins[:, 2].unsqueeze(1)
+    )
+
+    is_contact = (
+        contact_sensor.data.current_contact_time[:, sensor_cfg.body_ids]
+        > 0.0
+    )
+
+    upright = (
+        -robot.data.projected_gravity_b[:, 2]
+        >= upright_min
+    )
+
+    validated_level = torch.zeros(
+        env.num_envs,
+        dtype=foot_z.dtype,
+        device=env.device,
+    )
+
+    for step_index in range(1, step_count + 1):
+        tread_start = (
+            first_riser_x_m
+            + (step_index - 1) * tread_depth_m
+        )
+        tread_end = tread_start + tread_depth_m
+
+        expected_ankle_z = (
+            nominal_ankle_height_m
+            + step_index * riser_height_m
+        )
+
+        on_tread_x = (
+            (foot_x >= tread_start + x_margin_m)
+            & (foot_x <= tread_end - x_margin_m)
+        )
+
+        at_tread_height = (
+            torch.abs(foot_z - expected_ankle_z)
+            <= z_tolerance_m
+        )
+
+        valid_contact = (
+            is_contact
+            & on_tread_x
+            & at_tread_height
+        ).any(dim=1)
+
+        level_value = torch.full_like(
+            validated_level,
+            float(step_index),
+        )
+
+        validated_level = torch.where(
+            valid_contact,
+            torch.maximum(validated_level, level_value),
+            validated_level,
+        )
+
+    validated_level = (
+        validated_level / float(step_count)
+    )
+
+    return validated_level * upright.to(foot_z.dtype)

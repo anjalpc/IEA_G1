@@ -321,6 +321,29 @@ class StairRewardsCfg:
         },
     )
 
+
+    validated_tread_contact = RewTerm(
+        func=stair_rewards.validated_tread_contact,
+        weight=1.5,
+        params={
+            "asset_cfg": SceneEntityCfg(
+                "robot",
+                body_names=".*ankle_roll.*",
+            ),
+            "sensor_cfg": SceneEntityCfg(
+                "contact_forces",
+                body_names=".*ankle_roll.*",
+            ),
+            "first_riser_x_m": 1.0,
+            "tread_depth_m": 0.25,
+            "step_count": 3,
+            "nominal_ankle_height_m": 0.10,
+            "x_margin_m": 0.02,
+            "z_tolerance_m": 0.04,
+            "upright_min": 0.80,
+        },
+    )
+
     platform_entry = RewTerm(
         func=stair_rewards.progress_threshold_event,
         weight=1.0,
