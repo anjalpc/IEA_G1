@@ -375,6 +375,153 @@ def contact_gated_stair_clearance(
     return penalty
 
 
+
+def curriculum_riser_clearance(
+    env: "ManagerBasedRLEnv",
+    asset_cfg: SceneEntityCfg,
+    first_riser_x_m: float = 1.0,
+    nominal_ankle_height_m: float = 0.10,
+    lookahead_distance_m: float = 0.45,
+    forward_margin_m: float = 0.06,
+    clearance_margin_m: float = 0.025,
+    height_sigma_m: float = 0.035,
+    minimum_horizontal_speed_mps: float = 0.05,
+) -> torch.Tensor:
+    """Dense swing-foot target immediately around the next riser.
+
+    Uses the live curriculum terrain height instead of nominal 20 cm
+    coordinates. Only activates near the first riser so ordinary walking
+    remains governed by the transferred Unitree locomotion prior.
+    """
+    robot = env.scene[asset_cfg.name]
+
+    terrain_generator = env.scene.terrain.cfg.terrain_generator
+    stair_cfg = terrain_generator.sub_terrains["three_step_ascent"]
+    riser_height_m = float(stair_cfg.riser_height_range[0])
+
+    root_x = (
+        robot.data.root_pos_w[:, 0]
+        - env.scene.env_origins[:, 0]
+    )
+
+    foot_pos = robot.data.body_pos_w[:, asset_cfg.body_ids, :]
+    foot_vel = robot.data.body_lin_vel_w[:, asset_cfg.body_ids, :]
+
+    foot_z = (
+        foot_pos[:, :, 2]
+        - env.scene.env_origins[:, 2].unsqueeze(1)
+    )
+
+    horizontal_speed = torch.linalg.vector_norm(
+        foot_vel[:, :, :2],
+        dim=2,
+    )
+
+    target_z = (
+        nominal_ankle_height_m
+        + riser_height_m
+        + clearance_margin_m
+    )
+
+    error = foot_z - target_z
+
+    height_score = torch.exp(
+        -(error * error)
+        / max(height_sigma_m * height_sigma_m, 1.0e-6)
+    )
+
+    moving = (
+        horizontal_speed
+        >= minimum_horizontal_speed_mps
+    ).to(height_score.dtype)
+
+    # Whichever foot is currently swinging may earn the shaping reward.
+    swing_score = torch.max(
+        height_score * moving,
+        dim=1,
+    ).values
+
+    near_riser = (
+        (root_x >= first_riser_x_m - lookahead_distance_m)
+        & (root_x <= first_riser_x_m + forward_margin_m)
+    )
+
+    upright = torch.clamp(
+        -robot.data.projected_gravity_b[:, 2],
+        min=0.0,
+        max=1.0,
+    )
+
+    return (
+        swing_score
+        * near_riser.to(swing_score.dtype)
+        * upright
+    )
+
+
+def curriculum_foot_over_tread(
+    env: "ManagerBasedRLEnv",
+    asset_cfg: SceneEntityCfg,
+    first_riser_x_m: float = 1.0,
+    nominal_ankle_height_m: float = 0.10,
+    x_margin_m: float = 0.01,
+    clearance_margin_m: float = 0.01,
+    upright_min: float = 0.80,
+) -> torch.Tensor:
+    """Reward getting either ankle physically above the first tread.
+
+    This is deliberately weaker than validated tread contact. It supplies a
+    gradient between clearing the lip and actually loading the upper tread.
+    """
+    robot = env.scene[asset_cfg.name]
+
+    terrain_generator = env.scene.terrain.cfg.terrain_generator
+    stair_cfg = terrain_generator.sub_terrains["three_step_ascent"]
+
+    riser_height_m = float(stair_cfg.riser_height_range[0])
+    tread_depth_m = float(stair_cfg.tread_depth)
+
+    foot_pos = robot.data.body_pos_w[:, asset_cfg.body_ids, :]
+
+    foot_x = (
+        foot_pos[:, :, 0]
+        - env.scene.env_origins[:, 0].unsqueeze(1)
+    )
+    foot_z = (
+        foot_pos[:, :, 2]
+        - env.scene.env_origins[:, 2].unsqueeze(1)
+    )
+
+    tread_start = first_riser_x_m + x_margin_m
+    tread_end = (
+        first_riser_x_m
+        + tread_depth_m
+        - x_margin_m
+    )
+
+    minimum_z = (
+        nominal_ankle_height_m
+        + riser_height_m
+        + clearance_margin_m
+    )
+
+    above_tread = (
+        (foot_x >= tread_start)
+        & (foot_x <= tread_end)
+        & (foot_z >= minimum_z)
+    ).any(dim=1)
+
+    upright = (
+        -robot.data.projected_gravity_b[:, 2]
+        >= upright_min
+    )
+
+    return (
+        above_tread
+        & upright
+    ).to(foot_z.dtype)
+
+
 def validated_tread_contact(
     env: "ManagerBasedRLEnv",
     asset_cfg: SceneEntityCfg,

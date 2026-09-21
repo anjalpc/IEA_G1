@@ -322,6 +322,41 @@ class StairRewardsCfg:
     )
 
 
+    # 022: terrain-aware dense shaping for normal-start curriculum.
+    curriculum_riser_clearance = RewTerm(
+        func=stair_rewards.curriculum_riser_clearance,
+        weight=1.0,
+        params={
+            "asset_cfg": SceneEntityCfg(
+                "robot",
+                body_names=".*ankle_roll.*",
+            ),
+            "first_riser_x_m": 1.0,
+            "nominal_ankle_height_m": 0.10,
+            "lookahead_distance_m": 0.45,
+            "forward_margin_m": 0.06,
+            "clearance_margin_m": 0.025,
+            "height_sigma_m": 0.035,
+            "minimum_horizontal_speed_mps": 0.05,
+        },
+    )
+
+    curriculum_foot_over_tread = RewTerm(
+        func=stair_rewards.curriculum_foot_over_tread,
+        weight=0.5,
+        params={
+            "asset_cfg": SceneEntityCfg(
+                "robot",
+                body_names=".*ankle_roll.*",
+            ),
+            "first_riser_x_m": 1.0,
+            "nominal_ankle_height_m": 0.10,
+            "x_margin_m": 0.01,
+            "clearance_margin_m": 0.01,
+            "upright_min": 0.80,
+        },
+    )
+
     validated_tread_contact = RewTerm(
         func=stair_rewards.validated_tread_contact,
         weight=1.5,
