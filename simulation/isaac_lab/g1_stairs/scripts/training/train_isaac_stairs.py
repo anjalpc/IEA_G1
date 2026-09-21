@@ -243,19 +243,40 @@ def main() -> None:
             f"{initialization_type}"
         )
 
+    print("[TRACE] before configure_metrics", flush=True)
     runner.configure_metrics(Path(metrics_dir_value), run_id)
+    print("[TRACE] after configure_metrics", flush=True)
+
+    print("[TRACE] before add_git_repo_to_log", flush=True)
     runner.add_git_repo_to_log(__file__)
+    print("[TRACE] after add_git_repo_to_log", flush=True)
 
     params_dir = log_dir / "params"
+
+    print("[TRACE] before params mkdir", flush=True)
     params_dir.mkdir(parents=True, exist_ok=True)
+    print("[TRACE] after params mkdir", flush=True)
+
+    print("[TRACE] before dump env yaml", flush=True)
     dump_yaml(str(params_dir / "env.yaml"), env_cfg)
+    print("[TRACE] after dump env yaml", flush=True)
+
+    print("[TRACE] before dump agent yaml", flush=True)
     dump_yaml(str(params_dir / "agent.yaml"), agent_cfg)
+    print("[TRACE] after dump agent yaml", flush=True)
+
+    print("[TRACE] before export_deploy_cfg", flush=True)
     export_deploy_cfg(env.unwrapped, str(log_dir))
+    print("[TRACE] after export_deploy_cfg", flush=True)
+
+    print("[TRACE] before shutil copy", flush=True)
     shutil.copy(
         inspect.getfile(env_cfg.__class__),
         params_dir / Path(inspect.getfile(env_cfg.__class__)).name,
     )
+    print("[TRACE] after shutil copy", flush=True)
 
+    print("[TRACE] ENTERING runner.learn", flush=True)
     runner.learn(
         num_learning_iterations=agent_cfg.max_iterations,
         init_at_random_ep_len=False,
