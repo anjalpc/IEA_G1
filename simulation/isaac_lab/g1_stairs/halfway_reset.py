@@ -133,7 +133,12 @@ def configure_halfway_reset(env_cfg, cfg: HalfwayResetConfig) -> None:
     env_cfg.events.reset_robot_joints = None
 
 
-def validate_halfway_reset(env, cfg: HalfwayResetConfig) -> dict[str, Any]:
+def validate_halfway_reset(
+    env,
+    cfg: HalfwayResetConfig,
+    *,
+    observations=None,
+) -> dict[str, Any]:
     """Validate all live environments after settling; raise on any failure."""
     import torch
 

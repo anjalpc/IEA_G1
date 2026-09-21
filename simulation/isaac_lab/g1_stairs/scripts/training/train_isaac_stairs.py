@@ -229,7 +229,12 @@ def main() -> None:
 
     halfway_summary = None
     if halfway_cfg is not None:
-        env.reset()
+        reset_result = env.reset()
+        reset_observations = (
+            reset_result[0]
+            if isinstance(reset_result, tuple)
+            else reset_result
+        )
         print("[021] first reset complete", flush=True)
 
         # Halfway reset already writes the root/joint state atomically.
