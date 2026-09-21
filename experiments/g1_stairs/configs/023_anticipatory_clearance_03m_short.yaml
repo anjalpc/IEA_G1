@@ -22,7 +22,7 @@ reward_experiment:
   rule: Preserve Unitree walking and shape swing clearance, tread entry, and physical
     tread contact
   rewards:
-    always_logged: &id001
+    always_logged:
       track_lin_vel_xy: 1.0
       upright: -5.0
       action_rate: -0.05
@@ -33,7 +33,16 @@ reward_experiment:
       curriculum_foot_over_tread: 0.75
       validated_tread_contact: 1.5
     stage_plan:
-      anticipatory_clearance: *id001
+      anticipatory_clearance:
+        track_lin_vel_xy: 1.0
+        upright: -5.0
+        action_rate: -0.05
+        waist_deviation: -1.0
+        pre_riser_foot_lift: 1.0
+        riser_crossing_clearance: 2.0
+        riser_face_strike_proxy: -2.0
+        curriculum_foot_over_tread: 0.75
+        validated_tread_contact: 1.5
 rewards:
   always_logged:
     track_lin_vel_xy_raw:
@@ -60,6 +69,36 @@ rewards:
         curriculum_riser_clearance_raw: 0.75
         curriculum_foot_over_tread_raw: 0.5
         validated_tread_contact_raw: 1.5
+    anticipatory_clearance:
+      enabled_terms:
+        track_lin_vel_xy_raw: 1.0
+        upright_raw: -5.0
+        action_rate_raw: -0.05
+        waist_deviation_raw: -1.0
+        pre_riser_foot_lift_raw: 1.0
+        riser_crossing_clearance_raw: 2.0
+        riser_face_strike_proxy_raw: -2.0
+        curriculum_foot_over_tread_raw: 0.75
+        validated_tread_contact_raw: 1.5
+  terms:
+    track_lin_vel_xy_raw:
+      active_weight: 1.0
+    upright_raw:
+      active_weight: -5.0
+    action_rate_raw:
+      active_weight: -0.05
+    waist_deviation_raw:
+      active_weight: -1.0
+    pre_riser_foot_lift_raw:
+      active_weight: 1.0
+    riser_crossing_clearance_raw:
+      active_weight: 2.0
+    riser_face_strike_proxy_raw:
+      active_weight: -2.0
+    curriculum_foot_over_tread_raw:
+      active_weight: 0.75
+    validated_tread_contact_raw:
+      active_weight: 1.5
 ppo:
   initial_action_noise_std: 0.15
   learning_rate: 0.0001
