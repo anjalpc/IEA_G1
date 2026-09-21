@@ -6,18 +6,12 @@ set -euo pipefail
 ISAACLAB_SOURCE="${ISAACLAB_SOURCE:-/home/ubuntu/workspace/src/IsaacLab}"
 ISAACLAB_CONTAINER="${ISAACLAB_CONTAINER:-isaac-lab-fixed}"
 
-HOST_UID="$(id -u)"
-HOST_GID="$(id -g)"
-CONTAINER_USER="${ISAACLAB_CONTAINER_USER:-${HOST_UID}:${HOST_GID}}"
-
 ISAACLAB_SOURCE_COMMIT="$(git -C "${ISAACLAB_SOURCE}" rev-parse HEAD)"
 ISAACLAB_SOURCE_TAG="$(
   git -C "${ISAACLAB_SOURCE}" describe --tags --exact-match HEAD
 )"
 
 docker exec \
-  --user "${CONTAINER_USER}" \
-  --env HOME=/home/ubuntu \
   --env "ISAACLAB_SOURCE_COMMIT=${ISAACLAB_SOURCE_COMMIT}" \
   --env "ISAACLAB_SOURCE_TAG=${ISAACLAB_SOURCE_TAG}" \
   --env UNITREE_RL_LAB_ROOT=/workspace/unitree_rl_lab \
