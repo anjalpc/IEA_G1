@@ -10,6 +10,7 @@ import json
 import os
 import subprocess
 import sys
+import yaml
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -137,6 +138,12 @@ parser.add_argument(
 )
 
 parser.add_argument(
+    "--resolved_config",
+    default=None,
+    help="Resolved experiment YAML used for the training run.",
+)
+
+parser.add_argument(
     "--video_length",
     type=int,
     default=400,
@@ -261,6 +268,43 @@ def main() -> None:
     terrain_generator = env_cfg.scene.terrain.terrain_generator
     terrain_generator.num_rows = 1
     terrain_generator.num_cols = 1
+
+    # Reproduce the exact stair height used by the training run.
+    if args.resolved_config:
+        resolved_config_path = Path(args.resolved_config).resolve()
+
+        if not resolved_config_path.is_file():
+            raise FileNotFoundError(resolved_config_path)
+
+        resolved_config = yaml.safe_load(
+            resolved_config_path.read_text(encoding="utf-8")
+        )
+
+        terrain_cfg = resolved_config.get("terrain", {})
+        riser_height_m = terrain_cfg.get("riser_height_m")
+
+        if riser_height_m is not None:
+            riser_height_m = float(riser_height_m)
+
+            if not 0.0 < riser_height_m <= 0.20:
+                raise ValueError(
+                    "terrain.riser_height_m must be in (0.0, 0.20]"
+                )
+
+            stair_cfg = terrain_generator.sub_terrains[
+                "three_step_ascent"
+            ]
+
+            stair_cfg.riser_height_range = (
+                riser_height_m,
+                riser_height_m,
+            )
+
+            print(
+                "[INFO] Recording stair riser_height_m:",
+                riser_height_m,
+                flush=True,
+            )
 
     # Fixed world-coordinate evaluation camera.
     #

@@ -107,6 +107,25 @@ def resolve_config(
             base_path = REPO_ROOT / base_path
         base_config, sources = resolve_config(base_path, (*active_paths, path))
         resolved = deep_merge(base_config, data)
+
+        # Recompute geometry values derived from curriculum terrain.
+        terrain_cfg = resolved.get("terrain")
+        if isinstance(terrain_cfg, dict):
+            riser_height_m = terrain_cfg.get("riser_height_m")
+            step_count = terrain_cfg.get("step_count")
+            tread_depth_m = terrain_cfg.get("tread_depth_m")
+
+            if riser_height_m is not None and step_count is not None:
+                terrain_cfg["total_rise_m"] = round(
+                    float(riser_height_m) * int(step_count),
+                    10,
+                )
+
+            if tread_depth_m is not None and step_count is not None:
+                terrain_cfg["stair_run_m"] = round(
+                    float(tread_depth_m) * int(step_count),
+                    10,
+                )
         sources.append(str(path.relative_to(REPO_ROOT)))
 
     resolved.pop("inheritance", None)

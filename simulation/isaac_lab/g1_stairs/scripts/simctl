@@ -501,6 +501,16 @@ cmd_video() {
 
     CONTAINER_MODEL="${MODEL/$REPO/\/workspace\/IEA_G1}"
 
+    RESOLVED_CONFIG="${REPO}/experiments/g1_stairs/runs/${RUN_ID}/resolved_config.yaml"
+
+    if [ ! -f "$RESOLVED_CONFIG" ]; then
+        echo "Resolved config not found:"
+        echo "  $RESOLVED_CONFIG"
+        exit 1
+    fi
+
+    CONTAINER_RESOLVED_CONFIG="${RESOLVED_CONFIG/$REPO/\/workspace\/IEA_G1}"
+
     echo "========================================"
     echo " G1 VIDEO RECORDING"
     echo "========================================"
@@ -524,6 +534,7 @@ cd /workspace/IEA_G1
   --seed 42 \
   --num_envs 1 \
   --checkpoint '${CONTAINER_MODEL}' \
+  --resolved_config '${CONTAINER_RESOLVED_CONFIG}' \
   --project_commit '${PROJECT_COMMIT}' \
   --isaaclab_commit '${ISAACLAB_COMMIT}' \
   --unitree_rl_commit '${UNITREE_RL_COMMIT}' \
