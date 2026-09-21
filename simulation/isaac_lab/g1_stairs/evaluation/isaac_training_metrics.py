@@ -44,18 +44,43 @@ class InstrumentedRslRlVecEnvWrapper:
         self._maximum_height = -math.inf
         self._maximum_step = 0
         self._platform_reached = False
+        self._fall_count = 0
+        self._forbidden_contact_count = 0
+        self._finite_action_env_steps = 0
 
     def step(self, actions):
         import torch
 
         result = self._wrapped.step(actions)
-        _, rewards, _, _ = result
+        _, rewards, dones, extras = result
         env = self.unwrapped
         robot = env.scene["robot"]
         data = robot.data
         dt = float(env.step_dt)
         self._steps += 1
         self._reward_total += float(rewards.mean().item())
+        self._finite_action_env_steps += int(
+            torch.count_nonzero(
+                torch.isfinite(actions).reshape(actions.shape[0], -1).all(dim=1)
+            ).item()
+        )
+
+        timeouts = extras.get("time_outs") if isinstance(extras, dict) else None
+        if timeouts is None:
+            timeouts = torch.zeros_like(dones)
+        self._fall_count += int(torch.count_nonzero(dones & ~timeouts).item())
+
+        sensor = env.scene.sensors.get("contact_forces")
+        if sensor is not None:
+            forbidden_names = (
+                "pelvis", "torso_link", "left_knee_link", "right_knee_link",
+                "left_elbow_link", "right_elbow_link", "left_rubber_hand",
+                "right_rubber_hand",
+            )
+            indices = [sensor.body_names.index(name) for name in forbidden_names]
+            forces = sensor.data.net_forces_w[:, indices]
+            contacts = torch.linalg.vector_norm(forces, dim=2).ge(5.0).any(dim=1)
+            self._forbidden_contact_count += int(torch.count_nonzero(contacts).item())
 
         manager = env.reward_manager
         for index, name in enumerate(manager.active_terms):
@@ -157,6 +182,13 @@ class InstrumentedRslRlVecEnvWrapper:
             "joint_jerk_mean": self._joint_jerk / steps,
             "mechanical_power_mean": self._mechanical_power / steps,
             "nan_count": self._nan_count,
+            "fall_rate": self._fall_count / (steps * self.num_envs),
+            "forbidden_contact_rate": (
+                self._forbidden_contact_count / (steps * self.num_envs)
+            ),
+            "finite_action_rate": (
+                self._finite_action_env_steps / (steps * self.num_envs)
+            ),
         }
         rewards = {}
         manager = self.unwrapped.reward_manager
@@ -165,6 +197,15 @@ class InstrumentedRslRlVecEnvWrapper:
                 "raw": raw,
                 "weight": float(manager.get_term_cfg(name).weight),
             }
+        snapshot["base_above_rate"] = self._reward_components.get(
+            "base_above_transition", 0.0
+        )
+        snapshot["both_feet_supported_rate"] = self._reward_components.get(
+            "both_feet_supported_transition", 0.0
+        )
+        snapshot["completion_rate"] = self._reward_components.get(
+            "completed_transition", 0.0
+        )
         self.reset_metrics()
         return snapshot, rewards
 

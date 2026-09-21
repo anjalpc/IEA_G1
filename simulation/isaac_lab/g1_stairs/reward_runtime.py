@@ -21,6 +21,9 @@ RAW_TO_RUNTIME_TERM = {
     "anticipatory_swing_clearance_raw": "anticipatory_swing_clearance",
     "contact_gated_stair_clearance_raw": "contact_gated_stair_clearance",
     "validated_tread_contact_raw": "validated_tread_contact",
+    "base_above_transition_raw": "base_above_transition",
+    "both_feet_supported_transition_raw": "both_feet_supported_transition",
+    "completed_transition_raw": "completed_transition",
 }
 
 

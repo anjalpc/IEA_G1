@@ -477,3 +477,121 @@ def validated_tread_contact(
     )
 
     return validated_level * upright.to(foot_z.dtype)
+
+
+class halfway_step_transition(ManagerTermBase):
+    """Pay one selected physical transition from a FIRST_SUPPORT reset once."""
+
+    _TRANSITIONS = {
+        "base_above": 2,
+        "both_feet_supported": 3,
+        "completed": 4,
+    }
+
+    def __init__(self, cfg, env: "ManagerBasedRLEnv"):
+        super().__init__(cfg, env)
+        import math
+
+        self._state = torch.full(
+            (env.num_envs,), 1, dtype=torch.long, device=env.device
+        )
+        self._support_steps = torch.zeros(
+            (env.num_envs, 2), dtype=torch.long, device=env.device
+        )
+        self._both_support_start_x = torch.zeros(
+            env.num_envs, dtype=torch.float, device=env.device
+        )
+        duration = float(cfg.params.get("minimum_support_duration_s", 0.15))
+        self._required_support_steps = max(1, math.ceil(duration / env.step_dt))
+
+    def reset(self, env_ids: Sequence[int] | None = None) -> None:
+        if env_ids is None:
+            env_ids = slice(None)
+        self._state[env_ids] = 1
+        self._support_steps[env_ids] = 0
+        self._both_support_start_x[env_ids] = 0.0
+
+    def __call__(
+        self,
+        env: "ManagerBasedRLEnv",
+        asset_cfg: SceneEntityCfg,
+        sensor_cfg: SceneEntityCfg,
+        forbidden_sensor_cfg: SceneEntityCfg,
+        transition: str,
+        first_riser_x_m: float = 1.0,
+        tread_depth_m: float = 0.25,
+        riser_height_m: float = 0.05,
+        nominal_ankle_height_m: float = 0.10,
+        minimum_vertical_support_force_n: float = 42.87,
+        maximum_supported_foot_speed_mps: float = 0.15,
+        minimum_upright_gravity_z: float = 0.80,
+        minimum_support_duration_s: float = 0.15,
+        completion_forward_distance_m: float = 0.40,
+    ) -> torch.Tensor:
+        del minimum_support_duration_s
+        if transition not in self._TRANSITIONS:
+            raise ValueError(f"unknown halfway transition: {transition}")
+
+        robot = env.scene[asset_cfg.name]
+        sensor = env.scene.sensors[sensor_cfg.name]
+        foot_pos = robot.data.body_pos_w[:, asset_cfg.body_ids]
+        if hasattr(robot.data, "body_link_lin_vel_w"):
+            body_velocity = robot.data.body_link_lin_vel_w[:, asset_cfg.body_ids]
+        else:
+            body_velocity = robot.data.body_lin_vel_w[:, asset_cfg.body_ids]
+        origins = env.scene.env_origins
+        foot_x = foot_pos[:, :, 0] - origins[:, 0].unsqueeze(1)
+        foot_z = foot_pos[:, :, 2] - origins[:, 2].unsqueeze(1)
+        force_z = sensor.data.net_forces_w[:, sensor_cfg.body_ids, 2].clamp(min=0)
+        speed = torch.linalg.vector_norm(body_velocity, dim=2)
+        upright = -robot.data.projected_gravity_b[:, 2] >= minimum_upright_gravity_z
+
+        forbidden_force = sensor.data.net_forces_w[
+            :, forbidden_sensor_cfg.body_ids
+        ]
+        forbidden = torch.linalg.vector_norm(forbidden_force, dim=2).ge(5.0).any(dim=1)
+        support_candidate = (
+            (foot_x >= first_riser_x_m + 0.02)
+            & (foot_x <= first_riser_x_m + tread_depth_m - 0.02)
+            & (torch.abs(foot_z - (nominal_ankle_height_m + riser_height_m)) <= 0.025)
+            & (force_z >= minimum_vertical_support_force_n)
+            & (speed <= maximum_supported_foot_speed_mps)
+            & upright.unsqueeze(1)
+            & (~forbidden).unsqueeze(1)
+        )
+        self._support_steps = torch.where(
+            support_candidate,
+            self._support_steps + 1,
+            torch.zeros_like(self._support_steps),
+        )
+        supported = self._support_steps >= self._required_support_steps
+        root_x = robot.data.root_pos_w[:, 0] - origins[:, 0]
+        root_z = robot.data.root_pos_w[:, 2] - origins[:, 2]
+        valid = upright & ~forbidden
+
+        entered_base = (
+            (self._state == 1)
+            & valid
+            & (root_x >= first_riser_x_m + 0.02)
+            & (root_z >= 0.825)
+        )
+        self._state = torch.where(entered_base, 2, self._state)
+        entered_both = (self._state == 2) & valid & supported.all(dim=1)
+        self._both_support_start_x = torch.where(
+            entered_both, root_x, self._both_support_start_x
+        )
+        self._state = torch.where(entered_both, 3, self._state)
+        entered_complete = (
+            (self._state == 3)
+            & valid
+            & supported.all(dim=1)
+            & ((root_x - self._both_support_start_x) >= completion_forward_distance_m)
+        )
+        self._state = torch.where(entered_complete, 4, self._state)
+
+        event = {
+            "base_above": entered_base,
+            "both_feet_supported": entered_both,
+            "completed": entered_complete,
+        }[transition]
+        return event.to(root_x.dtype) / env.step_dt

@@ -175,6 +175,9 @@ class StaircaseGeometryTest(unittest.TestCase):
                 "anticipatory_swing_clearance",
                 "contact_gated_stair_clearance",
                 "validated_tread_contact",
+                "base_above_transition",
+                "both_feet_supported_transition",
+                "completed_transition",
             },
         )
 

@@ -270,6 +270,7 @@ def main() -> None:
     terrain_generator.num_cols = 1
 
     # Reproduce the exact stair height used by the training run.
+    resolved_config = None
     if args.resolved_config:
         resolved_config_path = Path(args.resolved_config).resolve()
 
@@ -326,6 +327,16 @@ def main() -> None:
                 step_count,
                 flush=True,
             )
+
+    if resolved_config is not None:
+        from simulation.isaac_lab.g1_stairs.halfway_reset import (
+            configure_halfway_reset,
+            parse_halfway_reset_config,
+        )
+
+        halfway_cfg = parse_halfway_reset_config(resolved_config)
+        if halfway_cfg is not None:
+            configure_halfway_reset(env_cfg, halfway_cfg)
 
     # Fixed world-coordinate evaluation camera.
     #

@@ -1,0 +1,73 @@
+schema_version: 1
+
+experiment:
+  id: 021_halfway_support_05m_smoke
+  purpose: Validate deterministic halfway support before transition learning
+  type: halfway_reset_smoke
+  meaningful_stair_training: false
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/nominal_stairs_base.yaml
+  resolved_config_required: true
+
+execution:
+  environments: 32
+  maximum_iterations: 1
+  training_seed: 42
+
+terrain:
+  riser_height_m: 0.05
+  tread_depth_m: 0.25
+  step_count: 1
+
+command:
+  forward_velocity_mps: 0.22
+
+halfway_reset:
+  enabled: true
+  leading_leg: left
+  root_x_m: 0.92
+  root_height_m: 0.80
+  leading_foot_x_from_root_m: 0.13
+  leading_foot_lift_m: 0.05
+  thigh_length_m: 0.30001
+  shank_length_m: 0.30001
+  support_force_threshold_n: 42.87
+  maximum_foot_speed_mps: 0.15
+  minimum_upright_gravity_z: 0.80
+  settle_steps: 20
+
+reward_experiment:
+  active_stage: halfway_transitions
+  rule: Preserve locomotion and pay physical post-FIRST_SUPPORT transitions once
+
+rewards:
+  always_logged:
+    track_lin_vel_xy_raw:
+      active_weight: 1.0
+    upright_raw:
+      active_weight: -5.0
+    action_rate_raw:
+      active_weight: -0.05
+    waist_deviation_raw:
+      active_weight: -1.0
+    base_above_transition_raw:
+      active_weight: 1.0
+    both_feet_supported_transition_raw:
+      active_weight: 2.0
+    completed_transition_raw:
+      active_weight: 3.0
+  stage_plan:
+    halfway_transitions:
+      enabled_terms:
+        track_lin_vel_xy_raw: 1.0
+        upright_raw: -5.0
+        action_rate_raw: -0.05
+        waist_deviation_raw: -1.0
+        base_above_transition_raw: 1.0
+        both_feet_supported_transition_raw: 2.0
+        completed_transition_raw: 3.0
+
+ppo:
+  initial_action_noise_std: 0.25
+  learning_rate: 0.0001

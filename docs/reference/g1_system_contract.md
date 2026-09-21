@@ -306,6 +306,18 @@ coverage. Their Isaac Lab adapter and live logging integration passed the
 one-iteration AWS metrics smoke, so the nominal Experiment A launch gate is
 open.
 
+Experiment 021 is a bounded 5 cm, single-step initial-state curriculum. It
+starts from the confirmed nominal G1 standing pose, applies deterministic
+two-link sagittal IK only to the leading leg, places the root immediately
+before the riser, zeros all velocities, and settles under the normal actuator
+configuration. Training is fail-closed unless every environment physically
+validates leading-foot upper-tread support, trailing-foot lower-floor support,
+upright posture, finite observations, and absence of forbidden contact. Its
+reward state begins at `FIRST_SUPPORT`; no first-support reward is available.
+Only one-time `BASE_ABOVE`, `BOTH_FEET_SUPPORTED`, and `COMPLETED` transitions
+augment the pinned locomotion-preservation rewards. Experiment 020 remains a
+rejected historical run and is never used for policy initialization.
+
 ## Safety and promotion sequence
 
 1. Validate configuration and all 29 body-joint mappings.

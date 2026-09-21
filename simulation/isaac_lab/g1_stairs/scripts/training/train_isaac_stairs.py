@@ -9,6 +9,7 @@ import os
 from pathlib import Path
 import shutil
 import sys
+import yaml
 
 from isaaclab.app import AppLauncher
 
@@ -78,6 +79,15 @@ def main() -> None:
     )
 
     resolved_config = load_resolved_config(Path(resolved_config_value))
+    from simulation.isaac_lab.g1_stairs.halfway_reset import (
+        configure_halfway_reset,
+        parse_halfway_reset_config,
+        validate_halfway_reset,
+    )
+
+    halfway_cfg = parse_halfway_reset_config(resolved_config)
+    if halfway_cfg is not None:
+        configure_halfway_reset(env_cfg, halfway_cfg)
     terrain_cfg = resolved_config.get("terrain", {})
     if "riser_height_m" in terrain_cfg:
         riser_height_m = float(terrain_cfg["riser_height_m"])
@@ -212,6 +222,28 @@ def main() -> None:
     env = gym.make(args.task, cfg=env_cfg, render_mode=None)
     if isinstance(env.unwrapped, DirectMARLEnv):
         env = multi_agent_to_single_agent(env)
+
+    halfway_summary = None
+    if halfway_cfg is not None:
+        env.reset()
+        for _ in range(halfway_cfg.settle_steps):
+            env.unwrapped.sim.step(render=False)
+            env.unwrapped.scene.update(env.unwrapped.physics_dt)
+        halfway_summary = validate_halfway_reset(
+            env.unwrapped,
+            halfway_cfg,
+        )
+        halfway_summary["ppo_iteration_completed"] = False
+        summary_path = Path(metrics_dir_value) / "halfway_reset_smoke.yaml"
+        summary_path.write_text(
+            yaml.safe_dump(halfway_summary, sort_keys=False),
+            encoding="utf-8",
+        )
+        print("=== 021 HALFWAY RESET SMOKE ===", flush=True)
+        for name, value in halfway_summary.items():
+            print(f"{name}: {value}", flush=True)
+        print("PASS", flush=True)
+
     env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
     env = InstrumentedRslRlVecEnvWrapper(env)
 
@@ -285,6 +317,13 @@ def main() -> None:
         init_at_random_ep_len=False,
     )
     env.close()
+
+    if halfway_summary is not None:
+        halfway_summary["ppo_iteration_completed"] = True
+        summary_path.write_text(
+            yaml.safe_dump(halfway_summary, sort_keys=False),
+            encoding="utf-8",
+        )
 
     completion_marker = Path(metrics_dir_value) / "training_complete.yaml"
     completion_marker.write_text(

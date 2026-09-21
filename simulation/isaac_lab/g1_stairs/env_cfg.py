@@ -342,6 +342,67 @@ class StairRewardsCfg:
         },
     )
 
+    base_above_transition = RewTerm(
+        func=stair_rewards.halfway_step_transition,
+        weight=1.0,
+        params={
+            "asset_cfg": SceneEntityCfg(
+                "robot", body_names=".*ankle_roll_link"
+            ),
+            "sensor_cfg": SceneEntityCfg(
+                "contact_forces", body_names=".*ankle_roll_link"
+            ),
+            "forbidden_sensor_cfg": SceneEntityCfg(
+                "contact_forces",
+                body_names=(
+                    "pelvis|torso_link|.*knee_link|.*elbow_link|"
+                    ".*rubber_hand"
+                ),
+            ),
+            "transition": "base_above",
+        },
+    )
+    both_feet_supported_transition = RewTerm(
+        func=stair_rewards.halfway_step_transition,
+        weight=2.0,
+        params={
+            "asset_cfg": SceneEntityCfg(
+                "robot", body_names=".*ankle_roll_link"
+            ),
+            "sensor_cfg": SceneEntityCfg(
+                "contact_forces", body_names=".*ankle_roll_link"
+            ),
+            "forbidden_sensor_cfg": SceneEntityCfg(
+                "contact_forces",
+                body_names=(
+                    "pelvis|torso_link|.*knee_link|.*elbow_link|"
+                    ".*rubber_hand"
+                ),
+            ),
+            "transition": "both_feet_supported",
+        },
+    )
+    completed_transition = RewTerm(
+        func=stair_rewards.halfway_step_transition,
+        weight=3.0,
+        params={
+            "asset_cfg": SceneEntityCfg(
+                "robot", body_names=".*ankle_roll_link"
+            ),
+            "sensor_cfg": SceneEntityCfg(
+                "contact_forces", body_names=".*ankle_roll_link"
+            ),
+            "forbidden_sensor_cfg": SceneEntityCfg(
+                "contact_forces",
+                body_names=(
+                    "pelvis|torso_link|.*knee_link|.*elbow_link|"
+                    ".*rubber_hand"
+                ),
+            ),
+            "transition": "completed",
+        },
+    )
+
     platform_entry = RewTerm(
         func=stair_rewards.progress_threshold_event,
         weight=1.0,
