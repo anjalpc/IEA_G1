@@ -276,6 +276,80 @@ def main() -> None:
     )
     print("[TRACE] after shutil copy", flush=True)
 
+    # Temporary first-rollout tracing.  This does not change the
+    # environment, policy, rewards, PPO settings, or observations.
+    _original_get_observations = runner.env.get_observations
+    _original_env_step = runner.env.step
+    _original_alg_act = runner.alg.act
+    _original_process_env_step = runner.alg.process_env_step
+
+    _trace_counts = {
+        "get_observations": 0,
+        "act": 0,
+        "step": 0,
+        "process": 0,
+    }
+
+    def _traced_get_observations():
+        _trace_counts["get_observations"] += 1
+        n = _trace_counts["get_observations"]
+        print(
+            f"[TRACE] get_observations #{n} ENTER",
+            flush=True,
+        )
+        result = _original_get_observations()
+        print(
+            f"[TRACE] get_observations #{n} EXIT",
+            flush=True,
+        )
+        return result
+
+    def _traced_act(obs):
+        _trace_counts["act"] += 1
+        n = _trace_counts["act"]
+        if n <= 3:
+            print(f"[TRACE] alg.act #{n} ENTER", flush=True)
+        result = _original_alg_act(obs)
+        if n <= 3:
+            print(f"[TRACE] alg.act #{n} EXIT", flush=True)
+        return result
+
+    def _traced_step(actions):
+        _trace_counts["step"] += 1
+        n = _trace_counts["step"]
+        if n <= 3:
+            print(f"[TRACE] env.step #{n} ENTER", flush=True)
+        result = _original_env_step(actions)
+        if n <= 3:
+            print(f"[TRACE] env.step #{n} EXIT", flush=True)
+        return result
+
+    def _traced_process_env_step(obs, rewards, dones, extras):
+        _trace_counts["process"] += 1
+        n = _trace_counts["process"]
+        if n <= 3:
+            print(
+                f"[TRACE] process_env_step #{n} ENTER",
+                flush=True,
+            )
+        result = _original_process_env_step(
+            obs,
+            rewards,
+            dones,
+            extras,
+        )
+        if n <= 3:
+            print(
+                f"[TRACE] process_env_step #{n} EXIT",
+                flush=True,
+            )
+        return result
+
+    runner.env.get_observations = _traced_get_observations
+    runner.env.step = _traced_step
+    runner.alg.act = _traced_act
+    runner.alg.process_env_step = _traced_process_env_step
+
     print("[TRACE] ENTERING runner.learn", flush=True)
     runner.learn(
         num_learning_iterations=agent_cfg.max_iterations,
