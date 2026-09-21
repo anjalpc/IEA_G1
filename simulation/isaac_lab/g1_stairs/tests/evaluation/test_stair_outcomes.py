@@ -42,6 +42,35 @@ def sample(
 
 
 class StairOutcomeEvaluatorTest(unittest.TestCase):
+    def test_single_slip_is_evidence_not_terminal(self):
+        evaluator = StairOutcomeEvaluator()
+
+        self.assertIsNone(
+            evaluator.update(
+                sample(
+                    0.0,
+                    1.0,
+                    0,
+                )
+            )
+        )
+
+        result = evaluator.update(
+            sample(
+                0.1,
+                1.03,
+                0,
+                slip_violation=True,
+            )
+        )
+
+        self.assertIsNone(result)
+
+        self.assertIn(
+            Outcome.SLIP.value,
+            evaluator.secondary_flags,
+        )
+
     def test_success_requires_continuation_and_dwell(self):
         evaluator = StairOutcomeEvaluator()
 

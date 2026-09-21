@@ -454,7 +454,6 @@ class StairOutcomeEvaluator:
             Outcome.JOINT_VIOLATION,
             Outcome.FORBIDDEN_CONTACT,
             Outcome.WRONG_DIRECTION,
-            Outcome.SLIP,
             Outcome.STALL,
         )
 

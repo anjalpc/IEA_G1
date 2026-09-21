@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Evaluate one G1 stair checkpoint with reward-independent outcomes."""
+"""Evaluate one G1 stair policy with reward-independent outcomes."""
 
 from __future__ import annotations
 
 import argparse
+from collections import deque
 import hashlib
 import json
 import os
@@ -43,12 +44,15 @@ parser.add_argument("--task", default="Unitree-IEA-G1-29dof-Stairs-v0")
 parser.add_argument("--output-dir", required=True)
 parser.add_argument("--max-steps", type=int, default=900)
 parser.add_argument("--seed", type=int, default=42)
+parser.add_argument("--policy_onnx", default=None)
 cli_args.add_rsl_rl_args(parser)
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
 
-if not args.checkpoint:
-    parser.error("--checkpoint is required")
+if bool(args.checkpoint) == bool(args.policy_onnx):
+    parser.error(
+        "Exactly one of --checkpoint or --policy_onnx is required"
+    )
 if args.max_steps < 1:
     parser.error("--max-steps must be positive")
 
@@ -88,12 +92,26 @@ def main() -> None:
     )
     from simulation.isaac_lab.g1_stairs.evaluation.metrics import RunMetricsWriter
     from simulation.isaac_lab.g1_stairs.evaluation.stair_outcomes import StairOutcomeEvaluator
+    from simulation.isaac_lab.g1_stairs.policy_initialization import (
+        initialize_actor_from_unitree_onnx,
+    )
 
     output_dir = Path(args.output_dir).resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
-    checkpoint = Path(retrieve_file_path(args.checkpoint)).resolve()
-    if not checkpoint.is_file():
-        raise FileNotFoundError(checkpoint)
+
+    checkpoint = None
+    policy_onnx = None
+
+    if args.checkpoint:
+        checkpoint = Path(
+            retrieve_file_path(args.checkpoint)
+        ).resolve()
+        if not checkpoint.is_file():
+            raise FileNotFoundError(checkpoint)
+    else:
+        policy_onnx = Path(args.policy_onnx).resolve()
+        if not policy_onnx.is_file():
+            raise FileNotFoundError(policy_onnx)
 
     env_cfg = parse_env_cfg(
         args.task,
@@ -123,16 +141,182 @@ def main() -> None:
         log_dir=None,
         device=agent_cfg.device,
     )
-    runner.load(str(checkpoint))
+
+    initialization_metadata = None
+
+    if checkpoint is not None:
+        runner.load(str(checkpoint))
+    else:
+        initialization_metadata = initialize_actor_from_unitree_onnx(
+            runner=runner,
+            onnx_path=policy_onnx,
+        )
+
     policy = runner.get_inference_policy(device=env.unwrapped.device)
 
     obs = env.get_observations()
 
     evaluator = StairOutcomeEvaluator()
     writer = RunMetricsWriter(output_dir, output_dir.name)
-    result = evaluator.update(
-        to_step_sample(capture_isaac_lab_state(env.unwrapped, time_s=0.0))
+
+    robot = env.unwrapped.scene["robot"]
+    joint_names = tuple(robot.joint_names)
+    body_names = tuple(robot.body_names)
+
+    try:
+        waist_pitch_index = joint_names.index("waist_pitch_joint")
+    except ValueError as exc:
+        raise RuntimeError(
+            "waist_pitch_joint is missing from robot joint_names"
+        ) from exc
+
+    print(
+        "[DIAG] waist_pitch default =",
+        float(
+            robot.data.default_joint_pos[
+                0,
+                waist_pitch_index,
+            ].item()
+        ),
     )
+
+    print(
+        "[DIAG] waist_pitch actual at reset =",
+        float(
+            robot.data.joint_pos[
+                0,
+                waist_pitch_index,
+            ].item()
+        ),
+    )
+
+    required_feet = (
+        "left_ankle_roll_link",
+        "right_ankle_roll_link",
+    )
+
+    try:
+        foot_indices = {
+            name: body_names.index(name)
+            for name in required_feet
+        }
+    except ValueError as exc:
+        raise RuntimeError(
+            "required ankle body is missing from robot body_names"
+        ) from exc
+
+    foot_collision_spheres = (
+        (-0.05, 0.025, -0.03),
+        (-0.05, -0.025, -0.03),
+        (0.12, 0.03, -0.03),
+        (0.12, -0.03, -0.03),
+    )
+    foot_collision_radius_m = 0.005
+
+    def rotated_x_wxyz(quaternion, vector):
+        w, x, y, z = quaternion
+        vx, vy, vz = vector
+
+        return (
+            (1.0 - 2.0 * (y * y + z * z)) * vx
+            + 2.0 * (x * y - w * z) * vy
+            + 2.0 * (x * z + w * y) * vz
+        )
+
+    def posture_sample(sample):
+        env_origin = env.unwrapped.scene.env_origins[0]
+
+        feet = {}
+
+        for name, body_index in foot_indices.items():
+            position = robot.data.body_pos_w[
+                0,
+                body_index,
+            ]
+
+            quaternion = tuple(
+                float(value)
+                for value in robot.data.body_quat_w[
+                    0,
+                    body_index,
+                ].tolist()
+            )
+
+            collision_centres_x = []
+
+            for sphere_offset in foot_collision_spheres:
+                world_x = (
+                    float(position[0].item())
+                    + rotated_x_wxyz(
+                        quaternion,
+                        sphere_offset,
+                    )
+                    - float(env_origin[0].item())
+                    + evaluator.config.start_x_m
+                )
+
+                collision_centres_x.append(world_x)
+
+            feet[name] = {
+                "course_x_m": float(
+                    position[0].item()
+                    - env_origin[0].item()
+                    + evaluator.config.start_x_m
+                ),
+                "height_m": float(
+                    position[2].item()
+                    - env_origin[2].item()
+                ),
+                "collision_sphere_centres_x_m": (
+                    collision_centres_x
+                ),
+                "collision_forward_x_m": (
+                    max(collision_centres_x)
+                    + foot_collision_radius_m
+                ),
+            }
+
+        return {
+            "time_s": float(sample.time_s),
+            "course_x_m": float(sample.base_x_m),
+            "root_height_m": float(sample.base_height_m),
+            "root_roll_rad": float(sample.roll_rad),
+            "root_pitch_rad": float(sample.pitch_rad),
+            "waist_pitch_rad": float(
+                robot.data.joint_pos[
+                    0,
+                    waist_pitch_index,
+                ].item()
+            ),
+            "contacts": sorted(sample.contacts),
+            "feet": feet,
+        }
+
+    initial_state = capture_isaac_lab_state(
+        env.unwrapped,
+        time_s=0.0,
+    )
+    initial_sample = to_step_sample(initial_state)
+
+    initial_diagnostic = posture_sample(initial_sample)
+
+    posture = {
+        "start": initial_diagnostic,
+        "mid_approach": None,
+        "pre_riser": None,
+        "terminal": None,
+    }
+
+    pre_terminal_trace = deque(
+        [initial_diagnostic],
+        maxlen=31,
+    )
+
+    mid_approach_target_x_m = 1.50
+    mid_approach_error = float("inf")
+    pre_riser_max_x = float("-inf")
+
+    result = evaluator.update(initial_sample)
     steps = 0
 
     while result is None and steps < args.max_steps and simulation_app.is_running():
@@ -146,18 +330,62 @@ def main() -> None:
             time_s=steps * float(env.unwrapped.step_dt),
             timed_out=timed_out,
         )
-        result = evaluator.update(to_step_sample(state))
+        sample = to_step_sample(state)
+        diagnostic_sample = posture_sample(sample)
+
+        pre_terminal_trace.append(
+            diagnostic_sample
+        )
+
+        distance_to_mid = abs(
+            sample.base_x_m - mid_approach_target_x_m
+        )
+
+        if distance_to_mid < mid_approach_error:
+            mid_approach_error = distance_to_mid
+            posture["mid_approach"] = diagnostic_sample
+
+        if (
+            sample.base_x_m < evaluator.config.first_riser_x_m
+            and sample.base_x_m > pre_riser_max_x
+        ):
+            pre_riser_max_x = sample.base_x_m
+            posture["pre_riser"] = diagnostic_sample
+
+        result = evaluator.update(sample)
+
+        if result is not None:
+            posture["terminal"] = diagnostic_sample
 
     if result is None:
         raise RuntimeError("simulation stopped before an outcome was produced")
 
+    policy_source = (
+        str(checkpoint)
+        if checkpoint is not None
+        else f"onnx:{policy_onnx}"
+    )
+
     writer.record_episode(
         result,
-        checkpoint=str(checkpoint),
+        checkpoint=policy_source,
         evaluation_seed=args.seed,
         episode_index=0,
     )
     summary = writer.write_summary()
+
+    checkpoint_sha256 = (
+        sha256(checkpoint)
+        if checkpoint is not None
+        else None
+    )
+
+    policy_onnx_sha256 = (
+        sha256(policy_onnx)
+        if policy_onnx is not None
+        else None
+    )
+
     metadata = {
         "schema": "iea_g1_stair_evaluation_v1",
         "task": args.task,
@@ -165,8 +393,19 @@ def main() -> None:
         "max_steps": args.max_steps,
         "completed_steps": steps,
         "step_dt": float(env.unwrapped.step_dt),
-        "checkpoint": str(checkpoint),
-        "checkpoint_sha256": sha256(checkpoint),
+        "checkpoint": (
+            str(checkpoint)
+            if checkpoint is not None
+            else None
+        ),
+        "checkpoint_sha256": checkpoint_sha256,
+        "policy_onnx": (
+            str(policy_onnx)
+            if policy_onnx is not None
+            else None
+        ),
+        "policy_onnx_sha256": policy_onnx_sha256,
+        "policy_initialization": initialization_metadata,
         "disabled_native_terminations": list(disabled_terminations),
         "outcome": result.outcome.value,
         "success": result.success,
@@ -175,11 +414,74 @@ def main() -> None:
         json.dumps(metadata, indent=2, sort_keys=True) + "\n",
         encoding="utf-8",
     )
+
+    posture_diagnostics = {
+        "schema": "iea_g1_stair_posture_diagnostics_v1",
+        "coordinate_system": "stair_course",
+        "definitions": {
+            "start": "first valid sample after environment initialization",
+            "mid_approach": (
+                "sample closest to course x = 1.50 m"
+            ),
+            "pre_riser": (
+                "maximum course x strictly before first riser x = 2.00 m"
+            ),
+            "terminal": (
+                "sample that produced the reward-independent evaluator outcome"
+            ),
+        },
+        "first_riser_x_m": (
+            evaluator.config.first_riser_x_m
+        ),
+        "foot_collision_model": {
+            "source": (
+                "g1_29dof_rev_1_0.urdf "
+                "ankle_roll_link collision spheres"
+            ),
+            "sphere_radius_m": foot_collision_radius_m,
+            "local_centres_m": [
+                list(value)
+                for value in foot_collision_spheres
+            ],
+        },
+        "samples": posture,
+        "pre_terminal_trace": list(
+            pre_terminal_trace
+        ),
+    }
+
+    (
+        output_dir / "posture_diagnostics.json"
+    ).write_text(
+        json.dumps(
+            posture_diagnostics,
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n",
+        encoding="utf-8",
+    )
+
     env.close()
 
     print("=== INDEPENDENT STAIR EVALUATION ===")
-    print(f"checkpoint={checkpoint}")
-    print(f"checkpoint_sha256={metadata['checkpoint_sha256']}")
+
+    if checkpoint is not None:
+        print(f"checkpoint={checkpoint}")
+        print(
+            "checkpoint_sha256="
+            f"{metadata['checkpoint_sha256']}"
+        )
+    else:
+        print(f"policy_onnx={policy_onnx}")
+        print(
+            "policy_onnx_sha256="
+            f"{metadata['policy_onnx_sha256']}"
+        )
+        print(
+            "policy_initialization="
+            f"{initialization_metadata}"
+        )
     print(f"disabled_native_terminations={disabled_terminations}")
     print(f"completed_steps={steps}")
     print(f"outcome={result.outcome.value}")
