@@ -87,6 +87,29 @@ def main() -> None:
     if args.max_iterations is not None:
         agent_cfg.max_iterations = args.max_iterations
 
+    ppo_cfg = resolved_config.get("ppo", {})
+
+    if "initial_action_noise_std" in ppo_cfg:
+        agent_cfg.policy.init_noise_std = float(
+            ppo_cfg["initial_action_noise_std"]
+        )
+
+    if "learning_rate" in ppo_cfg:
+        agent_cfg.algorithm.learning_rate = float(
+            ppo_cfg["learning_rate"]
+        )
+
+    print(
+        "[INFO] PPO init_noise_std:",
+        agent_cfg.policy.init_noise_std,
+        flush=True,
+    )
+    print(
+        "[INFO] PPO learning_rate:",
+        agent_cfg.algorithm.learning_rate,
+        flush=True,
+    )
+
     log_root = (
         Path("experiments")
         / "g1_stairs"

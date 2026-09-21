@@ -14,6 +14,9 @@ RAW_TO_RUNTIME_TERM = {
     "upright_raw": "upright",
     "platform_entry_raw": "platform_entry",
     "task_completion_raw": "task_completion",
+    "track_lin_vel_xy_raw": "track_lin_vel_xy",
+    "action_rate_raw": "action_rate",
+    "waist_deviation_raw": "waist_deviation",
 }
 
 

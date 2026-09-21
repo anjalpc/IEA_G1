@@ -247,6 +247,18 @@ class StairRewardsCfg:
         params={"asset_cfg": SceneEntityCfg("robot")},
     )
 
+    # Pretrained locomotion-preservation terms.
+    # These are available to experiment configs but are not globally active.
+    track_lin_vel_xy = copy.deepcopy(
+        _UPSTREAM_CFG.rewards.track_lin_vel_xy
+    )
+    action_rate = copy.deepcopy(
+        _UPSTREAM_CFG.rewards.action_rate
+    )
+    waist_deviation = copy.deepcopy(
+        _UPSTREAM_CFG.rewards.joint_deviation_waists
+    )
+
     platform_entry = RewTerm(
         func=stair_rewards.progress_threshold_event,
         weight=1.0,
