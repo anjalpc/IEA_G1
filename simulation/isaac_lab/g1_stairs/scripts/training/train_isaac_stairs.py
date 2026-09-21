@@ -77,6 +77,30 @@ def main() -> None:
     )
 
     resolved_config = load_resolved_config(Path(resolved_config_value))
+    terrain_cfg = resolved_config.get("terrain", {})
+    if "riser_height_m" in terrain_cfg:
+        riser_height_m = float(terrain_cfg["riser_height_m"])
+
+        if not 0.0 < riser_height_m <= 0.20:
+            raise ValueError(
+                "terrain.riser_height_m must be in (0.0, 0.20]"
+            )
+
+        stair_cfg = (
+            env_cfg.scene.terrain.terrain_generator
+            .sub_terrains["three_step_ascent"]
+        )
+        stair_cfg.riser_height_range = (
+            riser_height_m,
+            riser_height_m,
+        )
+
+        print(
+            "[INFO] Stair riser_height_m:",
+            riser_height_m,
+            flush=True,
+        )
+
     active_rewards = apply_resolved_rewards(env_cfg, resolved_config)
     print("[INFO] Active reward stage:", resolved_config["reward_experiment"]["active_stage"], flush=True)
     print("[INFO] Active rewards:", active_rewards, flush=True)
