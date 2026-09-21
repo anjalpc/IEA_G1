@@ -231,10 +231,21 @@ def main() -> None:
     if halfway_cfg is not None:
         env.reset()
         print("[021] first reset complete", flush=True)
-        for _ in range(halfway_cfg.settle_steps):
-            env.unwrapped.scene.write_data_to_sim()
+
+        # Halfway reset already writes the root/joint state atomically.
+        # Only advance a very small, bounded number of physics steps so
+        # contacts and body-state buffers match the newly written pose.
+        settle_steps = min(int(halfway_cfg.settle_steps), 2)
+        print(
+            f"[021] settling halfway pose for {settle_steps} physics steps",
+            flush=True,
+        )
+        for _ in range(settle_steps):
             env.unwrapped.sim.step(render=False)
             env.unwrapped.scene.update(env.unwrapped.physics_dt)
+
+        print("[021] halfway pose settled", flush=True)
+
         halfway_summary = validate_halfway_reset(
             env.unwrapped,
             halfway_cfg,

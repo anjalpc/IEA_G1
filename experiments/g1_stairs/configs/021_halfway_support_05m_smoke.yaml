@@ -35,7 +35,7 @@ halfway_reset:
   support_force_threshold_n: 42.87
   maximum_foot_speed_mps: 0.15
   minimum_upright_gravity_z: 0.80
-  settle_steps: 20
+  settle_steps: 2
 
 reward_experiment:
   active_stage: halfway_transitions
