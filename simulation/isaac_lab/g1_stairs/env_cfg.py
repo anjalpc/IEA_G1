@@ -298,6 +298,29 @@ class StairRewardsCfg:
         },
     )
 
+
+    # Pretrained-D: contact-gated, correctly referenced ankle clearance.
+    contact_gated_stair_clearance = RewTerm(
+        func=stair_rewards.contact_gated_stair_clearance,
+        weight=0.5,
+        params={
+            "asset_cfg": SceneEntityCfg(
+                "robot",
+                body_names=".*ankle_roll.*",
+            ),
+            "sensor_cfg": SceneEntityCfg(
+                "contact_forces",
+                body_names=".*ankle_roll.*",
+            ),
+            "riser_edges_m": (1.0, 1.25, 1.50),
+            "tread_heights_m": (0.20, 0.40, 0.60),
+            "nominal_ankle_height_m": 0.10,
+            "lookahead_distance_m": 0.35,
+            "lip_distance_m": 0.05,
+            "clearance_margin_m": 0.05,
+        },
+    )
+
     platform_entry = RewTerm(
         func=stair_rewards.progress_threshold_event,
         weight=1.0,

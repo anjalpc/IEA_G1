@@ -270,3 +270,106 @@ def anticipatory_stair_swing_clearance(
         previous_tread_height = tread_height_m
 
     return reward
+
+
+def contact_gated_stair_clearance(
+    env: "ManagerBasedRLEnv",
+    asset_cfg: SceneEntityCfg,
+    sensor_cfg: SceneEntityCfg,
+    riser_edges_m: tuple[float, ...] = (1.0, 1.25, 1.50),
+    tread_heights_m: tuple[float, ...] = (0.20, 0.40, 0.60),
+    nominal_ankle_height_m: float = 0.10,
+    lookahead_distance_m: float = 0.35,
+    lip_distance_m: float = 0.05,
+    clearance_margin_m: float = 0.05,
+) -> torch.Tensor:
+    """Penalize low height only for the genuinely airborne foot near a riser.
+
+    The ankle target is referenced to its nominal flat-ground world height,
+    then shifted upward by the upcoming tread height and a clearance margin.
+    The stance foot receives no clearance shaping.
+    """
+    if len(riser_edges_m) != len(tread_heights_m):
+        raise ValueError(
+            "riser_edges_m and tread_heights_m must have equal length"
+        )
+
+    robot = env.scene[asset_cfg.name]
+    contact_sensor = env.scene.sensors[sensor_cfg.name]
+
+    foot_pos_w = robot.data.body_pos_w[:, asset_cfg.body_ids, :]
+
+    foot_x = (
+        foot_pos_w[:, :, 0]
+        - env.scene.env_origins[:, 0].unsqueeze(1)
+    )
+    foot_z = (
+        foot_pos_w[:, :, 2]
+        - env.scene.env_origins[:, 2].unsqueeze(1)
+    )
+
+    is_contact = (
+        contact_sensor.data.current_contact_time[:, sensor_cfg.body_ids] > 0.0
+    )
+    is_swing = ~is_contact
+
+    penalty = torch.zeros(
+        env.num_envs,
+        dtype=foot_z.dtype,
+        device=env.device,
+    )
+
+    # Prevent overlapping stair windows from penalizing one foot for
+    # multiple risers simultaneously.
+    assigned = torch.zeros_like(is_swing)
+
+    previous_tread_height = 0.0
+
+    for edge_m, tread_height_m in zip(
+        riser_edges_m,
+        tread_heights_m,
+        strict=True,
+    ):
+        start_x = edge_m - lookahead_distance_m
+
+        active = (
+            is_swing
+            & ~assigned
+            & (foot_x >= start_x)
+            & (foot_x <= edge_m + lip_distance_m)
+        )
+
+        phase = torch.clamp(
+            (foot_x - start_x) / lookahead_distance_m,
+            min=0.0,
+            max=1.0,
+        )
+
+        start_target = (
+            nominal_ankle_height_m + previous_tread_height
+        )
+        end_target = (
+            nominal_ankle_height_m
+            + tread_height_m
+            + clearance_margin_m
+        )
+
+        desired_z = (
+            start_target
+            + phase * (end_target - start_target)
+        )
+
+        shortfall = torch.clamp(
+            desired_z - foot_z,
+            min=0.0,
+        )
+
+        penalty -= torch.sum(
+            shortfall * active.to(foot_z.dtype),
+            dim=1,
+        )
+
+        assigned |= active
+        previous_tread_height = tread_height_m
+
+    return penalty
