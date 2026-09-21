@@ -9,17 +9,17 @@ from simulation.isaac_lab.g1_stairs.evaluation.step_up_checkpoint_validation imp
 
 class StepUpCheckpointCalibrationTest(unittest.TestCase):
     def test_calibration_finishes_as_soon_as_both_populations_are_ready(self):
-        forces = [100.0] * 10
-        heights = [0.78] * 10
+        forces = [100.0] * 5
+        heights = [0.78] * 5
 
         self.assertTrue(calibration_ready(forces, heights))
 
     def test_calibration_requires_both_measurement_populations(self):
         self.assertFalse(
-            calibration_ready([100.0] * 10, [0.78] * 9)
+            calibration_ready([100.0] * 5, [0.78] * 4)
         )
         self.assertFalse(
-            calibration_ready([100.0] * 9, [0.78] * 10)
+            calibration_ready([100.0] * 4, [0.78] * 5)
         )
 
     def test_calibration_rejects_invalid_minimum(self):

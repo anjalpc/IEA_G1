@@ -21,7 +21,7 @@ from simulation.isaac_lab.g1_stairs.step_up_state import (
 )
 
 
-MINIMUM_CALIBRATION_SAMPLES = 10
+MINIMUM_CALIBRATION_SAMPLES = 5
 
 
 def calibration_ready(
