@@ -279,6 +279,25 @@ class StairRewardsCfg:
         },
     )
 
+
+    # Pretrained-C: dense anticipatory swing-foot shaping.
+    anticipatory_swing_clearance = RewTerm(
+        func=stair_rewards.anticipatory_stair_swing_clearance,
+        weight=1.0,
+        params={
+            "asset_cfg": SceneEntityCfg(
+                "robot",
+                body_names=".*ankle_roll.*",
+            ),
+            "riser_edges_m": (1.0, 1.25, 1.50),
+            "tread_heights_m": (0.20, 0.40, 0.60),
+            "lookahead_distance_m": 0.50,
+            "lip_distance_m": 0.05,
+            "clearance_margin_m": 0.05,
+            "tanh_mult": 2.0,
+        },
+    )
+
     platform_entry = RewTerm(
         func=stair_rewards.progress_threshold_event,
         weight=1.0,

@@ -168,3 +168,105 @@ def stair_swing_clearance(
         )
 
     return reward
+
+
+def anticipatory_stair_swing_clearance(
+    env: "ManagerBasedRLEnv",
+    asset_cfg: SceneEntityCfg,
+    riser_edges_m: tuple[float, ...] = (1.0, 1.25, 1.50),
+    tread_heights_m: tuple[float, ...] = (0.20, 0.40, 0.60),
+    lookahead_distance_m: float = 0.50,
+    lip_distance_m: float = 0.05,
+    clearance_margin_m: float = 0.05,
+    tanh_mult: float = 2.0,
+) -> torch.Tensor:
+    """Penalize insufficient swing-foot height while approaching each riser.
+
+    The desired foot height ramps smoothly from the current tread height to
+    the upcoming tread height plus a clearance margin. The term activates
+    before the riser so PPO receives a dense learning signal before impact.
+
+    The support foot is naturally suppressed because its world-frame
+    horizontal speed is near zero, while the swing foot has non-zero speed.
+    """
+    if len(riser_edges_m) != len(tread_heights_m):
+        raise ValueError(
+            "riser_edges_m and tread_heights_m must have equal length"
+        )
+
+    robot = env.scene[asset_cfg.name]
+
+    foot_pos_w = robot.data.body_pos_w[:, asset_cfg.body_ids, :]
+    foot_vel_w = robot.data.body_lin_vel_w[:, asset_cfg.body_ids, :]
+
+    foot_x = (
+        foot_pos_w[:, :, 0]
+        - env.scene.env_origins[:, 0].unsqueeze(1)
+    )
+    foot_z = (
+        foot_pos_w[:, :, 2]
+        - env.scene.env_origins[:, 2].unsqueeze(1)
+    )
+
+    horizontal_speed = torch.linalg.norm(
+        foot_vel_w[:, :, :2],
+        dim=2,
+    )
+    swing_gate = torch.tanh(
+        tanh_mult * horizontal_speed
+    )
+
+    reward = torch.zeros(
+        env.num_envs,
+        dtype=foot_z.dtype,
+        device=env.device,
+    )
+
+    previous_tread_height = 0.0
+
+    for edge_m, tread_height_m in zip(
+        riser_edges_m,
+        tread_heights_m,
+        strict=True,
+    ):
+        start_x = edge_m - lookahead_distance_m
+
+        active = (
+            (foot_x >= start_x)
+            & (foot_x <= edge_m + lip_distance_m)
+        )
+
+        approach_phase = torch.clamp(
+            (foot_x - start_x) / lookahead_distance_m,
+            min=0.0,
+            max=1.0,
+        )
+
+        target_at_riser = (
+            tread_height_m + clearance_margin_m
+        )
+
+        desired_z = (
+            previous_tread_height
+            + approach_phase
+            * (target_at_riser - previous_tread_height)
+        )
+
+        shortfall = torch.clamp(
+            desired_z - foot_z,
+            min=0.0,
+        )
+
+        # Dense penalty: a foot 0.10 m below the requested trajectory
+        # contributes -0.10 before weighting. This avoids the vanishing
+        # signal of the localized exponential reward used in Pretrained-B.
+        reward -= torch.sum(
+            shortfall
+            * swing_gate
+            * active.to(foot_z.dtype),
+            dim=1,
+        )
+
+        previous_tread_height = tread_height_m
+
+    return reward

@@ -18,6 +18,7 @@ RAW_TO_RUNTIME_TERM = {
     "action_rate_raw": "action_rate",
     "waist_deviation_raw": "waist_deviation",
     "stair_swing_clearance_raw": "stair_swing_clearance",
+    "anticipatory_swing_clearance_raw": "anticipatory_swing_clearance",
 }
 
 
