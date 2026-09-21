@@ -90,14 +90,11 @@ def apply_halfway_reset(env, env_ids, *, config: dict[str, Any]) -> None:
     if env_ids is None:
         env_ids = torch.arange(env.num_envs, device=env.device)
 
+    # The halfway joint pose was installed into the articulation defaults
+    # before environment construction.  Reset directly to that pose so the
+    # action offset and observation reference stay consistent.
     joint_pos = robot.data.default_joint_pos[env_ids].clone()
     joint_vel = torch.zeros_like(joint_pos)
-    index = {name: i for i, name in enumerate(robot.joint_names)}
-    hip, knee, ankle = solve_leading_leg_pose(reset_cfg)
-    prefix = reset_cfg.leading_leg
-    joint_pos[:, index[f"{prefix}_hip_pitch_joint"]] = hip
-    joint_pos[:, index[f"{prefix}_knee_joint"]] = knee
-    joint_pos[:, index[f"{prefix}_ankle_pitch_joint"]] = ankle
 
     root_pose = robot.data.default_root_state[env_ids, :7].clone()
     root_pose[:, :3] += env.scene.env_origins[env_ids]
@@ -119,17 +116,36 @@ def apply_halfway_reset(env, env_ids, *, config: dict[str, Any]) -> None:
 
 
 def configure_halfway_reset(env_cfg, cfg: HalfwayResetConfig) -> None:
-    """Replace the ordinary base/joint resets with one atomic halfway reset."""
+    """Make the halfway pose the true default pose for the 021 curriculum."""
     from isaaclab.managers import EventTermCfg as EventTerm
+
+    hip, knee, ankle = solve_leading_leg_pose(cfg)
+    prefix = cfg.leading_leg
+
+    # CRITICAL:
+    # JointPositionAction uses use_default_offset=True.  Therefore the
+    # halfway pose must exist in the articulation defaults BEFORE gym.make().
+    #
+    # This keeps:
+    #   reset position
+    #   joint_pos_rel reference
+    #   zero-action position target
+    # mutually consistent.
+    joint_defaults = dict(env_cfg.scene.robot.init_state.joint_pos)
+
+    joint_defaults[f"{prefix}_hip_pitch_joint"] = hip
+    joint_defaults[f"{prefix}_knee_joint"] = knee
+    joint_defaults[f"{prefix}_ankle_pitch_joint"] = ankle
+
+    env_cfg.scene.robot.init_state.joint_pos = joint_defaults
 
     env_cfg.events.reset_base = EventTerm(
         func=apply_halfway_reset,
         mode="reset",
-        # Isaac manager configuration must contain plain serializable values.
-        # Reconstruct HalfwayResetConfig only when the event runs, after the
-        # scene and articulation have been created.
         params=halfway_reset_event_params(cfg),
     )
+
+    # apply_halfway_reset writes the now-consistent default joint state.
     env_cfg.events.reset_robot_joints = None
 
 
