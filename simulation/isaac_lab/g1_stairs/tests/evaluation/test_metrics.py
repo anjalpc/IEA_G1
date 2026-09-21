@@ -10,6 +10,9 @@ from simulation.isaac_lab.g1_stairs.evaluation.metrics import (
     RunMetricsWriter,
     wilson_interval,
 )
+from simulation.isaac_lab.g1_stairs.evaluation.isaac_training_metrics import (
+    recover_raw_reward_step,
+)
 from simulation.isaac_lab.g1_stairs.evaluation.stair_outcomes import (
     EpisodeResult,
     Outcome,
@@ -42,6 +45,19 @@ def result(
 
 
 class MetricsTest(unittest.TestCase):
+    def test_zero_weight_reward_raw_value_is_not_reconstructed(self):
+        class ArithmeticMustNotRun:
+            def __mul__(self, other):
+                raise AssertionError("zero-weight term was multiplied")
+
+        raw_step = recover_raw_reward_step(
+            ArithmeticMustNotRun(),
+            dt=0.02,
+            weight=0.0,
+        )
+
+        self.assertIsNone(raw_step)
+
     def test_wilson_interval_contains_observed_rate(self):
         lower, upper = wilson_interval(95, 100)
 

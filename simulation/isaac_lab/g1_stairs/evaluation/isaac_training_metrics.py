@@ -9,6 +9,13 @@ from pathlib import Path
 from simulation.isaac_lab.g1_stairs.evaluation.metrics import RunMetricsWriter
 
 
+def recover_raw_reward_step(weighted_rate, dt: float, weight: float):
+    """Undo RewardManager weighting when the raw value is identifiable."""
+    if weight == 0.0:
+        return None
+    return weighted_rate * dt / weight
+
+
 class InstrumentedRslRlVecEnvWrapper:
     """Proxy an RSL-RL wrapper while accumulating rollout diagnostics."""
 
@@ -54,7 +61,15 @@ class InstrumentedRslRlVecEnvWrapper:
         for index, name in enumerate(manager.active_terms):
             cfg = manager.get_term_cfg(name)
             weighted_rate = manager._step_reward[:, index]
-            raw_step = weighted_rate * dt / float(cfg.weight)
+            raw_step = recover_raw_reward_step(
+                weighted_rate,
+                dt,
+                float(cfg.weight),
+            )
+            if raw_step is None:
+                # RewardManager has already erased the raw value by
+                # multiplying it by zero, so it cannot be reconstructed.
+                continue
             self._reward_components[name] = (
                 self._reward_components.get(name, 0.0)
                 + float(raw_step.mean().item())

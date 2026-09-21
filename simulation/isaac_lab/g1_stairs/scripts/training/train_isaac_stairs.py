@@ -268,130 +268,18 @@ def main() -> None:
             f"{initialization_type}"
         )
 
-    print("[TRACE] before configure_metrics", flush=True)
     runner.configure_metrics(Path(metrics_dir_value), run_id)
-    print("[TRACE] after configure_metrics", flush=True)
-
-    print("[TRACE] before add_git_repo_to_log", flush=True)
     runner.add_git_repo_to_log(__file__)
-    print("[TRACE] after add_git_repo_to_log", flush=True)
 
     params_dir = log_dir / "params"
-
-    print("[TRACE] before params mkdir", flush=True)
     params_dir.mkdir(parents=True, exist_ok=True)
-    print("[TRACE] after params mkdir", flush=True)
-
-    print("[TRACE] before dump env yaml", flush=True)
     dump_yaml(str(params_dir / "env.yaml"), env_cfg)
-    print("[TRACE] after dump env yaml", flush=True)
-
-    print("[TRACE] before dump agent yaml", flush=True)
     dump_yaml(str(params_dir / "agent.yaml"), agent_cfg)
-    print("[TRACE] after dump agent yaml", flush=True)
-
-    print("[TRACE] before export_deploy_cfg", flush=True)
     export_deploy_cfg(env.unwrapped, str(log_dir))
-    print("[TRACE] after export_deploy_cfg", flush=True)
-
-    print("[TRACE] before shutil copy", flush=True)
     shutil.copy(
         inspect.getfile(env_cfg.__class__),
         params_dir / Path(inspect.getfile(env_cfg.__class__)).name,
     )
-    print("[TRACE] after shutil copy", flush=True)
-
-    # Temporary first-rollout tracing.  This does not change the
-    # environment, policy, rewards, PPO settings, or observations.
-    _original_get_observations = runner.env.get_observations
-    _original_env_step = runner.env.step
-    _original_alg_act = runner.alg.act
-    _original_process_env_step = runner.alg.process_env_step
-
-    _trace_counts = {
-        "get_observations": 0,
-        "act": 0,
-        "step": 0,
-        "process": 0,
-    }
-
-    def _traced_get_observations():
-        _trace_counts["get_observations"] += 1
-        n = _trace_counts["get_observations"]
-        print(
-            f"[TRACE] get_observations #{n} ENTER",
-            flush=True,
-        )
-        result = _original_get_observations()
-        print(
-            f"[TRACE] get_observations #{n} EXIT",
-            flush=True,
-        )
-        return result
-
-    def _traced_act(obs):
-        _trace_counts["act"] += 1
-        n = _trace_counts["act"]
-        print(f"[TRACE] alg.act #{n} ENTER", flush=True)
-        result = _original_alg_act(obs)
-        print(f"[TRACE] alg.act #{n} EXIT", flush=True)
-        return result
-
-    def _traced_step(actions):
-        _trace_counts["step"] += 1
-        n = _trace_counts["step"]
-        print(f"[TRACE] env.step #{n} ENTER", flush=True)
-        result = _original_env_step(actions)
-        print(f"[TRACE] env.step #{n} EXIT", flush=True)
-        return result
-
-    def _traced_process_env_step(obs, rewards, dones, extras):
-        _trace_counts["process"] += 1
-        n = _trace_counts["process"]
-        print(
-            f"[TRACE] process_env_step #{n} ENTER",
-            flush=True,
-        )
-        result = _original_process_env_step(
-            obs,
-            rewards,
-            dones,
-            extras,
-        )
-        print(
-            f"[TRACE] process_env_step #{n} EXIT",
-            flush=True,
-        )
-        return result
-
-    runner.env.get_observations = _traced_get_observations
-    runner.env.step = _traced_step
-    runner.alg.act = _traced_act
-    runner.alg.process_env_step = _traced_process_env_step
-
-    _original_compute_returns = runner.alg.compute_returns
-    _original_update = runner.alg.update
-
-    def _traced_compute_returns(obs):
-        print("[TRACE] compute_returns ENTER", flush=True)
-        result = _original_compute_returns(obs)
-        print("[TRACE] compute_returns EXIT", flush=True)
-        return result
-
-    def _traced_update():
-        print("[TRACE] alg.update ENTER", flush=True)
-        result = _original_update()
-        print("[TRACE] alg.update EXIT", flush=True)
-        return result
-
-    runner.alg.compute_returns = _traced_compute_returns
-    runner.alg.update = _traced_update
-
-    print(
-        f"[TRACE] num_steps_per_env={runner.num_steps_per_env}",
-        flush=True,
-    )
-    print("[TRACE] ENTERING runner.learn", flush=True)
     runner.learn(
         num_learning_iterations=agent_cfg.max_iterations,
         init_at_random_ep_len=False,
