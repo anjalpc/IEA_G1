@@ -529,15 +529,21 @@ def pre_riser_foot_lift(
     foot_body_names,
     first_riser_x_m: float = 1.0,
     nominal_ankle_height_m: float = 0.10,
-    lookahead_m: float = 0.50,
-    stop_before_riser_m: float = 0.01,
+    lookahead_m: float = 0.45,
     safety_clearance_m: float = 0.06,
-    min_horizontal_speed_mps: float = 0.04,
+    min_forward_speed_mps: float = 0.03,
+    vertical_speed_scale_mps: float = 0.30,
 ):
-    """Reward anticipatory swing-foot lift before the first riser.
+    """Dense distance-conditioned anticipatory swing-foot lift reward.
 
-    The desired ankle height adapts to the live curriculum riser height.
-    Reward is local to the approach region and requires horizontal foot motion.
+    Unlike the previous formulation, this reward does not wait for the foot
+    to already be high.
+
+    As a forward-moving foot approaches the riser it receives reward for:
+      1. positive vertical velocity, which teaches *when to start lifting*;
+      2. actual foot height, which teaches *how high to lift*.
+
+    The reward becomes stronger as the foot gets closer to the riser.
     """
     import torch
 
@@ -552,66 +558,76 @@ def pre_riser_foot_lift(
     foot_pos = robot.data.body_pos_w[:, body_ids, :]
     foot_vel = robot.data.body_lin_vel_w[:, body_ids, :]
 
-    env_origin = env.scene.env_origins
+    origin = env.scene.env_origins
 
-    root_x = robot.data.root_pos_w[:, 0] - env_origin[:, 0]
-    foot_z = foot_pos[..., 2] - env_origin[:, None, 2]
+    foot_x = foot_pos[..., 0] - origin[:, None, 0]
+    foot_z = foot_pos[..., 2] - origin[:, None, 2]
 
-    target_z = (
+    # Positive while the foot is still behind the riser.
+    distance_to_riser = first_riser_x_m - foot_x
+
+    in_approach_window = (
+        (distance_to_riser > 0.0)
+        & (distance_to_riser <= lookahead_m)
+    )
+
+    moving_forward = (
+        foot_vel[..., 0] >= min_forward_speed_mps
+    )
+
+    # Stronger shaping as the foot approaches the vertical face.
+    proximity = torch.clamp(
+        1.0 - distance_to_riser / max(lookahead_m, 1.0e-6),
+        0.0,
+        1.0,
+    )
+
+    # Dense signal: reward upward swing velocity immediately.
+    upward_velocity_score = torch.clamp(
+        foot_vel[..., 2] / max(vertical_speed_scale_mps, 1.0e-6),
+        0.0,
+        1.0,
+    )
+
+    # Height target adapts to the live curriculum stair height.
+    safe_z = (
         nominal_ankle_height_m
         + riser_height
         + safety_clearance_m
     )
 
-    # Reward starts well before the wall and ends just before the riser.
-    active = (
-        (root_x >= first_riser_x_m - lookahead_m)
-        & (root_x <= first_riser_x_m - stop_before_riser_m)
-    ).float()
+    lift_start_z = nominal_ankle_height_m + 0.005
 
-    horizontal_speed = torch.linalg.vector_norm(
-        foot_vel[..., :2], dim=-1
-    )
-
-    moving = (
-        horizontal_speed >= min_horizontal_speed_mps
-    ).float()
-
-    # Smoothly increase reward as the ankle rises toward the safe target.
-    start_z = nominal_ankle_height_m + 0.01
-    lift_score = torch.clamp(
-        (foot_z - start_z)
-        / max(target_z - start_z, 1.0e-6),
+    height_score = torch.clamp(
+        (foot_z - lift_start_z)
+        / max(safe_z - lift_start_z, 1.0e-6),
         0.0,
         1.0,
     )
 
-    # Prefer the currently useful/swinging foot.
-    per_foot = lift_score * moving
-    best_foot = torch.max(per_foot, dim=1).values
+    # Early learning is driven mainly by upward velocity.
+    # Height becomes increasingly important near the riser.
+    lift_score = (
+        0.65 * upward_velocity_score
+        + 0.35 * height_score
+    )
 
-    # Make the incentive stronger as the base gets closer to the riser.
-    proximity = torch.clamp(
-        (
-            root_x
-            - (first_riser_x_m - lookahead_m)
-        )
-        / max(
-            lookahead_m - stop_before_riser_m,
-            1.0e-6,
-        ),
-        0.0,
-        1.0,
+    per_foot = (
+        in_approach_window.float()
+        * moving_forward.float()
+        * proximity
+        * lift_score
     )
 
     projected_gravity = robot.data.projected_gravity_b
+
     upright = torch.clamp(
         (-projected_gravity[:, 2] - 0.75) / 0.25,
         0.0,
         1.0,
     )
 
-    return active * proximity * best_foot * upright
+    return torch.max(per_foot, dim=1).values * upright
 
 
 def riser_crossing_clearance(

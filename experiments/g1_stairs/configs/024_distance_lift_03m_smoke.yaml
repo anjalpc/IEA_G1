@@ -1,0 +1,41 @@
+schema_version: 1
+experiment:
+  id: 024_distance_lift_03m_smoke
+  purpose: Teach early swing-foot lift from normal Unitree locomotion using distance-conditioned
+    dense pre-riser shaping
+  type: distance_conditioned_anticipatory_lift
+  meaningful_stair_training: true
+inheritance:
+  base_config: experiments/g1_stairs/configs/nominal_stairs_base.yaml
+  resolved_config_required: true
+execution:
+  environments: 32
+  maximum_iterations: 1
+  training_seed: 42
+terrain:
+  riser_height_m: 0.03
+  tread_depth_m: 0.25
+  step_count: 1
+command:
+  forward_velocity_mps: 0.22
+reward_experiment:
+  active_stage: anticipatory_clearance
+  rule: Preserve Unitree walking and shape swing clearance, tread entry, and physical
+    tread contact
+  rewards:
+    stage_plan:
+      anticipatory_clearance:
+        track_lin_vel_xy: 1.0
+        upright: -5.0
+        action_rate: -0.05
+        waist_deviation: -1.0
+        pre_riser_foot_lift: 1.0
+        riser_crossing_clearance: 2.0
+        riser_face_strike_proxy: -2.0
+        curriculum_foot_over_tread: 0.75
+        validated_tread_contact: 1.5
+ppo:
+  initial_action_noise_std: 0.15
+  learning_rate: 0.0001
+  learning_rate_schedule: adaptive
+  desired_kl: 0.01
