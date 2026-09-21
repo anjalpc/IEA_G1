@@ -133,6 +133,18 @@ def configure_halfway_reset(env_cfg, cfg: HalfwayResetConfig) -> None:
     # mutually consistent.
     joint_defaults = dict(env_cfg.scene.robot.init_state.joint_pos)
 
+    # The upstream G1 configuration uses regex entries for both knees and
+    # ankle-pitch joints.  Do not add an explicit left/right entry while
+    # leaving the matching regex in place, otherwise the same joint is
+    # initialized by multiple expressions during articulation construction.
+    default_knee = joint_defaults.pop(".*_knee_joint", 0.3)
+    default_ankle_pitch = joint_defaults.pop(".*_ankle_pitch_joint", -0.2)
+
+    joint_defaults["left_knee_joint"] = default_knee
+    joint_defaults["right_knee_joint"] = default_knee
+    joint_defaults["left_ankle_pitch_joint"] = default_ankle_pitch
+    joint_defaults["right_ankle_pitch_joint"] = default_ankle_pitch
+
     joint_defaults[f"{prefix}_hip_pitch_joint"] = hip
     joint_defaults[f"{prefix}_knee_joint"] = knee
     joint_defaults[f"{prefix}_ankle_pitch_joint"] = ankle
