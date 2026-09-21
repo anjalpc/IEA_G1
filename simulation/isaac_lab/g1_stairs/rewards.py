@@ -522,6 +522,225 @@ def curriculum_foot_over_tread(
     ).to(foot_z.dtype)
 
 
+
+def pre_riser_foot_lift(
+    env,
+    asset_cfg,
+    foot_body_names,
+    first_riser_x_m: float = 1.0,
+    nominal_ankle_height_m: float = 0.10,
+    lookahead_m: float = 0.50,
+    stop_before_riser_m: float = 0.01,
+    safety_clearance_m: float = 0.06,
+    min_horizontal_speed_mps: float = 0.04,
+):
+    """Reward anticipatory swing-foot lift before the first riser.
+
+    The desired ankle height adapts to the live curriculum riser height.
+    Reward is local to the approach region and requires horizontal foot motion.
+    """
+    import torch
+
+    robot = env.scene[asset_cfg.name]
+
+    terrain_generator = env.scene.terrain.cfg.terrain_generator
+    stair_cfg = terrain_generator.sub_terrains["three_step_ascent"]
+    riser_height = float(stair_cfg.riser_height_range[0])
+
+    body_ids = robot.find_bodies(foot_body_names)[0]
+
+    foot_pos = robot.data.body_pos_w[:, body_ids, :]
+    foot_vel = robot.data.body_lin_vel_w[:, body_ids, :]
+
+    env_origin = env.scene.env_origins
+
+    root_x = robot.data.root_pos_w[:, 0] - env_origin[:, 0]
+    foot_z = foot_pos[..., 2] - env_origin[:, None, 2]
+
+    target_z = (
+        nominal_ankle_height_m
+        + riser_height
+        + safety_clearance_m
+    )
+
+    # Reward starts well before the wall and ends just before the riser.
+    active = (
+        (root_x >= first_riser_x_m - lookahead_m)
+        & (root_x <= first_riser_x_m - stop_before_riser_m)
+    ).float()
+
+    horizontal_speed = torch.linalg.vector_norm(
+        foot_vel[..., :2], dim=-1
+    )
+
+    moving = (
+        horizontal_speed >= min_horizontal_speed_mps
+    ).float()
+
+    # Smoothly increase reward as the ankle rises toward the safe target.
+    start_z = nominal_ankle_height_m + 0.01
+    lift_score = torch.clamp(
+        (foot_z - start_z)
+        / max(target_z - start_z, 1.0e-6),
+        0.0,
+        1.0,
+    )
+
+    # Prefer the currently useful/swinging foot.
+    per_foot = lift_score * moving
+    best_foot = torch.max(per_foot, dim=1).values
+
+    # Make the incentive stronger as the base gets closer to the riser.
+    proximity = torch.clamp(
+        (
+            root_x
+            - (first_riser_x_m - lookahead_m)
+        )
+        / max(
+            lookahead_m - stop_before_riser_m,
+            1.0e-6,
+        ),
+        0.0,
+        1.0,
+    )
+
+    projected_gravity = robot.data.projected_gravity_b
+    upright = torch.clamp(
+        (-projected_gravity[:, 2] - 0.75) / 0.25,
+        0.0,
+        1.0,
+    )
+
+    return active * proximity * best_foot * upright
+
+
+def riser_crossing_clearance(
+    env,
+    asset_cfg,
+    foot_body_names,
+    first_riser_x_m: float = 1.0,
+    nominal_ankle_height_m: float = 0.10,
+    crossing_before_m: float = 0.04,
+    crossing_after_m: float = 0.06,
+    safety_clearance_m: float = 0.06,
+    min_forward_speed_mps: float = 0.03,
+):
+    """Reward a foot crossing the riser plane with safe vertical clearance."""
+    import torch
+
+    robot = env.scene[asset_cfg.name]
+
+    terrain_generator = env.scene.terrain.cfg.terrain_generator
+    stair_cfg = terrain_generator.sub_terrains["three_step_ascent"]
+    riser_height = float(stair_cfg.riser_height_range[0])
+
+    body_ids = robot.find_bodies(foot_body_names)[0]
+
+    foot_pos = robot.data.body_pos_w[:, body_ids, :]
+    foot_vel = robot.data.body_lin_vel_w[:, body_ids, :]
+
+    origin = env.scene.env_origins
+
+    foot_x = foot_pos[..., 0] - origin[:, None, 0]
+    foot_z = foot_pos[..., 2] - origin[:, None, 2]
+
+    safe_z = (
+        nominal_ankle_height_m
+        + riser_height
+        + safety_clearance_m
+    )
+
+    near_plane = (
+        (foot_x >= first_riser_x_m - crossing_before_m)
+        & (foot_x <= first_riser_x_m + crossing_after_m)
+    )
+
+    moving_forward = (
+        foot_vel[..., 0] >= min_forward_speed_mps
+    )
+
+    # 0 below safe height, 1 once full safety clearance is achieved.
+    clearance_score = torch.clamp(
+        (
+            foot_z
+            - (
+                nominal_ankle_height_m
+                + riser_height
+            )
+        )
+        / max(safety_clearance_m, 1.0e-6),
+        0.0,
+        1.0,
+    )
+
+    per_foot = (
+        near_plane.float()
+        * moving_forward.float()
+        * clearance_score
+    )
+
+    return torch.max(per_foot, dim=1).values
+
+
+def riser_face_strike_proxy(
+    env,
+    asset_cfg,
+    foot_body_names,
+    first_riser_x_m: float = 1.0,
+    nominal_ankle_height_m: float = 0.10,
+    face_window_m: float = 0.035,
+    minimum_clearance_m: float = 0.025,
+    min_forward_speed_mps: float = 0.03,
+):
+    """Penalize a moving foot reaching the riser plane while still too low.
+
+    This is intentionally a geometric proxy for a vertical-face strike.
+    It does not depend on PhysX contact classification.
+    """
+    import torch
+
+    robot = env.scene[asset_cfg.name]
+
+    terrain_generator = env.scene.terrain.cfg.terrain_generator
+    stair_cfg = terrain_generator.sub_terrains["three_step_ascent"]
+    riser_height = float(stair_cfg.riser_height_range[0])
+
+    body_ids = robot.find_bodies(foot_body_names)[0]
+
+    foot_pos = robot.data.body_pos_w[:, body_ids, :]
+    foot_vel = robot.data.body_lin_vel_w[:, body_ids, :]
+
+    origin = env.scene.env_origins
+
+    foot_x = foot_pos[..., 0] - origin[:, None, 0]
+    foot_z = foot_pos[..., 2] - origin[:, None, 2]
+
+    required_z = (
+        nominal_ankle_height_m
+        + riser_height
+        + minimum_clearance_m
+    )
+
+    at_face = (
+        torch.abs(foot_x - first_riser_x_m)
+        <= face_window_m
+    )
+
+    too_low = foot_z < required_z
+
+    moving_forward = (
+        foot_vel[..., 0] >= min_forward_speed_mps
+    )
+
+    strike = (
+        at_face
+        & too_low
+        & moving_forward
+    ).float()
+
+    # Return positive magnitude. RewTerm weight will be negative.
+    return torch.max(strike, dim=1).values
+
 def validated_tread_contact(
     env: "ManagerBasedRLEnv",
     asset_cfg: SceneEntityCfg,

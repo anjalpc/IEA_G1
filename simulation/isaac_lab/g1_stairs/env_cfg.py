@@ -357,6 +357,59 @@ class StairRewardsCfg:
         },
     )
 
+    pre_riser_foot_lift = RewTerm(
+        func=stair_rewards.pre_riser_foot_lift,
+        weight=1.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "foot_body_names": [
+                "left_ankle_roll_link",
+                "right_ankle_roll_link",
+            ],
+            "first_riser_x_m": 1.0,
+            "nominal_ankle_height_m": 0.10,
+            "lookahead_m": 0.50,
+            "stop_before_riser_m": 0.01,
+            "safety_clearance_m": 0.06,
+            "min_horizontal_speed_mps": 0.04,
+        },
+    )
+
+    riser_crossing_clearance = RewTerm(
+        func=stair_rewards.riser_crossing_clearance,
+        weight=2.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "foot_body_names": [
+                "left_ankle_roll_link",
+                "right_ankle_roll_link",
+            ],
+            "first_riser_x_m": 1.0,
+            "nominal_ankle_height_m": 0.10,
+            "crossing_before_m": 0.04,
+            "crossing_after_m": 0.06,
+            "safety_clearance_m": 0.06,
+            "min_forward_speed_mps": 0.03,
+        },
+    )
+
+    riser_face_strike_proxy = RewTerm(
+        func=stair_rewards.riser_face_strike_proxy,
+        weight=-2.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "foot_body_names": [
+                "left_ankle_roll_link",
+                "right_ankle_roll_link",
+            ],
+            "first_riser_x_m": 1.0,
+            "nominal_ankle_height_m": 0.10,
+            "face_window_m": 0.035,
+            "minimum_clearance_m": 0.025,
+            "min_forward_speed_mps": 0.03,
+        },
+    )
+
     validated_tread_contact = RewTerm(
         func=stair_rewards.validated_tread_contact,
         weight=1.5,
