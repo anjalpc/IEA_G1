@@ -306,6 +306,27 @@ def main() -> None:
                 flush=True,
             )
 
+        step_count = terrain_cfg.get("step_count")
+
+        if step_count is not None:
+            step_count = int(step_count)
+
+            if not 1 <= step_count <= 3:
+                raise ValueError(
+                    "terrain.step_count must be between 1 and 3"
+                )
+
+            stair_cfg = terrain_generator.sub_terrains[
+                "three_step_ascent"
+            ]
+            stair_cfg.step_count = step_count
+
+            print(
+                "[INFO] Recording stair step_count:",
+                step_count,
+                flush=True,
+            )
+
     # Fixed world-coordinate evaluation camera.
     #
     # The nominal robot begins around world x=0 and faces +X.

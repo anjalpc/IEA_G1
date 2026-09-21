@@ -380,8 +380,6 @@ def validated_tread_contact(
     asset_cfg: SceneEntityCfg,
     sensor_cfg: SceneEntityCfg,
     first_riser_x_m: float = 1.0,
-    tread_depth_m: float = 0.25,
-    step_count: int = 3,
     nominal_ankle_height_m: float = 0.10,
     x_margin_m: float = 0.02,
     z_tolerance_m: float = 0.04,
@@ -405,6 +403,8 @@ def validated_tread_contact(
     stair_cfg = terrain_generator.sub_terrains["three_step_ascent"]
 
     riser_height_m = float(stair_cfg.riser_height_range[0])
+    tread_depth_m = float(stair_cfg.tread_depth)
+    step_count = int(stair_cfg.step_count)
 
     foot_pos_w = robot.data.body_pos_w[:, asset_cfg.body_ids, :]
 

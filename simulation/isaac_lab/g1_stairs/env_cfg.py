@@ -335,8 +335,6 @@ class StairRewardsCfg:
                 body_names=".*ankle_roll.*",
             ),
             "first_riser_x_m": 1.0,
-            "tread_depth_m": 0.25,
-            "step_count": 3,
             "nominal_ankle_height_m": 0.10,
             "x_margin_m": 0.02,
             "z_tolerance_m": 0.04,

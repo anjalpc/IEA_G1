@@ -101,6 +101,26 @@ def main() -> None:
             flush=True,
         )
 
+    if "step_count" in terrain_cfg:
+        step_count = int(terrain_cfg["step_count"])
+
+        if not 1 <= step_count <= 3:
+            raise ValueError(
+                "terrain.step_count must be between 1 and 3"
+            )
+
+        stair_cfg = (
+            env_cfg.scene.terrain.terrain_generator
+            .sub_terrains["three_step_ascent"]
+        )
+        stair_cfg.step_count = step_count
+
+        print(
+            "[INFO] Stair step_count:",
+            step_count,
+            flush=True,
+        )
+
     command_cfg = resolved_config.get("command", {})
     if "forward_velocity_mps" in command_cfg:
         forward_velocity_mps = float(
