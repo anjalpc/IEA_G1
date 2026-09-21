@@ -22,10 +22,11 @@ if str(REPO_ROOT) not in sys.path:
 UNITREE_RL_ROOT = Path(
     os.environ.get("UNITREE_RL_LAB_ROOT", "/workspace/unitree_rl_lab")
 )
-RSL_RL_SCRIPTS = UNITREE_RL_ROOT / "scripts" / "rsl_rl"
-if not RSL_RL_SCRIPTS.is_dir():
-    raise RuntimeError(f"Unitree RSL-RL scripts missing: {RSL_RL_SCRIPTS}")
-sys.path.insert(0, str(RSL_RL_SCRIPTS))
+from simulation.isaac_lab.g1_stairs.unitree_bootstrap import (  # noqa: E402
+    bootstrap_unitree_rl_lab,
+)
+
+bootstrap_unitree_rl_lab(UNITREE_RL_ROOT)
 
 import cli_args  # noqa: E402
 
