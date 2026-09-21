@@ -4,7 +4,6 @@
 from __future__ import annotations
 
 import argparse
-from datetime import datetime
 import inspect
 import os
 from pathlib import Path
@@ -117,7 +116,9 @@ def main() -> None:
         / "rsl_rl"
         / agent_cfg.experiment_name
     )
-    log_dir = log_root / datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    # Use the recorded experiment run ID so TensorBoard, metrics,
+    # manifests, and checkpoints share one unambiguous identifier.
+    log_dir = log_root / run_id
     log_dir = log_dir.resolve()
     print(f"[INFO] Logging experiment in directory: {log_dir}")
 
