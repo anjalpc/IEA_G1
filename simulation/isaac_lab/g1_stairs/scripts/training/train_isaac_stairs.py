@@ -98,6 +98,16 @@ def main() -> None:
             ppo_cfg["learning_rate"]
         )
 
+    if "learning_rate_schedule" in ppo_cfg:
+        agent_cfg.algorithm.schedule = str(
+            ppo_cfg["learning_rate_schedule"]
+        )
+
+    if "desired_kl" in ppo_cfg:
+        agent_cfg.algorithm.desired_kl = float(
+            ppo_cfg["desired_kl"]
+        )
+
     print(
         "[INFO] PPO init_noise_std:",
         agent_cfg.policy.init_noise_std,
@@ -106,6 +116,16 @@ def main() -> None:
     print(
         "[INFO] PPO learning_rate:",
         agent_cfg.algorithm.learning_rate,
+        flush=True,
+    )
+    print(
+        "[INFO] PPO learning_rate_schedule:",
+        agent_cfg.algorithm.schedule,
+        flush=True,
+    )
+    print(
+        "[INFO] PPO desired_kl:",
+        agent_cfg.algorithm.desired_kl,
         flush=True,
     )
 

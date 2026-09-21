@@ -90,3 +90,81 @@ class progress_threshold_event(ManagerTermBase):
         self._triggered |= reached
 
         return newly_reached.to(progress_x.dtype) / env.step_dt
+
+
+def stair_swing_clearance(
+    env: "ManagerBasedRLEnv",
+    asset_cfg: SceneEntityCfg,
+    riser_edges_m: tuple[float, ...] = (1.0, 1.25, 1.50),
+    tread_heights_m: tuple[float, ...] = (0.20, 0.40, 0.60),
+    activation_distance_m: float = 0.20,
+    lip_distance_m: float = 0.05,
+    clearance_margin_m: float = 0.05,
+    std: float = 0.01,
+    tanh_mult: float = 2.0,
+) -> torch.Tensor:
+    """Reward a moving swing foot for clearing the upcoming stair riser.
+
+    Unlike Unitree's flat-ground foot-clearance reward, this term uses
+    robot-relative stair geometry. Each riser gets its own required world-Z
+    target equal to the next tread height plus a small clearance margin.
+
+    Reward is active only shortly before and over each riser lip. Overshooting
+    the requested clearance is not penalized.
+    """
+    if len(riser_edges_m) != len(tread_heights_m):
+        raise ValueError(
+            "riser_edges_m and tread_heights_m must have equal length"
+        )
+
+    robot = env.scene[asset_cfg.name]
+
+    foot_pos_w = robot.data.body_pos_w[:, asset_cfg.body_ids, :]
+    foot_vel_w = robot.data.body_lin_vel_w[:, asset_cfg.body_ids, :]
+
+    foot_x = (
+        foot_pos_w[:, :, 0]
+        - env.scene.env_origins[:, 0].unsqueeze(1)
+    )
+    foot_z = (
+        foot_pos_w[:, :, 2]
+        - env.scene.env_origins[:, 2].unsqueeze(1)
+    )
+
+    horizontal_speed = torch.linalg.norm(
+        foot_vel_w[:, :, :2],
+        dim=2,
+    )
+    swing_gate = torch.tanh(tanh_mult * horizontal_speed)
+
+    reward = torch.zeros(
+        env.num_envs,
+        dtype=foot_z.dtype,
+        device=env.device,
+    )
+
+    for edge_m, tread_height_m in zip(
+        riser_edges_m,
+        tread_heights_m,
+        strict=True,
+    ):
+        active = (
+            (foot_x >= edge_m - activation_distance_m)
+            & (foot_x <= edge_m + lip_distance_m)
+        )
+
+        target_z = tread_height_m + clearance_margin_m
+        shortfall = torch.clamp(target_z - foot_z, min=0.0)
+
+        clearance_reward = torch.exp(
+            -torch.square(shortfall) / std
+        )
+
+        reward += torch.sum(
+            clearance_reward
+            * swing_gate
+            * active.to(foot_z.dtype),
+            dim=1,
+        )
+
+    return reward

@@ -1,0 +1,49 @@
+schema_version: 1
+
+experiment:
+  id: 009_pretrained_b_smoke
+  purpose: One-iteration smoke test of pretrained-B stair-aware swing-clearance adaptation
+  type: pretrained_finetuning_smoke
+  meaningful_stair_training: false
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/nominal_stairs_base.yaml
+  resolved_config_required: true
+
+execution:
+  environments: 32
+  maximum_iterations: 1
+
+reward_experiment:
+  active_stage: pretrained_B
+  rule: Preserve basic locomotion while adding stair progress and stair-aware swing-foot clearance
+
+rewards:
+  always_logged:
+    track_lin_vel_xy_raw:
+      active_weight: 1.0
+    upright_raw:
+      active_weight: -5.0
+    action_rate_raw:
+      active_weight: -0.05
+    waist_deviation_raw:
+      active_weight: -1.0
+    forward_progress_raw:
+      active_weight: 1.0
+    stair_progress_raw:
+      active_weight: 1.0
+
+  stage_plan:
+    pretrained_B:
+      enabled_terms:
+        track_lin_vel_xy_raw: 1.0
+        upright_raw: -5.0
+        action_rate_raw: -0.05
+        waist_deviation_raw: -1.0
+        forward_progress_raw: 1.0
+        stair_progress_raw: 1.0
+        stair_swing_clearance_raw: 1.0
+
+ppo:
+  initial_action_noise_std: 0.25
+  learning_rate: 0.0001

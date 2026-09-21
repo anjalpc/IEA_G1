@@ -17,6 +17,7 @@ RAW_TO_RUNTIME_TERM = {
     "track_lin_vel_xy_raw": "track_lin_vel_xy",
     "action_rate_raw": "action_rate",
     "waist_deviation_raw": "waist_deviation",
+    "stair_swing_clearance_raw": "stair_swing_clearance",
 }
 
 

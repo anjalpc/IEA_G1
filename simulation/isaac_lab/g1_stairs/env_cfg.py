@@ -259,6 +259,26 @@ class StairRewardsCfg:
         _UPSTREAM_CFG.rewards.joint_deviation_waists
     )
 
+    # Stair-specific swing-foot clearance. Unlike the upstream flat-ground
+    # reward, this targets the height of each upcoming tread.
+    stair_swing_clearance = RewTerm(
+        func=stair_rewards.stair_swing_clearance,
+        weight=1.0,
+        params={
+            "asset_cfg": SceneEntityCfg(
+                "robot",
+                body_names=".*ankle_roll.*",
+            ),
+            "riser_edges_m": (1.0, 1.25, 1.50),
+            "tread_heights_m": (0.20, 0.40, 0.60),
+            "activation_distance_m": 0.20,
+            "lip_distance_m": 0.05,
+            "clearance_margin_m": 0.05,
+            "std": 0.01,
+            "tanh_mult": 2.0,
+        },
+    )
+
     platform_entry = RewTerm(
         func=stair_rewards.progress_threshold_event,
         weight=1.0,
