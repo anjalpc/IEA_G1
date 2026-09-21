@@ -57,3 +57,6 @@ output/
 events.out.tfevents.*
 /experiments/g1_stairs/logs/
 /experiments/g1_stairs/outputs/
+
+# G1 stair experiment artifacts
+/experiments/g1_stairs/archive/
