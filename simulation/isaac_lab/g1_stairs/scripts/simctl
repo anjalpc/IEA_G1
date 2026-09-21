@@ -331,24 +331,25 @@ PY
     echo
     echo "Latest checkpoint:"
 
-    if [ -f "$LOG" ]; then
-        TRAIN_DIR="$(
-            grep -oE '/workspace/IEA_G1/(experiments/g1_stairs/)?logs/rsl_rl/[^[:space:]]+' "$LOG" \
-            | head -n 1 || true
-        )"
+    TRAIN_DIR="$(resolve_train_dir 2>/dev/null || true)"
 
-        if [ -n "$TRAIN_DIR" ]; then
-            HOST_DIR="$(train_dir_to_host "$TRAIN_DIR")"
-
-            find "$HOST_DIR" -maxdepth 1 -type f -name 'model_*.pt' \
+    if [ -n "$TRAIN_DIR" ] && [ -d "$TRAIN_DIR" ]; then
+        LATEST_CHECKPOINT="$(
+            find "$TRAIN_DIR" -maxdepth 1 -type f -name 'model_*.pt' \
                 2>/dev/null \
                 | sed -E 's/.*model_([0-9]+)\.pt/\1 &/' \
                 | sort -n \
                 | tail -n 1 \
                 | cut -d' ' -f2- || true
+        )"
+
+        if [ -n "$LATEST_CHECKPOINT" ]; then
+            echo "$LATEST_CHECKPOINT"
         else
-            echo "Not resolved yet."
+            echo "No checkpoint found yet."
         fi
+    else
+        echo "Not resolved yet."
     fi
 
     echo
