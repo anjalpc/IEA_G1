@@ -307,42 +307,36 @@ def main() -> None:
     def _traced_act(obs):
         _trace_counts["act"] += 1
         n = _trace_counts["act"]
-        if n <= 3:
-            print(f"[TRACE] alg.act #{n} ENTER", flush=True)
+        print(f"[TRACE] alg.act #{n} ENTER", flush=True)
         result = _original_alg_act(obs)
-        if n <= 3:
-            print(f"[TRACE] alg.act #{n} EXIT", flush=True)
+        print(f"[TRACE] alg.act #{n} EXIT", flush=True)
         return result
 
     def _traced_step(actions):
         _trace_counts["step"] += 1
         n = _trace_counts["step"]
-        if n <= 3:
-            print(f"[TRACE] env.step #{n} ENTER", flush=True)
+        print(f"[TRACE] env.step #{n} ENTER", flush=True)
         result = _original_env_step(actions)
-        if n <= 3:
-            print(f"[TRACE] env.step #{n} EXIT", flush=True)
+        print(f"[TRACE] env.step #{n} EXIT", flush=True)
         return result
 
     def _traced_process_env_step(obs, rewards, dones, extras):
         _trace_counts["process"] += 1
         n = _trace_counts["process"]
-        if n <= 3:
-            print(
-                f"[TRACE] process_env_step #{n} ENTER",
-                flush=True,
-            )
+        print(
+            f"[TRACE] process_env_step #{n} ENTER",
+            flush=True,
+        )
         result = _original_process_env_step(
             obs,
             rewards,
             dones,
             extras,
         )
-        if n <= 3:
-            print(
-                f"[TRACE] process_env_step #{n} EXIT",
-                flush=True,
-            )
+        print(
+            f"[TRACE] process_env_step #{n} EXIT",
+            flush=True,
+        )
         return result
 
     runner.env.get_observations = _traced_get_observations
@@ -350,6 +344,28 @@ def main() -> None:
     runner.alg.act = _traced_act
     runner.alg.process_env_step = _traced_process_env_step
 
+    _original_compute_returns = runner.alg.compute_returns
+    _original_update = runner.alg.update
+
+    def _traced_compute_returns(obs):
+        print("[TRACE] compute_returns ENTER", flush=True)
+        result = _original_compute_returns(obs)
+        print("[TRACE] compute_returns EXIT", flush=True)
+        return result
+
+    def _traced_update():
+        print("[TRACE] alg.update ENTER", flush=True)
+        result = _original_update()
+        print("[TRACE] alg.update EXIT", flush=True)
+        return result
+
+    runner.alg.compute_returns = _traced_compute_returns
+    runner.alg.update = _traced_update
+
+    print(
+        f"[TRACE] num_steps_per_env={runner.num_steps_per_env}",
+        flush=True,
+    )
     print("[TRACE] ENTERING runner.learn", flush=True)
     runner.learn(
         num_learning_iterations=agent_cfg.max_iterations,
