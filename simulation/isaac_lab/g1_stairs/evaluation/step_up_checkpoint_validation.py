@@ -21,6 +21,24 @@ from simulation.isaac_lab.g1_stairs.step_up_state import (
 )
 
 
+MINIMUM_CALIBRATION_SAMPLES = 10
+
+
+def calibration_ready(
+    loaded_force_samples: list[float],
+    base_height_samples: list[float],
+    *,
+    minimum_samples: int = MINIMUM_CALIBRATION_SAMPLES,
+) -> bool:
+    """Return whether both measured calibration populations are sufficient."""
+    if minimum_samples < 1:
+        raise ValueError("minimum_samples must be positive")
+    return (
+        len(loaded_force_samples) >= minimum_samples
+        and len(base_height_samples) >= minimum_samples
+    )
+
+
 @dataclass(frozen=True)
 class AppliedReplayConfig:
     riser_height_m: float
@@ -203,13 +221,13 @@ class StepUpCheckpointValidator:
         if self.detector is not None:
             return
 
-        if len(self.loaded_force_samples) < 10:
+        if len(self.loaded_force_samples) < MINIMUM_CALIBRATION_SAMPLES:
             raise RuntimeError(
                 "insufficient loaded-foot samples for support calibration: "
                 f"{len(self.loaded_force_samples)}"
             )
 
-        if len(self.base_height_samples) < 10:
+        if len(self.base_height_samples) < MINIMUM_CALIBRATION_SAMPLES:
             raise RuntimeError(
                 "insufficient base-height samples for calibration: "
                 f"{len(self.base_height_samples)}"
@@ -271,7 +289,19 @@ class StepUpCheckpointValidator:
         if self.detector is None:
             self._calibration_sample()
 
-            if base_x > self.calibration_end_x_m:
+            # Begin classification as soon as enough genuine approach data
+            # exists. Waiting for the robot to cross a fixed X threshold can
+            # leave failed policies uncalibrated when they stall or fall early.
+            if calibration_ready(
+                self.loaded_force_samples,
+                self.base_height_samples,
+            ):
+                self._finish_calibration()
+
+            elif base_x > self.calibration_end_x_m:
+                # The calibration window has ended without sufficient valid
+                # upright stance data. Fail immediately with the measured
+                # sample counts instead of deferring the error to summary().
                 self._finish_calibration()
 
             # Do not classify samples used to establish calibration.

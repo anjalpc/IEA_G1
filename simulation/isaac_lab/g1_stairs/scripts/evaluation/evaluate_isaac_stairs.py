@@ -10,6 +10,7 @@ import json
 import os
 from pathlib import Path
 import sys
+import traceback
 
 from isaaclab.app import AppLauncher
 
@@ -619,5 +620,10 @@ def main() -> None:
 if __name__ == "__main__":
     try:
         main()
+    except BaseException:
+        # Isaac/Omniverse shutdown can block. Emit the original evaluator
+        # failure before closing the application so it cannot be hidden.
+        traceback.print_exc()
+        raise
     finally:
         simulation_app.close()
