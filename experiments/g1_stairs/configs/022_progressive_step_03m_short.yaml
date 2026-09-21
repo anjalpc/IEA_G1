@@ -1,0 +1,62 @@
+schema_version: 1
+
+experiment:
+  id: 022_progressive_step_03m_short
+  purpose: Validate normal-start 3 cm stair curriculum with Unitree locomotion transfer
+  type: progressive_step_short
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/nominal_stairs_base.yaml
+  resolved_config_required: true
+
+execution:
+  environments: 128
+  maximum_iterations: 100
+  training_seed: 42
+
+terrain:
+  riser_height_m: 0.03
+  tread_depth_m: 0.25
+  step_count: 1
+
+command:
+  forward_velocity_mps: 0.22
+
+reward_experiment:
+  active_stage: progressive_step
+  rule: Preserve Unitree walking and shape swing clearance, tread entry, and physical tread contact
+
+rewards:
+  always_logged:
+    track_lin_vel_xy_raw:
+      active_weight: 1.0
+    upright_raw:
+      active_weight: -5.0
+    action_rate_raw:
+      active_weight: -0.05
+    waist_deviation_raw:
+      active_weight: -1.0
+    curriculum_riser_clearance_raw:
+      active_weight: 0.75
+    curriculum_foot_over_tread_raw:
+      active_weight: 0.50
+    validated_tread_contact_raw:
+      active_weight: 1.50
+
+  stage_plan:
+    progressive_step:
+      enabled_terms:
+        track_lin_vel_xy_raw: 1.0
+        upright_raw: -5.0
+        action_rate_raw: -0.05
+        waist_deviation_raw: -1.0
+        curriculum_riser_clearance_raw: 0.75
+        curriculum_foot_over_tread_raw: 0.50
+        validated_tread_contact_raw: 1.50
+
+ppo:
+  initial_action_noise_std: 0.15
+  learning_rate: 0.0001
+  learning_rate_schedule: adaptive
+  desired_kl: 0.01
