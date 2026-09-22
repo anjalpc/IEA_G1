@@ -178,6 +178,7 @@ class StaircaseGeometryTest(unittest.TestCase):
             "curriculum_riser_clearance",
             "curriculum_foot_over_tread",
             "pre_riser_foot_lift",
+            "distance_target_foot_lift",
             "riser_crossing_clearance",
             "riser_face_strike_proxy",
                 "base_above_transition",

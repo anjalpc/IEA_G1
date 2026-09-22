@@ -14,6 +14,7 @@ from .reward_registry import (
 
 
 RAW_TO_RUNTIME_TERM = {
+    "distance_target_foot_lift_raw": "distance_target_foot_lift",
     "forward_progress_raw": "forward_progress",
     "stair_progress_raw": "stair_progress",
     "upright_raw": "upright",

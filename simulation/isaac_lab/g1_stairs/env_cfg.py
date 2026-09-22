@@ -375,6 +375,24 @@ class StairRewardsCfg:
         },
     )
 
+    distance_target_foot_lift = RewTerm(
+        func=stair_rewards.distance_target_foot_lift,
+        weight=0.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "foot_body_names": [
+                "left_ankle_roll_link",
+                "right_ankle_roll_link",
+            ],
+            "first_riser_x_m": 1.0,
+            "nominal_ankle_height_m": 0.10,
+            "lookahead_m": 0.45,
+            "safety_clearance_m": 0.06,
+            "min_forward_speed_mps": 0.03,
+            "vertical_speed_scale_mps": 0.30,
+        },
+    )
+
     riser_crossing_clearance = RewTerm(
         func=stair_rewards.riser_crossing_clearance,
         weight=2.0,

@@ -1241,3 +1241,101 @@ class halfway_step_transition(ManagerTermBase):
             runtime.events[transition].to(torch.float)
             / env.step_dt
         )
+
+def distance_target_foot_lift(
+    env,
+    asset_cfg,
+    foot_body_names,
+    first_riser_x_m: float = 1.0,
+    nominal_ankle_height_m: float = 0.10,
+    lookahead_m: float = 0.45,
+    safety_clearance_m: float = 0.06,
+    min_forward_speed_mps: float = 0.03,
+    vertical_speed_scale_mps: float = 0.30,
+):
+    """Distance-conditioned swing-foot target-height reward."""
+
+    import torch
+
+    robot = env.scene[asset_cfg.name]
+
+    terrain_generator = env.scene.terrain.cfg.terrain_generator
+    stair_cfg = terrain_generator.sub_terrains["three_step_ascent"]
+    riser_height = float(stair_cfg.riser_height_range[0])
+
+    body_ids = robot.find_bodies(foot_body_names)[0]
+
+    foot_pos = robot.data.body_pos_w[:, body_ids, :]
+    foot_vel = robot.data.body_lin_vel_w[:, body_ids, :]
+
+    origin = env.scene.env_origins
+
+    foot_x = foot_pos[..., 0] - origin[:, None, 0]
+    foot_z = foot_pos[..., 2] - origin[:, None, 2]
+
+    distance_to_riser = first_riser_x_m - foot_x
+
+    in_window = (
+        (distance_to_riser > 0.0)
+        & (distance_to_riser <= lookahead_m)
+    )
+
+    moving_forward = foot_vel[..., 0] >= min_forward_speed_mps
+
+    proximity = torch.clamp(
+        1.0 - distance_to_riser / max(lookahead_m, 1.0e-6),
+        0.0,
+        1.0,
+    )
+
+    required_extra_height = (
+        proximity.square()
+        * (riser_height + safety_clearance_m)
+    )
+
+    achieved_extra_height = torch.clamp(
+        foot_z - nominal_ankle_height_m,
+        min=0.0,
+    )
+
+    required_for_score = torch.clamp(
+        required_extra_height,
+        min=0.02,
+    )
+
+    height_score = torch.clamp(
+        achieved_extra_height / required_for_score,
+        0.0,
+        1.0,
+    )
+
+    upward_velocity_score = torch.clamp(
+        foot_vel[..., 2]
+        / max(vertical_speed_scale_mps, 1.0e-6),
+        0.0,
+        1.0,
+    )
+
+    trajectory_score = (
+        0.85 * height_score
+        + 0.15 * upward_velocity_score
+    )
+
+    approach_weight = 0.25 + 0.75 * proximity
+
+    per_foot = (
+        in_window.float()
+        * moving_forward.float()
+        * approach_weight
+        * trajectory_score
+    )
+
+    projected_gravity = robot.data.projected_gravity_b
+
+    upright_gate = torch.clamp(
+        (-projected_gravity[:, 2] - 0.80) / 0.20,
+        0.0,
+        1.0,
+    )
+
+    return torch.max(per_foot, dim=1).values * upright_gate
