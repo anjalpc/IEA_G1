@@ -181,3 +181,121 @@ class reference_joint_velocity_tracking(ManagerTermBase):
         variance = max(float(std_radps) ** 2, 1.0e-8)
 
         return torch.exp(-mse / variance)
+
+
+class reference_joint_position_error(ManagerTermBase):
+    """29-D joint-position error q_ref - q_actual."""
+
+    def __init__(self, cfg, env: "ManagerBasedRLEnv"):
+        super().__init__(cfg, env)
+
+        params = cfg.params
+        motion = load_reference_motion(
+            _resolve_path(params["metadata_path"])
+        )
+
+        self._start_frame = int(params.get("start_frame", 0))
+        self._end_frame = int(
+            params.get("end_frame", motion.frame_count - 1)
+        )
+
+        self._reference = torch.as_tensor(
+            motion.dof_pos,
+            dtype=torch.float32,
+            device=env.device,
+        )
+
+        robot = env.scene["robot"]
+        self._joint_ids = _joint_ids(robot)
+
+    def __call__(
+        self,
+        env: "ManagerBasedRLEnv",
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+        metadata_path: str = "",
+        start_frame: int = 0,
+        end_frame: int = 260,
+    ) -> torch.Tensor:
+        del metadata_path, start_frame, end_frame
+
+        frame = torch.clamp(
+            env.episode_length_buf + self._start_frame,
+            min=self._start_frame,
+            max=self._end_frame,
+        ).long()
+
+        robot = env.scene[asset_cfg.name]
+
+        q_ref = self._reference[frame]
+        q_actual = robot.data.joint_pos[:, self._joint_ids]
+
+        return q_ref - q_actual
+
+
+class reference_joint_velocity_error(ManagerTermBase):
+    """29-D joint-velocity error dq_ref - dq_actual."""
+
+    def __init__(self, cfg, env: "ManagerBasedRLEnv"):
+        super().__init__(cfg, env)
+
+        params = cfg.params
+        motion = load_reference_motion(
+            _resolve_path(params["metadata_path"])
+        )
+
+        self._start_frame = int(params.get("start_frame", 0))
+        self._end_frame = int(
+            params.get("end_frame", motion.frame_count - 1)
+        )
+
+        self._reference = torch.as_tensor(
+            motion.dof_vel,
+            dtype=torch.float32,
+            device=env.device,
+        )
+
+        robot = env.scene["robot"]
+        self._joint_ids = _joint_ids(robot)
+
+    def __call__(
+        self,
+        env: "ManagerBasedRLEnv",
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+        metadata_path: str = "",
+        start_frame: int = 0,
+        end_frame: int = 260,
+    ) -> torch.Tensor:
+        del metadata_path, start_frame, end_frame
+
+        frame = torch.clamp(
+            env.episode_length_buf + self._start_frame,
+            min=self._start_frame,
+            max=self._end_frame,
+        ).long()
+
+        robot = env.scene[asset_cfg.name]
+
+        dq_ref = self._reference[frame]
+        dq_actual = robot.data.joint_vel[:, self._joint_ids]
+
+        return dq_ref - dq_actual
+
+
+def reference_phase(
+    env: "ManagerBasedRLEnv",
+    start_frame: int = 0,
+    end_frame: int = 260,
+) -> torch.Tensor:
+    """Normalized reference phase in [0, 1]."""
+
+    length = max(end_frame - start_frame, 1)
+
+    frame = torch.clamp(
+        env.episode_length_buf + start_frame,
+        min=start_frame,
+        max=end_frame,
+    ).to(torch.float32)
+
+    phase = (frame - float(start_frame)) / float(length)
+
+    return phase.unsqueeze(-1)

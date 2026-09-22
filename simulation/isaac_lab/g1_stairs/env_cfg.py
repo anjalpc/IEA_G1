@@ -121,6 +121,11 @@ class StairObservationsCfg(_UPSTREAM.ObservationsCfg):
             history_length=1,
         )
 
+        # Dynamically enabled only for reference-conditioned experiments.
+        reference_joint_position_error = None
+        reference_joint_velocity_error = None
+        reference_phase = None
+
         def __post_init__(self):
             super().__post_init__()
 
@@ -149,6 +154,11 @@ class StairObservationsCfg(_UPSTREAM.ObservationsCfg):
             clip=(-1.0, 1.0),
             history_length=1,
         )
+
+        # Dynamically enabled only for reference-conditioned experiments.
+        reference_joint_position_error = None
+        reference_joint_velocity_error = None
+        reference_phase = None
 
         def __post_init__(self):
             super().__post_init__()

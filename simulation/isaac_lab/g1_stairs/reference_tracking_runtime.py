@@ -4,6 +4,48 @@ from __future__ import annotations
 
 from typing import Any
 
+from isaaclab.managers import ObservationTermCfg as ObsTerm
+from isaaclab.managers import SceneEntityCfg
+
+from . import reference_tracking
+
+
+def _reference_observation_terms(
+    metadata: str,
+    start_frame: int,
+    end_frame: int,
+):
+    common = {
+        "asset_cfg": SceneEntityCfg("robot"),
+        "metadata_path": metadata,
+        "start_frame": start_frame,
+        "end_frame": end_frame,
+    }
+
+    return {
+        "reference_joint_position_error": ObsTerm(
+            func=reference_tracking.reference_joint_position_error,
+            params=dict(common),
+            clip=(-3.0, 3.0),
+            history_length=1,
+        ),
+        "reference_joint_velocity_error": ObsTerm(
+            func=reference_tracking.reference_joint_velocity_error,
+            params=dict(common),
+            clip=(-20.0, 20.0),
+            history_length=1,
+        ),
+        "reference_phase": ObsTerm(
+            func=reference_tracking.reference_phase,
+            params={
+                "start_frame": start_frame,
+                "end_frame": end_frame,
+            },
+            clip=(0.0, 1.0),
+            history_length=1,
+        ),
+    }
+
 
 def apply_reference_tracking_config(
     env_cfg: Any,
@@ -41,10 +83,7 @@ def apply_reference_tracking_config(
 
     rewards = env_cfg.rewards
 
-    pos_term = rewards.reference_joint_position_tracking
-    vel_term = rewards.reference_joint_velocity_tracking
-
-    pos_term.params.update(
+    rewards.reference_joint_position_tracking.params.update(
         {
             "metadata_path": metadata,
             "start_frame": start_frame,
@@ -53,7 +92,7 @@ def apply_reference_tracking_config(
         }
     )
 
-    vel_term.params.update(
+    rewards.reference_joint_velocity_tracking.params.update(
         {
             "metadata_path": metadata,
             "start_frame": start_frame,
@@ -62,11 +101,35 @@ def apply_reference_tracking_config(
         }
     )
 
+    conditioning_enabled = bool(
+        cfg.get("conditioning_enabled", False)
+    )
+
+    if conditioning_enabled:
+        terms = _reference_observation_terms(
+            metadata,
+            start_frame,
+            end_frame,
+        )
+
+        for group_name in ("policy", "critic"):
+            group = getattr(
+                env_cfg.observations,
+                group_name,
+            )
+
+            for name, term in terms.items():
+                setattr(group, name, term)
+
     return {
         "enabled": True,
+        "conditioning_enabled": conditioning_enabled,
         "metadata": metadata,
         "start_frame": start_frame,
         "end_frame": end_frame,
         "joint_position_std_rad": position_std,
         "joint_velocity_std_radps": velocity_std,
+        "conditioning_observations": (
+            59 if conditioning_enabled else 0
+        ),
     }

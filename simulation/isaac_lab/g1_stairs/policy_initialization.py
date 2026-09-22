@@ -67,8 +67,26 @@ def initialize_actor_from_unitree_onnx(
     if len(actor) != 7:
         raise RuntimeError(f"Expected 7 actor modules, got {len(actor)}")
 
+    runtime_input_dim = int(actor[0].weight.shape[1])
+
+    if tuple(actor[0].weight.shape) != (
+        512,
+        runtime_input_dim,
+    ):
+        raise RuntimeError(
+            "Unexpected first actor layer shape: "
+            f"{tuple(actor[0].weight.shape)}"
+        )
+
+    if runtime_input_dim < LOCOMOTION_OBS_DIM:
+        raise RuntimeError(
+            "Runtime actor has fewer observations than the "
+            f"{LOCOMOTION_OBS_DIM}-D pretrained locomotion actor: "
+            f"{runtime_input_dim}"
+        )
+
     expected_runtime_shapes = {
-        0: ((512, 667), (512,)),
+        0: ((512, runtime_input_dim), (512,)),
         2: ((256, 512), (256,)),
         4: ((128, 256), (128,)),
         6: ((29, 128), (29,)),
@@ -119,7 +137,7 @@ def initialize_actor_from_unitree_onnx(
             )
 
     # Hard check that the new terrain columns really start at zero.
-    terrain_max_abs = float(
+    new_columns_max_abs = float(
         actor[0].weight[:, LOCOMOTION_OBS_DIM:]
         .detach()
         .abs()
@@ -127,9 +145,10 @@ def initialize_actor_from_unitree_onnx(
         .cpu()
     )
 
-    if terrain_max_abs != 0.0:
+    if new_columns_max_abs != 0.0:
         raise RuntimeError(
-            f"Terrain columns were not zero initialized: {terrain_max_abs}"
+            "New observation columns were not zero initialized: "
+            f"{new_columns_max_abs}"
         )
 
     metadata = {
@@ -140,7 +159,11 @@ def initialize_actor_from_unitree_onnx(
         "terrain_observations": TERRAIN_OBS_DIM,
         "stair_observations": STAIR_OBS_DIM,
         "actions": ACTION_DIM,
-        "terrain_columns_max_abs": terrain_max_abs,
+        "runtime_observations": runtime_input_dim,
+        "new_observations": (
+            runtime_input_dim - LOCOMOTION_OBS_DIM
+        ),
+        "new_columns_max_abs": new_columns_max_abs,
     }
 
     print("[INFO] Policy initialization:", metadata, flush=True)
