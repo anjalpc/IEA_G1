@@ -125,6 +125,10 @@ class StairObservationsCfg(_UPSTREAM.ObservationsCfg):
         reference_joint_position_error = None
         reference_joint_velocity_error = None
         reference_phase = None
+        reference_root_position_error = None
+        reference_root_orientation_error = None
+        reference_root_linear_velocity_error = None
+        reference_root_angular_velocity_error = None
 
         def __post_init__(self):
             super().__post_init__()
@@ -159,6 +163,10 @@ class StairObservationsCfg(_UPSTREAM.ObservationsCfg):
         reference_joint_position_error = None
         reference_joint_velocity_error = None
         reference_phase = None
+        reference_root_position_error = None
+        reference_root_orientation_error = None
+        reference_root_linear_velocity_error = None
+        reference_root_angular_velocity_error = None
 
         def __post_init__(self):
             super().__post_init__()
@@ -221,6 +229,8 @@ class StairEventsCfg(_UPSTREAM.EventCfg):
         mode="reset",
         params={"position_range": (1.0, 1.0), "velocity_range": (0.0, 0.0)},
     )
+    reference_state_reset = None
+
     base_external_force_torque = None
     physics_material = None
     add_base_mass = None
@@ -266,6 +276,66 @@ class StairRewardsCfg:
             "start_frame": 0,
             "end_frame": 260,
             "std_radps": 2.0,
+        },
+    )
+
+    reference_root_position_tracking = RewTerm(
+        func=reference_rewards.reference_root_position_tracking,
+        weight=0.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "metadata_path": (
+                "experiments/g1_stairs/reference_data/"
+                "stair_ascent_reference.yaml"
+            ),
+            "start_frame": 0,
+            "end_frame": 246,
+            "std_m": 0.15,
+        },
+    )
+
+    reference_root_orientation_tracking = RewTerm(
+        func=reference_rewards.reference_root_orientation_tracking,
+        weight=0.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "metadata_path": (
+                "experiments/g1_stairs/reference_data/"
+                "stair_ascent_reference.yaml"
+            ),
+            "start_frame": 0,
+            "end_frame": 246,
+            "std_rad": 0.35,
+        },
+    )
+
+    reference_root_linear_velocity_tracking = RewTerm(
+        func=reference_rewards.reference_root_linear_velocity_tracking,
+        weight=0.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "metadata_path": (
+                "experiments/g1_stairs/reference_data/"
+                "stair_ascent_reference.yaml"
+            ),
+            "start_frame": 0,
+            "end_frame": 246,
+            "std_mps": 0.50,
+        },
+    )
+
+    reference_root_angular_velocity_tracking = RewTerm(
+        func=reference_rewards.reference_root_angular_velocity_tracking,
+        weight=0.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "metadata_path": (
+                "experiments/g1_stairs/reference_data/"
+                "stair_ascent_reference.yaml"
+            ),
+            "start_frame": 0,
+            "end_frame": 246,
+            "std_radps": 1.0,
         },
     )
 

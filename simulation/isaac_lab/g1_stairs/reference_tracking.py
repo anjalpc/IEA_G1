@@ -299,3 +299,372 @@ def reference_phase(
     phase = (frame - float(start_frame)) / float(length)
 
     return phase.unsqueeze(-1)
+
+
+# =====================================================================
+# Whole-body reference state
+# =====================================================================
+
+from isaaclab.utils import math as math_utils
+
+from .reference_state import load_reference_state
+
+
+class _ReferenceRootTerm(ManagerTermBase):
+    def __init__(self, cfg, env: "ManagerBasedRLEnv"):
+        super().__init__(cfg, env)
+
+        params = cfg.params
+
+        state = load_reference_state(
+            params["metadata_path"]
+        )
+
+        self._start_frame = int(
+            params.get("start_frame", 0)
+        )
+
+        self._end_frame = int(
+            params.get(
+                "end_frame",
+                state.frame_count - 1,
+            )
+        )
+
+        device = env.device
+
+        self._root_pos = torch.as_tensor(
+            state.root_pos_task,
+            dtype=torch.float32,
+            device=device,
+        )
+
+        self._root_quat = torch.as_tensor(
+            state.root_quat_task,
+            dtype=torch.float32,
+            device=device,
+        )
+
+        self._root_lin_vel = torch.as_tensor(
+            state.root_lin_vel_task,
+            dtype=torch.float32,
+            device=device,
+        )
+
+        self._root_ang_vel = torch.as_tensor(
+            state.root_ang_vel_task,
+            dtype=torch.float32,
+            device=device,
+        )
+
+    def _frame(
+        self,
+        env: "ManagerBasedRLEnv",
+    ) -> torch.Tensor:
+        return torch.clamp(
+            env.episode_length_buf
+            + self._start_frame,
+            min=self._start_frame,
+            max=self._end_frame,
+        ).long()
+
+    def _target_position(
+        self,
+        env: "ManagerBasedRLEnv",
+        robot,
+        frame: torch.Tensor,
+    ) -> torch.Tensor:
+        target = self._root_pos[
+            frame
+        ].clone()
+
+        # Reference XY is applied relative to the configured
+        # task start so every parallel environment receives
+        # the same motion in its own world tile.
+        reference_xy0 = self._root_pos[
+            self._start_frame,
+            :2,
+        ]
+
+        delta_xy = (
+            target[:, :2]
+            - reference_xy0.unsqueeze(0)
+        )
+
+        default_root = (
+            robot.data.default_root_state[
+                :, :3
+            ]
+            + env.scene.env_origins
+        )
+
+        target[:, :2] = (
+            default_root[:, :2]
+            + delta_xy
+        )
+
+        # Reference Z is absolute relative to local ground.
+        target[:, 2] = (
+            env.scene.env_origins[:, 2]
+            + target[:, 2]
+        )
+
+        return target
+
+
+class reference_root_position_error(
+    _ReferenceRootTerm
+):
+    """3-D reference pelvis/root position error."""
+
+    def __call__(
+        self,
+        env: "ManagerBasedRLEnv",
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+        metadata_path: str = "",
+        start_frame: int = 0,
+        end_frame: int = 246,
+    ) -> torch.Tensor:
+        del metadata_path, start_frame, end_frame
+
+        robot = env.scene[
+            asset_cfg.name
+        ]
+
+        frame = self._frame(env)
+
+        target = self._target_position(
+            env,
+            robot,
+            frame,
+        )
+
+        return (
+            target
+            - robot.data.root_link_pos_w
+        )
+
+
+class reference_root_orientation_error(
+    _ReferenceRootTerm
+):
+    """3-D axis-angle orientation error."""
+
+    def __call__(
+        self,
+        env: "ManagerBasedRLEnv",
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+        metadata_path: str = "",
+        start_frame: int = 0,
+        end_frame: int = 246,
+    ) -> torch.Tensor:
+        del metadata_path, start_frame, end_frame
+
+        robot = env.scene[
+            asset_cfg.name
+        ]
+
+        frame = self._frame(env)
+
+        target = self._root_quat[
+            frame
+        ]
+
+        return math_utils.quat_box_minus(
+            target,
+            robot.data.root_link_quat_w,
+        )
+
+
+class reference_root_linear_velocity_error(
+    _ReferenceRootTerm
+):
+    """3-D world-frame pelvis/root linear-velocity error."""
+
+    def __call__(
+        self,
+        env: "ManagerBasedRLEnv",
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+        metadata_path: str = "",
+        start_frame: int = 0,
+        end_frame: int = 246,
+    ) -> torch.Tensor:
+        del metadata_path, start_frame, end_frame
+
+        robot = env.scene[
+            asset_cfg.name
+        ]
+
+        frame = self._frame(env)
+
+        return (
+            self._root_lin_vel[
+                frame
+            ]
+            - robot.data.root_link_lin_vel_w
+        )
+
+
+class reference_root_angular_velocity_error(
+    _ReferenceRootTerm
+):
+    """3-D world-frame pelvis/root angular-velocity error."""
+
+    def __call__(
+        self,
+        env: "ManagerBasedRLEnv",
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+        metadata_path: str = "",
+        start_frame: int = 0,
+        end_frame: int = 246,
+    ) -> torch.Tensor:
+        del metadata_path, start_frame, end_frame
+
+        robot = env.scene[
+            asset_cfg.name
+        ]
+
+        frame = self._frame(env)
+
+        return (
+            self._root_ang_vel[
+                frame
+            ]
+            - robot.data.root_link_ang_vel_w
+        )
+
+
+class reference_root_position_tracking(
+    reference_root_position_error
+):
+    def __call__(
+        self,
+        env: "ManagerBasedRLEnv",
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+        metadata_path: str = "",
+        start_frame: int = 0,
+        end_frame: int = 246,
+        std_m: float = 0.15,
+    ) -> torch.Tensor:
+        error = super().__call__(
+            env,
+            asset_cfg,
+            metadata_path,
+            start_frame,
+            end_frame,
+        )
+
+        squared = torch.sum(
+            torch.square(error),
+            dim=1,
+        )
+
+        return torch.exp(
+            -squared
+            / max(
+                float(std_m) ** 2,
+                1.0e-8,
+            )
+        )
+
+
+class reference_root_orientation_tracking(
+    reference_root_orientation_error
+):
+    def __call__(
+        self,
+        env: "ManagerBasedRLEnv",
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+        metadata_path: str = "",
+        start_frame: int = 0,
+        end_frame: int = 246,
+        std_rad: float = 0.35,
+    ) -> torch.Tensor:
+        error = super().__call__(
+            env,
+            asset_cfg,
+            metadata_path,
+            start_frame,
+            end_frame,
+        )
+
+        squared = torch.sum(
+            torch.square(error),
+            dim=1,
+        )
+
+        return torch.exp(
+            -squared
+            / max(
+                float(std_rad) ** 2,
+                1.0e-8,
+            )
+        )
+
+
+class reference_root_linear_velocity_tracking(
+    reference_root_linear_velocity_error
+):
+    def __call__(
+        self,
+        env: "ManagerBasedRLEnv",
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+        metadata_path: str = "",
+        start_frame: int = 0,
+        end_frame: int = 246,
+        std_mps: float = 0.50,
+    ) -> torch.Tensor:
+        error = super().__call__(
+            env,
+            asset_cfg,
+            metadata_path,
+            start_frame,
+            end_frame,
+        )
+
+        mse = torch.mean(
+            torch.square(error),
+            dim=1,
+        )
+
+        return torch.exp(
+            -mse
+            / max(
+                float(std_mps) ** 2,
+                1.0e-8,
+            )
+        )
+
+
+class reference_root_angular_velocity_tracking(
+    reference_root_angular_velocity_error
+):
+    def __call__(
+        self,
+        env: "ManagerBasedRLEnv",
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+        metadata_path: str = "",
+        start_frame: int = 0,
+        end_frame: int = 246,
+        std_radps: float = 1.0,
+    ) -> torch.Tensor:
+        error = super().__call__(
+            env,
+            asset_cfg,
+            metadata_path,
+            start_frame,
+            end_frame,
+        )
+
+        mse = torch.mean(
+            torch.square(error),
+            dim=1,
+        )
+
+        return torch.exp(
+            -mse
+            / max(
+                float(std_radps) ** 2,
+                1.0e-8,
+            )
+        )
