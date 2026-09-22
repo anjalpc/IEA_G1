@@ -71,11 +71,32 @@ def apply_reference_tracking_config(
 
     start_frame = int(cfg.get("start_frame", 0))
     end_frame = int(cfg.get("end_frame", 260))
+    frequency_hz = float(cfg.get("frequency_hz", 50.0))
 
     if end_frame < start_frame:
         raise ValueError(
             "reference_tracking.end_frame must be >= start_frame"
         )
+
+    if frequency_hz <= 0.0:
+        raise ValueError(
+            "reference_tracking.frequency_hz must be > 0"
+        )
+
+    terminate_at_reference_end = bool(
+        cfg.get("terminate_at_reference_end", False)
+    )
+
+    reference_control_steps = (
+        end_frame - start_frame + 1
+    )
+
+    reference_duration_s = (
+        reference_control_steps / frequency_hz
+    )
+
+    if terminate_at_reference_end:
+        env_cfg.episode_length_s = reference_duration_s
 
     position_std = float(
         cfg.get("joint_position_std_rad", 0.35)
@@ -180,6 +201,10 @@ def apply_reference_tracking_config(
         "metadata": metadata,
         "start_frame": start_frame,
         "end_frame": end_frame,
+        "frequency_hz": frequency_hz,
+        "reference_control_steps": reference_control_steps,
+        "reference_duration_s": reference_duration_s,
+        "terminate_at_reference_end": terminate_at_reference_end,
         "joint_position_std_rad": position_std,
         "joint_velocity_std_radps": velocity_std,
         "conditioning_observations": (
