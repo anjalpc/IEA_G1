@@ -161,7 +161,10 @@ def active_reward_weights(resolved: dict[str, Any]) -> dict[str, float]:
 
     return weights
 
-def apply_resolved_rewards(env_cfg: Any, resolved: dict[str, Any]) -> dict[str, float]:
+def apply_resolved_rewards(
+    env_cfg: Any,
+    resolved: dict[str, Any],
+) -> dict[str, float]:
     """Make the runtime reward set exactly match the resolved experiment."""
     weights = active_reward_weights(resolved)
 
@@ -189,22 +192,29 @@ def apply_resolved_rewards(env_cfg: Any, resolved: dict[str, Any]) -> dict[str, 
     }
 
     missing = sorted(set(weights) - available)
+
     if missing:
         raise ValueError(
             "resolved experiment activates reward terms missing from "
             f"StairRewardsCfg: {', '.join(missing)}"
         )
 
-    for runtime_name in available:
-        term = getattr(rewards_cfg, runtime_name)
+    for reward_name in available:
+        term = getattr(rewards_cfg, reward_name)
 
-        if runtime_name in weights:
+        if reward_name in weights:
             if term is None:
                 raise ValueError(
-                    f"runtime reward {runtime_name} is not configured"
+                    f"runtime reward {reward_name} is not configured"
                 )
-            term.weight = weights[runtime_name]
+
+            term.weight = weights[reward_name]
+
         else:
-            setattr(rewards_cfg, runtime_name, None)
+            setattr(
+                rewards_cfg,
+                reward_name,
+                None,
+            )
 
     return weights
