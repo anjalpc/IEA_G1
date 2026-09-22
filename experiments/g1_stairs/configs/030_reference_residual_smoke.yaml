@@ -1,0 +1,52 @@
+schema_version: 1
+
+experiment:
+  id: 030_reference_residual_smoke
+  purpose: >
+    Validate bounded residual joint control around the
+    reference stair motion while retaining reference-conditioned
+    observations and pretrained Unitree actor initialization.
+  type: reference_residual_smoke
+  meaningful_stair_training: false
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/nominal_stairs_base.yaml
+  resolved_config_required: true
+
+execution:
+  environments: 32
+  maximum_iterations: 2
+  training_seed: 42
+
+reference_tracking:
+  enabled: true
+  conditioning_enabled: true
+
+  metadata: experiments/g1_stairs/reference_data/stair_ascent_reference.yaml
+
+  start_frame: 0
+  end_frame: 260
+  frequency_hz: 50
+
+  joint_position_std_rad: 0.35
+  joint_velocity_std_radps: 2.0
+
+  residual_control:
+    enabled: true
+    scale_rad: 0.15
+    raw_action_clip: 1.0
+
+reward_experiment:
+  active_stage: reference_residual_smoke
+
+  rewards:
+    stage_plan:
+      reference_residual_smoke:
+        reference_joint_position_tracking: 4.0
+        reference_joint_velocity_tracking: 0.5
+        upright: -1.0
+        action_rate: -0.01
+        forward_progress: 0.2
+
+launch_gates:
+  allow_launch: true

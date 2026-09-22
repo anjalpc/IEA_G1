@@ -8,6 +8,10 @@ from isaaclab.managers import ObservationTermCfg as ObsTerm
 from isaaclab.managers import SceneEntityCfg
 
 from . import reference_tracking
+from .contracts import BODY_JOINTS
+from .reference_residual_action import (
+    ReferenceResidualJointPositionActionCfg,
+)
 
 
 def _reference_observation_terms(
@@ -101,6 +105,55 @@ def apply_reference_tracking_config(
         }
     )
 
+    residual_cfg = cfg.get(
+        "residual_control",
+        {},
+    )
+
+    if residual_cfg is None:
+        residual_cfg = {}
+
+    if not isinstance(residual_cfg, dict):
+        raise ValueError(
+            "reference_tracking.residual_control "
+            "must be a mapping"
+        )
+
+    residual_enabled = bool(
+        residual_cfg.get("enabled", False)
+    )
+
+    residual_scale_rad = float(
+        residual_cfg.get(
+            "scale_rad",
+            0.15,
+        )
+    )
+
+    raw_action_clip = float(
+        residual_cfg.get(
+            "raw_action_clip",
+            1.0,
+        )
+    )
+
+    if residual_enabled:
+        env_cfg.actions.JointPositionAction = (
+            ReferenceResidualJointPositionActionCfg(
+                asset_name="robot",
+                joint_names=list(BODY_JOINTS),
+                preserve_order=True,
+                scale=1.0,
+                offset=0.0,
+                use_default_offset=False,
+                metadata_path=metadata,
+                start_frame=start_frame,
+                end_frame=end_frame,
+                residual_scale_rad=residual_scale_rad,
+                raw_action_clip=raw_action_clip,
+            )
+        )
+
     conditioning_enabled = bool(
         cfg.get("conditioning_enabled", False)
     )
@@ -131,5 +184,16 @@ def apply_reference_tracking_config(
         "joint_velocity_std_radps": velocity_std,
         "conditioning_observations": (
             59 if conditioning_enabled else 0
+        ),
+        "residual_control_enabled": residual_enabled,
+        "residual_scale_rad": (
+            residual_scale_rad
+            if residual_enabled
+            else None
+        ),
+        "raw_action_clip": (
+            raw_action_clip
+            if residual_enabled
+            else None
         ),
     }
