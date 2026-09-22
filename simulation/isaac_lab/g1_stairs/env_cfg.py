@@ -28,6 +28,7 @@ from .contracts import (
 from .isaac_terrain import ThreeStepStairsCfg
 from .robot_cfg import G1_STAIRS_ROBOT_CFG
 from . import rewards as stair_rewards
+from . import reference_tracking as reference_rewards
 
 
 _UPSTREAM = importlib.import_module(
@@ -227,6 +228,36 @@ class StairCurriculumCfg(_UPSTREAM.CurriculumCfg):
 @configclass
 class StairRewardsCfg:
     """Phase 12 reward catalog; the resolved experiment selects active terms."""
+
+    reference_joint_position_tracking = RewTerm(
+        func=reference_rewards.reference_joint_position_tracking,
+        weight=0.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "metadata_path": (
+                "experiments/g1_stairs/reference_data/"
+                "stair_ascent_reference.yaml"
+            ),
+            "start_frame": 0,
+            "end_frame": 260,
+            "std_rad": 0.35,
+        },
+    )
+
+    reference_joint_velocity_tracking = RewTerm(
+        func=reference_rewards.reference_joint_velocity_tracking,
+        weight=0.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "metadata_path": (
+                "experiments/g1_stairs/reference_data/"
+                "stair_ascent_reference.yaml"
+            ),
+            "start_frame": 0,
+            "end_frame": 260,
+            "std_radps": 2.0,
+        },
+    )
 
     forward_progress = RewTerm(
         func=stair_rewards.forward_progress,

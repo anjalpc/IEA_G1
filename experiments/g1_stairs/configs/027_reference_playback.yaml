@@ -1,0 +1,31 @@
+schema_version: 1
+
+experiment:
+  id: 027_reference_playback
+  purpose: >
+    Dynamically replay the validated 29-DoF stair reference as absolute
+    joint-position targets on the project G1 model and exact three-step
+    staircase.
+
+task:
+  id: Unitree-IEA-G1-29dof-Stairs-v0
+
+reference:
+  metadata: experiments/g1_stairs/reference_data/stair_ascent_reference.yaml
+  start_frame: 0
+  end_frame: 260
+  frequency_hz: 50
+
+playback:
+  type: absolute_joint_position_targets
+  initial_blend_s: 1.0
+  final_hold_s: 1.0
+  use_policy_action_scaling: false
+  use_velocity_policy: false
+  training: false
+
+acceptance:
+  no_joint_limit_violation: true
+  physics_enabled: true
+  minimum_step_reached: 1
+  desired_step_reached: 3

@@ -1,0 +1,45 @@
+schema_version: 1
+
+experiment:
+  id: 028_reference_tracking_smoke
+  purpose: >
+    Validate closed-loop reference-motion tracking reward integration
+    before any large stair-training run.
+  type: reference_tracking_smoke
+  meaningful_stair_training: false
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/nominal_stairs_base.yaml
+  resolved_config_required: true
+
+execution:
+  environments: 32
+  maximum_iterations: 2
+  training_seed: 42
+
+reference_tracking:
+  enabled: true
+  metadata: experiments/g1_stairs/reference_data/stair_ascent_reference.yaml
+  start_frame: 0
+  end_frame: 260
+  frequency_hz: 50
+  joint_position_std_rad: 0.35
+  joint_velocity_std_radps: 2.0
+
+reward_experiment:
+  active_stage: reference_tracking_smoke
+  rule: >
+    Validate reference tracking plumbing before increasing environments
+    or training duration.
+
+  rewards:
+    stage_plan:
+      reference_tracking_smoke:
+        reference_joint_position_tracking: 4.0
+        reference_joint_velocity_tracking: 0.5
+        upright: -1.0
+        action_rate: -0.01
+        forward_progress: 0.2
+
+launch_gates:
+  allow_launch: true

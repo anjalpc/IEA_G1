@@ -167,9 +167,24 @@ def apply_resolved_rewards(env_cfg: Any, resolved: dict[str, Any]) -> dict[str, 
 
     rewards_cfg = env_cfg.rewards
 
+    declared_terms = resolved.get("rewards", {}).get(
+        "terms",
+        {},
+    )
+
+    candidate_names = set(RAW_TO_RUNTIME_TERM.values())
+
+    if isinstance(declared_terms, dict):
+        candidate_names.update(
+            runtime_name(name)
+            for name in declared_terms
+            if isinstance(name, str)
+            and name.endswith("_raw")
+        )
+
     available = {
         name
-        for name in RAW_TO_RUNTIME_TERM.values()
+        for name in candidate_names
         if hasattr(rewards_cfg, name)
     }
 

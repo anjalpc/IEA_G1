@@ -154,6 +154,22 @@ def main() -> None:
             flush=True,
         )
 
+    from simulation.isaac_lab.g1_stairs.reference_tracking_runtime import (
+        apply_reference_tracking_config,
+    )
+
+    reference_tracking_cfg = apply_reference_tracking_config(
+        env_cfg,
+        resolved_config,
+    )
+
+    if reference_tracking_cfg:
+        print(
+            "[INFO] Reference tracking:",
+            reference_tracking_cfg,
+            flush=True,
+        )
+
     active_rewards = apply_resolved_rewards(env_cfg, resolved_config)
     print("[INFO] Active reward stage:", resolved_config["reward_experiment"]["active_stage"], flush=True)
     print("[INFO] Active rewards:", active_rewards, flush=True)
