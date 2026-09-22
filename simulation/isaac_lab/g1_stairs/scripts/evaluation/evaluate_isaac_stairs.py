@@ -150,6 +150,31 @@ def main() -> None:
             resolved_config_path,
         )
 
+        # Reconstruct reference-conditioned observations and residual
+        # action semantics used by experiments 029+.
+        from simulation.isaac_lab.g1_stairs.reward_runtime import (
+            load_resolved_config,
+        )
+        from simulation.isaac_lab.g1_stairs.reference_tracking_runtime import (
+            apply_reference_tracking_config,
+        )
+
+        resolved_config = load_resolved_config(
+            resolved_config_path
+        )
+
+        reference_tracking_cfg = apply_reference_tracking_config(
+            env_cfg,
+            resolved_config,
+        )
+
+        if reference_tracking_cfg:
+            print(
+                "[INFO] Evaluation reference tracking:",
+                reference_tracking_cfg,
+                flush=True,
+            )
+
         print(
             "[INFO] Evaluation replay config: "
             f"riser={replay_config.riser_height_m} "

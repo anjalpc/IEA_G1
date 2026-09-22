@@ -338,6 +338,24 @@ def main() -> None:
         if halfway_cfg is not None:
             configure_halfway_reset(env_cfg, halfway_cfg)
 
+        # Reconstruct reference-conditioned observations and residual
+        # action semantics used by experiments 029+.
+        from simulation.isaac_lab.g1_stairs.reference_tracking_runtime import (
+            apply_reference_tracking_config,
+        )
+
+        reference_tracking_cfg = apply_reference_tracking_config(
+            env_cfg,
+            resolved_config,
+        )
+
+        if reference_tracking_cfg:
+            print(
+                "[INFO] Recording reference tracking:",
+                reference_tracking_cfg,
+                flush=True,
+            )
+
     # Fixed world-coordinate evaluation camera.
     #
     # The nominal robot begins around world x=0 and faces +X.
