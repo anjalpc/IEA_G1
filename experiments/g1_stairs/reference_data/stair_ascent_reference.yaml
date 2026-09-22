@@ -1,0 +1,88 @@
+schema_version: 1
+
+reference:
+  id: stair_ascent_reference_01
+  type: processed_humanoid_motion
+  frequency_hz: 50
+  frame_count: 499
+  duration_s: 9.96
+
+robot:
+  policy_dofs: 29
+
+data:
+  file: stair_ascent_reference_50hz.npz
+  fields:
+    - body_pos_w
+    - body_quat_w
+    - dof_pos
+    - dof_vel
+
+tracked_body_count: 14
+
+tracked_bodies:
+  - pelvis
+  - left_hip_roll_link
+  - left_knee_link
+  - left_ankle_roll_link
+  - right_hip_roll_link
+  - right_knee_link
+  - right_ankle_roll_link
+  - torso_link
+  - left_shoulder_roll_link
+  - left_elbow_link
+  - left_wrist_yaw_link
+  - right_shoulder_roll_link
+  - right_elbow_link
+  - right_wrist_yaw_link
+
+source_motion:
+  forward_axis: negative_y
+  total_forward_displacement_m: 3.0371
+  total_vertical_displacement_m: 1.2133
+  original_riser_count: 7
+
+target_task:
+  forward_axis: positive_x
+  riser_count: 3
+  riser_height_m: 0.20
+  tread_depth_m: 0.25
+  width_m: 1.20
+  fixed_start_distance_before_first_riser_m: 1.00
+  required_post_stair_travel_m: 2.00
+
+status:
+  raw_reference_frozen: true
+  retargeted: false
+
+validated_contacts:
+  ground_left:
+    frame_range: [84, 136]
+    approximate_x_m: 0.836
+    approximate_ankle_z_m: 0.035
+
+  step_1_right:
+    frame_range: [122, 197]
+    approximate_x_m: 1.147
+    approximate_ankle_z_m: 0.269
+    target_tread_x_range_m: [1.00, 1.25]
+
+  step_2_left:
+    frame_range: [184, 246]
+    approximate_x_m: 1.423
+    approximate_ankle_z_m: 0.477
+    target_tread_x_range_m: [1.25, 1.50]
+
+  step_3_right:
+    frame_range: [240, 278]
+    approximate_x_m: 1.700
+    approximate_ankle_z_m: 0.588
+    target_tread_x_range_m: [1.50, 1.75]
+
+adaptation_boundary:
+  description: >
+    After the third-riser right-foot landing, the source begins another
+    upward stair transition. For the three-step task this subsequent motion
+    must instead transition onto the constant-height upper platform.
+  approximate_frame: 246
+  approximate_time_s: 4.92

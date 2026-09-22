@@ -1,0 +1,88 @@
+schema_version: 1
+
+experiment:
+  id: 026_reference_baseline
+  purpose: >
+    Validate the frozen stair-ascent reference against the exact fixed
+    three-step thesis staircase before any retargeting or policy training.
+  mode: reference_validation
+  training_enabled: false
+  reference_retargeting_enabled: false
+
+reference:
+  metadata:
+    experiments/g1_stairs/reference_data/stair_ascent_reference.yaml
+  data:
+    experiments/g1_stairs/reference_data/stair_ascent_reference_50hz.npz
+
+  sha256:
+    2b6076609cc0e9c63b32e9b51ea1aed5c5985f5d034846806b74d21c52f449bd
+
+  frequency_hz: 50
+  frame_count: 499
+
+  source_forward_axis: negative_y
+  task_forward_axis: positive_x
+
+  adaptation_boundary:
+    frame: 246
+    time_s: 4.92
+
+task:
+  id: Unitree-IEA-G1-29dof-Stairs-v0
+
+terrain:
+  direction: positive_x
+  riser_height_m: 0.20
+  tread_depth_m: 0.25
+  step_count: 3
+  width_m: 1.20
+
+  first_riser_x_from_start_m: 1.00
+
+  tread_x_ranges_from_start_m:
+    step_1: [1.00, 1.25]
+    step_2: [1.25, 1.50]
+    step_3: [1.50, 1.75]
+
+  tread_heights_m:
+    step_1: 0.20
+    step_2: 0.40
+    step_3: 0.60
+
+  required_post_stair_travel_m: 2.00
+
+validated_reference_contacts:
+  step_1:
+    foot: right
+    support_frame_range: [122, 197]
+    x_m: 1.147
+    ankle_z_m: 0.269
+    expected_target_tread: step_1
+
+  step_2:
+    foot: left
+    support_frame_range: [184, 246]
+    x_m: 1.423
+    ankle_z_m: 0.477
+    expected_target_tread: step_2
+
+  step_3:
+    foot: right
+    support_frame_range: [240, 278]
+    x_m: 1.700
+    ankle_z_m: 0.588
+    expected_target_tread: step_3
+
+acceptance:
+  reference_loads: true
+  reference_is_finite: true
+  policy_dofs: 29
+  tracked_bodies: 14
+
+  require_step_1_contact_inside_target_tread: true
+  require_step_2_contact_inside_target_tread: true
+  require_step_3_contact_inside_target_tread: true
+
+  no_training: true
+  no_reference_modification: true
