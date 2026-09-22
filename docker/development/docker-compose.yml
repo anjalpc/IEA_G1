@@ -25,3 +25,26 @@ services:
 
     stdin_open: true
     tty: true
+
+  g1_dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+
+    image: iea_g1_dashboard:node24
+    container_name: iea_g1_dashboard
+
+    network_mode: host
+
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+
+    environment:
+      HOME: /tmp/g1-dashboard-home
+
+    volumes:
+      - ../:/workspace/IEA_G1
+
+    working_dir: /workspace/IEA_G1/dashboard/frontend
+
+    stdin_open: true
+    tty: true
