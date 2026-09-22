@@ -1,0 +1,67 @@
+schema_version: 1
+
+experiment:
+  id: 034_reference_state_imitation
+  purpose: >
+    Validate complete reference-state reset, whole-body reference
+    conditioning, whole-body imitation rewards, and residual control
+    before launching meaningful adaptation training.
+  type: reference_state_imitation_smoke
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/nominal_stairs_base.yaml
+  resolved_config_required: true
+
+execution:
+  environments: 128
+  maximum_iterations: 100
+  training_seed: 42
+
+reference_tracking:
+  enabled: true
+  conditioning_enabled: true
+
+  metadata: experiments/g1_stairs/reference_data/stair_ascent_reference.yaml
+
+  start_frame: 0
+  end_frame: 246
+  frequency_hz: 50
+
+  terminate_at_reference_end: true
+
+  aligned_reset:
+    enabled: true
+
+  joint_position_std_rad: 0.35
+  joint_velocity_std_radps: 2.0
+
+  root_tracking:
+    enabled: true
+    conditioning_enabled: true
+    position_std_m: 0.15
+    orientation_std_rad: 0.35
+    linear_velocity_std_mps: 0.50
+    angular_velocity_std_radps: 1.0
+
+  residual_control:
+    enabled: true
+    scale_rad: 0.15
+    raw_action_clip: 1.0
+
+reward_experiment:
+  active_stage: reference_state_imitation_smoke
+
+  rewards:
+    stage_plan:
+      reference_state_imitation_smoke:
+        reference_joint_position_tracking: 2.0
+        reference_joint_velocity_tracking: 0.5
+        reference_root_position_tracking: 4.0
+        reference_root_orientation_tracking: 2.0
+        reference_root_linear_velocity_tracking: 1.0
+        reference_root_angular_velocity_tracking: 0.5
+        action_rate: -0.01
+
+launch_gates:
+  allow_launch: true
