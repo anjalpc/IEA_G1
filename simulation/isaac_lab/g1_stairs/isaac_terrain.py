@@ -21,9 +21,39 @@ def three_step_stairs(
     """Build an ascending staircase; difficulty controls the riser height."""
     if not 0.0 <= difficulty <= 1.0:
         raise ValueError("difficulty must be in [0, 1]")
-    riser = cfg.riser_height_range[0] + difficulty * (
-        cfg.riser_height_range[1] - cfg.riser_height_range[0]
-    )
+    low, high = cfg.riser_height_range
+
+    if abs(high - low) <= 1.0e-12:
+        riser = low
+    else:
+        bins = int(cfg.difficulty_bins)
+
+        if bins < 2:
+            raise ValueError(
+                "difficulty_bins must be >= 2 "
+                "for variable riser heights"
+            )
+
+        # Isaac Lab adds a small random difficulty offset inside
+        # each curriculum row. Quantize back to the row so the
+        # terrain level and physical height match exactly.
+        level = min(
+            int(
+                np.floor(
+                    float(difficulty) * bins
+                )
+            ),
+            bins - 1,
+        )
+
+        alpha = (
+            level / float(bins - 1)
+        )
+
+        riser = (
+            low
+            + alpha * (high - low)
+        )
     # Isaac Lab places terrain tiles according to cfg.size, so every generated
     # sub-terrain must cover the full tile length.  The nominal three-step
     # course already does this exactly:
@@ -76,6 +106,7 @@ class ThreeStepStairsCfg(SubTerrainBaseCfg):
     function = three_step_stairs
     size: tuple[float, float] = MISSING
     riser_height_range: tuple[float, float] = (0.05, 0.20)
+    difficulty_bins: int = 8
     tread_depth: float = 0.25
     step_count: int = 3
     approach_length: float = 2.0

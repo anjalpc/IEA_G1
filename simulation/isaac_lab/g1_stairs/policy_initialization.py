@@ -158,14 +158,32 @@ def initialize_actor_from_unitree_onnx(
             f"{new_columns_max_abs}"
         )
 
+    explicit_geometry_observations = (
+        EXPLICIT_GEOMETRY_OBS_DIM
+        if runtime_input_dim
+        >= LOCOMOTION_OBS_DIM + EXPLICIT_GEOMETRY_OBS_DIM
+        else 0
+    )
+
+    actor_height_scan_observations = max(
+        0,
+        runtime_input_dim
+        - LOCOMOTION_OBS_DIM
+        - explicit_geometry_observations,
+    )
+
     metadata = {
         "type": "unitree_velocity_onnx_transfer",
         "source": str(onnx_path),
         "source_sha256": _sha256(onnx_path),
         "locomotion_observations": LOCOMOTION_OBS_DIM,
-        "terrain_observations": TERRAIN_OBS_DIM,
-        "explicit_geometry_observations": EXPLICIT_GEOMETRY_OBS_DIM,
-        "stair_observations": STAIR_OBS_DIM,
+        "actor_height_scan_observations": (
+            actor_height_scan_observations
+        ),
+        "explicit_geometry_observations": (
+            explicit_geometry_observations
+        ),
+        "stair_observations": runtime_input_dim,
         "actions": ACTION_DIM,
         "runtime_observations": runtime_input_dim,
         "new_observations": (

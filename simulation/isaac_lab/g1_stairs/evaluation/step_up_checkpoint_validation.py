@@ -53,6 +53,17 @@ def apply_resolved_replay_config(env_cfg, path: Path) -> AppliedReplayConfig:
 
     resolved = yaml.safe_load(path.read_text(encoding="utf-8"))
 
+    observations = resolved.get(
+        "observations",
+        {},
+    )
+
+    if observations.get(
+        "actor_height_scan",
+        True,
+    ) is False:
+        env_cfg.observations.policy.height_scan = None
+
     terrain = resolved.get("terrain", {})
     riser_height_m = float(terrain["riser_height_m"])
     tread_depth_m = float(terrain["tread_depth_m"])

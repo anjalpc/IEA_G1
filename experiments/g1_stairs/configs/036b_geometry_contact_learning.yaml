@@ -1,0 +1,16 @@
+schema_version: 1
+
+experiment:
+  id: 036b_geometry_contact_learning
+  purpose: Learn proactive clearance and valid tread touchdown over exact 6-12 cm stairs
+  type: learning_run
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/036_geometry_contact_06_12cm_base.yaml
+  resolved_config_required: true
+
+execution:
+  environments: 2048
+  maximum_iterations: 1000
+  training_seed: 42

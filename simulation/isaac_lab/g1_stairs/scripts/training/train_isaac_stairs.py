@@ -79,6 +79,23 @@ def main() -> None:
     )
 
     resolved_config = load_resolved_config(Path(resolved_config_value))
+
+    observations_cfg = resolved_config.get(
+        "observations",
+        {},
+    )
+
+    if observations_cfg.get(
+        "actor_height_scan",
+        True,
+    ) is False:
+        env_cfg.observations.policy.height_scan = None
+
+        print(
+            "[INFO] Actor height_scan: disabled",
+            flush=True,
+        )
+
     from simulation.isaac_lab.g1_stairs.halfway_reset import (
         configure_halfway_reset,
         parse_halfway_reset_config,
@@ -89,7 +106,71 @@ def main() -> None:
     if halfway_cfg is not None:
         configure_halfway_reset(env_cfg, halfway_cfg)
     terrain_cfg = resolved_config.get("terrain", {})
-    if "riser_height_m" in terrain_cfg:
+    if "riser_height_range_m" in terrain_cfg:
+        values = terrain_cfg[
+            "riser_height_range_m"
+        ]
+
+        if (
+            not isinstance(values, (list, tuple))
+            or len(values) != 2
+        ):
+            raise ValueError(
+                "terrain.riser_height_range_m "
+                "must contain [min, max]"
+            )
+
+        riser_min_m = float(values[0])
+        riser_max_m = float(values[1])
+
+        if not (
+            0.0
+            < riser_min_m
+            <= riser_max_m
+            <= 0.20
+        ):
+            raise ValueError(
+                "terrain.riser_height_range_m must satisfy "
+                "0 < min <= max <= 0.20"
+            )
+
+        terrain_generator = (
+            env_cfg.scene.terrain.terrain_generator
+        )
+
+        stair_cfg = (
+            terrain_generator
+            .sub_terrains["three_step_ascent"]
+        )
+
+        stair_cfg.riser_height_range = (
+            riser_min_m,
+            riser_max_m,
+        )
+
+        stair_cfg.difficulty_bins = int(
+            terrain_generator.num_rows
+        )
+
+        terrain_generator.curriculum = True
+
+        env_cfg.scene.terrain.max_init_terrain_level = (
+            terrain_generator.num_rows - 1
+        )
+
+        print(
+            "[INFO] Stair riser_height_range_m:",
+            (riser_min_m, riser_max_m),
+            flush=True,
+        )
+
+        print(
+            "[INFO] Stair difficulty_bins:",
+            stair_cfg.difficulty_bins,
+            flush=True,
+        )
+
+    elif "riser_height_m" in terrain_cfg:
         riser_height_m = float(terrain_cfg["riser_height_m"])
 
         if not 0.0 < riser_height_m <= 0.20:
@@ -268,6 +349,44 @@ def main() -> None:
         print("[021] environment constructed", flush=True)
     if isinstance(env.unwrapped, DirectMARLEnv):
         env = multi_agent_to_single_agent(env)
+
+    if "riser_height_range_m" in terrain_cfg:
+        from simulation.isaac_lab.g1_stairs.terrain_state import (
+            riser_height_per_env,
+        )
+
+        terrain_levels = (
+            env.unwrapped.scene.terrain.terrain_levels
+        )
+
+        unique_levels, level_counts = (
+            terrain_levels.unique(
+                return_counts=True
+            )
+        )
+
+        exact_heights = (
+            riser_height_per_env(
+                env.unwrapped
+            ).unique()
+        )
+
+        print(
+            "[INFO] Terrain levels/counts:",
+            list(
+                zip(
+                    unique_levels.detach().cpu().tolist(),
+                    level_counts.detach().cpu().tolist(),
+                )
+            ),
+            flush=True,
+        )
+
+        print(
+            "[INFO] Exact riser heights present:",
+            exact_heights.detach().cpu().tolist(),
+            flush=True,
+        )
 
     halfway_summary = None
     if halfway_cfg is not None:

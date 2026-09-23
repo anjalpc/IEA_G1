@@ -429,6 +429,59 @@ class StairRewardsCfg:
         },
     )
 
+    terrain_relative_clearance_shortfall = RewTerm(
+        func=unified_rewards.terrain_relative_clearance_shortfall,
+        weight=-1.0,
+        params={
+            "asset_cfg": SceneEntityCfg(
+                "robot",
+                body_names=".*ankle_roll.*",
+            ),
+            "sensor_cfg": SceneEntityCfg(
+                "contact_forces",
+                body_names=".*ankle_roll.*",
+            ),
+            "nominal_ankle_height_m": 0.10,
+            "lookahead_distance_m": 0.35,
+            "lip_distance_m": 0.03,
+            "clearance_margin_m": 0.04,
+        },
+    )
+
+    terrain_riser_face_strike = RewTerm(
+        func=unified_rewards.terrain_riser_face_strike,
+        weight=-2.0,
+        params={
+            "asset_cfg": SceneEntityCfg(
+                "robot",
+                body_names=".*ankle_roll.*",
+            ),
+            "nominal_ankle_height_m": 0.10,
+            "face_window_m": 0.035,
+            "clearance_margin_m": 0.025,
+            "min_forward_speed_mps": 0.02,
+        },
+    )
+
+    terrain_tread_touchdown = RewTerm(
+        func=unified_rewards.terrain_tread_touchdown,
+        weight=1.0,
+        params={
+            "asset_cfg": SceneEntityCfg(
+                "robot",
+                body_names=".*ankle_roll.*",
+            ),
+            "sensor_cfg": SceneEntityCfg(
+                "contact_forces",
+                body_names=".*ankle_roll.*",
+            ),
+            "nominal_ankle_height_m": 0.10,
+            "x_margin_m": 0.02,
+            "z_tolerance_m": 0.035,
+            "upright_min": 0.80,
+        },
+    )
+
     # Historical stair-specific swing-foot clearance.
     # Retained for reproducibility of earlier experiments.
     stair_swing_clearance = RewTerm(

@@ -1,0 +1,16 @@
+schema_version: 1
+
+experiment:
+  id: 036a_geometry_contact_contract
+  purpose: Validate 485-D actor exact mixed-height labels and stair-contact rewards
+  type: contract_smoke
+  meaningful_stair_training: false
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/036_geometry_contact_06_12cm_base.yaml
+  resolved_config_required: true
+
+execution:
+  environments: 32
+  maximum_iterations: 2
+  training_seed: 42

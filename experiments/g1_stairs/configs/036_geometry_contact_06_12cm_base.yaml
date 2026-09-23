@@ -1,0 +1,82 @@
+schema_version: 1
+
+experiment:
+  id: 036_geometry_contact_06_12cm_base
+  purpose: Exact mixed-height geometry conditioning with physical stair-contact feedback
+  type: unified_geometry_contact_ppo
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/nominal_stairs_base.yaml
+  resolved_config_required: true
+
+terrain:
+  # Deterministic evaluation target.
+  riser_height_m: 0.12
+
+  # Training uses eight exact discrete physical heights.
+  riser_height_range_m:
+    - 0.06
+    - 0.12
+
+  tread_depth_m: 0.25
+  step_count: 3
+
+command:
+  forward_velocity_mps: 0.25
+
+observations:
+  actor_height_scan: false
+  critic_height_scan: true
+
+  policy_order:
+    - base_angular_velocity
+    - projected_gravity
+    - velocity_command
+    - joint_position_offset
+    - joint_velocity
+    - previous_action
+    - explicit_stair_geometry
+
+policy_initialization:
+  type: unitree_velocity_onnx_transfer
+
+  source:
+    task: Unitree-G1-29dof-Velocity
+    path: /workspace/unitree_rl_lab/deploy/robots/g1_29dof/config/policy/velocity/v0/exported/policy.onnx
+
+  locomotion_observations: 480
+  actor_height_scan_observations: 0
+  explicit_geometry_observations: 5
+  stair_observations: 485
+  actions: 29
+
+  new_observation_initialization: zero
+  critic_initialization: fresh
+  pretrained_actor_trainable: true
+
+reward_experiment:
+  active_stage: geometry_contact_06_12cm
+
+  rewards:
+    stage_plan:
+      geometry_contact_06_12cm:
+        track_lin_vel_xy: 1.0
+        track_ang_vel_z: 0.5
+
+        upright: -2.0
+        action_rate: -0.02
+        joint_acc: -2.5e-7
+        dof_pos_limits: -5.0
+        feet_slide: -0.2
+        undesired_contacts: -1.0
+
+        terrain_relative_clearance_shortfall: -1.5
+        terrain_riser_face_strike_proxy: -2.0
+        terrain_tread_touchdown: 1.5
+
+ppo:
+  initial_action_noise_std: 0.15
+  learning_rate: 0.0001
+  learning_rate_schedule: adaptive
+  desired_kl: 0.01
