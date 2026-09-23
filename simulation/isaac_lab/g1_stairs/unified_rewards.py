@@ -520,3 +520,53 @@ def terrain_relative_swing_clearance(
 # Backward-compatible public name retained because env_cfg.py is an
 # import-time catalog containing historical and current reward stages.
 terrain_riser_face_strike = terrain_riser_face_strike_proxy
+
+
+def upright_forward_velocity_shortfall(
+    env,
+    asset_cfg: SceneEntityCfg,
+    minimum_forward_velocity_mps: float = 0.15,
+    backward_extra_scale: float = 1.5,
+    upright_min: float = 0.80,
+) -> torch.Tensor:
+    """Penalize standing still or moving backward while upright.
+
+    This is velocity-based, not position-progress based, so simply falling
+    forward cannot continuously satisfy it.
+    """
+
+    robot = env.scene[asset_cfg.name]
+
+    vx = robot.data.root_lin_vel_b[:, 0]
+
+    upright = (
+        -robot.data.projected_gravity_b[:, 2]
+        >= upright_min
+    ).to(vx.dtype)
+
+    forward_shortfall = torch.clamp(
+        (
+            minimum_forward_velocity_mps
+            - vx
+        )
+        / minimum_forward_velocity_mps,
+        0.0,
+        1.0,
+    )
+
+    backward = torch.clamp(
+        -vx / minimum_forward_velocity_mps,
+        0.0,
+        2.0,
+    )
+
+    return upright * (
+        forward_shortfall
+        + backward_extra_scale * backward
+    )
+
+
+
+
+
+

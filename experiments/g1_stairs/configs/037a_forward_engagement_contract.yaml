@@ -1,0 +1,16 @@
+schema_version: 1
+
+experiment:
+  id: 037a_forward_engagement_contract
+  purpose: Validate 037 reward and command contract without changing 036 architecture
+  type: contract_smoke
+  meaningful_stair_training: false
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/037_forward_engagement_base.yaml
+  resolved_config_required: true
+
+execution:
+  environments: 32
+  maximum_iterations: 2
+  training_seed: 42

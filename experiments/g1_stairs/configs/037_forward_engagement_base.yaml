@@ -1,0 +1,43 @@
+schema_version: 1
+
+experiment:
+  id: 037_forward_engagement_base
+  purpose: Preserve 036 geometry-conditioned architecture while restoring forward task engagement
+  type: unified_geometry_forward_engagement_ppo
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/036_geometry_contact_06_12cm_base.yaml
+  resolved_config_required: true
+
+command:
+  forward_velocity_mps: 0.50
+
+reward_experiment:
+  active_stage: forward_engagement_06_12cm
+
+  rewards:
+    stage_plan:
+      forward_engagement_06_12cm:
+
+        track_lin_vel_xy: 1.5
+        track_ang_vel_z: 0.5
+
+        upright: -2.0
+        action_rate: -0.02
+        joint_acc: -2.5e-7
+        dof_pos_limits: -5.0
+        feet_slide: -0.2
+        undesired_contacts: -1.0
+
+        upright_forward_velocity_shortfall: -1.0
+
+        terrain_relative_clearance_shortfall: -1.5
+        terrain_riser_face_blocked: -2.0
+        terrain_tread_touchdown: 1.5
+
+ppo:
+  initial_action_noise_std: 0.15
+  learning_rate: 0.0001
+  learning_rate_schedule: adaptive
+  desired_kl: 0.01

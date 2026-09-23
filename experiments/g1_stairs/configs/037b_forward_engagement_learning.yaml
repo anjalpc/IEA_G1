@@ -1,0 +1,16 @@
+schema_version: 1
+
+experiment:
+  id: 037b_forward_engagement_learning
+  purpose: Learn forward stair engagement at 0.50 m/s with persistent riser feedback
+  type: learning_run
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/037_forward_engagement_base.yaml
+  resolved_config_required: true
+
+execution:
+  environments: 2048
+  maximum_iterations: 1000
+  training_seed: 42

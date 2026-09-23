@@ -429,6 +429,39 @@ class StairRewardsCfg:
         },
     )
 
+
+    # 037: keep commanded forward locomotion engaged.
+    upright_forward_velocity_shortfall = RewTerm(
+        func=unified_rewards.upright_forward_velocity_shortfall,
+        weight=-1.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "minimum_forward_velocity_mps": 0.15,
+            "backward_extra_scale": 1.5,
+            "upright_min": 0.80,
+        },
+    )
+
+
+    # 037: persistent low-foot/riser penalty.
+    # Reuse the validated dynamic-geometry 036 implementation,
+    # but remove the forward-speed gate so a foot jammed at
+    # the riser does not make the penalty disappear.
+    terrain_riser_face_blocked = RewTerm(
+        func=unified_rewards.terrain_riser_face_strike,
+        weight=-2.0,
+        params={
+            "asset_cfg": SceneEntityCfg(
+                "robot",
+                body_names=".*ankle_roll.*",
+            ),
+            "nominal_ankle_height_m": 0.10,
+            "face_window_m": 0.035,
+            "clearance_margin_m": 0.025,
+            "min_forward_speed_mps": -10.0,
+        },
+    )
+
     terrain_relative_clearance_shortfall = RewTerm(
         func=unified_rewards.terrain_relative_clearance_shortfall,
         weight=-1.0,
