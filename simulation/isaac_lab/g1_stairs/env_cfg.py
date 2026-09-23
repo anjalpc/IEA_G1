@@ -670,6 +670,85 @@ class StairRewardsCfg:
         },
     )
 
+    # 041: calibrated counterparts of historical geometry terms.
+    #
+    # Measured G1 ankle-roll contact height from 040 model-150:
+    # approximately 0.035 m on both sides.
+    #
+    # Historical terms remain unchanged for experiment reproducibility.
+    terrain_relative_clearance_shortfall_calibrated = RewTerm(
+        func=unified_rewards.terrain_relative_clearance_shortfall,
+        weight=-1.0,
+        params={
+            "asset_cfg": SceneEntityCfg(
+                "robot",
+                body_names=[
+                    "left_ankle_roll_link",
+                    "right_ankle_roll_link",
+                ],
+                preserve_order=True,
+            ),
+            "sensor_cfg": SceneEntityCfg(
+                "contact_forces",
+                body_names=[
+                    "left_ankle_roll_link",
+                    "right_ankle_roll_link",
+                ],
+                preserve_order=True,
+            ),
+            "nominal_ankle_height_m": 0.035,
+            "lookahead_distance_m": 0.35,
+            "lip_distance_m": 0.03,
+            "clearance_margin_m": 0.04,
+        },
+    )
+
+    terrain_riser_face_blocked_calibrated = RewTerm(
+        func=unified_rewards.terrain_riser_face_strike,
+        weight=-2.0,
+        params={
+            "asset_cfg": SceneEntityCfg(
+                "robot",
+                body_names=[
+                    "left_ankle_roll_link",
+                    "right_ankle_roll_link",
+                ],
+                preserve_order=True,
+            ),
+            "nominal_ankle_height_m": 0.035,
+            "face_window_m": 0.035,
+            "clearance_margin_m": 0.025,
+            "min_forward_speed_mps": -10.0,
+        },
+    )
+
+    terrain_tread_touchdown_calibrated = RewTerm(
+        func=unified_rewards.terrain_tread_touchdown,
+        weight=1.0,
+        params={
+            "asset_cfg": SceneEntityCfg(
+                "robot",
+                body_names=[
+                    "left_ankle_roll_link",
+                    "right_ankle_roll_link",
+                ],
+                preserve_order=True,
+            ),
+            "sensor_cfg": SceneEntityCfg(
+                "contact_forces",
+                body_names=[
+                    "left_ankle_roll_link",
+                    "right_ankle_roll_link",
+                ],
+                preserve_order=True,
+            ),
+            "nominal_ankle_height_m": 0.035,
+            "x_margin_m": 0.02,
+            "z_tolerance_m": 0.035,
+            "upright_min": 0.80,
+        },
+    )
+
     terrain_relative_clearance_shortfall = RewTerm(
         func=unified_rewards.terrain_relative_clearance_shortfall,
         weight=-1.0,

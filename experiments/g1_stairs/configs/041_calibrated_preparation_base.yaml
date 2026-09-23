@@ -55,9 +55,15 @@ reward_experiment:
         terrain_swing_leg_shortening: 1.5
         terrain_preclearance_forward_speed: -1.0
 
-        terrain_relative_clearance_shortfall: -1.0
-        terrain_riser_face_blocked: -1.5
-        terrain_tread_touchdown: 2.0
+        # Disable historical 0.10 m ankle-reference terms.
+        terrain_relative_clearance_shortfall: 0.0
+        terrain_riser_face_blocked: 0.0
+        terrain_tread_touchdown: 0.0
+
+        # 041 uses the measured 0.035 m G1 ankle reference consistently.
+        terrain_relative_clearance_shortfall_calibrated: -1.0
+        terrain_riser_face_blocked_calibrated: -1.5
+        terrain_tread_touchdown_calibrated: 2.0
 
 ppo:
   initial_action_noise_std: 0.15
