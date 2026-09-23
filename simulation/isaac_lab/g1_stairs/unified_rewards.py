@@ -1174,3 +1174,448 @@ def terrain_relative_swing_lift_dense(
         best,
         dim=1,
     ).values
+
+
+def terrain_relative_swing_clearance_calibrated(
+    env,
+    asset_cfg: SceneEntityCfg,
+    sensor_cfg: SceneEntityCfg,
+    flat_ankle_height_m: float = 0.035,
+    normal_swing_ceiling_m: float = 0.065,
+    lookahead_distance_m: float = 0.40,
+    lip_distance_m: float = 0.05,
+    clearance_margin_m: float = 0.04,
+) -> torch.Tensor:
+    """041 stair-specific clearance above the measured flat-gait envelope.
+
+    Unlike the 040 dense reward, ordinary flat-ground swing height does not
+    receive stair-clearance credit.
+
+    No gait clock, fixed leg order, joint trajectory, or reference motion is
+    used.
+    """
+
+    robot = env.scene[asset_cfg.name]
+    sensor = env.scene.sensors[sensor_cfg.name]
+    cfg = stair_cfg(env)
+
+    riser = riser_height_per_env(env).unsqueeze(1)
+
+    tread = float(cfg.tread_depth)
+    step_count = int(cfg.step_count)
+    first_riser = float(cfg.start_clearance)
+
+    foot_pos = robot.data.body_pos_w[
+        :, asset_cfg.body_ids, :
+    ]
+
+    foot_x = (
+        foot_pos[:, :, 0]
+        - env.scene.env_origins[:, 0].unsqueeze(1)
+    )
+
+    foot_z = (
+        foot_pos[:, :, 2]
+        - env.scene.env_origins[:, 2].unsqueeze(1)
+    )
+
+    current_contact = sensor.data.current_contact_time[
+        :, sensor_cfg.body_ids
+    ]
+
+    is_swing = current_contact <= 0.0
+
+    upright_gate = torch.clamp(
+        -robot.data.projected_gravity_b[:, 2],
+        0.0,
+        1.0,
+    ).unsqueeze(1)
+
+    best = torch.zeros_like(foot_z)
+    assigned = torch.zeros_like(is_swing)
+
+    for step_index in range(step_count):
+
+        edge = (
+            first_riser
+            + step_index * tread
+        )
+
+        start_x = (
+            edge
+            - lookahead_distance_m
+        )
+
+        active = (
+            is_swing
+            & ~assigned
+            & (foot_x >= start_x)
+            & (foot_x <= edge + lip_distance_m)
+        )
+
+        previous_surface = (
+            step_index * riser
+        )
+
+        next_surface = (
+            (step_index + 1) * riser
+        )
+
+        # The measured flat walking envelope ends around 0.061 m.
+        # Reward only motion above a conservative 0.065 m ceiling.
+        reward_start_z = (
+            normal_swing_ceiling_m
+            + previous_surface
+        )
+
+        required_z = (
+            flat_ankle_height_m
+            + next_surface
+            + clearance_margin_m
+        )
+
+        normalization = torch.clamp(
+            required_z - reward_start_z,
+            min=0.03,
+        )
+
+        clearance_fraction = torch.clamp(
+            (
+                foot_z
+                - reward_start_z
+            )
+            / normalization,
+            0.0,
+            1.0,
+        )
+
+        proximity = torch.clamp(
+            (
+                foot_x
+                - start_x
+            )
+            / max(
+                lookahead_distance_m,
+                1.0e-6,
+            ),
+            0.0,
+            1.0,
+        )
+
+        # Preserve an early gradient while increasing importance near the lip.
+        proximity_gain = (
+            0.5
+            + 0.5 * proximity
+        )
+
+        score = (
+            clearance_fraction
+            * proximity_gain
+            * upright_gate
+        )
+
+        best = torch.where(
+            active,
+            torch.maximum(best, score),
+            best,
+        )
+
+        assigned |= active
+
+    return torch.max(
+        best,
+        dim=1,
+    ).values
+
+
+def terrain_swing_leg_shortening(
+    env,
+    hip_cfg: SceneEntityCfg,
+    ankle_cfg: SceneEntityCfg,
+    sensor_cfg: SceneEntityCfg,
+    flat_ankle_height_m: float = 0.035,
+    reference_leg_length_m: float = 0.655,
+    target_leg_length_m: float = 0.610,
+    lookahead_distance_m: float = 0.35,
+    lip_distance_m: float = 0.04,
+    clearance_margin_m: float = 0.04,
+) -> torch.Tensor:
+    """041 task-gated swing-leg shortening.
+
+    Encourages the swing leg to become shorter near a riser while the foot
+    still lacks clearance.
+
+    The reward uses hip-to-ankle distance instead of prescribing a knee angle.
+    No left/right order or gait timing is imposed.
+    """
+
+    robot = env.scene[hip_cfg.name]
+    sensor = env.scene.sensors[sensor_cfg.name]
+    cfg = stair_cfg(env)
+
+    hip_pos = robot.data.body_pos_w[
+        :, hip_cfg.body_ids, :
+    ]
+
+    ankle_pos = robot.data.body_pos_w[
+        :, ankle_cfg.body_ids, :
+    ]
+
+    if hip_pos.shape[1] != ankle_pos.shape[1]:
+        raise RuntimeError(
+            "hip and ankle body counts differ in "
+            "terrain_swing_leg_shortening"
+        )
+
+    riser = riser_height_per_env(env).unsqueeze(1)
+
+    tread = float(cfg.tread_depth)
+    step_count = int(cfg.step_count)
+    first_riser = float(cfg.start_clearance)
+
+    ankle_x = (
+        ankle_pos[:, :, 0]
+        - env.scene.env_origins[:, 0].unsqueeze(1)
+    )
+
+    ankle_z = (
+        ankle_pos[:, :, 2]
+        - env.scene.env_origins[:, 2].unsqueeze(1)
+    )
+
+    leg_length = torch.linalg.vector_norm(
+        hip_pos - ankle_pos,
+        dim=2,
+    )
+
+    current_contact = sensor.data.current_contact_time[
+        :, sensor_cfg.body_ids
+    ]
+
+    is_swing = current_contact <= 0.0
+
+    shortening_fraction = torch.clamp(
+        (
+            reference_leg_length_m
+            - leg_length
+        )
+        / max(
+            reference_leg_length_m
+            - target_leg_length_m,
+            1.0e-6,
+        ),
+        0.0,
+        1.0,
+    )
+
+    upright_gate = torch.clamp(
+        -robot.data.projected_gravity_b[:, 2],
+        0.0,
+        1.0,
+    ).unsqueeze(1)
+
+    best = torch.zeros_like(ankle_z)
+    assigned = torch.zeros_like(is_swing)
+
+    for step_index in range(step_count):
+
+        edge = (
+            first_riser
+            + step_index * tread
+        )
+
+        start_x = (
+            edge
+            - lookahead_distance_m
+        )
+
+        previous_surface = (
+            step_index * riser
+        )
+
+        next_surface = (
+            (step_index + 1) * riser
+        )
+
+        required_z = (
+            flat_ankle_height_m
+            + next_surface
+            + clearance_margin_m
+        )
+
+        # Stop rewarding further shortening once useful clearance exists.
+        needs_clearance = (
+            ankle_z < required_z
+        )
+
+        active = (
+            is_swing
+            & needs_clearance
+            & ~assigned
+            & (ankle_x >= start_x)
+            & (ankle_x <= edge + lip_distance_m)
+        )
+
+        proximity = torch.clamp(
+            (
+                ankle_x
+                - start_x
+            )
+            / max(
+                lookahead_distance_m,
+                1.0e-6,
+            ),
+            0.0,
+            1.0,
+        )
+
+        proximity_gain = (
+            0.5
+            + 0.5 * proximity
+        )
+
+        score = (
+            shortening_fraction
+            * proximity_gain
+            * upright_gate
+        )
+
+        best = torch.where(
+            active,
+            torch.maximum(best, score),
+            best,
+        )
+
+        assigned |= active
+
+    return torch.max(
+        best,
+        dim=1,
+    ).values
+
+
+def terrain_preclearance_forward_speed(
+    env,
+    asset_cfg: SceneEntityCfg,
+    ankle_cfg: SceneEntityCfg,
+    flat_ankle_height_m: float = 0.035,
+    normal_swing_ceiling_m: float = 0.065,
+    activation_distance_m: float = 0.30,
+    clearance_margin_m: float = 0.04,
+    speed_scale_mps: float = 0.20,
+) -> torch.Tensor:
+    """041 penalty for forward recommit before stair clearance exists.
+
+    The penalty is active only near the next riser and only while neither
+    ankle has reached useful stair-specific clearance.
+
+    Once clearance begins, this term releases automatically.
+    """
+
+    robot = env.scene[asset_cfg.name]
+    cfg = stair_cfg(env)
+
+    root_x = (
+        robot.data.root_pos_w[:, 0]
+        - env.scene.env_origins[:, 0]
+    )
+
+    forward_speed = torch.clamp(
+        robot.data.root_lin_vel_w[:, 0],
+        min=0.0,
+    )
+
+    ankle_pos = robot.data.body_pos_w[
+        :, ankle_cfg.body_ids, :
+    ]
+
+    ankle_z = (
+        ankle_pos[:, :, 2]
+        - env.scene.env_origins[:, 2].unsqueeze(1)
+    )
+
+    riser = riser_height_per_env(env)
+
+    tread = float(cfg.tread_depth)
+    step_count = int(cfg.step_count)
+    first_riser = float(cfg.start_clearance)
+
+    penalty = torch.zeros_like(root_x)
+
+    for step_index in range(step_count):
+
+        edge = (
+            first_riser
+            + step_index * tread
+        )
+
+        distance = edge - root_x
+
+        previous_surface = (
+            step_index * riser
+        )
+
+        next_surface = (
+            (step_index + 1) * riser
+        )
+
+        # "Clearance has started" means exceeding normal flat swing,
+        # not merely leaving the floor.
+        clearance_started_z = (
+            normal_swing_ceiling_m
+            + previous_surface
+        )
+
+        required_z = (
+            flat_ankle_height_m
+            + next_surface
+            + clearance_margin_m
+        )
+
+        best_ankle_z = torch.max(
+            ankle_z,
+            dim=1,
+        ).values
+
+        clearance_started = (
+            best_ankle_z
+            > clearance_started_z
+        )
+
+        clearance_complete = (
+            best_ankle_z
+            >= required_z
+        )
+
+        active = (
+            (distance >= 0.0)
+            & (distance <= activation_distance_m)
+            & ~clearance_started
+            & ~clearance_complete
+        )
+
+        normalized_speed = torch.clamp(
+            forward_speed
+            / max(
+                speed_scale_mps,
+                1.0e-6,
+            ),
+            0.0,
+            2.0,
+        )
+
+        step_penalty = torch.square(
+            normalized_speed
+        )
+
+        penalty = torch.where(
+            active,
+            torch.maximum(
+                penalty,
+                step_penalty,
+            ),
+            penalty,
+        )
+
+    return penalty
+

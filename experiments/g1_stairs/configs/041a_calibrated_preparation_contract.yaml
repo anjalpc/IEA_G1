@@ -1,0 +1,16 @@
+schema_version: 1
+
+experiment:
+  id: 041a_calibrated_preparation_contract
+  purpose: Runtime contract for calibrated stair-preparation shaping
+  type: contract_smoke
+  meaningful_stair_training: false
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/041_calibrated_preparation_base.yaml
+  resolved_config_required: true
+
+execution:
+  environments: 32
+  maximum_iterations: 2
+  training_seed: 42

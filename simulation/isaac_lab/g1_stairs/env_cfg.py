@@ -572,6 +572,104 @@ class StairRewardsCfg:
         },
     )
 
+    # 041: measured G1 stair-preparation rewards.
+    #
+    # Flat contact ankle z measured from 040 model-150:
+    #   left/right median ~= 0.035 m
+    #
+    # Flat swing maximum:
+    #   left ~= 0.061 m
+    #   right ~= 0.054 m
+    #
+    # Reward-specific clearance therefore starts above 0.065 m.
+    terrain_relative_swing_clearance_calibrated = RewTerm(
+        func=unified_rewards.terrain_relative_swing_clearance_calibrated,
+        weight=1.0,
+        params={
+            "asset_cfg": SceneEntityCfg(
+                "robot",
+                body_names=[
+                    "left_ankle_roll_link",
+                    "right_ankle_roll_link",
+                ],
+                preserve_order=True,
+            ),
+            "sensor_cfg": SceneEntityCfg(
+                "contact_forces",
+                body_names=[
+                    "left_ankle_roll_link",
+                    "right_ankle_roll_link",
+                ],
+                preserve_order=True,
+            ),
+            "flat_ankle_height_m": 0.035,
+            "normal_swing_ceiling_m": 0.065,
+            "lookahead_distance_m": 0.40,
+            "lip_distance_m": 0.05,
+            "clearance_margin_m": 0.04,
+        },
+    )
+
+    terrain_swing_leg_shortening = RewTerm(
+        func=unified_rewards.terrain_swing_leg_shortening,
+        weight=1.0,
+        params={
+            "hip_cfg": SceneEntityCfg(
+                "robot",
+                body_names=[
+                    "left_hip_pitch_link",
+                    "right_hip_pitch_link",
+                ],
+                preserve_order=True,
+            ),
+            "ankle_cfg": SceneEntityCfg(
+                "robot",
+                body_names=[
+                    "left_ankle_roll_link",
+                    "right_ankle_roll_link",
+                ],
+                preserve_order=True,
+            ),
+            "sensor_cfg": SceneEntityCfg(
+                "contact_forces",
+                body_names=[
+                    "left_ankle_roll_link",
+                    "right_ankle_roll_link",
+                ],
+                preserve_order=True,
+            ),
+            "flat_ankle_height_m": 0.035,
+            "reference_leg_length_m": 0.655,
+            "target_leg_length_m": 0.610,
+            "lookahead_distance_m": 0.35,
+            "lip_distance_m": 0.04,
+            "clearance_margin_m": 0.04,
+        },
+    )
+
+    terrain_preclearance_forward_speed = RewTerm(
+        func=unified_rewards.terrain_preclearance_forward_speed,
+        weight=-1.0,
+        params={
+            "asset_cfg": SceneEntityCfg(
+                "robot",
+            ),
+            "ankle_cfg": SceneEntityCfg(
+                "robot",
+                body_names=[
+                    "left_ankle_roll_link",
+                    "right_ankle_roll_link",
+                ],
+                preserve_order=True,
+            ),
+            "flat_ankle_height_m": 0.035,
+            "normal_swing_ceiling_m": 0.065,
+            "activation_distance_m": 0.30,
+            "clearance_margin_m": 0.04,
+            "speed_scale_mps": 0.20,
+        },
+    )
+
     terrain_relative_clearance_shortfall = RewTerm(
         func=unified_rewards.terrain_relative_clearance_shortfall,
         weight=-1.0,

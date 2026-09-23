@@ -1,0 +1,66 @@
+schema_version: 1
+
+experiment:
+  id: 041_calibrated_preparation_base
+  purpose: Learn stair-specific clearance and leg shortening above the measured flat-gait envelope
+  type: calibrated_geometry_preparation_ppo
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/040_dense_lift_discovery_base.yaml
+  resolved_config_required: true
+
+command:
+  forward_velocity_mps: 0.50
+
+  stair_velocity_schedule:
+    enabled: true
+    approach_velocity_mps: 0.50
+    stair_velocity_mps: 0.05
+    slowdown_start_distance_m: 0.60
+    slowdown_end_distance_m: 0.30
+    platform_velocity_mps: 0.50
+    platform_accel_distance_m: 0.40
+
+reward_experiment:
+  active_stage: calibrated_preparation_06_12cm
+
+  rewards:
+    stage_plan:
+      calibrated_preparation_06_12cm:
+
+        # Keep only light global forward tracking.
+        # The state-gated pre-clearance penalty owns the final preparation zone.
+        track_stair_velocity_world: 0.25
+        track_ang_vel_z: 0.5
+
+        upright: -2.0
+        action_rate: -0.02
+        joint_acc: -2.5e-7
+        dof_pos_limits: -5.0
+        feet_slide: -0.2
+        undesired_contacts: -1.0
+
+        # 040 showed that fixed positive shortfall pressure contributes to
+        # another ordinary forward step before useful clearance.
+        upright_forward_velocity_shortfall_careful: 0.0
+
+        stair_heading_alignment: -1.0
+
+        # 040 dense lift is deliberately disabled.
+        terrain_relative_swing_lift_dense: 0.0
+
+        # 041 measured, stair-specific preparation terms.
+        terrain_relative_swing_clearance_calibrated: 4.0
+        terrain_swing_leg_shortening: 1.5
+        terrain_preclearance_forward_speed: -1.0
+
+        terrain_relative_clearance_shortfall: -1.0
+        terrain_riser_face_blocked: -1.5
+        terrain_tread_touchdown: 2.0
+
+ppo:
+  initial_action_noise_std: 0.15
+  learning_rate: 0.0001
+  learning_rate_schedule: adaptive
+  desired_kl: 0.01
