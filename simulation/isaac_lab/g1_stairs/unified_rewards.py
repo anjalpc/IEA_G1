@@ -515,3 +515,8 @@ def terrain_relative_swing_clearance(
         best_score,
         dim=1,
     ).values
+
+
+# Backward-compatible public name retained because env_cfg.py is an
+# import-time catalog containing historical and current reward stages.
+terrain_riser_face_strike = terrain_riser_face_strike_proxy
