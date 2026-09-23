@@ -548,6 +548,30 @@ class StairRewardsCfg:
         },
     )
 
+
+    # 040: dense lift-discovery reward.
+    # Height progress is rewarded directly; upward velocity is an
+    # additional bonus rather than a mandatory multiplicative gate.
+    terrain_relative_swing_lift_dense = RewTerm(
+        func=unified_rewards.terrain_relative_swing_lift_dense,
+        weight=1.0,
+        params={
+            "asset_cfg": SceneEntityCfg(
+                "robot",
+                body_names=".*ankle_roll.*",
+            ),
+            "sensor_cfg": SceneEntityCfg(
+                "contact_forces",
+                body_names=".*ankle_roll.*",
+            ),
+            "nominal_ankle_height_m": 0.10,
+            "lookahead_distance_m": 0.40,
+            "lip_distance_m": 0.05,
+            "clearance_margin_m": 0.04,
+            "upward_speed_scale_mps": 0.08,
+        },
+    )
+
     terrain_relative_clearance_shortfall = RewTerm(
         func=unified_rewards.terrain_relative_clearance_shortfall,
         weight=-1.0,

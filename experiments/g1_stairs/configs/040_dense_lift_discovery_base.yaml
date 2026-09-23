@@ -1,0 +1,54 @@
+schema_version: 1
+
+experiment:
+  id: 040_dense_lift_discovery_base
+  purpose: Discover real swing-leg elevation before the first stair contact
+  type: dense_geometry_lift_discovery_ppo
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/039_upward_lift_discovery_base.yaml
+  resolved_config_required: true
+
+command:
+  forward_velocity_mps: 0.50
+
+  stair_velocity_schedule:
+    enabled: true
+    approach_velocity_mps: 0.50
+    stair_velocity_mps: 0.05
+    slowdown_start_distance_m: 0.60
+    slowdown_end_distance_m: 0.30
+    platform_velocity_mps: 0.50
+    platform_accel_distance_m: 0.40
+
+reward_experiment:
+  active_stage: dense_lift_discovery_06_12cm
+
+  rewards:
+    stage_plan:
+      dense_lift_discovery_06_12cm:
+
+        track_stair_velocity_world: 0.5
+        track_ang_vel_z: 0.5
+
+        upright: -2.0
+        action_rate: -0.02
+        joint_acc: -2.5e-7
+        dof_pos_limits: -5.0
+        feet_slide: -0.2
+        undesired_contacts: -1.0
+
+        upright_forward_velocity_shortfall_careful: -0.25
+        stair_heading_alignment: -1.0
+
+        terrain_relative_swing_lift_dense: 4.0
+        terrain_relative_clearance_shortfall: -1.0
+        terrain_riser_face_blocked: -1.5
+        terrain_tread_touchdown: 2.0
+
+ppo:
+  initial_action_noise_std: 0.15
+  learning_rate: 0.0001
+  learning_rate_schedule: adaptive
+  desired_kl: 0.01

@@ -1,0 +1,16 @@
+schema_version: 1
+
+experiment:
+  id: 040b_dense_lift_discovery_learning
+  purpose: Learn visible anticipatory ankle elevation before stair contact
+  type: learning_run
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/040_dense_lift_discovery_base.yaml
+  resolved_config_required: true
+
+execution:
+  environments: 2048
+  maximum_iterations: 1000
+  training_seed: 42
