@@ -1,0 +1,16 @@
+schema_version: 1
+
+experiment:
+  id: 035b_unified_geometry_12cm_smoke
+  purpose: Test learned gait adaptation on three 12 cm stairs
+  type: learning_smoke
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/035_unified_geometry_12cm_base.yaml
+  resolved_config_required: true
+
+execution:
+  environments: 512
+  maximum_iterations: 300
+  training_seed: 42

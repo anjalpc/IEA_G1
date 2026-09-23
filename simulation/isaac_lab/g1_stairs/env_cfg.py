@@ -29,6 +29,8 @@ from .isaac_terrain import ThreeStepStairsCfg
 from .robot_cfg import G1_STAIRS_ROBOT_CFG
 from . import rewards as stair_rewards
 from . import reference_tracking as reference_rewards
+from . import terrain_observations
+from . import unified_rewards
 
 
 _UPSTREAM = importlib.import_module(
@@ -121,6 +123,15 @@ class StairObservationsCfg(_UPSTREAM.ObservationsCfg):
             history_length=1,
         )
 
+        stair_geometry = ObsTerm(
+            func=terrain_observations.stair_geometry,
+            params={
+                "asset_cfg": SceneEntityCfg("robot")
+            },
+            clip=(-1.0, 1.0),
+            history_length=1,
+        )
+
         # Dynamically enabled only for reference-conditioned experiments.
         reference_joint_position_error = None
         reference_joint_velocity_error = None
@@ -147,6 +158,7 @@ class StairObservationsCfg(_UPSTREAM.ObservationsCfg):
             self.joint_vel_rel.history_length = 5
             self.last_action.history_length = 5
             self.height_scan.history_length = 1
+            self.stair_geometry.history_length = 1
 
     policy: PolicyCfg = PolicyCfg()
 
@@ -155,6 +167,15 @@ class StairObservationsCfg(_UPSTREAM.ObservationsCfg):
         height_scan = ObsTerm(
             func=mdp.height_scan,
             params={"sensor_cfg": SceneEntityCfg("height_scanner")},
+            clip=(-1.0, 1.0),
+            history_length=1,
+        )
+
+        stair_geometry = ObsTerm(
+            func=terrain_observations.stair_geometry,
+            params={
+                "asset_cfg": SceneEntityCfg("robot")
+            },
             clip=(-1.0, 1.0),
             history_length=1,
         )
@@ -184,6 +205,7 @@ class StairObservationsCfg(_UPSTREAM.ObservationsCfg):
             self.joint_vel_rel.history_length = 5
             self.last_action.history_length = 5
             self.height_scan.history_length = 1
+            self.stair_geometry.history_length = 1
 
     critic: CriticCfg = CriticCfg()
 
@@ -363,6 +385,21 @@ class StairRewardsCfg:
     track_lin_vel_xy = copy.deepcopy(
         _UPSTREAM_CFG.rewards.track_lin_vel_xy
     )
+    track_ang_vel_z = copy.deepcopy(
+        _UPSTREAM_CFG.rewards.track_ang_vel_z
+    )
+    joint_acc = copy.deepcopy(
+        _UPSTREAM_CFG.rewards.joint_acc
+    )
+    dof_pos_limits = copy.deepcopy(
+        _UPSTREAM_CFG.rewards.dof_pos_limits
+    )
+    feet_slide = copy.deepcopy(
+        _UPSTREAM_CFG.rewards.feet_slide
+    )
+    undesired_contacts = copy.deepcopy(
+        _UPSTREAM_CFG.rewards.undesired_contacts
+    )
     action_rate = copy.deepcopy(
         _UPSTREAM_CFG.rewards.action_rate
     )
@@ -370,8 +407,30 @@ class StairRewardsCfg:
         _UPSTREAM_CFG.rewards.joint_deviation_waists
     )
 
-    # Stair-specific swing-foot clearance. Unlike the upstream flat-ground
-    # reward, this targets the height of each upcoming tread.
+    # 035+: geometry-driven stair adaptation.
+    # Whichever foot is physically in swing may earn this reward.
+    terrain_relative_swing_clearance = RewTerm(
+        func=unified_rewards.terrain_relative_swing_clearance,
+        weight=1.0,
+        params={
+            "asset_cfg": SceneEntityCfg(
+                "robot",
+                body_names=".*ankle_roll.*",
+            ),
+            "sensor_cfg": SceneEntityCfg(
+                "contact_forces",
+                body_names=".*ankle_roll.*",
+            ),
+            "nominal_ankle_height_m": 0.10,
+            "lookahead_distance_m": 0.35,
+            "lip_distance_m": 0.05,
+            "clearance_margin_m": 0.04,
+            "forward_speed_scale_mps": 0.15,
+        },
+    )
+
+    # Historical stair-specific swing-foot clearance.
+    # Retained for reproducibility of earlier experiments.
     stair_swing_clearance = RewTerm(
         func=stair_rewards.stair_swing_clearance,
         weight=1.0,

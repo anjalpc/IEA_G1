@@ -12,7 +12,13 @@ from onnx import numpy_helper
 
 LOCOMOTION_OBS_DIM = 480
 TERRAIN_OBS_DIM = 187
-STAIR_OBS_DIM = LOCOMOTION_OBS_DIM + TERRAIN_OBS_DIM
+EXPLICIT_GEOMETRY_OBS_DIM = 5
+
+STAIR_OBS_DIM = (
+    LOCOMOTION_OBS_DIM
+    + TERRAIN_OBS_DIM
+    + EXPLICIT_GEOMETRY_OBS_DIM
+)
 ACTION_DIM = 29
 
 EXPECTED_ONNX_SHAPES = {
@@ -117,7 +123,8 @@ def initialize_actor_from_unitree_onnx(
 
     with torch.no_grad():
         # First layer:
-        # 480 pretrained locomotion observations + 187 new terrain inputs.
+        # Copy the exact 480-D Unitree locomotion actor.
+        # Every new terrain/geometry column begins at zero influence.
         actor[0].weight.zero_()
         copy_tensor(
             actor[0].weight[:, :LOCOMOTION_OBS_DIM],
@@ -157,6 +164,7 @@ def initialize_actor_from_unitree_onnx(
         "source_sha256": _sha256(onnx_path),
         "locomotion_observations": LOCOMOTION_OBS_DIM,
         "terrain_observations": TERRAIN_OBS_DIM,
+        "explicit_geometry_observations": EXPLICIT_GEOMETRY_OBS_DIM,
         "stair_observations": STAIR_OBS_DIM,
         "actions": ACTION_DIM,
         "runtime_observations": runtime_input_dim,

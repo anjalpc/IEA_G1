@@ -1,0 +1,85 @@
+schema_version: 1
+
+experiment:
+  id: 035_unified_geometry_12cm_base
+  purpose: Unified pretrained locomotion with explicit state-dependent stair geometry
+  type: unified_geometry_conditioned_ppo
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/nominal_stairs_base.yaml
+  resolved_config_required: true
+
+terrain:
+  riser_height_m: 0.12
+  tread_depth_m: 0.25
+  step_count: 3
+
+command:
+  forward_velocity_mps: 0.25
+
+observations:
+  policy_order:
+    - base_angular_velocity
+    - projected_gravity
+    - velocity_command
+    - joint_position_offset
+    - joint_velocity
+    - previous_action
+    - local_terrain_height_scan
+    - explicit_stair_geometry
+
+  additions:
+    explicit_stair_geometry:
+      dimensions: 5
+      actor_input: true
+      critic_input: true
+      state_dependent: true
+      reference_phase: false
+      fields:
+        - stairs_ahead
+        - normalized_riser_height
+        - normalized_tread_depth
+        - normalized_relative_yaw
+        - normalized_next_riser_distance
+
+policy_initialization:
+  type: unitree_velocity_onnx_transfer
+
+  source:
+    task: Unitree-G1-29dof-Velocity
+    path: /workspace/unitree_rl_lab/deploy/robots/g1_29dof/config/policy/velocity/v0/exported/policy.onnx
+
+  locomotion_observations: 480
+  terrain_observations: 187
+  explicit_geometry_observations: 5
+  stair_observations: 672
+  actions: 29
+
+  terrain_initialization: zero
+  critic_initialization: fresh
+  pretrained_actor_trainable: true
+
+reward_experiment:
+  active_stage: unified_geometry_12cm
+
+  rule: Preserve the Unitree gait while learning state-dependent stair adaptation without a reference clock or prescribed swing leg
+
+  rewards:
+    stage_plan:
+      unified_geometry_12cm:
+        track_lin_vel_xy: 1.0
+        track_ang_vel_z: 0.5
+        upright: -2.0
+        action_rate: -0.02
+        joint_acc: -2.5e-7
+        dof_pos_limits: -5.0
+        feet_slide: -0.2
+        undesired_contacts: -1.0
+        terrain_relative_swing_clearance: 1.5
+
+ppo:
+  initial_action_noise_std: 0.15
+  learning_rate: 0.0001
+  learning_rate_schedule: adaptive
+  desired_kl: 0.01

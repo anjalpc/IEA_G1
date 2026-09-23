@@ -132,6 +132,32 @@ def main() -> None:
             flush=True,
         )
 
+    if "tread_depth_m" in terrain_cfg:
+        tread_depth_m = float(
+            terrain_cfg["tread_depth_m"]
+        )
+
+        if not 0.15 <= tread_depth_m <= 0.40:
+            raise ValueError(
+                "terrain.tread_depth_m must be "
+                "in [0.15, 0.40]"
+            )
+
+        stair_cfg = (
+            env_cfg.scene.terrain.terrain_generator
+            .sub_terrains["three_step_ascent"]
+        )
+
+        stair_cfg.tread_depth = (
+            tread_depth_m
+        )
+
+        print(
+            "[INFO] Stair tread_depth_m:",
+            tread_depth_m,
+            flush=True,
+        )
+
     command_cfg = resolved_config.get("command", {})
     if "forward_velocity_mps" in command_cfg:
         forward_velocity_mps = float(
