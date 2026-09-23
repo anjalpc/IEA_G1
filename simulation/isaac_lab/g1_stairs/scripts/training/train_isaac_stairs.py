@@ -375,6 +375,16 @@ def main() -> None:
             ppo_cfg["desired_kl"]
         )
 
+    if "action_clip" in ppo_cfg:
+        action_clip = float(ppo_cfg["action_clip"])
+
+        if action_clip <= 0.0:
+            raise ValueError(
+                "ppo.action_clip must be > 0"
+            )
+
+        agent_cfg.clip_actions = action_clip
+
     print(
         "[INFO] PPO init_noise_std:",
         agent_cfg.policy.init_noise_std,

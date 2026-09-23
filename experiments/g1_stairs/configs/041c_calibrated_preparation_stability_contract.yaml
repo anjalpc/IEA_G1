@@ -1,0 +1,18 @@
+schema_version: 1
+experiment:
+  id: 041c_calibrated_preparation_stability_contract
+  purpose: Runtime contract for calibrated stair preparation with numerical stability
+    safeguards
+  type: contract_smoke
+  meaningful_stair_training: false
+inheritance:
+  base_config: experiments/g1_stairs/configs/041_calibrated_preparation_base.yaml
+  resolved_config_required: true
+execution:
+  environments: 32
+  maximum_iterations: 2
+  training_seed: 42
+ppo:
+  learning_rate: 1.0e-05
+  learning_rate_schedule: fixed
+  action_clip: 5.0

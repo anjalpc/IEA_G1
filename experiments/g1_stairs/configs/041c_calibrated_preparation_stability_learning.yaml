@@ -1,0 +1,18 @@
+schema_version: 1
+experiment:
+  id: 041c_calibrated_preparation_stability_learning
+  purpose: Learn calibrated stair preparation with bounded actions and stable PPO
+    updates
+  type: learning_run
+  meaningful_stair_training: true
+inheritance:
+  base_config: experiments/g1_stairs/configs/041_calibrated_preparation_base.yaml
+  resolved_config_required: true
+execution:
+  environments: 2048
+  maximum_iterations: 1000
+  training_seed: 42
+ppo:
+  learning_rate: 1.0e-05
+  learning_rate_schedule: fixed
+  action_clip: 5.0

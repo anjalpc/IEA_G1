@@ -157,6 +157,7 @@ class StairObservationsCfg(_UPSTREAM.ObservationsCfg):
             self.joint_pos_rel.history_length = 5
             self.joint_vel_rel.history_length = 5
             self.last_action.history_length = 5
+            self.last_action.clip = (-5.0, 5.0)
             self.height_scan.history_length = 1
             self.stair_geometry.history_length = 1
 
@@ -204,6 +205,7 @@ class StairObservationsCfg(_UPSTREAM.ObservationsCfg):
             self.joint_pos_rel.history_length = 5
             self.joint_vel_rel.history_length = 5
             self.last_action.history_length = 5
+            self.last_action.clip = (-5.0, 5.0)
             self.height_scan.history_length = 1
             self.stair_geometry.history_length = 1
 
