@@ -140,6 +140,8 @@ def main() -> None:
     env_cfg.commands.base_velocity.debug_vis = False
 
     replay_config = None
+    reference_tracking_cfg = None
+
     if args.resolved_config is not None:
         resolved_config_path = Path(args.resolved_config).resolve()
         if not resolved_config_path.is_file():
@@ -230,6 +232,94 @@ def main() -> None:
     joint_names = tuple(robot.joint_names)
     body_names = tuple(robot.body_names)
 
+    contact_sensor = env.unwrapped.scene.sensors[
+        "contact_forces"
+    ]
+    contact_body_names = tuple(
+        contact_sensor.body_names
+    )
+
+    from simulation.isaac_lab.g1_stairs.contracts import (
+        BODY_JOINTS,
+    )
+
+    right_ankle_joint_name = (
+        "right_ankle_pitch_joint"
+    )
+
+    try:
+        right_ankle_joint_index = joint_names.index(
+            right_ankle_joint_name
+        )
+        right_ankle_action_index = tuple(
+            BODY_JOINTS
+        ).index(
+            right_ankle_joint_name
+        )
+    except ValueError as exc:
+        raise RuntimeError(
+            "right ankle pitch joint is missing"
+        ) from exc
+
+    reference_motion = None
+    reference_start_frame = 0
+    reference_end_frame = 0
+    residual_scale_rad = None
+    residual_raw_clip = None
+
+    if (
+        reference_tracking_cfg
+        and reference_tracking_cfg.get(
+            "enabled",
+            False,
+        )
+    ):
+        from simulation.isaac_lab.g1_stairs.reference_motion import (
+            load_reference_motion,
+        )
+
+        metadata_path = Path(
+            reference_tracking_cfg["metadata"]
+        )
+
+        if not metadata_path.is_absolute():
+            metadata_path = (
+                REPO_ROOT
+                / metadata_path
+            )
+
+        reference_motion = load_reference_motion(
+            metadata_path
+        )
+
+        reference_start_frame = int(
+            reference_tracking_cfg[
+                "start_frame"
+            ]
+        )
+
+        reference_end_frame = int(
+            reference_tracking_cfg[
+                "end_frame"
+            ]
+        )
+
+        if reference_tracking_cfg.get(
+            "residual_control_enabled",
+            False,
+        ):
+            residual_scale_rad = float(
+                reference_tracking_cfg[
+                    "residual_scale_rad"
+                ]
+            )
+
+            residual_raw_clip = float(
+                reference_tracking_cfg[
+                    "raw_action_clip"
+                ]
+            )
+
     try:
         waist_pitch_index = joint_names.index("waist_pitch_joint")
     except ValueError as exc:
@@ -267,9 +357,16 @@ def main() -> None:
             name: body_names.index(name)
             for name in required_feet
         }
+
+        foot_contact_indices = {
+            name: contact_body_names.index(name)
+            for name in required_feet
+        }
+
     except ValueError as exc:
         raise RuntimeError(
-            "required ankle body is missing from robot body_names"
+            "required ankle body is missing from robot "
+            "or contact sensor body names"
         ) from exc
 
     foot_collision_spheres = (
@@ -290,7 +387,12 @@ def main() -> None:
             + 2.0 * (x * z + w * y) * vz
         )
 
-    def posture_sample(sample):
+    def posture_sample(
+        sample,
+        *,
+        policy_actions=None,
+        reference_frame=None,
+    ):
         env_origin = env.unwrapped.scene.env_origins[0]
 
         feet = {}
@@ -324,6 +426,13 @@ def main() -> None:
 
                 collision_centres_x.append(world_x)
 
+            contact_force = (
+                contact_sensor.data.net_forces_w[
+                    0,
+                    foot_contact_indices[name],
+                ]
+            )
+
             feet[name] = {
                 "course_x_m": float(
                     position[0].item()
@@ -334,6 +443,14 @@ def main() -> None:
                     position[2].item()
                     - env_origin[2].item()
                 ),
+                "contact_force_n": float(
+                    torch.linalg.vector_norm(
+                        contact_force
+                    ).item()
+                ),
+                "contact_force_z_n": float(
+                    contact_force[2].item()
+                ),
                 "collision_sphere_centres_x_m": (
                     collision_centres_x
                 ),
@@ -343,12 +460,18 @@ def main() -> None:
                 ),
             }
 
-        return {
+        diagnostic = {
             "time_s": float(sample.time_s),
             "course_x_m": float(sample.base_x_m),
             "root_height_m": float(sample.base_height_m),
             "root_roll_rad": float(sample.roll_rad),
             "root_pitch_rad": float(sample.pitch_rad),
+            "root_angular_velocity_y_radps": float(
+                robot.data.root_ang_vel_w[
+                    0,
+                    1,
+                ].item()
+            ),
             "waist_pitch_rad": float(
                 robot.data.joint_pos[
                     0,
@@ -358,6 +481,128 @@ def main() -> None:
             "contacts": sorted(sample.contacts),
             "feet": feet,
         }
+
+        right_ankle = {
+            "actual_position_rad": float(
+                robot.data.joint_pos[
+                    0,
+                    right_ankle_joint_index,
+                ].item()
+            ),
+            "actual_velocity_radps": float(
+                robot.data.joint_vel[
+                    0,
+                    right_ankle_joint_index,
+                ].item()
+            ),
+        }
+
+        if (
+            policy_actions is not None
+            and reference_motion is not None
+            and reference_frame is not None
+        ):
+            action_value = float(
+                policy_actions[
+                    0,
+                    right_ankle_action_index,
+                ].item()
+            )
+
+            frame = max(
+                reference_start_frame,
+                min(
+                    reference_end_frame,
+                    int(reference_frame),
+                ),
+            )
+
+            q_ref = float(
+                reference_motion.dof_pos[
+                    frame,
+                    right_ankle_action_index,
+                ]
+            )
+
+            right_ankle[
+                "reference_frame"
+            ] = frame
+
+            right_ankle[
+                "reference_position_rad"
+            ] = q_ref
+
+            right_ankle[
+                "policy_action_raw"
+            ] = action_value
+
+            if (
+                residual_scale_rad is not None
+                and residual_raw_clip is not None
+            ):
+                bounded_action = max(
+                    -residual_raw_clip,
+                    min(
+                        residual_raw_clip,
+                        action_value,
+                    ),
+                )
+
+                residual_rad = (
+                    bounded_action
+                    * residual_scale_rad
+                )
+
+                target_unclamped = (
+                    q_ref
+                    + residual_rad
+                )
+
+                limits = (
+                    robot.data.soft_joint_pos_limits[
+                        0,
+                        right_ankle_joint_index,
+                    ]
+                )
+
+                target_clamped = max(
+                    float(limits[0].item()),
+                    min(
+                        float(limits[1].item()),
+                        target_unclamped,
+                    ),
+                )
+
+                right_ankle[
+                    "policy_action_bounded"
+                ] = bounded_action
+
+                right_ankle[
+                    "residual_rad"
+                ] = residual_rad
+
+                right_ankle[
+                    "target_unclamped_rad"
+                ] = target_unclamped
+
+                right_ankle[
+                    "target_command_rad"
+                ] = target_clamped
+
+                right_ankle[
+                    "target_error_rad"
+                ] = (
+                    target_clamped
+                    - right_ankle[
+                        "actual_position_rad"
+                    ]
+                )
+
+        diagnostic[
+            "right_ankle_pitch"
+        ] = right_ankle
+
+        return diagnostic
 
     initial_state = capture_isaac_lab_state(
         env.unwrapped,
@@ -399,9 +644,15 @@ def main() -> None:
     steps = 0
 
     while result is None and steps < args.max_steps and simulation_app.is_running():
+        reference_frame_used = (
+            reference_start_frame
+            + steps
+        )
+
         with torch.inference_mode():
             actions = policy(obs)
             obs, _, _, _ = env.step(actions)
+
         steps += 1
         timed_out = steps >= args.max_steps
         state = capture_isaac_lab_state(
@@ -410,7 +661,11 @@ def main() -> None:
             timed_out=timed_out,
         )
         sample = to_step_sample(state)
-        diagnostic_sample = posture_sample(sample)
+        diagnostic_sample = posture_sample(
+            sample,
+            policy_actions=actions,
+            reference_frame=reference_frame_used,
+        )
 
         if step_up_validator is not None:
             step_up_validator.update()
