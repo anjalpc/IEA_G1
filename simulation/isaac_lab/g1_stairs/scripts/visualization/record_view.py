@@ -269,64 +269,42 @@ def main() -> None:
     terrain_generator.num_rows = 1
     terrain_generator.num_cols = 1
 
-    # Reproduce the exact stair height used by the training run.
+    # Reproduce the exact terrain and command used by the training run.
     resolved_config = None
+
     if args.resolved_config:
-        resolved_config_path = Path(args.resolved_config).resolve()
+        resolved_config_path = Path(
+            args.resolved_config
+        ).resolve()
 
         if not resolved_config_path.is_file():
-            raise FileNotFoundError(resolved_config_path)
+            raise FileNotFoundError(
+                resolved_config_path
+            )
 
         resolved_config = yaml.safe_load(
-            resolved_config_path.read_text(encoding="utf-8")
+            resolved_config_path.read_text(
+                encoding="utf-8"
+            )
         )
 
-        terrain_cfg = resolved_config.get("terrain", {})
-        riser_height_m = terrain_cfg.get("riser_height_m")
+        from simulation.isaac_lab.g1_stairs.evaluation.step_up_checkpoint_validation import (
+            apply_resolved_replay_config,
+        )
 
-        if riser_height_m is not None:
-            riser_height_m = float(riser_height_m)
+        replay = apply_resolved_replay_config(
+            env_cfg,
+            resolved_config_path,
+        )
 
-            if not 0.0 < riser_height_m <= 0.20:
-                raise ValueError(
-                    "terrain.riser_height_m must be in (0.0, 0.20]"
-                )
-
-            stair_cfg = terrain_generator.sub_terrains[
-                "three_step_ascent"
-            ]
-
-            stair_cfg.riser_height_range = (
-                riser_height_m,
-                riser_height_m,
-            )
-
-            print(
-                "[INFO] Recording stair riser_height_m:",
-                riser_height_m,
-                flush=True,
-            )
-
-        step_count = terrain_cfg.get("step_count")
-
-        if step_count is not None:
-            step_count = int(step_count)
-
-            if not 1 <= step_count <= 3:
-                raise ValueError(
-                    "terrain.step_count must be between 1 and 3"
-                )
-
-            stair_cfg = terrain_generator.sub_terrains[
-                "three_step_ascent"
-            ]
-            stair_cfg.step_count = step_count
-
-            print(
-                "[INFO] Recording stair step_count:",
-                step_count,
-                flush=True,
-            )
+        print(
+            "[INFO] Recording replay config:",
+            f"riser={replay.riser_height_m}",
+            f"tread={replay.tread_depth_m}",
+            f"steps={replay.step_count}",
+            f"command={replay.forward_velocity_mps}",
+            flush=True,
+        )
 
     if resolved_config is not None:
         from simulation.isaac_lab.g1_stairs.halfway_reset import (
