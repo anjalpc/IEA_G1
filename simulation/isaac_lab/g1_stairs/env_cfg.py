@@ -463,6 +463,21 @@ class StairRewardsCfg:
         },
     )
 
+    terrain_riser_face_strike_proxy = RewTerm(
+        func=unified_rewards.terrain_riser_face_strike,
+        weight=-2.0,
+        params={
+            "asset_cfg": SceneEntityCfg(
+                "robot",
+                body_names=".*ankle_roll.*",
+            ),
+            "nominal_ankle_height_m": 0.10,
+            "face_window_m": 0.035,
+            "clearance_margin_m": 0.025,
+            "min_forward_speed_mps": 0.02,
+        },
+    )
+
     terrain_tread_touchdown = RewTerm(
         func=unified_rewards.terrain_tread_touchdown,
         weight=1.0,
