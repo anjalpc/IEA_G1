@@ -612,5 +612,17 @@ def main() -> None:
 if __name__ == "__main__":
     try:
         main()
+    except BaseException as exc:
+        import traceback
+
+        print(
+            f"[FATAL] train_isaac_stairs.py: "
+            f"{type(exc).__name__}: {exc}",
+            flush=True,
+        )
+        traceback.print_exc()
+        sys.stdout.flush()
+        sys.stderr.flush()
+        raise
     finally:
         simulation_app.close()
