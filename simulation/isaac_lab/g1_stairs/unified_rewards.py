@@ -1619,3 +1619,1462 @@ def terrain_preclearance_forward_speed(
 
     return penalty
 
+
+# ============================================================================
+# 042: PHYSICS-GATED STAIR TRANSITION REWARDS
+# ============================================================================
+#
+# Design goals:
+#
+# - preserve the geometry-conditioned PPO architecture;
+# - preserve free leg-order selection;
+# - prevent future-stair reward before current-step completion;
+# - prevent early high-kick reward;
+# - prevent touchdown/contact farming;
+# - require real support + upward body transfer to unlock the next stair;
+# - allow modest body lean, but suppress the large backward-lean exploit
+#   observed in 041c.
+#
+# The only persistent state is:
+#   completed stair count per environment
+#   root height at episode start
+#
+# This is task progress state, not a gait clock or reference trajectory.
+
+
+def _stair_042_progress_buffers(
+    env,
+    robot,
+):
+    """Return per-env stair completion state and episode-start root height."""
+
+    device = robot.data.root_pos_w.device
+    num_envs = robot.data.root_pos_w.shape[0]
+
+    completed_name = "_iea_stair_042_completed_steps"
+    root_z0_name = "_iea_stair_042_root_z0"
+
+    completed = getattr(
+        env,
+        completed_name,
+        None,
+    )
+
+    root_z0 = getattr(
+        env,
+        root_z0_name,
+        None,
+    )
+
+    if (
+        completed is None
+        or completed.shape[0] != num_envs
+        or completed.device != device
+    ):
+        completed = torch.zeros(
+            num_envs,
+            dtype=torch.long,
+            device=device,
+        )
+        setattr(
+            env,
+            completed_name,
+            completed,
+        )
+
+    if (
+        root_z0 is None
+        or root_z0.shape[0] != num_envs
+        or root_z0.device != device
+    ):
+        root_z0 = robot.data.root_pos_w[:, 2].detach().clone()
+        setattr(
+            env,
+            root_z0_name,
+            root_z0,
+        )
+
+    episode_length = getattr(
+        env,
+        "episode_length_buf",
+        None,
+    )
+
+    if episode_length is not None:
+        reset_mask = episode_length <= 1
+
+        completed[reset_mask] = 0
+        root_z0[reset_mask] = (
+            robot.data.root_pos_w[
+                reset_mask,
+                2,
+            ]
+            .detach()
+        )
+
+    return completed, root_z0
+
+
+def _stair_042_target_geometry(
+    env,
+    robot,
+):
+    """Return geometry for the one currently unlocked stair."""
+
+    cfg = stair_cfg(env)
+
+    completed, root_z0 = (
+        _stair_042_progress_buffers(
+            env,
+            robot,
+        )
+    )
+
+    step_count = int(cfg.step_count)
+    tread = float(cfg.tread_depth)
+    first_riser = float(cfg.start_clearance)
+
+    active = completed < step_count
+
+    target_index = torch.clamp(
+        completed,
+        min=0,
+        max=max(step_count - 1, 0),
+    )
+
+    riser = riser_height_per_env(env)
+
+    edge = (
+        first_riser
+        + target_index.to(
+            dtype=robot.data.root_pos_w.dtype
+        )
+        * tread
+    )
+
+    previous_surface = (
+        target_index.to(
+            dtype=robot.data.root_pos_w.dtype
+        )
+        * riser
+    )
+
+    next_surface = (
+        (
+            target_index.to(
+                dtype=robot.data.root_pos_w.dtype
+            )
+            + 1.0
+        )
+        * riser
+    )
+
+    return {
+        "completed": completed,
+        "root_z0": root_z0,
+        "target_index": target_index,
+        "active": active,
+        "riser": riser,
+        "edge": edge,
+        "previous_surface": previous_surface,
+        "next_surface": next_surface,
+        "tread": tread,
+        "step_count": step_count,
+    }
+
+
+def _stair_042_tilt(
+    robot,
+):
+    """Combined body tilt from projected gravity."""
+
+    upright_cos = torch.clamp(
+        -robot.data.projected_gravity_b[:, 2],
+        -1.0,
+        1.0,
+    )
+
+    return torch.acos(upright_cos)
+
+
+def _stair_042_stability_gate(
+    robot,
+    free_tilt_rad: float = 0.20944,
+    zero_tilt_rad: float = 0.43633,
+):
+    """1 below ~12 deg, smoothly falls to 0 by ~25 deg."""
+
+    tilt = _stair_042_tilt(robot)
+
+    gate = 1.0 - torch.clamp(
+        (
+            tilt
+            - free_tilt_rad
+        )
+        / max(
+            zero_tilt_rad
+            - free_tilt_rad,
+            1.0e-6,
+        ),
+        0.0,
+        1.0,
+    )
+
+    return torch.square(gate)
+
+
+def terrain_current_riser_clearance_042(
+    env,
+    asset_cfg: SceneEntityCfg,
+    sensor_cfg: SceneEntityCfg,
+    flat_ankle_height_m: float = 0.035,
+    normal_swing_ceiling_m: float = 0.065,
+    lookahead_distance_m: float = 0.22,
+    lip_distance_m: float = 0.03,
+    clearance_margin_m: float = 0.04,
+) -> torch.Tensor:
+    """Clear only the currently unlocked riser.
+
+    041 rewarded swing clearance as early as 0.40 m before a riser and
+    started with a 0.5 proximity multiplier.
+
+    042:
+      - uses root-to-current-riser distance;
+      - activates only inside 0.22 m;
+      - proximity starts at zero;
+      - uses proximity squared;
+      - cannot target a future riser before completion of the current one.
+    """
+
+    robot = env.scene[asset_cfg.name]
+    sensor = env.scene.sensors[sensor_cfg.name]
+
+    geo = _stair_042_target_geometry(
+        env,
+        robot,
+    )
+
+    foot_pos = robot.data.body_pos_w[
+        :,
+        asset_cfg.body_ids,
+        :,
+    ]
+
+    foot_x = (
+        foot_pos[:, :, 0]
+        - env.scene.env_origins[
+            :,
+            0,
+        ].unsqueeze(1)
+    )
+
+    foot_z = (
+        foot_pos[:, :, 2]
+        - env.scene.env_origins[
+            :,
+            2,
+        ].unsqueeze(1)
+    )
+
+    root_x = (
+        robot.data.root_pos_w[:, 0]
+        - env.scene.env_origins[:, 0]
+    )
+
+    distance = geo["edge"] - root_x
+
+    current_contact = (
+        sensor.data.current_contact_time[
+            :,
+            sensor_cfg.body_ids,
+        ]
+    )
+
+    is_swing = current_contact <= 0.0
+
+    reward_start_z = (
+        normal_swing_ceiling_m
+        + geo["previous_surface"]
+    )
+
+    required_z = (
+        flat_ankle_height_m
+        + geo["next_surface"]
+        + clearance_margin_m
+    )
+
+    normalization = torch.clamp(
+        required_z - reward_start_z,
+        min=0.03,
+    )
+
+    clearance_fraction = torch.clamp(
+        (
+            foot_z
+            - reward_start_z.unsqueeze(1)
+        )
+        / normalization.unsqueeze(1),
+        0.0,
+        1.0,
+    )
+
+    proximity = torch.clamp(
+        1.0
+        - distance
+        / max(
+            lookahead_distance_m,
+            1.0e-6,
+        ),
+        0.0,
+        1.0,
+    )
+
+    # 041 started at 50% strength.
+    # 042 starts at zero and rises strongly only near the lip.
+    proximity_gain = torch.square(
+        proximity
+    ).unsqueeze(1)
+
+    root_zone = (
+        geo["active"]
+        & (distance >= 0.0)
+        & (
+            distance
+            <= lookahead_distance_m
+        )
+    ).unsqueeze(1)
+
+    foot_zone = (
+        (foot_x >= (
+            geo["edge"]
+            - lookahead_distance_m
+        ).unsqueeze(1))
+        & (foot_x <= (
+            geo["edge"]
+            + lip_distance_m
+        ).unsqueeze(1))
+    )
+
+    stability = (
+        _stair_042_stability_gate(
+            robot,
+        )
+        .unsqueeze(1)
+    )
+
+    score = (
+        clearance_fraction
+        * proximity_gain
+        * stability
+    )
+
+    score = torch.where(
+        root_zone
+        & foot_zone
+        & is_swing,
+        score,
+        torch.zeros_like(score),
+    )
+
+    return torch.max(
+        score,
+        dim=1,
+    ).values
+
+
+def terrain_current_swing_leg_shortening_042(
+    env,
+    hip_cfg: SceneEntityCfg,
+    ankle_cfg: SceneEntityCfg,
+    sensor_cfg: SceneEntityCfg,
+    flat_ankle_height_m: float = 0.035,
+    reference_leg_length_m: float = 0.655,
+    target_leg_length_m: float = 0.610,
+    lookahead_distance_m: float = 0.20,
+    clearance_margin_m: float = 0.04,
+) -> torch.Tensor:
+    """Compact swing preparation for only the current riser."""
+
+    robot = env.scene[hip_cfg.name]
+    sensor = env.scene.sensors[
+        sensor_cfg.name
+    ]
+
+    geo = _stair_042_target_geometry(
+        env,
+        robot,
+    )
+
+    hip_pos = robot.data.body_pos_w[
+        :,
+        hip_cfg.body_ids,
+        :,
+    ]
+
+    ankle_pos = robot.data.body_pos_w[
+        :,
+        ankle_cfg.body_ids,
+        :,
+    ]
+
+    if hip_pos.shape[1] != ankle_pos.shape[1]:
+        raise RuntimeError(
+            "042 hip/ankle body count mismatch"
+        )
+
+    ankle_x = (
+        ankle_pos[:, :, 0]
+        - env.scene.env_origins[
+            :,
+            0,
+        ].unsqueeze(1)
+    )
+
+    ankle_z = (
+        ankle_pos[:, :, 2]
+        - env.scene.env_origins[
+            :,
+            2,
+        ].unsqueeze(1)
+    )
+
+    leg_length = torch.linalg.vector_norm(
+        hip_pos - ankle_pos,
+        dim=2,
+    )
+
+    shortening = torch.clamp(
+        (
+            reference_leg_length_m
+            - leg_length
+        )
+        / max(
+            reference_leg_length_m
+            - target_leg_length_m,
+            1.0e-6,
+        ),
+        0.0,
+        1.0,
+    )
+
+    contact_time = (
+        sensor.data.current_contact_time[
+            :,
+            sensor_cfg.body_ids,
+        ]
+    )
+
+    is_swing = contact_time <= 0.0
+
+    required_z = (
+        flat_ankle_height_m
+        + geo["next_surface"]
+        + clearance_margin_m
+    )
+
+    needs_clearance = (
+        ankle_z
+        < required_z.unsqueeze(1)
+    )
+
+    root_x = (
+        robot.data.root_pos_w[:, 0]
+        - env.scene.env_origins[:, 0]
+    )
+
+    distance = geo["edge"] - root_x
+
+    proximity = torch.clamp(
+        1.0
+        - distance
+        / max(
+            lookahead_distance_m,
+            1.0e-6,
+        ),
+        0.0,
+        1.0,
+    )
+
+    proximity = torch.square(
+        proximity
+    ).unsqueeze(1)
+
+    active = (
+        geo["active"]
+        & (distance >= 0.0)
+        & (
+            distance
+            <= lookahead_distance_m
+        )
+    ).unsqueeze(1)
+
+    foot_before_lip = (
+        ankle_x
+        <= (
+            geo["edge"]
+            + 0.02
+        ).unsqueeze(1)
+    )
+
+    stability = (
+        _stair_042_stability_gate(
+            robot,
+        )
+        .unsqueeze(1)
+    )
+
+    score = (
+        shortening
+        * proximity
+        * stability
+    )
+
+    score = torch.where(
+        active
+        & is_swing
+        & needs_clearance
+        & foot_before_lip,
+        score,
+        torch.zeros_like(score),
+    )
+
+    return torch.max(
+        score,
+        dim=1,
+    ).values
+
+
+def terrain_excessive_swing_height_042(
+    env,
+    asset_cfg: SceneEntityCfg,
+    sensor_cfg: SceneEntityCfg,
+    flat_ankle_height_m: float = 0.035,
+    clearance_margin_m: float = 0.04,
+    free_extra_height_m: float = 0.05,
+    scale_m: float = 0.05,
+    activation_distance_m: float = 0.25,
+) -> torch.Tensor:
+    """Penalize the extreme high-kick exploit seen late in 041c."""
+
+    robot = env.scene[asset_cfg.name]
+    sensor = env.scene.sensors[
+        sensor_cfg.name
+    ]
+
+    geo = _stair_042_target_geometry(
+        env,
+        robot,
+    )
+
+    foot_pos = robot.data.body_pos_w[
+        :,
+        asset_cfg.body_ids,
+        :,
+    ]
+
+    foot_z = (
+        foot_pos[:, :, 2]
+        - env.scene.env_origins[
+            :,
+            2,
+        ].unsqueeze(1)
+    )
+
+    contact_time = (
+        sensor.data.current_contact_time[
+            :,
+            sensor_cfg.body_ids,
+        ]
+    )
+
+    is_swing = contact_time <= 0.0
+
+    root_x = (
+        robot.data.root_pos_w[:, 0]
+        - env.scene.env_origins[:, 0]
+    )
+
+    distance = geo["edge"] - root_x
+
+    required_z = (
+        flat_ankle_height_m
+        + geo["next_surface"]
+        + clearance_margin_m
+    )
+
+    free_ceiling = (
+        required_z
+        + free_extra_height_m
+    )
+
+    excess = torch.clamp(
+        (
+            foot_z
+            - free_ceiling.unsqueeze(1)
+        )
+        / max(
+            scale_m,
+            1.0e-6,
+        ),
+        min=0.0,
+        max=2.0,
+    )
+
+    active = (
+        geo["active"]
+        & (distance >= -0.05)
+        & (
+            distance
+            <= activation_distance_m
+        )
+    ).unsqueeze(1)
+
+    penalty = torch.where(
+        active & is_swing,
+        torch.square(excess),
+        torch.zeros_like(excess),
+    )
+
+    return torch.max(
+        penalty,
+        dim=1,
+    ).values
+
+
+def terrain_current_preclearance_speed_042(
+    env,
+    asset_cfg: SceneEntityCfg,
+    ankle_cfg: SceneEntityCfg,
+    flat_ankle_height_m: float = 0.035,
+    clearance_margin_m: float = 0.04,
+    activation_distance_m: float = 0.25,
+    speed_scale_mps: float = 0.20,
+) -> torch.Tensor:
+    """Slow only for the currently unlocked riser."""
+
+    robot = env.scene[asset_cfg.name]
+
+    geo = _stair_042_target_geometry(
+        env,
+        robot,
+    )
+
+    root_x = (
+        robot.data.root_pos_w[:, 0]
+        - env.scene.env_origins[:, 0]
+    )
+
+    distance = geo["edge"] - root_x
+
+    forward_speed = torch.clamp(
+        robot.data.root_lin_vel_w[:, 0],
+        min=0.0,
+    )
+
+    ankle_pos = robot.data.body_pos_w[
+        :,
+        ankle_cfg.body_ids,
+        :,
+    ]
+
+    ankle_z = (
+        ankle_pos[:, :, 2]
+        - env.scene.env_origins[
+            :,
+            2,
+        ].unsqueeze(1)
+    )
+
+    required_z = (
+        flat_ankle_height_m
+        + geo["next_surface"]
+        + clearance_margin_m
+    )
+
+    clearance_complete = (
+        torch.max(
+            ankle_z,
+            dim=1,
+        ).values
+        >= required_z
+    )
+
+    active = (
+        geo["active"]
+        & (distance >= 0.0)
+        & (
+            distance
+            <= activation_distance_m
+        )
+        & ~clearance_complete
+    )
+
+    normalized = torch.clamp(
+        forward_speed
+        / max(
+            speed_scale_mps,
+            1.0e-6,
+        ),
+        0.0,
+        2.0,
+    )
+
+    return torch.where(
+        active,
+        torch.square(normalized),
+        torch.zeros_like(normalized),
+    )
+
+
+def terrain_current_riser_blocked_042(
+    env,
+    asset_cfg: SceneEntityCfg,
+    flat_ankle_height_m: float = 0.035,
+    clearance_margin_m: float = 0.025,
+    face_window_m: float = 0.035,
+) -> torch.Tensor:
+    """Penalize low-foot approach to only the current riser face."""
+
+    robot = env.scene[asset_cfg.name]
+
+    geo = _stair_042_target_geometry(
+        env,
+        robot,
+    )
+
+    foot_pos = robot.data.body_pos_w[
+        :,
+        asset_cfg.body_ids,
+        :,
+    ]
+
+    foot_x = (
+        foot_pos[:, :, 0]
+        - env.scene.env_origins[
+            :,
+            0,
+        ].unsqueeze(1)
+    )
+
+    foot_z = (
+        foot_pos[:, :, 2]
+        - env.scene.env_origins[
+            :,
+            2,
+        ].unsqueeze(1)
+    )
+
+    required_z = (
+        flat_ankle_height_m
+        + geo["next_surface"]
+        + clearance_margin_m
+    )
+
+    near_face = (
+        torch.abs(
+            foot_x
+            - geo["edge"].unsqueeze(1)
+        )
+        <= face_window_m
+    )
+
+    too_low = (
+        foot_z
+        < required_z.unsqueeze(1)
+    )
+
+    forward = (
+        robot.data.root_lin_vel_w[:, 0]
+        > 0.02
+    ).unsqueeze(1)
+
+    blocked = (
+        near_face
+        & too_low
+        & forward
+        & geo["active"].unsqueeze(1)
+    )
+
+    return torch.any(
+        blocked,
+        dim=1,
+    ).to(
+        dtype=robot.data.root_pos_w.dtype
+    )
+
+
+def terrain_current_tread_placement_042(
+    env,
+    asset_cfg: SceneEntityCfg,
+    sensor_cfg: SceneEntityCfg,
+    flat_ankle_height_m: float = 0.035,
+    x_entry_margin_m: float = 0.02,
+    x_exit_margin_m: float = 0.04,
+    height_window_m: float = 0.10,
+    descent_speed_scale_mps: float = 0.20,
+) -> torch.Tensor:
+    """Reward controlled descent into the current tread interior.
+
+    This is pre-contact placement, not touchdown credit.
+    """
+
+    robot = env.scene[asset_cfg.name]
+    sensor = env.scene.sensors[
+        sensor_cfg.name
+    ]
+
+    geo = _stair_042_target_geometry(
+        env,
+        robot,
+    )
+
+    foot_pos = robot.data.body_pos_w[
+        :,
+        asset_cfg.body_ids,
+        :,
+    ]
+
+    foot_vel = robot.data.body_lin_vel_w[
+        :,
+        asset_cfg.body_ids,
+        :,
+    ]
+
+    foot_x = (
+        foot_pos[:, :, 0]
+        - env.scene.env_origins[
+            :,
+            0,
+        ].unsqueeze(1)
+    )
+
+    foot_z = (
+        foot_pos[:, :, 2]
+        - env.scene.env_origins[
+            :,
+            2,
+        ].unsqueeze(1)
+    )
+
+    contact_time = (
+        sensor.data.current_contact_time[
+            :,
+            sensor_cfg.body_ids,
+        ]
+    )
+
+    still_swing = contact_time <= 0.0
+
+    target_z = (
+        flat_ankle_height_m
+        + geo["next_surface"]
+    )
+
+    tread_start = (
+        geo["edge"]
+        + x_entry_margin_m
+    )
+
+    tread_end = (
+        geo["edge"]
+        + geo["tread"]
+        - x_exit_margin_m
+    )
+
+    inside_tread = (
+        (
+            foot_x
+            >= tread_start.unsqueeze(1)
+        )
+        & (
+            foot_x
+            <= tread_end.unsqueeze(1)
+        )
+    )
+
+    above_target = (
+        foot_z
+        - target_z.unsqueeze(1)
+    )
+
+    near_height = (
+        (above_target >= -0.01)
+        & (
+            above_target
+            <= height_window_m
+        )
+    )
+
+    descending = torch.clamp(
+        -foot_vel[:, :, 2]
+        / max(
+            descent_speed_scale_mps,
+            1.0e-6,
+        ),
+        0.0,
+        1.0,
+    )
+
+    height_gate = torch.clamp(
+        1.0
+        - torch.abs(above_target)
+        / max(
+            height_window_m,
+            1.0e-6,
+        ),
+        0.0,
+        1.0,
+    )
+
+    stability = (
+        _stair_042_stability_gate(
+            robot,
+        )
+        .unsqueeze(1)
+    )
+
+    score = (
+        descending
+        * height_gate
+        * stability
+    )
+
+    score = torch.where(
+        geo["active"].unsqueeze(1)
+        & still_swing
+        & inside_tread
+        & near_height,
+        score,
+        torch.zeros_like(score),
+    )
+
+    return torch.max(
+        score,
+        dim=1,
+    ).values
+
+
+def terrain_tread_support_acquisition_042(
+    env,
+    asset_cfg: SceneEntityCfg,
+    sensor_cfg: SceneEntityCfg,
+    flat_ankle_height_m: float = 0.035,
+    x_entry_margin_m: float = 0.02,
+    x_exit_margin_m: float = 0.04,
+    z_tolerance_m: float = 0.025,
+    min_contact_time_s: float = 0.08,
+    max_reward_contact_time_s: float = 0.18,
+) -> torch.Tensor:
+    """Short reward pulse when real tread support is first established.
+
+    The upper contact-time limit prevents standing still on one tread from
+    farming reward indefinitely.
+    """
+
+    robot = env.scene[asset_cfg.name]
+    sensor = env.scene.sensors[
+        sensor_cfg.name
+    ]
+
+    geo = _stair_042_target_geometry(
+        env,
+        robot,
+    )
+
+    foot_pos = robot.data.body_pos_w[
+        :,
+        asset_cfg.body_ids,
+        :,
+    ]
+
+    foot_x = (
+        foot_pos[:, :, 0]
+        - env.scene.env_origins[
+            :,
+            0,
+        ].unsqueeze(1)
+    )
+
+    foot_z = (
+        foot_pos[:, :, 2]
+        - env.scene.env_origins[
+            :,
+            2,
+        ].unsqueeze(1)
+    )
+
+    contact_time = (
+        sensor.data.current_contact_time[
+            :,
+            sensor_cfg.body_ids,
+        ]
+    )
+
+    target_z = (
+        flat_ankle_height_m
+        + geo["next_surface"]
+    )
+
+    tread_start = (
+        geo["edge"]
+        + x_entry_margin_m
+    )
+
+    tread_end = (
+        geo["edge"]
+        + geo["tread"]
+        - x_exit_margin_m
+    )
+
+    inside_tread = (
+        (
+            foot_x
+            >= tread_start.unsqueeze(1)
+        )
+        & (
+            foot_x
+            <= tread_end.unsqueeze(1)
+        )
+    )
+
+    correct_height = (
+        torch.abs(
+            foot_z
+            - target_z.unsqueeze(1)
+        )
+        <= z_tolerance_m
+    )
+
+    stable_contact = (
+        (
+            contact_time
+            >= min_contact_time_s
+        )
+        & (
+            contact_time
+            <= max_reward_contact_time_s
+        )
+    )
+
+    stability = (
+        _stair_042_stability_gate(
+            robot,
+        )
+        .unsqueeze(1)
+    )
+
+    score = torch.where(
+        geo["active"].unsqueeze(1)
+        & inside_tread
+        & correct_height
+        & stable_contact,
+        stability,
+        torch.zeros_like(stability),
+    )
+
+    return torch.max(
+        score,
+        dim=1,
+    ).values
+
+
+def terrain_supported_body_rise_042(
+    env,
+    asset_cfg: SceneEntityCfg,
+    sensor_cfg: SceneEntityCfg,
+    flat_ankle_height_m: float = 0.035,
+    x_entry_margin_m: float = 0.02,
+    x_exit_margin_m: float = 0.04,
+    z_tolerance_m: float = 0.03,
+    min_contact_time_s: float = 0.08,
+    vertical_speed_scale_mps: float = 0.15,
+) -> torch.Tensor:
+    """Reward upward body transfer only while a foot supports the tread.
+
+    Static standing produces zero because positive root vertical velocity is
+    required.
+    """
+
+    robot = env.scene[asset_cfg.name]
+    sensor = env.scene.sensors[
+        sensor_cfg.name
+    ]
+
+    geo = _stair_042_target_geometry(
+        env,
+        robot,
+    )
+
+    foot_pos = robot.data.body_pos_w[
+        :,
+        asset_cfg.body_ids,
+        :,
+    ]
+
+    foot_x = (
+        foot_pos[:, :, 0]
+        - env.scene.env_origins[
+            :,
+            0,
+        ].unsqueeze(1)
+    )
+
+    foot_z = (
+        foot_pos[:, :, 2]
+        - env.scene.env_origins[
+            :,
+            2,
+        ].unsqueeze(1)
+    )
+
+    contact_time = (
+        sensor.data.current_contact_time[
+            :,
+            sensor_cfg.body_ids,
+        ]
+    )
+
+    target_z = (
+        flat_ankle_height_m
+        + geo["next_surface"]
+    )
+
+    tread_start = (
+        geo["edge"]
+        + x_entry_margin_m
+    )
+
+    tread_end = (
+        geo["edge"]
+        + geo["tread"]
+        - x_exit_margin_m
+    )
+
+    valid_support = (
+        (
+            foot_x
+            >= tread_start.unsqueeze(1)
+        )
+        & (
+            foot_x
+            <= tread_end.unsqueeze(1)
+        )
+        & (
+            torch.abs(
+                foot_z
+                - target_z.unsqueeze(1)
+            )
+            <= z_tolerance_m
+        )
+        & (
+            contact_time
+            >= min_contact_time_s
+        )
+    )
+
+    any_support = torch.any(
+        valid_support,
+        dim=1,
+    )
+
+    root_height_gain = (
+        robot.data.root_pos_w[:, 2]
+        - geo["root_z0"]
+    )
+
+    body_progress = torch.clamp(
+        (
+            root_height_gain
+            - geo["previous_surface"]
+        )
+        / torch.clamp(
+            geo["riser"],
+            min=1.0e-4,
+        ),
+        0.0,
+        1.0,
+    )
+
+    upward_speed = torch.clamp(
+        robot.data.root_lin_vel_w[:, 2]
+        / max(
+            vertical_speed_scale_mps,
+            1.0e-6,
+        ),
+        0.0,
+        1.0,
+    )
+
+    root_x = (
+        robot.data.root_pos_w[:, 0]
+        - env.scene.env_origins[:, 0]
+    )
+
+    root_follow = torch.clamp(
+        (
+            root_x
+            - (
+                geo["edge"]
+                - 0.12
+            )
+        )
+        / 0.20,
+        0.0,
+        1.0,
+    )
+
+    stability = _stair_042_stability_gate(
+        robot,
+    )
+
+    score = (
+        upward_speed
+        * (
+            0.25
+            + 0.75 * body_progress
+        )
+        * root_follow
+        * stability
+    )
+
+    return torch.where(
+        geo["active"]
+        & any_support,
+        score,
+        torch.zeros_like(score),
+    )
+
+
+def terrain_step_completion_event_042(
+    env,
+    asset_cfg: SceneEntityCfg,
+    sensor_cfg: SceneEntityCfg,
+    flat_ankle_height_m: float = 0.035,
+    x_entry_margin_m: float = 0.02,
+    x_exit_margin_m: float = 0.04,
+    z_tolerance_m: float = 0.03,
+    min_contact_time_s: float = 0.10,
+    min_body_progress: float = 0.70,
+    min_root_follow: float = 0.65,
+    max_tilt_rad: float = 0.31416,
+) -> torch.Tensor:
+    """One-time event: current stair has been physically completed.
+
+    Completion requires:
+      - a foot supported inside the current tread;
+      - correct tread height;
+      - sustained contact;
+      - substantial body elevation;
+      - body progression toward/over the support;
+      - tilt below ~18 degrees.
+
+    Only after this event does the next stair become reward-eligible.
+    """
+
+    robot = env.scene[asset_cfg.name]
+    sensor = env.scene.sensors[
+        sensor_cfg.name
+    ]
+
+    geo = _stair_042_target_geometry(
+        env,
+        robot,
+    )
+
+    foot_pos = robot.data.body_pos_w[
+        :,
+        asset_cfg.body_ids,
+        :,
+    ]
+
+    foot_x = (
+        foot_pos[:, :, 0]
+        - env.scene.env_origins[
+            :,
+            0,
+        ].unsqueeze(1)
+    )
+
+    foot_z = (
+        foot_pos[:, :, 2]
+        - env.scene.env_origins[
+            :,
+            2,
+        ].unsqueeze(1)
+    )
+
+    contact_time = (
+        sensor.data.current_contact_time[
+            :,
+            sensor_cfg.body_ids,
+        ]
+    )
+
+    target_z = (
+        flat_ankle_height_m
+        + geo["next_surface"]
+    )
+
+    tread_start = (
+        geo["edge"]
+        + x_entry_margin_m
+    )
+
+    tread_end = (
+        geo["edge"]
+        + geo["tread"]
+        - x_exit_margin_m
+    )
+
+    valid_support = (
+        (
+            foot_x
+            >= tread_start.unsqueeze(1)
+        )
+        & (
+            foot_x
+            <= tread_end.unsqueeze(1)
+        )
+        & (
+            torch.abs(
+                foot_z
+                - target_z.unsqueeze(1)
+            )
+            <= z_tolerance_m
+        )
+        & (
+            contact_time
+            >= min_contact_time_s
+        )
+    )
+
+    any_support = torch.any(
+        valid_support,
+        dim=1,
+    )
+
+    root_height_gain = (
+        robot.data.root_pos_w[:, 2]
+        - geo["root_z0"]
+    )
+
+    body_progress = torch.clamp(
+        (
+            root_height_gain
+            - geo["previous_surface"]
+        )
+        / torch.clamp(
+            geo["riser"],
+            min=1.0e-4,
+        ),
+        0.0,
+        1.0,
+    )
+
+    root_x = (
+        robot.data.root_pos_w[:, 0]
+        - env.scene.env_origins[:, 0]
+    )
+
+    root_follow = torch.clamp(
+        (
+            root_x
+            - (
+                geo["edge"]
+                - 0.12
+            )
+        )
+        / 0.20,
+        0.0,
+        1.0,
+    )
+
+    tilt_ok = (
+        _stair_042_tilt(robot)
+        <= max_tilt_rad
+    )
+
+    newly_completed = (
+        geo["active"]
+        & any_support
+        & (
+            body_progress
+            >= min_body_progress
+        )
+        & (
+            root_follow
+            >= min_root_follow
+        )
+        & tilt_ok
+    )
+
+    reward = newly_completed.to(
+        dtype=robot.data.root_pos_w.dtype
+    )
+
+    # This is deliberately a one-step state transition.
+    geo["completed"][newly_completed] += 1
+
+    return reward
+
+
+def terrain_stair_tilt_excess_042(
+    env,
+    asset_cfg: SceneEntityCfg,
+    activation_distance_m: float = 0.35,
+    free_tilt_rad: float = 0.17453,
+    strong_tilt_rad: float = 0.34907,
+) -> torch.Tensor:
+    """Penalize large stair-zone tilt while allowing normal weight shift.
+
+    Approximately:
+      <= 10 deg: no penalty
+      10-20 deg: smooth penalty
+      >= 20 deg: full penalty
+    """
+
+    robot = env.scene[asset_cfg.name]
+
+    geo = _stair_042_target_geometry(
+        env,
+        robot,
+    )
+
+    root_x = (
+        robot.data.root_pos_w[:, 0]
+        - env.scene.env_origins[:, 0]
+    )
+
+    distance = geo["edge"] - root_x
+
+    tilt = _stair_042_tilt(robot)
+
+    excess = torch.clamp(
+        (
+            tilt
+            - free_tilt_rad
+        )
+        / max(
+            strong_tilt_rad
+            - free_tilt_rad,
+            1.0e-6,
+        ),
+        0.0,
+        1.5,
+    )
+
+    active = (
+        geo["active"]
+        & (distance >= -0.12)
+        & (
+            distance
+            <= activation_distance_m
+        )
+    )
+
+    return torch.where(
+        active,
+        torch.square(excess),
+        torch.zeros_like(excess),
+    )
+

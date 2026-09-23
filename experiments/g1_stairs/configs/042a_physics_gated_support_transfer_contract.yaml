@@ -1,0 +1,13 @@
+schema_version: 1
+experiment:
+  id: 042a_physics_gated_support_transfer_contract
+  purpose: Runtime contract for physics-gated sequential stair rewards
+  type: contract_smoke
+  meaningful_stair_training: false
+inheritance:
+  base_config: experiments/g1_stairs/configs/042_physics_gated_support_transfer_base.yaml
+  resolved_config_required: true
+execution:
+  environments: 32
+  maximum_iterations: 2
+  training_seed: 42
