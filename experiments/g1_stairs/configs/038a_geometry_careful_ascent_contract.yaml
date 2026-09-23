@@ -1,0 +1,16 @@
+schema_version: 1
+
+experiment:
+  id: 038a_geometry_careful_ascent_contract
+  purpose: Runtime contract smoke for careful geometry-conditioned stair ascent
+  type: contract_smoke
+  meaningful_stair_training: false
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/038_geometry_careful_ascent_base.yaml
+  resolved_config_required: true
+
+execution:
+  environments: 32
+  maximum_iterations: 2
+  training_seed: 42

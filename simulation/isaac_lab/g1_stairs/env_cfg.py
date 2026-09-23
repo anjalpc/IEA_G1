@@ -462,6 +462,56 @@ class StairRewardsCfg:
         },
     )
 
+
+    # 038: follow the staircase direction in world coordinates.
+    track_stair_velocity_world = RewTerm(
+        func=unified_rewards.track_stair_velocity_world_exp,
+        weight=1.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "std": 0.35,
+            "approach_velocity_mps": 0.50,
+            "stair_velocity_mps": 0.18,
+            "slowdown_start_distance_m": 0.60,
+            "slowdown_end_distance_m": 0.35,
+            "platform_velocity_mps": 0.50,
+            "platform_accel_distance_m": 0.40,
+        },
+    )
+
+
+    # 038: close the left/right heading-avoidance loophole.
+    stair_heading_alignment = RewTerm(
+        func=unified_rewards.stair_heading_alignment,
+        weight=-1.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "full_penalty_yaw_rad": 0.50,
+        },
+    )
+
+
+    # 038: positive per-environment geometry-conditioned swing lift.
+    terrain_relative_swing_clearance_dynamic = RewTerm(
+        func=unified_rewards.terrain_relative_swing_clearance_dynamic,
+        weight=1.0,
+        params={
+            "asset_cfg": SceneEntityCfg(
+                "robot",
+                body_names=".*ankle_roll.*",
+            ),
+            "sensor_cfg": SceneEntityCfg(
+                "contact_forces",
+                body_names=".*ankle_roll.*",
+            ),
+            "nominal_ankle_height_m": 0.10,
+            "lookahead_distance_m": 0.35,
+            "lip_distance_m": 0.05,
+            "clearance_margin_m": 0.04,
+            "forward_speed_scale_mps": 0.12,
+        },
+    )
+
     terrain_relative_clearance_shortfall = RewTerm(
         func=unified_rewards.terrain_relative_clearance_shortfall,
         weight=-1.0,

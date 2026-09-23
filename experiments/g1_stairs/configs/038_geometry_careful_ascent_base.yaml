@@ -1,0 +1,54 @@
+schema_version: 1
+
+experiment:
+  id: 038_geometry_careful_ascent_base
+  purpose: Preserve the 036 architecture while learning aligned, careful geometry-conditioned stair ascent
+  type: unified_geometry_careful_ascent_ppo
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/037_forward_engagement_base.yaml
+  resolved_config_required: true
+
+command:
+  forward_velocity_mps: 0.50
+
+  stair_velocity_schedule:
+    enabled: true
+    approach_velocity_mps: 0.50
+    stair_velocity_mps: 0.18
+    slowdown_start_distance_m: 0.60
+    slowdown_end_distance_m: 0.35
+    platform_velocity_mps: 0.50
+    platform_accel_distance_m: 0.40
+
+reward_experiment:
+  active_stage: careful_aligned_ascent_06_12cm
+
+  rewards:
+    stage_plan:
+      careful_aligned_ascent_06_12cm:
+
+        track_stair_velocity_world: 1.5
+        track_ang_vel_z: 0.5
+
+        upright: -2.0
+        action_rate: -0.02
+        joint_acc: -2.5e-7
+        dof_pos_limits: -5.0
+        feet_slide: -0.2
+        undesired_contacts: -1.0
+
+        upright_forward_velocity_shortfall: -1.0
+        stair_heading_alignment: -1.0
+
+        terrain_relative_swing_clearance_dynamic: 2.0
+        terrain_relative_clearance_shortfall: -1.0
+        terrain_riser_face_blocked: -1.5
+        terrain_tread_touchdown: 2.0
+
+ppo:
+  initial_action_noise_std: 0.15
+  learning_rate: 0.0001
+  learning_rate_schedule: adaptive
+  desired_kl: 0.01

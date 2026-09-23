@@ -570,3 +570,259 @@ def upright_forward_velocity_shortfall(
 
 
 
+
+
+def track_stair_velocity_world_exp(
+    env,
+    asset_cfg: SceneEntityCfg,
+    std: float = 0.35,
+    approach_velocity_mps: float = 0.50,
+    stair_velocity_mps: float = 0.18,
+    slowdown_start_distance_m: float = 0.60,
+    slowdown_end_distance_m: float = 0.35,
+    platform_velocity_mps: float = 0.50,
+    platform_accel_distance_m: float = 0.40,
+) -> torch.Tensor:
+    """Track staircase-aligned world velocity.
+
+    Unlike the upstream yaw-frame velocity reward, this does not allow the
+    robot to rotate left/right and continue earning full forward reward.
+    """
+
+    from .terrain_observations import stair_velocity_command
+
+    robot = env.scene[asset_cfg.name]
+
+    target = stair_velocity_command(
+        env,
+        approach_velocity_mps=approach_velocity_mps,
+        stair_velocity_mps=stair_velocity_mps,
+        slowdown_start_distance_m=slowdown_start_distance_m,
+        slowdown_end_distance_m=slowdown_end_distance_m,
+        platform_velocity_mps=platform_velocity_mps,
+        platform_accel_distance_m=platform_accel_distance_m,
+    )
+
+    error_x = (
+        robot.data.root_lin_vel_w[:, 0]
+        - target[:, 0]
+    )
+
+    # Stair direction is world +X, so desired world lateral speed is zero.
+    error_y = robot.data.root_lin_vel_w[:, 1]
+
+    squared_error = (
+        error_x * error_x
+        + error_y * error_y
+    )
+
+    variance = max(float(std) ** 2, 1.0e-8)
+
+    return torch.exp(
+        -squared_error / variance
+    )
+
+
+def stair_heading_alignment(
+    env,
+    asset_cfg: SceneEntityCfg,
+    full_penalty_yaw_rad: float = 0.50,
+) -> torch.Tensor:
+    """Penalize heading away from staircase +X while stairs remain ahead."""
+
+    robot = env.scene[asset_cfg.name]
+    cfg = stair_cfg(env)
+
+    root_x = (
+        robot.data.root_pos_w[:, 0]
+        - env.scene.env_origins[:, 0]
+    )
+
+    platform_start = (
+        float(cfg.start_clearance)
+        + int(cfg.step_count)
+        * float(cfg.tread_depth)
+    )
+
+    qw, qx, qy, qz = (
+        robot.data.root_quat_w.unbind(dim=1)
+    )
+
+    yaw = torch.atan2(
+        2.0 * (qw * qz + qx * qy),
+        1.0 - 2.0 * (qy * qy + qz * qz),
+    )
+
+    yaw_error = torch.atan2(
+        torch.sin(yaw),
+        torch.cos(yaw),
+    )
+
+    normalized = torch.clamp(
+        torch.abs(yaw_error)
+        / full_penalty_yaw_rad,
+        0.0,
+        1.0,
+    )
+
+    stairs_ahead = (
+        root_x < platform_start
+    ).to(normalized.dtype)
+
+    return stairs_ahead * normalized * normalized
+
+
+def terrain_relative_swing_clearance_dynamic(
+    env,
+    asset_cfg: SceneEntityCfg,
+    sensor_cfg: SceneEntityCfg,
+    nominal_ankle_height_m: float = 0.10,
+    lookahead_distance_m: float = 0.35,
+    lip_distance_m: float = 0.05,
+    clearance_margin_m: float = 0.04,
+    forward_speed_scale_mps: float = 0.12,
+) -> torch.Tensor:
+    """Reward real swing-foot lift using the exact per-environment riser.
+
+    No left/right sequence, phase clock, or reference gait is prescribed.
+    Whichever foot is physically in swing may earn the reward.
+    """
+
+    robot = env.scene[asset_cfg.name]
+    sensor = env.scene.sensors[sensor_cfg.name]
+    cfg = stair_cfg(env)
+
+    riser = riser_height_per_env(env).unsqueeze(1)
+
+    tread = float(cfg.tread_depth)
+    step_count = int(cfg.step_count)
+    first_riser = float(cfg.start_clearance)
+
+    foot_pos = robot.data.body_pos_w[
+        :, asset_cfg.body_ids, :
+    ]
+
+    foot_vel = robot.data.body_lin_vel_w[
+        :, asset_cfg.body_ids, :
+    ]
+
+    foot_x = (
+        foot_pos[:, :, 0]
+        - env.scene.env_origins[:, 0].unsqueeze(1)
+    )
+
+    foot_z = (
+        foot_pos[:, :, 2]
+        - env.scene.env_origins[:, 2].unsqueeze(1)
+    )
+
+    current_contact = (
+        sensor.data.current_contact_time[
+            :, sensor_cfg.body_ids
+        ]
+    )
+
+    is_swing = current_contact <= 0.0
+
+    # Static raised-foot exploit protection.
+    forward_gate = torch.clamp(
+        foot_vel[:, :, 0]
+        / forward_speed_scale_mps,
+        0.0,
+        1.0,
+    )
+
+    upright_gate = torch.clamp(
+        -robot.data.projected_gravity_b[:, 2],
+        0.0,
+        1.0,
+    ).unsqueeze(1)
+
+    best = torch.zeros_like(foot_z)
+    assigned = torch.zeros_like(is_swing)
+
+    for step_index in range(step_count):
+
+        edge = (
+            first_riser
+            + step_index * tread
+        )
+
+        start_x = (
+            edge - lookahead_distance_m
+        )
+
+        active = (
+            is_swing
+            & ~assigned
+            & (foot_x >= start_x)
+            & (foot_x <= edge + lip_distance_m)
+        )
+
+        previous_surface = (
+            step_index * riser
+        )
+
+        required_surface = (
+            (step_index + 1) * riser
+        )
+
+        baseline_z = (
+            nominal_ankle_height_m
+            + previous_surface
+        )
+
+        required_z = (
+            nominal_ankle_height_m
+            + required_surface
+            + clearance_margin_m
+        )
+
+        denominator = torch.clamp(
+            required_z - baseline_z,
+            min=0.03,
+        )
+
+        lift_fraction = torch.clamp(
+            (
+                foot_z - baseline_z
+            )
+            / denominator,
+            0.0,
+            1.0,
+        )
+
+        # Increase importance as the foot approaches the vertical face,
+        # while still providing an anticipatory gradient.
+        phase = torch.clamp(
+            (
+                foot_x - start_x
+            )
+            / lookahead_distance_m,
+            0.0,
+            1.0,
+        )
+
+        proximity_gain = (
+            0.50 + 0.50 * phase
+        )
+
+        score = (
+            lift_fraction
+            * proximity_gain
+            * forward_gate
+            * upright_gate
+        )
+
+        best = torch.where(
+            active,
+            torch.maximum(best, score),
+            best,
+        )
+
+        assigned |= active
+
+    return torch.max(
+        best,
+        dim=1,
+    ).values

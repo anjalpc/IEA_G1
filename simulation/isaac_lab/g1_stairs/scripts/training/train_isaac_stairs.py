@@ -261,6 +261,73 @@ def main() -> None:
             flush=True,
         )
 
+
+    stair_schedule_cfg = command_cfg.get(
+        "stair_velocity_schedule",
+        {},
+    )
+
+    if stair_schedule_cfg.get("enabled", False):
+        from simulation.isaac_lab.g1_stairs import (
+            terrain_observations,
+        )
+
+        schedule_params = {
+            "approach_velocity_mps": float(
+                stair_schedule_cfg[
+                    "approach_velocity_mps"
+                ]
+            ),
+            "stair_velocity_mps": float(
+                stair_schedule_cfg[
+                    "stair_velocity_mps"
+                ]
+            ),
+            "slowdown_start_distance_m": float(
+                stair_schedule_cfg[
+                    "slowdown_start_distance_m"
+                ]
+            ),
+            "slowdown_end_distance_m": float(
+                stair_schedule_cfg[
+                    "slowdown_end_distance_m"
+                ]
+            ),
+            "platform_velocity_mps": float(
+                stair_schedule_cfg[
+                    "platform_velocity_mps"
+                ]
+            ),
+            "platform_accel_distance_m": float(
+                stair_schedule_cfg[
+                    "platform_accel_distance_m"
+                ]
+            ),
+        }
+
+        # Preserve the original three command channels and their five-frame
+        # history. Only their values become geometry-conditioned.
+        for observation_group in (
+            env_cfg.observations.policy,
+            env_cfg.observations.critic,
+        ):
+            observation_group.velocity_commands.func = (
+                terrain_observations.stair_velocity_command
+            )
+            observation_group.velocity_commands.params = dict(
+                schedule_params
+            )
+
+        env_cfg.rewards.track_stair_velocity_world.params.update(
+            schedule_params
+        )
+
+        print(
+            "[INFO] Stair velocity schedule:",
+            schedule_params,
+            flush=True,
+        )
+
     from simulation.isaac_lab.g1_stairs.reference_tracking_runtime import (
         apply_reference_tracking_config,
     )

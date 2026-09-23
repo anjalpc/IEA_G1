@@ -112,3 +112,133 @@ def stair_geometry(
         ),
         dim=1,
     )
+
+
+def stair_velocity_command(
+    env,
+    approach_velocity_mps: float = 0.50,
+    stair_velocity_mps: float = 0.18,
+    slowdown_start_distance_m: float = 0.60,
+    slowdown_end_distance_m: float = 0.35,
+    platform_velocity_mps: float = 0.50,
+    platform_accel_distance_m: float = 0.40,
+) -> torch.Tensor:
+    """Return geometry-conditioned [vx, vy, yaw_rate] command.
+
+    The observation dimensionality remains exactly three.
+
+    - walk normally on the flat approach;
+    - slow smoothly before the first riser;
+    - climb all three treads carefully;
+    - accelerate smoothly after reaching the platform.
+    """
+
+    if not (
+        0.0 < stair_velocity_mps
+        <= approach_velocity_mps
+        <= 0.50
+    ):
+        raise ValueError(
+            "expected 0 < stair_velocity <= approach_velocity <= 0.50"
+        )
+
+    if not (
+        slowdown_start_distance_m
+        > slowdown_end_distance_m
+        > 0.0
+    ):
+        raise ValueError(
+            "slowdown_start_distance_m must exceed "
+            "slowdown_end_distance_m > 0"
+        )
+
+    if platform_accel_distance_m <= 0.0:
+        raise ValueError(
+            "platform_accel_distance_m must be positive"
+        )
+
+    robot = env.scene["robot"]
+    cfg = stair_cfg(env)
+
+    root_x = (
+        robot.data.root_pos_w[:, 0]
+        - env.scene.env_origins[:, 0]
+    )
+
+    first_riser = float(cfg.start_clearance)
+
+    platform_start = (
+        first_riser
+        + int(cfg.step_count) * float(cfg.tread_depth)
+    )
+
+    distance_to_first = first_riser - root_x
+
+    # 0 before slowdown starts, 1 once the careful-speed zone begins.
+    slowdown_alpha = torch.clamp(
+        (
+            slowdown_start_distance_m
+            - distance_to_first
+        )
+        / (
+            slowdown_start_distance_m
+            - slowdown_end_distance_m
+        ),
+        0.0,
+        1.0,
+    )
+
+    approach_speed = (
+        approach_velocity_mps
+        + slowdown_alpha
+        * (
+            stair_velocity_mps
+            - approach_velocity_mps
+        )
+    )
+
+    speed = torch.where(
+        root_x < first_riser,
+        approach_speed,
+        torch.full_like(
+            root_x,
+            stair_velocity_mps,
+        ),
+    )
+
+    # Stay slow at platform entry, then smoothly return to walking speed.
+    platform_alpha = torch.clamp(
+        (
+            root_x
+            - platform_start
+        )
+        / platform_accel_distance_m,
+        0.0,
+        1.0,
+    )
+
+    platform_speed = (
+        stair_velocity_mps
+        + platform_alpha
+        * (
+            platform_velocity_mps
+            - stair_velocity_mps
+        )
+    )
+
+    speed = torch.where(
+        root_x >= platform_start,
+        platform_speed,
+        speed,
+    )
+
+    zeros = torch.zeros_like(speed)
+
+    return torch.stack(
+        (
+            speed,
+            zeros,
+            zeros,
+        ),
+        dim=1,
+    )
