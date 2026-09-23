@@ -1,0 +1,54 @@
+schema_version: 1
+
+experiment:
+  id: 039_upward_lift_discovery_base
+  purpose: Preserve 038 alignment while allowing near-riser preparation and rewarding genuine upward swing initiation
+  type: unified_geometry_upward_lift_discovery_ppo
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/038_geometry_careful_ascent_base.yaml
+  resolved_config_required: true
+
+command:
+  forward_velocity_mps: 0.50
+
+  stair_velocity_schedule:
+    enabled: true
+    approach_velocity_mps: 0.50
+    stair_velocity_mps: 0.10
+    slowdown_start_distance_m: 0.60
+    slowdown_end_distance_m: 0.30
+    platform_velocity_mps: 0.50
+    platform_accel_distance_m: 0.40
+
+reward_experiment:
+  active_stage: upward_lift_discovery_06_12cm
+
+  rewards:
+    stage_plan:
+      upward_lift_discovery_06_12cm:
+
+        track_stair_velocity_world: 1.0
+        track_ang_vel_z: 0.5
+
+        upright: -2.0
+        action_rate: -0.02
+        joint_acc: -2.5e-7
+        dof_pos_limits: -5.0
+        feet_slide: -0.2
+        undesired_contacts: -1.0
+
+        upright_forward_velocity_shortfall_careful: -0.5
+        stair_heading_alignment: -1.0
+
+        terrain_relative_swing_clearance_upward: 3.0
+        terrain_relative_clearance_shortfall: -1.0
+        terrain_riser_face_blocked: -1.5
+        terrain_tread_touchdown: 2.0
+
+ppo:
+  initial_action_noise_std: 0.15
+  learning_rate: 0.0001
+  learning_rate_schedule: adaptive
+  desired_kl: 0.01

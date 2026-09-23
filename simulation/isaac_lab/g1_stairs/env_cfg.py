@@ -512,6 +512,42 @@ class StairRewardsCfg:
         },
     )
 
+
+    # 039: allow legitimate near-riser preparation/creep.
+    upright_forward_velocity_shortfall_careful = RewTerm(
+        func=unified_rewards.upright_forward_velocity_shortfall,
+        weight=-1.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "minimum_forward_velocity_mps": 0.05,
+            "backward_extra_scale": 1.5,
+            "upright_min": 0.80,
+        },
+    )
+
+
+    # 039: reward actual upward swing-foot initiation.
+    terrain_relative_swing_clearance_upward = RewTerm(
+        func=unified_rewards.terrain_relative_swing_clearance_upward,
+        weight=1.0,
+        params={
+            "asset_cfg": SceneEntityCfg(
+                "robot",
+                body_names=".*ankle_roll.*",
+            ),
+            "sensor_cfg": SceneEntityCfg(
+                "contact_forces",
+                body_names=".*ankle_roll.*",
+            ),
+            "nominal_ankle_height_m": 0.10,
+            "lookahead_distance_m": 0.35,
+            "lip_distance_m": 0.05,
+            "clearance_margin_m": 0.04,
+            "upward_speed_scale_mps": 0.08,
+            "forward_speed_scale_mps": 0.12,
+        },
+    )
+
     terrain_relative_clearance_shortfall = RewTerm(
         func=unified_rewards.terrain_relative_clearance_shortfall,
         weight=-1.0,
