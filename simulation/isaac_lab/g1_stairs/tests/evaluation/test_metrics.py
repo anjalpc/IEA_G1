@@ -522,6 +522,61 @@ class MetricsTest(unittest.TestCase):
                 "touchdown_horizontal_speed_mps",
             )
 
+    def test_stair_event_counts_are_written_with_explicit_zeros(self):
+        with tempfile.TemporaryDirectory() as directory:
+            writer = RunMetricsWriter(
+                Path(directory),
+                "stair_event_test",
+            )
+
+            writer.record_stair_event_counts(
+                iteration=4,
+                total_simulated_steps=12345,
+                counts={
+                    "near_riser_entry_count": 3,
+                    "left_swing_entry_count": 0,
+                    "right_swing_entry_count": 2,
+                },
+            )
+
+            with writer.stair_event_path.open(
+                encoding="utf-8"
+            ) as stream:
+                rows = list(
+                    csv.DictReader(stream)
+                )
+
+            self.assertEqual(
+                len(rows),
+                3,
+            )
+
+            by_name = {
+                row["name"]: row
+                for row in rows
+            }
+
+            self.assertEqual(
+                by_name[
+                    "left_swing_entry_count"
+                ]["count"],
+                "0",
+            )
+
+            self.assertEqual(
+                by_name[
+                    "near_riser_entry_count"
+                ]["count"],
+                "3",
+            )
+
+            self.assertEqual(
+                by_name[
+                    "right_swing_entry_count"
+                ]["count"],
+                "2",
+            )
+
     def test_episode_summary_uses_independent_outcomes(self):
         with tempfile.TemporaryDirectory() as directory:
             writer = RunMetricsWriter(

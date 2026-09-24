@@ -543,4 +543,21 @@ class MetricsOnPolicyRunnerMixin:
             diagnostics=stair_diagnostics,
         )
 
+        # Preserve the historical copies in training_metrics.csv extra_json,
+        # but also write a dedicated stable artifact for progression-funnel
+        # and offline diagnostic reporting.
+        stair_event_counts = {
+            key.removeprefix("step043_diag_"): value
+            for key, value in snapshot.items()
+            if key.startswith("step043_diag_")
+        }
+
+        self._metrics_writer.record_stair_event_counts(
+            iteration=snapshot["iteration"],
+            total_simulated_steps=snapshot[
+                "total_simulated_steps"
+            ],
+            counts=stair_event_counts,
+        )
+
         print("[POST_UPDATE] metrics_write EXIT", flush=True)
