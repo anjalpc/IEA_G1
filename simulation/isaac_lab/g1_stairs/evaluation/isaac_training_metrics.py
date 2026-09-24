@@ -9,6 +9,7 @@ from pathlib import Path
 from simulation.isaac_lab.g1_stairs.evaluation.metrics import RunMetricsWriter
 from simulation.isaac_lab.g1_stairs.evaluation.stair_diagnostics import (
     NamedTensorStatsAccumulator,
+    StairEventDiagnostics,
     physical_diagnostic_matrix,
 )
 
@@ -27,6 +28,11 @@ class InstrumentedRslRlVecEnvWrapper:
         self._wrapped = wrapped
         self._previous_actions = None
         self._previous_joint_acc = None
+
+        # Episode-local stair-event state must survive PPO iteration
+        # boundaries. Only its iteration aggregates are consumed/reset.
+        self._stair_event_diagnostics = None
+
         self.reset_metrics()
 
     def __getattr__(self, name):
@@ -103,6 +109,41 @@ class InstrumentedRslRlVecEnvWrapper:
 
                 self._stair_distribution.update(
                     values
+                )
+
+                if self._stair_event_diagnostics is None:
+                    physical_config = (
+                        physical_runtime.config
+                    )
+
+                    self._stair_event_diagnostics = (
+                        StairEventDiagnostics(
+                            env.num_envs,
+                            env.device,
+                            first_riser_m=(
+                                physical_config.first_riser_m
+                            ),
+                            tread_m=(
+                                physical_config.tread_m
+                            ),
+                            height_m=(
+                                physical_config.height_m
+                            ),
+                            takeoff_distance_m=(
+                                physical_config.takeoff_distance_m
+                            ),
+                        )
+                    )
+
+                self._stair_event_diagnostics.update(
+                    diagnostic_payload,
+                    dt=float(env.step_dt),
+                )
+
+                # The physical snapshot is pre-autoreset. Consume it first,
+                # then clear diagnostic episode state for completed envs.
+                self._stair_event_diagnostics.reset(
+                    dones
                 )
 
         robot = env.scene["robot"]
@@ -370,6 +411,36 @@ class InstrumentedRslRlVecEnvWrapper:
         if self._stair_distribution is not None:
             stair_diagnostics = (
                 self._stair_distribution.snapshot()
+            )
+
+        if self._stair_event_diagnostics is not None:
+            (
+                event_counts,
+                event_diagnostics,
+            ) = (
+                self._stair_event_diagnostics
+                .consume_iteration()
+            )
+
+            for name, value in event_counts.items():
+                snapshot[
+                    "step043_diag_" + name
+                ] = value
+
+            overlap = (
+                stair_diagnostics.keys()
+                & event_diagnostics.keys()
+            )
+
+            if overlap:
+                raise RuntimeError(
+                    "stair distribution/event diagnostic "
+                    "name collision: "
+                    + ", ".join(sorted(overlap))
+                )
+
+            stair_diagnostics.update(
+                event_diagnostics
             )
 
         self.reset_metrics()

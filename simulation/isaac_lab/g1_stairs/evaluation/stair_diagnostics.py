@@ -604,3 +604,572 @@ def physical_diagnostic_matrix(diagnostics):
         )
 
     return tuple(names), torch.stack(columns, dim=1)
+
+
+class StairEventDiagnostics:
+    """Stateful, reward-independent 043 mechanics diagnostics.
+
+    Episode state survives PPO iteration boundaries. Only the per-iteration
+    counters/statistics are cleared after reporting.
+
+    Nothing in this class feeds rewards, observations, terminations, resets,
+    physical achievement state, or PPO optimization.
+    """
+
+    FOOT_LABELS = ("left", "right")
+
+    def __init__(
+        self,
+        num_envs: int,
+        device,
+        *,
+        first_riser_m: float,
+        tread_m: float,
+        height_m: float,
+        takeoff_distance_m: float,
+    ) -> None:
+        import torch
+
+        if num_envs <= 0:
+            raise ValueError(
+                "StairEventDiagnostics requires at least one environment"
+            )
+
+        for name, value in (
+            ("first_riser_m", first_riser_m),
+            ("tread_m", tread_m),
+            ("height_m", height_m),
+            ("takeoff_distance_m", takeoff_distance_m),
+        ):
+            if value <= 0:
+                raise ValueError(
+                    f"{name} must be positive"
+                )
+
+        self._torch = torch
+        self.num_envs = int(num_envs)
+        self.device = device
+
+        self.first_riser_m = float(first_riser_m)
+        self.tread_m = float(tread_m)
+        self.height_m = float(height_m)
+        self.takeoff_distance_m = float(
+            takeoff_distance_m
+        )
+
+        # This mirrors the existing 043 early-lift threshold:
+        #
+        #     bottom.amax(dim=2) - 0.08
+        #
+        # D4 does not alter that reward threshold.
+        self.early_lift_height_m = 0.08
+
+        self._seen_near_riser = torch.zeros(
+            self.num_envs,
+            dtype=torch.bool,
+            device=device,
+        )
+
+        self._seen_premature_high_lift = torch.zeros(
+            (self.num_envs, 2),
+            dtype=torch.bool,
+            device=device,
+        )
+
+        self._seen_swing = torch.zeros(
+            (self.num_envs, 2),
+            dtype=torch.bool,
+            device=device,
+        )
+
+        self._seen_crossing = torch.zeros(
+            (self.num_envs, 2),
+            dtype=torch.bool,
+            device=device,
+        )
+
+        self._seen_touchdown = torch.zeros(
+            (self.num_envs, 2),
+            dtype=torch.bool,
+            device=device,
+        )
+
+        self._seen_stable_upper = torch.zeros(
+            (self.num_envs, 2),
+            dtype=torch.bool,
+            device=device,
+        )
+
+        self._pending_touchdown = torch.zeros(
+            (self.num_envs, 2),
+            dtype=torch.bool,
+            device=device,
+        )
+
+        self._touchdown_age_s = torch.zeros(
+            (self.num_envs, 2),
+            dtype=torch.float32,
+            device=device,
+        )
+
+        self._iteration_counts = {}
+        self._iteration_stats = {}
+
+    def reset(self, ids) -> None:
+        """Reset episode-local diagnostic state for completed environments."""
+
+        if ids is None:
+            ids = slice(None)
+
+        for value in (
+            self._seen_near_riser,
+            self._seen_premature_high_lift,
+            self._seen_swing,
+            self._seen_crossing,
+            self._seen_touchdown,
+            self._seen_stable_upper,
+            self._pending_touchdown,
+            self._touchdown_age_s,
+        ):
+            value[ids] = 0
+
+    def _count(self, name: str, mask) -> None:
+        value = mask.to(
+            dtype=self._torch.long
+        ).sum()
+
+        if name not in self._iteration_counts:
+            self._iteration_counts[name] = value
+        else:
+            self._iteration_counts[name] = (
+                self._iteration_counts[name]
+                + value
+            )
+
+    def _record(self, name: str, values) -> None:
+        if values.numel() == 0:
+            return
+
+        accumulator = self._iteration_stats.get(name)
+
+        if accumulator is None:
+            accumulator = TensorStatsAccumulator()
+            self._iteration_stats[name] = accumulator
+
+        accumulator.update(values)
+
+    def _foot_matrix(self, diagnostics, name: str):
+        value = diagnostics[name]
+
+        if (
+            value.ndim != 2
+            or value.shape != (self.num_envs, 2)
+        ):
+            raise RuntimeError(
+                f"{name} must have shape "
+                f"[{self.num_envs}, 2], got "
+                f"{tuple(value.shape)}"
+            )
+
+        return value
+
+    def update(
+        self,
+        diagnostics,
+        *,
+        dt: float,
+    ) -> None:
+        """Observe one pre-autoreset physical snapshot."""
+
+        torch = self._torch
+
+        if dt <= 0:
+            raise ValueError(
+                "diagnostic timestep must be positive"
+            )
+
+        required = {
+            "foot_x_min",
+            "foot_x_max",
+            "sole_bottom_min",
+            "sole_bottom_max",
+            "foot_normal_z",
+            "stable_upper",
+            "swing_ok",
+            "distance_to_riser_face",
+            "contact_onset",
+            "near_upper",
+            "precontact_velocity",
+        }
+
+        missing = required - diagnostics.keys()
+
+        if missing:
+            raise RuntimeError(
+                "stair-event diagnostics are missing: "
+                + ", ".join(sorted(missing))
+            )
+
+        foot_x_min = self._foot_matrix(
+            diagnostics,
+            "foot_x_min",
+        )
+
+        foot_x_max = self._foot_matrix(
+            diagnostics,
+            "foot_x_max",
+        )
+
+        sole_bottom_min = self._foot_matrix(
+            diagnostics,
+            "sole_bottom_min",
+        )
+
+        sole_bottom_max = self._foot_matrix(
+            diagnostics,
+            "sole_bottom_max",
+        )
+
+        foot_normal_z = self._foot_matrix(
+            diagnostics,
+            "foot_normal_z",
+        )
+
+        stable_upper = self._foot_matrix(
+            diagnostics,
+            "stable_upper",
+        ).to(dtype=torch.bool)
+
+        swing_ok = self._foot_matrix(
+            diagnostics,
+            "swing_ok",
+        ).to(dtype=torch.bool)
+
+        distance = self._foot_matrix(
+            diagnostics,
+            "distance_to_riser_face",
+        )
+
+        contact_onset = self._foot_matrix(
+            diagnostics,
+            "contact_onset",
+        ).to(dtype=torch.bool)
+
+        near_upper = self._foot_matrix(
+            diagnostics,
+            "near_upper",
+        ).to(dtype=torch.bool)
+
+        precontact_velocity = diagnostics[
+            "precontact_velocity"
+        ]
+
+        if precontact_velocity.shape != (
+            self.num_envs,
+            2,
+            3,
+        ):
+            raise RuntimeError(
+                "precontact_velocity must have shape "
+                f"[{self.num_envs}, 2, 3], got "
+                f"{tuple(precontact_velocity.shape)}"
+            )
+
+        # Pending support latency advances from the first upper touchdown.
+        self._touchdown_age_s = torch.where(
+            self._pending_touchdown,
+            self._touchdown_age_s + dt,
+            self._touchdown_age_s,
+        )
+
+        # ------------------------------------------------------------
+        # Funnel 1: first entry into the foot-based takeoff region.
+        # ------------------------------------------------------------
+
+        nearest_distance = distance.amin(dim=1)
+
+        near_riser = (
+            nearest_distance
+            <= self.takeoff_distance_m
+        )
+
+        new_near_riser = (
+            near_riser
+            & ~self._seen_near_riser
+        )
+
+        self._count(
+            "near_riser_entry_count",
+            new_near_riser,
+        )
+
+        self._record(
+            "near_riser_entry_distance_m",
+            nearest_distance[new_near_riser],
+        )
+
+        self._seen_near_riser |= near_riser
+
+        # ------------------------------------------------------------
+        # Funnel 2: premature high-lift onset while still farther than
+        # the existing 043 takeoff distance.
+        # ------------------------------------------------------------
+
+        premature_high_lift = (
+            (
+                sole_bottom_max
+                > self.early_lift_height_m
+            )
+            & (
+                distance
+                > self.takeoff_distance_m
+            )
+        )
+
+        new_premature_high_lift = (
+            premature_high_lift
+            & ~self._seen_premature_high_lift
+        )
+
+        for index, label in enumerate(
+            self.FOOT_LABELS
+        ):
+            mask = new_premature_high_lift[
+                :, index
+            ]
+
+            self._count(
+                f"{label}_premature_high_lift_count",
+                mask,
+            )
+
+            self._record(
+                f"{label}_premature_high_lift_distance_m",
+                distance[:, index][mask],
+            )
+
+            self._record(
+                f"{label}_premature_high_lift_height_m",
+                sole_bottom_max[:, index][mask],
+            )
+
+        self._seen_premature_high_lift |= (
+            premature_high_lift
+        )
+
+        # ------------------------------------------------------------
+        # Funnel 3: first valid swing entry according to the same
+        # physical swing gate already used by 043.
+        # ------------------------------------------------------------
+
+        new_swing = (
+            swing_ok
+            & ~self._seen_swing
+        )
+
+        for index, label in enumerate(
+            self.FOOT_LABELS
+        ):
+            mask = new_swing[:, index]
+
+            self._count(
+                f"{label}_swing_entry_count",
+                mask,
+            )
+
+            self._record(
+                f"{label}_swing_entry_distance_m",
+                distance[:, index][mask],
+            )
+
+            self._record(
+                f"{label}_swing_entry_sole_height_m",
+                sole_bottom_min[:, index][mask],
+            )
+
+        self._seen_swing |= swing_ok
+
+        # ------------------------------------------------------------
+        # Funnel 4: first time the front of each physical foot
+        # footprint reaches/crosses the riser plane.
+        # ------------------------------------------------------------
+
+        crossed_riser = (
+            foot_x_max
+            >= self.first_riser_m
+        )
+
+        new_crossing = (
+            crossed_riser
+            & ~self._seen_crossing
+        )
+
+        for index, label in enumerate(
+            self.FOOT_LABELS
+        ):
+            mask = new_crossing[:, index]
+
+            self._count(
+                f"{label}_riser_crossing_count",
+                mask,
+            )
+
+            self._record(
+                f"{label}_riser_crossing_clearance_m",
+                (
+                    sole_bottom_min[:, index]
+                    - self.height_m
+                )[mask],
+            )
+
+        self._seen_crossing |= crossed_riser
+
+        # ------------------------------------------------------------
+        # Funnel 5: first upper touchdown.
+        #
+        # The velocity is the detector's existing PRE-CONTACT velocity,
+        # not the post-impact velocity.
+        # ------------------------------------------------------------
+
+        upper_touchdown = (
+            contact_onset
+            & near_upper
+        )
+
+        new_touchdown = (
+            upper_touchdown
+            & ~self._seen_touchdown
+        )
+
+        precontact_horizontal_speed = (
+            torch.linalg.vector_norm(
+                precontact_velocity[..., :2],
+                dim=2,
+            )
+        )
+
+        for index, label in enumerate(
+            self.FOOT_LABELS
+        ):
+            mask = new_touchdown[:, index]
+
+            self._count(
+                f"{label}_upper_touchdown_count",
+                mask,
+            )
+
+            self._record(
+                f"{label}_touchdown_precontact_horizontal_speed_mps",
+                precontact_horizontal_speed[:, index][mask],
+            )
+
+            self._record(
+                f"{label}_touchdown_precontact_vertical_speed_mps",
+                precontact_velocity[:, index, 2][mask],
+            )
+
+            self._record(
+                f"{label}_touchdown_foot_normal_z",
+                foot_normal_z[:, index][mask],
+            )
+
+            self._record(
+                f"{label}_touchdown_sole_height_error_m",
+                (
+                    sole_bottom_min[:, index]
+                    - self.height_m
+                )[mask],
+            )
+
+            self._record(
+                f"{label}_touchdown_rear_margin_m",
+                (
+                    foot_x_min[:, index]
+                    - self.first_riser_m
+                )[mask],
+            )
+
+            self._record(
+                f"{label}_touchdown_front_margin_m",
+                (
+                    self.first_riser_m
+                    + self.tread_m
+                    - foot_x_max[:, index]
+                )[mask],
+            )
+
+        # Start support-acquisition clocks only on the first upper
+        # touchdown of each foot in the episode.
+        self._pending_touchdown[
+            new_touchdown
+        ] = True
+
+        self._touchdown_age_s[
+            new_touchdown
+        ] = 0.0
+
+        self._seen_touchdown |= upper_touchdown
+
+        # ------------------------------------------------------------
+        # Funnel 6: first stable upper support.
+        # ------------------------------------------------------------
+
+        new_stable_upper = (
+            stable_upper
+            & ~self._seen_stable_upper
+        )
+
+        for index, label in enumerate(
+            self.FOOT_LABELS
+        ):
+            mask = new_stable_upper[:, index]
+
+            self._count(
+                f"{label}_stable_upper_entry_count",
+                mask,
+            )
+
+            with_touchdown = (
+                mask
+                & self._pending_touchdown[:, index]
+            )
+
+            self._record(
+                f"{label}_support_acquisition_latency_s",
+                self._touchdown_age_s[
+                    :, index
+                ][with_touchdown],
+            )
+
+        # Once stable support is achieved, that touchdown clock has
+        # served its purpose.
+        self._pending_touchdown[
+            stable_upper
+        ] = False
+
+        self._seen_stable_upper |= stable_upper
+
+    def consume_iteration(
+        self,
+    ) -> tuple[
+        dict[str, int],
+        dict[str, dict[str, float | int]],
+    ]:
+        """Return iteration evidence while preserving episode state."""
+
+        counts = {
+            name: int(value.item())
+            for name, value
+            in self._iteration_counts.items()
+        }
+
+        stats = {
+            name: accumulator.snapshot()
+            for name, accumulator
+            in self._iteration_stats.items()
+        }
+
+        self._iteration_counts = {}
+        self._iteration_stats = {}
+
+        return counts, stats
