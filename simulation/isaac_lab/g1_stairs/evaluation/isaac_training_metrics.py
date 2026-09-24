@@ -140,8 +140,30 @@ class InstrumentedRslRlVecEnvWrapper:
                     dt=float(env.step_dt),
                 )
 
-                # The physical snapshot is pre-autoreset. Consume it first,
-                # then clear diagnostic episode state for completed envs.
+                timeouts = (
+                    extras.get("time_outs")
+                    if isinstance(extras, dict)
+                    else None
+                )
+
+                if timeouts is None:
+                    timeouts = torch.zeros_like(
+                        dones
+                    )
+
+                # Classify completed episodes from the immutable
+                # PRE-AUTORESET physical snapshot before clearing any
+                # episode-local diagnostic evidence.
+                self._stair_event_diagnostics.observe_terminations(
+                    dones,
+                    physical_failure=physical["failure"],
+                    physical_success=physical["success"],
+                    stage=physical["stage"],
+                    timeouts=timeouts,
+                )
+
+                # Only after terminal classification may completed
+                # environments rearm their episode-local diagnostics.
                 self._stair_event_diagnostics.reset(
                     dones
                 )
@@ -417,6 +439,7 @@ class InstrumentedRslRlVecEnvWrapper:
             (
                 event_counts,
                 event_diagnostics,
+                episode_counts,
             ) = (
                 self._stair_event_diagnostics
                 .consume_iteration()
@@ -425,6 +448,11 @@ class InstrumentedRslRlVecEnvWrapper:
             for name, value in event_counts.items():
                 snapshot[
                     "step043_diag_" + name
+                ] = value
+
+            for name, value in episode_counts.items():
+                snapshot[
+                    "step043_episode_diag_" + name
                 ] = value
 
             overlap = (
@@ -558,6 +586,24 @@ class MetricsOnPolicyRunnerMixin:
                 "total_simulated_steps"
             ],
             counts=stair_event_counts,
+        )
+
+        stair_episode_counts = {
+            key.removeprefix(
+                "step043_episode_diag_"
+            ): value
+            for key, value in snapshot.items()
+            if key.startswith(
+                "step043_episode_diag_"
+            )
+        }
+
+        self._metrics_writer.record_stair_episode_counts(
+            iteration=snapshot["iteration"],
+            total_simulated_steps=snapshot[
+                "total_simulated_steps"
+            ],
+            counts=stair_episode_counts,
         )
 
         print("[POST_UPDATE] metrics_write EXIT", flush=True)

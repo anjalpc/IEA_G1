@@ -107,6 +107,13 @@ STAIR_EVENT_FIELDS = (
     "count",
 )
 
+STAIR_EPISODE_FIELDS = (
+    "iteration",
+    "total_simulated_steps",
+    "name",
+    "count",
+)
+
 EPISODE_FIELDS = (
     "run_id",
     "checkpoint",
@@ -249,6 +256,9 @@ class RunMetricsWriter:
         )
         self.stair_event_path = (
             self.output_directory / "stair_event_counts.csv"
+        )
+        self.stair_episode_path = (
+            self.output_directory / "stair_episode_counts.csv"
         )
         self.episode_path = (
             self.output_directory / "evaluation_episodes.csv"
@@ -528,6 +538,56 @@ class RunMetricsWriter:
         _append_csv(
             self.stair_event_path,
             STAIR_EVENT_FIELDS,
+            rows,
+        )
+
+    def record_stair_episode_counts(
+        self,
+        *,
+        iteration: int,
+        total_simulated_steps: int,
+        counts: Mapping[str, Any],
+    ) -> None:
+        """Record completed-episode progression and terminal counts."""
+
+        rows: list[dict[str, Any]] = []
+
+        for name in sorted(counts):
+            value = counts[name]
+
+            _require_finite(
+                value,
+                f"stair episode count {name}",
+            )
+
+            integer = int(value)
+
+            if float(value) != float(integer):
+                raise ValueError(
+                    f"stair episode count {name} "
+                    f"must be an integer, got {value}"
+                )
+
+            if integer < 0:
+                raise ValueError(
+                    f"stair episode count {name} "
+                    f"cannot be negative"
+                )
+
+            rows.append(
+                {
+                    "iteration": iteration,
+                    "total_simulated_steps": (
+                        total_simulated_steps
+                    ),
+                    "name": name,
+                    "count": integer,
+                }
+            )
+
+        _append_csv(
+            self.stair_episode_path,
+            STAIR_EPISODE_FIELDS,
             rows,
         )
 

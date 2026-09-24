@@ -185,8 +185,13 @@ class StairEventDiagnosticsTest(unittest.TestCase):
 
         self.update()
 
-        counts, stats = (
+        counts, stats, episode_counts = (
             self.events.consume_iteration()
+        )
+
+        self.assertEqual(
+            episode_counts,
+            {},
         )
 
         self.assertEqual(
@@ -299,8 +304,13 @@ class StairEventDiagnosticsTest(unittest.TestCase):
 
         self.update()
 
-        first_counts, _ = (
+        first_counts, _, first_episode_counts = (
             self.events.consume_iteration()
+        )
+
+        self.assertEqual(
+            first_episode_counts,
+            {},
         )
 
         self.assertEqual(
@@ -320,9 +330,11 @@ class StairEventDiagnosticsTest(unittest.TestCase):
         # Same physical episode, next PPO iteration.
         self.update()
 
-        second_counts, second_stats = (
-            self.events.consume_iteration()
-        )
+        (
+            second_counts,
+            second_stats,
+            second_episode_counts,
+        ) = self.events.consume_iteration()
 
         # Event keys remain explicit with zero counts. This keeps the
         # downstream training/report schema stable across iterations while
@@ -344,6 +356,128 @@ class StairEventDiagnosticsTest(unittest.TestCase):
             {},
         )
 
+        self.assertEqual(
+            second_episode_counts,
+            {},
+        )
+
+    def test_terminal_funnel_and_failure_progress_are_classified_before_reset(self):
+        # Environment 0 reaches the near-riser and swing milestones.
+        self.payload[
+            "distance_to_riser_face"
+        ][0, 0] = 0.20
+
+        self.payload[
+            "swing_ok"
+        ][0, 0] = True
+
+        self.update()
+
+        # Environment 0 then physically fails. Environment 1 times out
+        # without reaching any stair milestone.
+        dones = self.torch.tensor(
+            [True, True]
+        )
+
+        physical_failure = self.torch.tensor(
+            [True, False]
+        )
+
+        physical_success = self.torch.tensor(
+            [False, False]
+        )
+
+        stage = self.torch.tensor(
+            [0, 0],
+            dtype=self.torch.long,
+        )
+
+        timeouts = self.torch.tensor(
+            [False, True]
+        )
+
+        self.events.observe_terminations(
+            dones,
+            physical_failure=physical_failure,
+            physical_success=physical_success,
+            stage=stage,
+            timeouts=timeouts,
+        )
+
+        # Classification must happen before episode reset.
+        self.events.reset(dones)
+
+        _, _, episode_counts = (
+            self.events.consume_iteration()
+        )
+
+        self.assertEqual(
+            episode_counts[
+                "episodes_finished_count"
+            ],
+            2,
+        )
+
+        self.assertEqual(
+            episode_counts[
+                "episodes_near_riser_count"
+            ],
+            1,
+        )
+
+        self.assertEqual(
+            episode_counts[
+                "episodes_swing_count"
+            ],
+            1,
+        )
+
+        self.assertEqual(
+            episode_counts[
+                "episodes_riser_crossing_count"
+            ],
+            0,
+        )
+
+        self.assertEqual(
+            episode_counts[
+                "terminal_physical_failure_after_swing_count"
+            ],
+            1,
+        )
+
+        self.assertEqual(
+            episode_counts[
+                "terminal_timeout_after_approach_only_count"
+            ],
+            1,
+        )
+
+        self.assertEqual(
+            episode_counts[
+                "terminal_success_count"
+            ],
+            0,
+        )
+
+        # Cause/progress bins must account for every finished,
+        # non-success episode exactly once.
+        classified = 0
+
+        for cause in self.events.TERMINAL_CAUSES:
+            for progress in self.events.PROGRESS_LABELS:
+                classified += episode_counts[
+                    (
+                        f"terminal_{cause}_after_"
+                        f"{progress}_count"
+                    )
+                ]
+
+        self.assertEqual(
+            classified,
+            2,
+        )
+
     def test_episode_reset_rearms_only_selected_environment(self):
         self.payload[
             "distance_to_riser_face"
@@ -351,8 +485,13 @@ class StairEventDiagnosticsTest(unittest.TestCase):
 
         self.update()
 
-        counts, _ = (
+        counts, _, episode_counts = (
             self.events.consume_iteration()
+        )
+
+        self.assertEqual(
+            episode_counts,
+            {},
         )
 
         self.assertEqual(
@@ -382,8 +521,13 @@ class StairEventDiagnosticsTest(unittest.TestCase):
 
         self.update()
 
-        counts, _ = (
+        counts, _, episode_counts = (
             self.events.consume_iteration()
+        )
+
+        self.assertEqual(
+            episode_counts,
+            {},
         )
 
         # Only reset environment 0 may mint another first-entry event.

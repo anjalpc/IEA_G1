@@ -577,6 +577,75 @@ class MetricsTest(unittest.TestCase):
                 "2",
             )
 
+    def test_stair_episode_counts_are_written_with_explicit_zeros(self):
+        with tempfile.TemporaryDirectory() as directory:
+            writer = RunMetricsWriter(
+                Path(directory),
+                "stair_episode_test",
+            )
+
+            writer.record_stair_episode_counts(
+                iteration=7,
+                total_simulated_steps=54321,
+                counts={
+                    "episodes_finished_count": 4,
+                    "episodes_swing_count": 2,
+                    "episodes_completion_count": 0,
+                    (
+                        "terminal_physical_failure_"
+                        "after_swing_count"
+                    ): 1,
+                },
+            )
+
+            with writer.stair_episode_path.open(
+                encoding="utf-8"
+            ) as stream:
+                rows = list(
+                    csv.DictReader(stream)
+                )
+
+            self.assertEqual(
+                len(rows),
+                4,
+            )
+
+            by_name = {
+                row["name"]: row
+                for row in rows
+            }
+
+            self.assertEqual(
+                by_name[
+                    "episodes_finished_count"
+                ]["count"],
+                "4",
+            )
+
+            self.assertEqual(
+                by_name[
+                    "episodes_swing_count"
+                ]["count"],
+                "2",
+            )
+
+            self.assertEqual(
+                by_name[
+                    "episodes_completion_count"
+                ]["count"],
+                "0",
+            )
+
+            self.assertEqual(
+                by_name[
+                    (
+                        "terminal_physical_failure_"
+                        "after_swing_count"
+                    )
+                ]["count"],
+                "1",
+            )
+
     def test_episode_summary_uses_independent_outcomes(self):
         with tempfile.TemporaryDirectory() as directory:
             writer = RunMetricsWriter(

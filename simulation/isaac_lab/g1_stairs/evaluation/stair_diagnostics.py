@@ -618,6 +618,25 @@ class StairEventDiagnostics:
 
     FOOT_LABELS = ("left", "right")
 
+    PROGRESS_LABELS = (
+        "approach_only",
+        "near_riser",
+        "swing",
+        "riser_crossing",
+        "upper_touchdown",
+        "stable_upper",
+        "first_support",
+        "base_transfer",
+        "both_feet",
+        "completion",
+    )
+
+    TERMINAL_CAUSES = (
+        "physical_failure",
+        "timeout",
+        "other_done",
+    )
+
     def __init__(
         self,
         num_envs: int,
@@ -715,6 +734,10 @@ class StairEventDiagnostics:
         self._iteration_counts = {}
         self._iteration_stats = {}
 
+        # Per-iteration episode/funnel evidence is separate from
+        # per-step physical event counts.
+        self._iteration_episode_counts = {}
+
     def reset(self, ids) -> None:
         """Reset episode-local diagnostic state for completed environments."""
 
@@ -757,6 +780,19 @@ class StairEventDiagnostics:
             self._iteration_stats[name] = accumulator
 
         accumulator.update(values)
+
+    def _count_episode(self, name: str, mask) -> None:
+        value = mask.to(
+            dtype=self._torch.long
+        ).sum()
+
+        if name not in self._iteration_episode_counts:
+            self._iteration_episode_counts[name] = value
+        else:
+            self._iteration_episode_counts[name] = (
+                self._iteration_episode_counts[name]
+                + value
+            )
 
     def _foot_matrix(self, diagnostics, name: str):
         value = diagnostics[name]
@@ -1149,11 +1185,252 @@ class StairEventDiagnostics:
 
         self._seen_stable_upper |= stable_upper
 
+    def observe_terminations(
+        self,
+        dones,
+        *,
+        physical_failure,
+        physical_success,
+        stage,
+        timeouts,
+    ) -> None:
+        """Classify completed episodes before diagnostic state is reset.
+
+        Classification uses only already-observed physical milestones and the
+        authoritative 043 physical detector state. It does not infer collision
+        type, slip cause, or other mechanics that have not been measured.
+        """
+
+        torch = self._torch
+
+        expected = (self.num_envs,)
+
+        for name, value in (
+            ("dones", dones),
+            ("physical_failure", physical_failure),
+            ("physical_success", physical_success),
+            ("stage", stage),
+            ("timeouts", timeouts),
+        ):
+            if value.shape != expected:
+                raise RuntimeError(
+                    f"{name} must have shape {expected}, "
+                    f"got {tuple(value.shape)}"
+                )
+
+        dones = dones.to(dtype=torch.bool)
+        physical_failure = physical_failure.to(
+            dtype=torch.bool
+        )
+        physical_success = physical_success.to(
+            dtype=torch.bool
+        )
+        timeouts = timeouts.to(dtype=torch.bool)
+
+        if stage.dtype == torch.bool:
+            raise RuntimeError(
+                "physical stage must be an integer tensor"
+            )
+
+        # ------------------------------------------------------------
+        # Cumulative completed-episode funnel.
+        # ------------------------------------------------------------
+
+        reached_near = self._seen_near_riser
+        reached_swing = self._seen_swing.any(dim=1)
+        reached_crossing = self._seen_crossing.any(dim=1)
+        reached_touchdown = self._seen_touchdown.any(dim=1)
+        reached_stable_upper = (
+            self._seen_stable_upper.any(dim=1)
+        )
+
+        reached_first_support = stage >= 1
+        reached_base_transfer = stage >= 2
+        reached_both_feet = stage >= 3
+        reached_completion = (
+            (stage >= 4)
+            | physical_success
+        )
+
+        self._count_episode(
+            "episodes_finished_count",
+            dones,
+        )
+
+        self._count_episode(
+            "episodes_near_riser_count",
+            dones & reached_near,
+        )
+
+        self._count_episode(
+            "episodes_swing_count",
+            dones & reached_swing,
+        )
+
+        self._count_episode(
+            "episodes_riser_crossing_count",
+            dones & reached_crossing,
+        )
+
+        self._count_episode(
+            "episodes_upper_touchdown_count",
+            dones & reached_touchdown,
+        )
+
+        self._count_episode(
+            "episodes_stable_upper_count",
+            dones & reached_stable_upper,
+        )
+
+        self._count_episode(
+            "episodes_first_support_count",
+            dones & reached_first_support,
+        )
+
+        self._count_episode(
+            "episodes_base_transfer_count",
+            dones & reached_base_transfer,
+        )
+
+        self._count_episode(
+            "episodes_both_feet_count",
+            dones & reached_both_feet,
+        )
+
+        self._count_episode(
+            "episodes_completion_count",
+            dones & reached_completion,
+        )
+
+        self._count_episode(
+            "episodes_premature_high_lift_count",
+            (
+                dones
+                & self._seen_premature_high_lift.any(dim=1)
+            ),
+        )
+
+        # ------------------------------------------------------------
+        # Terminal cause.
+        #
+        # Priority is factual:
+        #   success > physical failure > timeout > other done.
+        # ------------------------------------------------------------
+
+        success = dones & physical_success
+
+        physical_failed = (
+            dones
+            & ~success
+            & physical_failure
+        )
+
+        timed_out = (
+            dones
+            & ~success
+            & ~physical_failed
+            & timeouts
+        )
+
+        other_done = (
+            dones
+            & ~success
+            & ~physical_failed
+            & ~timed_out
+        )
+
+        self._count_episode(
+            "terminal_success_count",
+            success,
+        )
+
+        # ------------------------------------------------------------
+        # Deepest verified progress at termination.
+        #
+        # Exactly one progress label is selected for every non-success
+        # completed episode.
+        # ------------------------------------------------------------
+
+        progress_masks = {
+            "completion": reached_completion,
+            "both_feet": (
+                reached_both_feet
+                & ~reached_completion
+            ),
+            "base_transfer": (
+                reached_base_transfer
+                & ~reached_both_feet
+            ),
+            "first_support": (
+                reached_first_support
+                & ~reached_base_transfer
+            ),
+            "stable_upper": (
+                reached_stable_upper
+                & ~reached_first_support
+            ),
+            "upper_touchdown": (
+                reached_touchdown
+                & ~reached_stable_upper
+                & ~reached_first_support
+            ),
+            "riser_crossing": (
+                reached_crossing
+                & ~reached_touchdown
+                & ~reached_stable_upper
+                & ~reached_first_support
+            ),
+            "swing": (
+                reached_swing
+                & ~reached_crossing
+                & ~reached_touchdown
+                & ~reached_stable_upper
+                & ~reached_first_support
+            ),
+            "near_riser": (
+                reached_near
+                & ~reached_swing
+                & ~reached_crossing
+                & ~reached_touchdown
+                & ~reached_stable_upper
+                & ~reached_first_support
+            ),
+            "approach_only": (
+                ~reached_near
+                & ~reached_swing
+                & ~reached_crossing
+                & ~reached_touchdown
+                & ~reached_stable_upper
+                & ~reached_first_support
+            ),
+        }
+
+        causes = {
+            "physical_failure": physical_failed,
+            "timeout": timed_out,
+            "other_done": other_done,
+        }
+
+        for cause_name, cause_mask in causes.items():
+            for progress_name in self.PROGRESS_LABELS:
+                progress_mask = progress_masks[
+                    progress_name
+                ]
+
+                self._count_episode(
+                    (
+                        f"terminal_{cause_name}_after_"
+                        f"{progress_name}_count"
+                    ),
+                    cause_mask & progress_mask,
+                )
+
     def consume_iteration(
         self,
     ) -> tuple[
         dict[str, int],
         dict[str, dict[str, float | int]],
+        dict[str, int],
     ]:
         """Return iteration evidence while preserving episode state."""
 
@@ -1169,7 +1446,18 @@ class StairEventDiagnostics:
             in self._iteration_stats.items()
         }
 
+        episode_counts = {
+            name: int(value.item())
+            for name, value
+            in self._iteration_episode_counts.items()
+        }
+
         self._iteration_counts = {}
         self._iteration_stats = {}
+        self._iteration_episode_counts = {}
 
-        return counts, stats
+        return (
+            counts,
+            stats,
+            episode_counts,
+        )
