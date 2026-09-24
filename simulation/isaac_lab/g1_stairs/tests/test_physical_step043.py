@@ -225,15 +225,64 @@ class TensorTests(unittest.TestCase):
 
     def test_rapid_touchdown_penalty_uses_pre_contact_speed(self):
         self.place_lead()
+
+        # Previous control step: foot is descending rapidly without contact.
         self.frame["forces"][:, 0, 2] = 0
         self.frame["foot_velocity"][:, 0, 2] = -1
         self.advance(1)
+
+        # Contact step: current velocity is already zero. Both the touchdown
+        # penalty and the diagnostic payload must still use the previous
+        # -1 m/s vertical velocity.
         self.frame["forces"][:, 0, 2] = 150
         self.frame["foot_velocity"][:, 0, 2] = 0
+
         result, _ = self.advance(1)
-        self.assertGreater(float(result["components"]["touchdown"].sum()), 0)
+
+        self.assertGreater(
+            float(
+                result[
+                    "components"
+                ]["touchdown"].sum()
+            ),
+            0,
+        )
+
+        self.assertTrue(
+            self.torch.allclose(
+                result[
+                    "diagnostics"
+                ]["precontact_velocity"][
+                    :, 0, 2
+                ],
+                self.torch.full(
+                    (2,),
+                    -1.0,
+                ),
+            )
+        )
+
+        self.assertTrue(
+            self.torch.allclose(
+                result[
+                    "diagnostics"
+                ]["foot_velocity"][
+                    :, 0, 2
+                ],
+                self.torch.zeros(2),
+            )
+        )
+
         result, _ = self.advance(1)
-        self.assertEqual(float(result["components"]["touchdown"].sum()), 0)
+
+        self.assertEqual(
+            float(
+                result[
+                    "components"
+                ]["touchdown"].sum()
+            ),
+            0,
+        )
 
     def test_diagnostic_payload_exposes_existing_physical_quantities(self):
         result, _ = self.advance(1)

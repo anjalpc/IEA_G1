@@ -145,11 +145,30 @@ class PhysicalStepState:
         contact = forces[..., 2] > 5.0
         onset = contact & ~self.previous_contact & self.has_previous[:, None]
         near_upper = x_max >= c.first_riser_m
-        downward_excess = (-self.previous_velocity[..., 2] - c.touchdown_downward_speed_mps).clamp_min(0)
-        horizontal_excess = (torch.linalg.vector_norm(self.previous_velocity[..., :2], dim=2)
-                             - c.touchdown_horizontal_speed_mps).clamp_min(0)
-        touchdown = ((downward_excess.square() + horizontal_excess.square())
-                     * (onset & near_upper).to(root.dtype)).sum(dim=1)
+        # Preserve the same pre-contact velocity used by the touchdown
+        # penalty before advancing the detector's history state. Diagnostics
+        # must report this value, not the current post-step foot velocity.
+        precontact_velocity = self.previous_velocity.clone()
+
+        downward_excess = (
+            -precontact_velocity[..., 2]
+            - c.touchdown_downward_speed_mps
+        ).clamp_min(0)
+        horizontal_excess = (
+            torch.linalg.vector_norm(
+                precontact_velocity[..., :2],
+                dim=2,
+            )
+            - c.touchdown_horizontal_speed_mps
+        ).clamp_min(0)
+        touchdown = (
+            (
+                downward_excess.square()
+                + horizontal_excess.square()
+            )
+            * (onset & near_upper).to(root.dtype)
+        ).sum(dim=1)
+
         self.previous_velocity = foot_velocity.clone()
         self.previous_contact = contact.clone()
         self.has_previous[:] = True
@@ -204,7 +223,7 @@ class PhysicalStepState:
             contact=contact.clone(),
             contact_onset=onset.clone(),
             near_upper=near_upper.clone(),
-            precontact_velocity=self.previous_velocity.clone(),
+            precontact_velocity=precontact_velocity.clone(),
             foot_velocity=foot_velocity.clone(),
             foot_angular_velocity=foot_angular_velocity.clone(),
             upright=upright.clone(),
