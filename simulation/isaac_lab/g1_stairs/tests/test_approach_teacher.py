@@ -5,16 +5,232 @@ import unittest
 import torch
 
 from simulation.isaac_lab.g1_stairs.approach_teacher import (
+    ACTION_GROUP_INDICES,
+    action_group_mean_abs,
     gated_teacher_loss,
     parse_approach_teacher_config,
     smooth_l1_per_environment,
     smooth_release_gate,
+    teacher_diagnostic_terms,
     teacher_gate,
     teacher_observation,
 )
 
 
 class ApproachTeacherTest(unittest.TestCase):
+    def test_action_groups_are_disjoint_and_exhaustive(self) -> None:
+        flattened = [
+            index
+            for indices
+            in ACTION_GROUP_INDICES.values()
+            for index in indices
+        ]
+
+        self.assertEqual(
+            len(flattened),
+            29,
+        )
+
+        self.assertEqual(
+            len(set(flattened)),
+            29,
+        )
+
+        self.assertEqual(
+            sorted(flattened),
+            list(range(29)),
+        )
+
+        self.assertEqual(
+            len(
+                ACTION_GROUP_INDICES[
+                    "legs"
+                ]
+            ),
+            12,
+        )
+
+        self.assertEqual(
+            len(
+                ACTION_GROUP_INDICES[
+                    "arms"
+                ]
+            ),
+            14,
+        )
+
+        self.assertEqual(
+            len(
+                ACTION_GROUP_INDICES[
+                    "waist"
+                ]
+            ),
+            3,
+        )
+
+    def test_action_group_mean_abs_uses_canonical_action_order(self) -> None:
+        actions = torch.zeros(
+            2,
+            29,
+        )
+
+        actions[
+            :,
+            ACTION_GROUP_INDICES[
+                "legs"
+            ],
+        ] = 1.0
+
+        actions[
+            :,
+            ACTION_GROUP_INDICES[
+                "arms"
+            ],
+        ] = 2.0
+
+        actions[
+            :,
+            ACTION_GROUP_INDICES[
+                "waist"
+            ],
+        ] = 3.0
+
+        values = action_group_mean_abs(
+            actions
+        )
+
+        self.assertAlmostEqual(
+            float(values["legs"]),
+            1.0,
+        )
+
+        self.assertAlmostEqual(
+            float(values["arms"]),
+            2.0,
+        )
+
+        self.assertAlmostEqual(
+            float(values["waist"]),
+            3.0,
+        )
+
+    def test_teacher_diagnostics_separate_phase_and_body_groups(self) -> None:
+        student = torch.zeros(
+            3,
+            29,
+        )
+
+        teacher = torch.zeros_like(
+            student
+        )
+
+        # Leg mismatch only in the far sample.
+        teacher[
+            0,
+            ACTION_GROUP_INDICES[
+                "legs"
+            ],
+        ] = 1.0
+
+        # Arm mismatch only in the release sample.
+        teacher[
+            1,
+            ACTION_GROUP_INDICES[
+                "arms"
+            ],
+        ] = 1.0
+
+        # Waist mismatch only in the near sample.
+        teacher[
+            2,
+            ACTION_GROUP_INDICES[
+                "waist"
+            ],
+        ] = 1.0
+
+        gate = torch.tensor(
+            [
+                [1.0],
+                [0.5],
+                [0.0],
+            ]
+        )
+
+        diagnostics = (
+            teacher_diagnostic_terms(
+                student,
+                teacher,
+                gate,
+                0.25,
+            )
+        )
+
+        torch.testing.assert_close(
+            diagnostics["far_mask"],
+            torch.tensor(
+                [True, False, False]
+            ),
+        )
+
+        torch.testing.assert_close(
+            diagnostics["release_mask"],
+            torch.tensor(
+                [False, True, False]
+            ),
+        )
+
+        torch.testing.assert_close(
+            diagnostics["near_mask"],
+            torch.tensor(
+                [False, False, True]
+            ),
+        )
+
+        self.assertGreater(
+            float(
+                diagnostics[
+                    "legs_error"
+                ][0]
+            ),
+            0.0,
+        )
+
+        self.assertEqual(
+            float(
+                diagnostics[
+                    "legs_error"
+                ][1]
+            ),
+            0.0,
+        )
+
+        self.assertGreater(
+            float(
+                diagnostics[
+                    "arms_error"
+                ][1]
+            ),
+            0.0,
+        )
+
+        self.assertEqual(
+            float(
+                diagnostics[
+                    "arms_error"
+                ][2]
+            ),
+            0.0,
+        )
+
+        self.assertGreater(
+            float(
+                diagnostics[
+                    "waist_error"
+                ][2]
+            ),
+            0.0,
+        )
+
     def test_release_gate_boundaries_and_midpoint(self) -> None:
         distance = torch.tensor([0.20, 0.25, 0.325, 0.40, 0.50])
         gate = smooth_release_gate(distance, 0.25, 0.40)

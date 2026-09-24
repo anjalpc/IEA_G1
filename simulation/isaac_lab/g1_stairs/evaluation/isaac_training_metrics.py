@@ -6,6 +6,9 @@ import math
 import statistics
 from pathlib import Path
 
+from simulation.isaac_lab.g1_stairs.approach_teacher import (
+    action_group_mean_abs,
+)
 from simulation.isaac_lab.g1_stairs.evaluation.metrics import RunMetricsWriter
 from simulation.isaac_lab.g1_stairs.evaluation.stair_diagnostics import (
     NamedTensorStatsAccumulator,
@@ -43,6 +46,13 @@ class InstrumentedRslRlVecEnvWrapper:
         self._reward_total = 0.0
         self._reward_components: dict[str, float] = {}
         self._action_rate = 0.0
+
+        self._action_group_abs_sum = {
+            "legs": 0.0,
+            "arms": 0.0,
+            "waist": 0.0,
+        }
+
         self._joint_jerk = 0.0
         self._mechanical_power = 0.0
         self._action_saturation_count = 0
@@ -258,6 +268,17 @@ class InstrumentedRslRlVecEnvWrapper:
                 values
             )
 
+        group_action_abs = action_group_mean_abs(
+            actions
+        )
+
+        for name, value in (
+            group_action_abs.items()
+        ):
+            self._action_group_abs_sum[
+                name
+            ] += float(value.item())
+
         if self.clip_actions is not None:
             self._action_saturation_count += int(
                 torch.count_nonzero(torch.abs(actions) > self.clip_actions).item()
@@ -337,6 +358,24 @@ class InstrumentedRslRlVecEnvWrapper:
             "velocity_limit_violation_count": self._velocity_limit_violation_count,
             "torque_limit_violation_count": self._torque_limit_violation_count,
             "action_rate_mean": self._action_rate / steps,
+            "action_legs_abs_mean": (
+                self._action_group_abs_sum[
+                    "legs"
+                ]
+                / steps
+            ),
+            "action_arms_abs_mean": (
+                self._action_group_abs_sum[
+                    "arms"
+                ]
+                / steps
+            ),
+            "action_waist_abs_mean": (
+                self._action_group_abs_sum[
+                    "waist"
+                ]
+                / steps
+            ),
             "joint_jerk_mean": self._joint_jerk / steps,
             "mechanical_power_mean": self._mechanical_power / steps,
             "nan_count": self._nan_count,
@@ -540,6 +579,46 @@ class MetricsOnPolicyRunnerMixin:
             snapshot["approach_teacher_error_mean"] = float(
                 loss["approach_teacher_error"]
             )
+
+            optional_teacher_metrics = {
+                "approach_teacher_error_far": (
+                    "approach_teacher_error_far"
+                ),
+                "approach_teacher_error_release": (
+                    "approach_teacher_error_release"
+                ),
+                "approach_teacher_error_near": (
+                    "approach_teacher_error_near"
+                ),
+                "approach_teacher_far_fraction": (
+                    "approach_teacher_far_fraction"
+                ),
+                "approach_teacher_release_fraction": (
+                    "approach_teacher_release_fraction"
+                ),
+                "approach_teacher_near_fraction": (
+                    "approach_teacher_near_fraction"
+                ),
+                "approach_teacher_error_legs": (
+                    "approach_teacher_error_legs"
+                ),
+                "approach_teacher_error_arms": (
+                    "approach_teacher_error_arms"
+                ),
+                "approach_teacher_error_waist": (
+                    "approach_teacher_error_waist"
+                ),
+            }
+
+            for snapshot_name, loss_name in (
+                optional_teacher_metrics.items()
+            ):
+                if loss_name in loss:
+                    snapshot[
+                        snapshot_name
+                    ] = float(
+                        loss[loss_name]
+                    )
         try:
             import torch
 

@@ -7,6 +7,69 @@ from typing import Any
 
 import torch
 
+from .contracts import BODY_JOINTS
+
+
+def _build_action_groups() -> dict[str, tuple[int, ...]]:
+    """Build exhaustive action groups from the canonical 29-joint order."""
+
+    groups = {
+        "legs": [],
+        "arms": [],
+        "waist": [],
+    }
+
+    for index, name in enumerate(BODY_JOINTS):
+        if any(
+            token in name
+            for token in (
+                "_hip_",
+                "_knee_",
+                "_ankle_",
+            )
+        ):
+            groups["legs"].append(index)
+        elif any(
+            token in name
+            for token in (
+                "_shoulder_",
+                "_elbow_",
+                "_wrist_",
+            )
+        ):
+            groups["arms"].append(index)
+        elif name.startswith("waist_"):
+            groups["waist"].append(index)
+        else:
+            raise RuntimeError(
+                "unclassified G1 action joint: "
+                f"{name}"
+            )
+
+    result = {
+        name: tuple(indices)
+        for name, indices in groups.items()
+    }
+
+    flattened = [
+        index
+        for indices in result.values()
+        for index in indices
+    ]
+
+    if sorted(flattened) != list(
+        range(len(BODY_JOINTS))
+    ):
+        raise RuntimeError(
+            "G1 diagnostic action groups must form an "
+            "exact partition of BODY_JOINTS"
+        )
+
+    return result
+
+
+ACTION_GROUP_INDICES = _build_action_groups()
+
 
 @dataclass(frozen=True)
 class ApproachTeacherConfig:
@@ -105,6 +168,116 @@ def teacher_gate(observations) -> torch.Tensor:
     if not torch.isfinite(value).all():
         raise RuntimeError("approach_teacher_gate is non-finite")
     return value
+
+
+def action_group_mean_abs(
+    actions: torch.Tensor,
+) -> dict[str, torch.Tensor]:
+    """Mean absolute sampled action for each canonical body group."""
+
+    if (
+        actions.ndim != 2
+        or actions.shape[1] != len(BODY_JOINTS)
+    ):
+        raise RuntimeError(
+            "expected G1 actions [N, 29], got "
+            f"{tuple(actions.shape)}"
+        )
+
+    if not torch.isfinite(actions).all():
+        raise RuntimeError(
+            "G1 actions are non-finite"
+        )
+
+    return {
+        name: actions[
+            :, indices
+        ].abs().mean()
+        for name, indices
+        in ACTION_GROUP_INDICES.items()
+    }
+
+
+def teacher_diagnostic_terms(
+    student_mean: torch.Tensor,
+    teacher_action: torch.Tensor,
+    gate: torch.Tensor,
+    delta: float,
+) -> dict[str, torch.Tensor]:
+    """Return read-only teacher diagnostics aligned to PPO samples."""
+
+    if student_mean.shape != teacher_action.shape:
+        raise RuntimeError(
+            "student/teacher action shapes differ: "
+            f"{tuple(student_mean.shape)} vs "
+            f"{tuple(teacher_action.shape)}"
+        )
+
+    if (
+        student_mean.ndim != 2
+        or student_mean.shape[1] != len(BODY_JOINTS)
+    ):
+        raise RuntimeError(
+            "expected student/teacher actions [N, 29], got "
+            f"{tuple(student_mean.shape)}"
+        )
+
+    if (
+        gate.ndim != 2
+        or gate.shape != (
+            student_mean.shape[0],
+            1,
+        )
+    ):
+        raise RuntimeError(
+            "expected teacher gate [N, 1], got "
+            f"{tuple(gate.shape)}"
+        )
+
+    if not (
+        torch.isfinite(student_mean).all()
+        and torch.isfinite(teacher_action).all()
+        and torch.isfinite(gate).all()
+    ):
+        raise RuntimeError(
+            "teacher diagnostics received non-finite values"
+        )
+
+    gate_1d = gate.squeeze(1)
+
+    # smooth_release_gate is exactly:
+    #   1 far from the stair
+    #   0 near the stair
+    #   strictly between 0 and 1 in the release band
+    epsilon = 1.0e-6
+
+    far = gate_1d >= 1.0 - epsilon
+    near = gate_1d <= epsilon
+    release = ~(far | near)
+
+    result = {
+        "error": smooth_l1_per_environment(
+            student_mean,
+            teacher_action,
+            delta,
+        ),
+        "far_mask": far,
+        "release_mask": release,
+        "near_mask": near,
+    }
+
+    for name, indices in (
+        ACTION_GROUP_INDICES.items()
+    ):
+        result[
+            f"{name}_error"
+        ] = smooth_l1_per_environment(
+            student_mean[:, indices],
+            teacher_action[:, indices],
+            delta,
+        )
+
+    return result
 
 
 def gated_teacher_loss(

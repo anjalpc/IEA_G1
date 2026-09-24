@@ -10,6 +10,7 @@ from rsl_rl.algorithms import PPO
 from .approach_teacher import (
     gated_teacher_loss,
     smooth_l1_per_environment,
+    teacher_diagnostic_terms,
     teacher_gate,
     teacher_observation,
 )
@@ -37,6 +38,31 @@ class ApproachTeacherPPO(PPO):
         mean_teacher_loss = 0.0
         mean_teacher_error = 0.0
         mean_teacher_gate = 0.0
+
+        teacher_phase_error_sum = {
+            "far": 0.0,
+            "release": 0.0,
+            "near": 0.0,
+        }
+
+        teacher_phase_count = {
+            "far": 0,
+            "release": 0,
+            "near": 0,
+        }
+
+        teacher_group_error_sum = {
+            "legs": 0.0,
+            "arms": 0.0,
+            "waist": 0.0,
+        }
+
+        teacher_group_count = {
+            "legs": 0,
+            "arms": 0,
+            "waist": 0,
+        }
+
         generator = self.storage.mini_batch_generator(
             self.num_mini_batches,
             self.num_learning_epochs,
@@ -142,6 +168,65 @@ class ApproachTeacherPPO(PPO):
                 self._approach_teacher_cfg.huber_delta,
             ).mean()
 
+            # Read-only diagnostics. Detach explicitly so these
+            # measurements cannot affect the PPO/teacher gradient path.
+            with torch.no_grad():
+                teacher_diag = teacher_diagnostic_terms(
+                    student_mean.detach(),
+                    teacher_action,
+                    stored_gate,
+                    self._approach_teacher_cfg.huber_delta,
+                )
+
+                for phase in (
+                    "far",
+                    "release",
+                    "near",
+                ):
+                    mask = teacher_diag[
+                        f"{phase}_mask"
+                    ]
+
+                    count = int(
+                        torch.count_nonzero(
+                            mask
+                        ).item()
+                    )
+
+                    teacher_phase_count[
+                        phase
+                    ] += count
+
+                    if count:
+                        teacher_phase_error_sum[
+                            phase
+                        ] += float(
+                            teacher_diag[
+                                "error"
+                            ][mask].sum().item()
+                        )
+
+                for group in (
+                    "legs",
+                    "arms",
+                    "waist",
+                ):
+                    values = teacher_diag[
+                        f"{group}_error"
+                    ]
+
+                    teacher_group_error_sum[
+                        group
+                    ] += float(
+                        values.sum().item()
+                    )
+
+                    teacher_group_count[
+                        group
+                    ] += int(
+                        values.numel()
+                    )
+
             loss = (
                 surrogate_loss
                 + self.value_loss_coef * value_loss
@@ -165,8 +250,8 @@ class ApproachTeacherPPO(PPO):
             mean_teacher_gate += stored_gate.mean().item()
 
         num_updates = self.num_learning_epochs * self.num_mini_batches
-        self.storage.clear()
-        return {
+
+        result = {
             "value_function": mean_value_loss / num_updates,
             "surrogate": mean_surrogate_loss / num_updates,
             "entropy": mean_entropy / num_updates,
@@ -174,3 +259,57 @@ class ApproachTeacherPPO(PPO):
             "approach_teacher_error": mean_teacher_error / num_updates,
             "approach_teacher_gate": mean_teacher_gate / num_updates,
         }
+
+        total_phase_count = sum(
+            teacher_phase_count.values()
+        )
+
+        if total_phase_count:
+            for phase in (
+                "far",
+                "release",
+                "near",
+            ):
+                count = teacher_phase_count[
+                    phase
+                ]
+
+                result[
+                    f"approach_teacher_{phase}_fraction"
+                ] = (
+                    count
+                    / total_phase_count
+                )
+
+                if count:
+                    result[
+                        f"approach_teacher_error_{phase}"
+                    ] = (
+                        teacher_phase_error_sum[
+                            phase
+                        ]
+                        / count
+                    )
+
+        for group in (
+            "legs",
+            "arms",
+            "waist",
+        ):
+            count = teacher_group_count[
+                group
+            ]
+
+            if count:
+                result[
+                    f"approach_teacher_error_{group}"
+                ] = (
+                    teacher_group_error_sum[
+                        group
+                    ]
+                    / count
+                )
+
+        self.storage.clear()
+
+        return result
