@@ -5,14 +5,8 @@ experiment:
   type: contract_smoke
   meaningful_stair_training: false
 inheritance:
-  base_config: experiments/g1_stairs/configs/043_physical_single_step_base.yaml
+  base_config: experiments/g1_stairs/configs/043b_approach_preservation_base.yaml
   resolved_config_required: true
-approach_teacher:
-  enabled: true
-  coefficient: 1.0
-  release_near_m: 0.25
-  release_far_m: 0.40
-  huber_delta: 0.25
 execution:
   environments: 32
   maximum_iterations: 1

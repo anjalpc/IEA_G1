@@ -15,6 +15,31 @@ from simulation.isaac_lab.g1_stairs.scripts.training.prepare_experiment import r
 
 
 class StaircaseGeometryTest(unittest.TestCase):
+    def test_043b_children_share_base_and_keep_execution_scopes(self):
+        root = Path(__file__).resolve().parents[4]
+        config_dir = root / "experiments/g1_stairs/configs"
+        smoke, smoke_sources = resolve_config(
+            config_dir / "043b_approach_preservation_smoke.yaml"
+        )
+        short, short_sources = resolve_config(
+            config_dir / "043b_approach_preservation_short.yaml"
+        )
+
+        for resolved in (smoke, short):
+            self.assertTrue(resolved["approach_teacher"]["enabled"])
+            self.assertEqual(resolved["approach_teacher"]["coefficient"], 1.0)
+            self.assertEqual(resolved["execution"]["training_seed"], 42)
+
+        self.assertEqual(smoke["execution"]["environments"], 32)
+        self.assertEqual(smoke["execution"]["maximum_iterations"], 1)
+        self.assertEqual(short["execution"]["environments"], 512)
+        self.assertEqual(short["execution"]["maximum_iterations"], 500)
+        self.assertTrue(short["execution"]["headless"])
+
+        base_name = "043b_approach_preservation_base.yaml"
+        self.assertEqual(Path(smoke_sources[-2]).name, base_name)
+        self.assertEqual(Path(short_sources[-2]).name, base_name)
+
     def test_nominal_dimensions(self):
         stairs = nominal_staircase()
         self.assertAlmostEqual(stairs.total_rise, 0.60)

@@ -406,8 +406,12 @@ These are training-detector metrics, not independent proof of successful
 climbing. Independent replay/video acceptance and walking-preservation
 ablation remain separate work; the base config is launch-blocked.
 
-`043b_approach_preservation_smoke.yaml` is an opt-in, one-iteration extension
-of 043A. It adds a separate 480-D observation group matching the original
+`043b_approach_preservation_base.yaml` is the shared, launch-blocked contract
+for actor-only approach-gait preservation. Its smoke and short-run children
+change only execution scope. The smoke uses 32 environments for one iteration;
+the short behavioral run uses 512 environments for 500 iterations. Both use
+training seed 42 and remain diagnostics rather than climbing certification.
+The shared contract adds a separate 480-D observation group matching the original
 Unitree locomotion contract and evaluates the frozen original ONNX actor as a
 training-only reference. A project-owned PPO extension adds gated Smooth-L1
 distance between the current student actor mean and frozen teacher action to
@@ -415,8 +419,8 @@ the actor optimization loss. The aligned 480-D teacher observation and scalar
 release gate are stored with each rollout sample; the term never enters the
 environment reward, critic target, GAE or PPO advantage. The gate fades from
 full strength at 0.40 m to zero at 0.25 m before the current riser. The deployed student remains the same
-single 485-input, 29-output actor. This smoke does not add early-lift, stance,
-swing, placement, or support mechanisms and is not evidence of preserved gait
+single 485-input, 29-output actor. These runs do not add early-lift, stance,
+swing, placement, or support mechanisms and are not evidence of preserved gait
 or learned climbing.
 
 Update this document in the same change whenever any of these change:
