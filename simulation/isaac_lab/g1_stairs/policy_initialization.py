@@ -33,6 +33,53 @@ EXPECTED_ONNX_SHAPES = {
 }
 
 
+def load_frozen_unitree_actor(
+    onnx_path: Path,
+    device: str,
+) -> torch.nn.Sequential:
+    """Load the original 480-to-29 Unitree actor as a frozen module."""
+    onnx_path = onnx_path.resolve()
+    if not onnx_path.is_file():
+        raise FileNotFoundError(onnx_path)
+
+    model = onnx.load(str(onnx_path))
+    weights = {
+        tensor.name: numpy_helper.to_array(tensor)
+        for tensor in model.graph.initializer
+    }
+    for name, expected_shape in EXPECTED_ONNX_SHAPES.items():
+        if name not in weights:
+            raise RuntimeError(f"Missing ONNX tensor: {name}")
+        if tuple(weights[name].shape) != expected_shape:
+            raise RuntimeError(
+                f"{name}: expected {expected_shape}, "
+                f"got {tuple(weights[name].shape)}"
+            )
+
+    actor = torch.nn.Sequential(
+        torch.nn.Linear(LOCOMOTION_OBS_DIM, 512),
+        torch.nn.ELU(),
+        torch.nn.Linear(512, 256),
+        torch.nn.ELU(),
+        torch.nn.Linear(256, 128),
+        torch.nn.ELU(),
+        torch.nn.Linear(128, ACTION_DIM),
+    ).to(device)
+
+    with torch.no_grad():
+        for index in (0, 2, 4, 6):
+            actor[index].weight.copy_(
+                torch.as_tensor(weights[f"actor.{index}.weight"], device=device)
+            )
+            actor[index].bias.copy_(
+                torch.as_tensor(weights[f"actor.{index}.bias"], device=device)
+            )
+
+    actor.eval()
+    actor.requires_grad_(False)
+    return actor
+
+
 def _sha256(path: Path) -> str:
     digest = hashlib.sha256()
     with path.open("rb") as stream:

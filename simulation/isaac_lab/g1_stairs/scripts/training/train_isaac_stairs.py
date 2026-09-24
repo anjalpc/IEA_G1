@@ -80,6 +80,15 @@ def main() -> None:
 
     resolved_config = load_resolved_config(Path(resolved_config_value))
 
+    from simulation.isaac_lab.g1_stairs.approach_teacher import (
+        enable_approach_teacher_observations,
+        parse_approach_teacher_config,
+    )
+    approach_teacher_cfg = parse_approach_teacher_config(resolved_config)
+    if approach_teacher_cfg is not None:
+        enable_approach_teacher_observations(env_cfg)
+        print("[INFO] Approach teacher:", approach_teacher_cfg, flush=True)
+
     observations_cfg = resolved_config.get(
         "observations",
         {},
@@ -307,10 +316,13 @@ def main() -> None:
 
         # Preserve the original three command channels and their five-frame
         # history. Only their values become geometry-conditioned.
-        for observation_group in (
+        observation_groups = [
             env_cfg.observations.policy,
             env_cfg.observations.critic,
-        ):
+        ]
+        if approach_teacher_cfg is not None:
+            observation_groups.append(env_cfg.observations.approach_teacher)
+        for observation_group in observation_groups:
             observation_group.velocity_commands.func = (
                 terrain_observations.stair_velocity_command
             )
@@ -596,6 +608,15 @@ def main() -> None:
 
     env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
     env = InstrumentedRslRlVecEnvWrapper(env)
+    if approach_teacher_cfg is not None:
+        from simulation.isaac_lab.g1_stairs.policy_initialization import (
+            load_frozen_unitree_actor,
+        )
+        teacher = load_frozen_unitree_actor(
+            Path(resolved_config["policy_initialization"]["source"]["path"]),
+            device=agent_cfg.device,
+        )
+        env.configure_approach_teacher(teacher, approach_teacher_cfg)
 
     class MetricsOnPolicyRunner(MetricsOnPolicyRunnerMixin, OnPolicyRunner):
         def save(self, path: str, infos=None):

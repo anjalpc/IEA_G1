@@ -164,6 +164,17 @@ class StairObservationsCfg(_UPSTREAM.ObservationsCfg):
     policy: PolicyCfg = PolicyCfg()
 
     @configclass
+    class ApproachTeacherCfg(_UPSTREAM.ObservationsCfg.PolicyCfg):
+        """Original 480-D Unitree locomotion observation contract."""
+
+        def __post_init__(self):
+            super().__post_init__()
+            self.enable_corruption = False
+
+    # Enabled only by the recorded experiment configuration before gym.make().
+    approach_teacher = None
+
+    @configclass
     class CriticCfg(_UPSTREAM.ObservationsCfg.CriticCfg):
         height_scan = ObsTerm(
             func=mdp.height_scan,

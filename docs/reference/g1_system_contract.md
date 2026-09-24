@@ -406,6 +406,16 @@ These are training-detector metrics, not independent proof of successful
 climbing. Independent replay/video acceptance and walking-preservation
 ablation remain separate work; the base config is launch-blocked.
 
+`043b_approach_preservation_smoke.yaml` is an opt-in, one-iteration extension
+of 043A. It adds a separate 480-D observation group matching the original
+Unitree locomotion contract and evaluates the frozen original ONNX actor as a
+training-only reference. A smooth distance gate applies an action-reference
+penalty only on the far approach, fading from full strength at 0.40 m to zero
+at 0.25 m before the current riser. The deployed student remains the same
+single 485-input, 29-output actor. This smoke does not add early-lift, stance,
+swing, placement, or support mechanisms and is not evidence of preserved gait
+or learned climbing.
+
 Update this document in the same change whenever any of these change:
 
 - physical G1 machine type or motor hardware;
