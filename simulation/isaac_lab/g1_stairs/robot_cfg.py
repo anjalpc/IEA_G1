@@ -20,9 +20,10 @@ UNITREE_ROS_ROOT = Path(
 )
 
 G1_29DOF_URDF = (
-    Path(__file__).resolve().parent
-    / "assets"
-    / "g1_29dof_rev_1_0_stair_collision.urdf"
+    UNITREE_ROS_ROOT
+    / "robots"
+    / "g1_description"
+    / "g1_29dof_rev_1_0.urdf"
 )
 
 G1_STAIRS_ROBOT_CFG = UNITREE_G1_29DOF_CFG.replace(
