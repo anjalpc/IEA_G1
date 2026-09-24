@@ -868,6 +868,7 @@ class StairEventDiagnostics:
             )
 
         required = {
+            "root",
             "foot_x_min",
             "foot_x_max",
             "sole_bottom_min",
@@ -879,6 +880,10 @@ class StairEventDiagnostics:
             "contact_onset",
             "near_upper",
             "precontact_velocity",
+            "foot_velocity",
+            "upright",
+            "safe",
+            "forbidden",
         }
 
         missing = required - diagnostics.keys()
@@ -953,6 +958,49 @@ class StairEventDiagnostics:
                 f"[{self.num_envs}, 2, 3], got "
                 f"{tuple(precontact_velocity.shape)}"
             )
+
+        foot_velocity = diagnostics[
+            "foot_velocity"
+        ]
+
+        if foot_velocity.shape != (
+            self.num_envs,
+            2,
+            3,
+        ):
+            raise RuntimeError(
+                "foot_velocity must have shape "
+                f"[{self.num_envs}, 2, 3], got "
+                f"{tuple(foot_velocity.shape)}"
+            )
+
+        root = diagnostics["root"]
+
+        if root.shape != (
+            self.num_envs,
+            3,
+        ):
+            raise RuntimeError(
+                "root must have shape "
+                f"[{self.num_envs}, 3], got "
+                f"{tuple(root.shape)}"
+            )
+
+        for name in (
+            "upright",
+            "safe",
+            "forbidden",
+        ):
+            value = diagnostics[name]
+
+            if value.shape != (
+                self.num_envs,
+            ):
+                raise RuntimeError(
+                    f"{name} must have shape "
+                    f"[{self.num_envs}], got "
+                    f"{tuple(value.shape)}"
+                )
 
         # Pending support latency advances from the first upper touchdown.
         self._touchdown_age_s = torch.where(
@@ -1099,6 +1147,66 @@ class StairEventDiagnostics:
                     sole_bottom_min[:, index]
                     - self.height_m
                 )[mask],
+            )
+
+            self._record(
+                f"{label}_crossing_root_height_m",
+                root[:, 2][mask],
+            )
+
+            self._record(
+                f"{label}_crossing_upright_fraction",
+                diagnostics["upright"][
+                    mask
+                ].to(dtype=root.dtype),
+            )
+
+            self._record(
+                f"{label}_crossing_safe_fraction",
+                diagnostics["safe"][
+                    mask
+                ].to(dtype=root.dtype),
+            )
+
+            self._record(
+                f"{label}_crossing_forbidden_fraction",
+                diagnostics["forbidden"][
+                    mask
+                ].to(dtype=root.dtype),
+            )
+
+            self._record(
+                f"{label}_crossing_foot_normal_z",
+                foot_normal_z[:, index][mask],
+            )
+
+            self._record(
+                f"{label}_crossing_rear_margin_m",
+                (
+                    foot_x_min[:, index]
+                    - self.first_riser_m
+                )[mask],
+            )
+
+            self._record(
+                f"{label}_crossing_front_overshoot_m",
+                (
+                    foot_x_max[:, index]
+                    - self.first_riser_m
+                )[mask],
+            )
+
+            self._record(
+                f"{label}_crossing_horizontal_speed_mps",
+                torch.linalg.vector_norm(
+                    foot_velocity[:, index, :2],
+                    dim=1,
+                )[mask],
+            )
+
+            self._record(
+                f"{label}_crossing_vertical_speed_mps",
+                foot_velocity[:, index, 2][mask],
             )
 
         self._seen_crossing |= crossed_riser

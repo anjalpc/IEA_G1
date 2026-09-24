@@ -86,6 +86,26 @@ class StairEventDiagnosticsTest(unittest.TestCase):
                 2,
                 3,
             ),
+            "foot_velocity": torch.zeros(
+                2,
+                2,
+                3,
+            ),
+            "root": torch.tensor(
+                [
+                    [0.50, 0.00, 0.80],
+                    [0.50, 0.00, 0.80],
+                ]
+            ),
+            "upright": torch.tensor(
+                [True, True]
+            ),
+            "safe": torch.tensor(
+                [True, True]
+            ),
+            "forbidden": torch.tensor(
+                [False, False]
+            ),
         }
 
     def update(self):
@@ -136,6 +156,24 @@ class StairEventDiagnosticsTest(unittest.TestCase):
         self.payload[
             "sole_bottom_max"
         ][0, 0] = 0.10
+
+        self.payload[
+            "foot_x_min"
+        ][0, 0] = 0.84
+
+        self.payload[
+            "foot_normal_z"
+        ][0, 0] = 0.98
+
+        self.payload[
+            "foot_velocity"
+        ][0, 0] = self.torch.tensor(
+            [0.30, 0.40, 0.20]
+        )
+
+        self.payload[
+            "root"
+        ][0, 2] = 0.82
 
         self.update()
 
@@ -249,6 +287,79 @@ class StairEventDiagnosticsTest(unittest.TestCase):
                 "left_riser_crossing_clearance_m"
             ]["mean"],
             0.03,
+            places=5,
+        )
+
+        self.assertAlmostEqual(
+            stats[
+                "left_crossing_root_height_m"
+            ]["mean"],
+            0.82,
+            places=5,
+        )
+
+        self.assertAlmostEqual(
+            stats[
+                "left_crossing_upright_fraction"
+            ]["mean"],
+            1.0,
+            places=5,
+        )
+
+        self.assertAlmostEqual(
+            stats[
+                "left_crossing_safe_fraction"
+            ]["mean"],
+            1.0,
+            places=5,
+        )
+
+        self.assertAlmostEqual(
+            stats[
+                "left_crossing_forbidden_fraction"
+            ]["mean"],
+            0.0,
+            places=5,
+        )
+
+        self.assertAlmostEqual(
+            stats[
+                "left_crossing_foot_normal_z"
+            ]["mean"],
+            0.98,
+            places=5,
+        )
+
+        self.assertAlmostEqual(
+            stats[
+                "left_crossing_rear_margin_m"
+            ]["mean"],
+            -0.16,
+            places=5,
+        )
+
+        self.assertAlmostEqual(
+            stats[
+                "left_crossing_front_overshoot_m"
+            ]["mean"],
+            0.01,
+            places=5,
+        )
+
+        # sqrt(0.3^2 + 0.4^2) = 0.5 m/s
+        self.assertAlmostEqual(
+            stats[
+                "left_crossing_horizontal_speed_mps"
+            ]["mean"],
+            0.50,
+            places=5,
+        )
+
+        self.assertAlmostEqual(
+            stats[
+                "left_crossing_vertical_speed_mps"
+            ]["mean"],
+            0.20,
             places=5,
         )
 
