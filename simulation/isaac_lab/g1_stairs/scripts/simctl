@@ -365,12 +365,14 @@ cmd_stop() {
 cmd_diagnose() {
     local RUN_ID
     local RUN_DIR
+    local CONTAINER_RUN_DIR
     local REPORT_SCRIPT
 
     RUN_ID="$(current_run)"
     RUN_DIR="${RUN_ROOT}/${RUN_ID}"
 
-    REPORT_SCRIPT="$REPO/simulation/isaac_lab/g1_stairs/scripts/diagnostics/build_run_diagnostic_report.py"
+    CONTAINER_RUN_DIR="/workspace/IEA_G1/experiments/g1_stairs/runs/${RUN_ID}"
+    REPORT_SCRIPT="/workspace/IEA_G1/simulation/isaac_lab/g1_stairs/scripts/diagnostics/build_run_diagnostic_report.py"
 
     echo "========================================"
     echo " G1 STAIR DIAGNOSTICS"
@@ -384,26 +386,35 @@ cmd_diagnose() {
         return 1
     fi
 
-    if [ ! -f "$REPORT_SCRIPT" ]; then
-        echo "Diagnostic report script not found:" >&2
+    ensure_container_running
+
+    if ! docker exec \
+        "$CONTAINER" \
+        test -f "$REPORT_SCRIPT"
+    then
+        echo "Diagnostic report script not found in container:" >&2
         echo "  $REPORT_SCRIPT" >&2
         return 1
     fi
 
-    # Container-created run artifacts can be root-owned. Do not mutate
-    # ownership here. Fail clearly instead of hiding filesystem problems.
-    if [ ! -w "$RUN_DIR" ]; then
-        echo "Run directory is not writable by current user:" >&2
-        echo "  $RUN_DIR" >&2
-        echo >&2
-        echo "Fix ownership explicitly, for example:" >&2
-        echo "  sudo chown -R $(id -un):$(id -gn) \"$RUN_DIR\"" >&2
+    docker exec \
+        --workdir /workspace/IEA_G1 \
+        "$CONTAINER" \
+        /workspace/isaaclab/_isaac_sim/python.sh \
+        "$REPORT_SCRIPT" \
+        "$CONTAINER_RUN_DIR"
+
+    if [ ! -f "$RUN_DIR/diagnostic_summary.json" ]; then
+        echo "Diagnostic summary was not generated:" >&2
+        echo "  $RUN_DIR/diagnostic_summary.json" >&2
         return 1
     fi
 
-    python3 \
-      "$REPORT_SCRIPT" \
-      "$RUN_DIR"
+    if [ ! -f "$RUN_DIR/diagnostic_report.md" ]; then
+        echo "Diagnostic report was not generated:" >&2
+        echo "  $RUN_DIR/diagnostic_report.md" >&2
+        return 1
+    fi
 
     echo
     echo "========================================"
