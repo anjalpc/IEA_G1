@@ -26,6 +26,7 @@ usage() {
     cat <<USAGE
 Usage:
   simctl train <config.yaml>
+  simctl stop
   simctl status
   simctl info
   simctl runs
@@ -225,6 +226,139 @@ cmd_train() {
     echo
     echo "Use:"
     echo "  simulation/isaac_lab/g1_stairs/scripts/simctl status"
+}
+
+cmd_stop() {
+    ensure_state_dirs
+
+    local RUN_ID=""
+    local LAUNCHER_PID=""
+    local TRAIN_PIDS=""
+    local LEFT=""
+
+    if [ -f "$CURRENT_RUN" ]; then
+        RUN_ID="$(cat "$CURRENT_RUN")"
+    fi
+
+    if [ -f "$CURRENT_PID" ]; then
+        LAUNCHER_PID="$(cat "$CURRENT_PID")"
+    fi
+
+    echo "========================================"
+    echo " STOP G1 STAIR TRAINING"
+    echo "========================================"
+
+    if [ -n "$RUN_ID" ]; then
+        echo "Run: $RUN_ID"
+    else
+        echo "Run: not recorded"
+    fi
+
+    # Stop the actual Isaac/RSL-RL process inside the persistent container.
+    # The PID stored by simctl belongs to the host-side launcher wrapper, not
+    # necessarily the final Python training process.
+    if docker inspect "$CONTAINER" >/dev/null 2>&1; then
+        if [ "$(
+            docker inspect \
+              --format '{{.State.Running}}' \
+              "$CONTAINER"
+        )" = "true" ]; then
+
+            TRAIN_PIDS="$(
+                docker exec "$CONTAINER" bash -lc '
+                    ps -eo pid,args \
+                    | awk "/run_isaac_stairs.py train/ && !/awk/ {print \$1}"
+                ' || true
+            )"
+
+            if [ -n "$TRAIN_PIDS" ]; then
+                echo "Training PID(s) in container: $TRAIN_PIDS"
+                echo "Sending SIGTERM..."
+
+                docker exec "$CONTAINER" bash -lc "
+                    kill -TERM $TRAIN_PIDS
+                "
+
+                for _ in {1..10}; do
+                    sleep 1
+
+                    LEFT="$(
+                        docker exec "$CONTAINER" bash -lc '
+                            ps -eo pid,args \
+                            | awk "/run_isaac_stairs.py train/ && !/awk/ {print \$1}"
+                        ' || true
+                    )"
+
+                    if [ -z "$LEFT" ]; then
+                        break
+                    fi
+                done
+
+                if [ -n "$LEFT" ]; then
+                    echo "Still running after SIGTERM: $LEFT"
+                    echo "Sending SIGKILL..."
+
+                    docker exec "$CONTAINER" bash -lc "
+                        kill -KILL $LEFT
+                    "
+                fi
+            else
+                echo "No active run_isaac_stairs.py train process found."
+            fi
+        else
+            echo "Container is not running."
+        fi
+    else
+        echo "Container does not exist: $CONTAINER"
+    fi
+
+    # Also stop the host launcher wrapper if it survived after the child
+    # training process exited.
+    if [ -n "$LAUNCHER_PID" ] \
+       && [[ "$LAUNCHER_PID" =~ ^[0-9]+$ ]] \
+       && kill -0 "$LAUNCHER_PID" 2>/dev/null; then
+
+        echo "Stopping launcher PID: $LAUNCHER_PID"
+        kill -TERM "$LAUNCHER_PID" 2>/dev/null || true
+
+        for _ in {1..5}; do
+            if ! kill -0 "$LAUNCHER_PID" 2>/dev/null; then
+                break
+            fi
+            sleep 1
+        done
+
+        if kill -0 "$LAUNCHER_PID" 2>/dev/null; then
+            echo "Launcher still alive; sending SIGKILL."
+            kill -KILL "$LAUNCHER_PID" 2>/dev/null || true
+        fi
+    fi
+
+    rm -f "$CURRENT_PID"
+
+    LEFT=""
+
+    if docker inspect "$CONTAINER" >/dev/null 2>&1 \
+       && [ "$(
+           docker inspect \
+             --format '{{.State.Running}}' \
+             "$CONTAINER"
+       )" = "true" ]; then
+
+        LEFT="$(
+            docker exec "$CONTAINER" bash -lc '
+                ps -eo pid,args \
+                | awk "/run_isaac_stairs.py train/ && !/awk/ {print \$1}"
+            ' || true
+        )"
+    fi
+
+    if [ -n "$LEFT" ]; then
+        echo "ERROR: training process is still running: $LEFT" >&2
+        return 1
+    fi
+
+    echo "Training stopped."
 }
 
 cmd_status() {
@@ -750,6 +884,9 @@ case "${1:-help}" in
     train)
         shift
         cmd_train "$@"
+        ;;
+    stop)
+        cmd_stop
         ;;
     status)
         cmd_status
