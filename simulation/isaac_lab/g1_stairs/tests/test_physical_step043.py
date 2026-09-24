@@ -49,6 +49,44 @@ class ContractTests(unittest.TestCase):
         self.assertEqual({n for n in weights if n.startswith("step043_")},
                          {"step043_" + n for n in CUSTOM_COMPONENTS})
 
+    def test_043c_resolves_only_opt_in_clear_then_insert_terms(self):
+        cfg = resolve_config(
+            ROOT
+            / "experiments/g1_stairs/configs/"
+            "043c_clear_then_insert_smoke.yaml"
+        )[0]
+
+        weights = active_reward_weights(cfg)
+
+        self.assertEqual(
+            weights["step043_clearance"],
+            0.0,
+        )
+        self.assertEqual(
+            weights["step043_face_clearance"],
+            0.5,
+        )
+        self.assertEqual(
+            weights["step043_tread_insertion"],
+            1.0,
+        )
+
+        self.assertTrue(
+            cfg["approach_teacher"]["enabled"]
+        )
+        self.assertEqual(
+            cfg["approach_teacher"]["coefficient"],
+            1.0,
+        )
+        self.assertEqual(
+            cfg["policy_initialization"]["stair_observations"],
+            485,
+        )
+        self.assertEqual(
+            cfg["policy_initialization"]["critic_observations"],
+            687,
+        )
+
     def test_disabled_path_is_noop_without_isaac(self):
         self.assertIsNone(parse_physical_step_config({}))
         configure_physical_step(object(), {}, {})
@@ -202,6 +240,160 @@ class TensorTests(unittest.TestCase):
         self.frame["foot_pos"][:, 0, 2] = .12
         third, _ = self.advance(1)
         self.assertEqual(float(third["components"]["clearance"].sum()), 0)
+
+    def test_043c_low_foot_at_riser_cannot_earn_insertion(self):
+        # Level left foot with its front extent just across the riser plane:
+        #
+        #   x_max = foot_pos_x + 0.125
+        #
+        # At x=0.88 m, x_max ~= 1.005 m, reproducing the shallow
+        # detector-plane crossings diagnosed in D8.
+        self.frame["foot_pos"][:, 0, 0] = 0.88
+
+        # Normal lower-floor height:
+        # sole bottom = 0.035 - 0.035 = 0.0 m.
+        self.frame["foot_pos"][:, 0, 2] = 0.035
+
+        # Swing foot unloaded; opposite foot remains stable lower support.
+        self.frame["forces"][:, 0, 2] = 0
+
+        result, _ = self.advance(1)
+
+        self.assertEqual(
+            float(
+                result["components"][
+                    "tread_insertion"
+                ].sum()
+            ),
+            0.0,
+        )
+
+        self.assertLess(
+            float(
+                result["diagnostics"][
+                    "sole_bottom_min"
+                ][:, 0].max()
+            ),
+            0.06,
+        )
+
+        self.assertGreaterEqual(
+            float(
+                result["diagnostics"][
+                    "foot_x_max"
+                ][:, 0].min()
+            ),
+            1.0,
+        )
+
+    def test_043c_insertion_requires_clearance_and_rear_edge_progress(self):
+        # Swing left foot with stable right-foot lower support.
+        self.frame["forces"][:, 0, 2] = 0
+
+        # Exactly reach the required sole clearance:
+        #
+        # sole bottom = 0.120 - 0.035 = 0.085 m
+        #             = 0.060 + 0.025.
+        self.frame["foot_pos"][:, 0, 2] = 0.12
+
+        # First pose:
+        # x_min = 0.875 - 0.055 = 0.820 m
+        # x_max = 0.875 + 0.125 = 1.000 m
+        #
+        # This reaches the face but has zero rear-edge insertion.
+        self.frame["foot_pos"][:, 0, 0] = 0.875
+
+        first, _ = self.advance(1)
+
+        self.assertGreater(
+            float(
+                first["components"][
+                    "face_clearance"
+                ].sum()
+            ),
+            0.0,
+        )
+
+        self.assertEqual(
+            float(
+                first["components"][
+                    "tread_insertion"
+                ].sum()
+            ),
+            0.0,
+        )
+
+        # Move forward by half the nominal 0.18 m footprint.
+        #
+        # x_min = 0.965 - 0.055 = 0.910 m
+        # insertion = (0.910 - 0.820) / 0.180 = 0.5.
+        self.frame["foot_pos"][:, 0, 0] = 0.965
+
+        second, _ = self.advance(1)
+
+        insertion = float(
+            second["components"][
+                "tread_insertion"
+            ].sum()
+        )
+
+        self.assertAlmostEqual(
+            insertion,
+            1.0,
+            places=5,
+        )
+
+        # Two environments each receive a 0.5 bounded increment.
+        self.assertAlmostEqual(
+            float(
+                self.state.clear_insert_best[
+                    :, 1
+                ].sum()
+            ),
+            1.0,
+            places=5,
+        )
+
+        # Holding the identical cleared pose cannot repay.
+        repeated, _ = self.advance(5)
+
+        self.assertEqual(
+            float(
+                repeated["components"][
+                    "tread_insertion"
+                ].sum()
+            ),
+            0.0,
+        )
+
+        # Advance until the entire rear edge reaches the riser plane.
+        #
+        # x_min = 1.055 - 0.055 = 1.000 m
+        # insertion = 1.0.
+        self.frame["foot_pos"][:, 0, 0] = 1.055
+
+        final, _ = self.advance(1)
+
+        self.assertAlmostEqual(
+            float(
+                final["components"][
+                    "tread_insertion"
+                ].sum()
+            ),
+            1.0,
+            places=5,
+        )
+
+        # The total insertion budget is exactly 1 per environment.
+        self.assertAlmostEqual(
+            float(
+                self.state.clear_insert_best[
+                    :, 1
+                ].sum()
+            ),
+            2.0,
+            places=5,
+        )
 
     def test_root_crossing_without_support_never_completes(self):
         self.frame["root"][:, 0] = 1.8

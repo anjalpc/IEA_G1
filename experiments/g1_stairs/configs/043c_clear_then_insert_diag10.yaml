@@ -1,0 +1,22 @@
+schema_version: 1
+
+experiment:
+  id: 043c_clear_then_insert_diag10
+  purpose: >
+    Ten-iteration diagnostic run to test whether explicit near-face
+    clearance followed by full-foot insertion changes the first-step
+    interaction without sacrificing the Unitree approach gait.
+  type: controlled_behavioral_diagnostic
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/043c_clear_then_insert_base.yaml
+  resolved_config_required: true
+
+execution:
+  environments: 512
+  maximum_iterations: 10
+  training_seed: 42
+
+launch_gates:
+  allow_launch: true

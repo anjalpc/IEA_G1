@@ -67,7 +67,28 @@ def parse_physical_step_config(resolved):
 EVENT_COMPONENTS = ("first_support", "base_transfer", "both_feet", "complete")
 BOUNDED_COMPONENTS = ("approach", "clearance", "supported_rise")
 RATE_COMPONENTS = ("early_lift", "riser_risk")
-CUSTOM_COMPONENTS = EVENT_COMPONENTS + BOUNDED_COMPONENTS + RATE_COMPONENTS + ("touchdown",)
+
+# Historical 043 reward contract. Do not extend this tuple:
+# tests and old experiment configs intentionally use it as the exact
+# active step043 reward set.
+CUSTOM_COMPONENTS = (
+    EVENT_COMPONENTS
+    + BOUNDED_COMPONENTS
+    + RATE_COMPONENTS
+    + ("touchdown",)
+)
+
+# Later experiments may opt into additional physical-step rewards without
+# changing the historical 043/043A/043B contract.
+EXPERIMENTAL_COMPONENTS = (
+    "face_clearance",
+    "tread_insertion",
+)
+
+CONFIGURABLE_COMPONENTS = (
+    CUSTOM_COMPONENTS
+    + EXPERIMENTAL_COMPONENTS
+)
 
 
 def configure_physical_step(env_cfg, resolved, weights):
@@ -81,7 +102,10 @@ def configure_physical_step(env_cfg, resolved, weights):
     regularizers = {"track_stair_velocity_world", "track_ang_vel_z", "upright",
                     "action_rate", "joint_acc", "dof_pos_limits", "feet_slide",
                     "undesired_contacts", "stair_heading_alignment"}
-    allowed = regularizers | {f"step043_{name}" for name in CUSTOM_COMPONENTS}
+    allowed = regularizers | {
+        f"step043_{name}"
+        for name in CONFIGURABLE_COMPONENTS
+    }
     if set(weights) - allowed:
         raise ValueError(f"043 unexpected rewards: {sorted(set(weights) - allowed)}")
     params = asdict(config)
@@ -91,7 +115,7 @@ def configure_physical_step(env_cfg, resolved, weights):
                 term.weight = weights[name]
             else:
                 setattr(env_cfg.rewards, name, None)
-    for name in CUSTOM_COMPONENTS:
+    for name in CONFIGURABLE_COMPONENTS:
         key = f"step043_{name}"
         if key in weights:
             setattr(env_cfg.rewards, key, RewardTermCfg(

@@ -1,0 +1,25 @@
+schema_version: 1
+
+experiment:
+  id: 043c_clear_then_insert_base
+  purpose: >
+    Replace broad stair clearance shaping with a physically ordered
+    near-face clearance then tread-insertion objective while preserving
+    the Unitree approach teacher.
+  type: controlled_clear_then_insert_reward
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/043b_approach_preservation_base.yaml
+  resolved_config_required: true
+
+reward_experiment:
+  rewards:
+    stage_plan:
+      physical_single_step_043:
+        step043_clearance: 0.0
+        step043_face_clearance: 0.50
+        step043_tread_insertion: 1.00
+
+launch_gates:
+  allow_launch: false

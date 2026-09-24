@@ -39,6 +39,7 @@ class PhysicalStepState:
         self.upper_age = torch.zeros((num_envs, 2), device=device)
         self.seen_upper = torch.zeros((num_envs, 2), dtype=torch.bool, device=device)
         self.best = torch.zeros((num_envs, 3), device=device)
+        self.clear_insert_best = torch.zeros((num_envs, 2), device=device)
         self.previous_velocity = torch.zeros((num_envs, 2, 3), device=device)
         self.previous_contact = torch.zeros((num_envs, 2), dtype=torch.bool, device=device)
         self.has_previous = torch.zeros(num_envs, dtype=torch.bool, device=device)
@@ -48,6 +49,7 @@ class PhysicalStepState:
         # Keep the last immutable snapshot for post-autoreset metrics.
         for value in (self.stage, self.ready, self.base_reference, self.lower_age,
                       self.upper_age, self.seen_upper, self.best,
+                      self.clear_insert_best,
                       self.previous_velocity, self.previous_contact, self.has_previous):
             value[ids] = 0
 
@@ -125,13 +127,141 @@ class PhysicalStepState:
                       & (x_min <= c.first_riser_m + c.tread_m))
         stance = stable_lower.flip(dims=(1,))
         swing_ok = swing_zone & stance & ~loaded & safe[:, None] & self.ready[:, None]
-        clearance_value = (bottom.amin(dim=2) / (c.height_m + c.clearance_margin_m)).clamp(0, 1)
-        clearance = torch.where(swing_ok, clearance_value, 0.0).amax(dim=1)
-        rise = ((root[:, 2] - self.base_reference) / c.height_m).clamp(0, 1)
-        rise *= (safe & stable_upper.any(dim=1) & self.ready).to(root.dtype)
-        potentials = torch.stack((approach, clearance, rise), dim=1)
-        increments = (potentials - self.best).clamp_min(0)
-        self.best = torch.maximum(self.best, potentials)
+        sole_bottom_min = bottom.amin(dim=2)
+
+        clearance_value = (
+            sole_bottom_min
+            / (c.height_m + c.clearance_margin_m)
+        ).clamp(0, 1)
+
+        clearance = torch.where(
+            swing_ok,
+            clearance_value,
+            0.0,
+        ).amax(dim=1)
+
+        rise = (
+            (root[:, 2] - self.base_reference)
+            / c.height_m
+        ).clamp(0, 1)
+
+        rise *= (
+            safe
+            & stable_upper.any(dim=1)
+            & self.ready
+        ).to(root.dtype)
+
+        potentials = torch.stack(
+            (approach, clearance, rise),
+            dim=1,
+        )
+
+        increments = (
+            potentials - self.best
+        ).clamp_min(0)
+
+        self.best = torch.maximum(
+            self.best,
+            potentials,
+        )
+
+        # ------------------------------------------------------------
+        # 043C: clear-then-insert bounded shaping.
+        #
+        # D8 showed that the front footprint usually reached the
+        # riser plane while the sole remained about 5 cm below the
+        # tread top. This shaping therefore separates:
+        #
+        #   1. physical clearance close to the face;
+        #   2. rear-edge insertion only after clearance is achieved.
+        #
+        # Existing 043 shaping above remains unchanged.
+        # ------------------------------------------------------------
+
+        face_zone = (
+            (x_max >= c.first_riser_m - 0.12)
+            & (x_max <= c.first_riser_m + 0.02)
+        )
+
+        face_clearance = torch.where(
+            swing_ok & face_zone,
+            clearance_value,
+            0.0,
+        ).amax(dim=1)
+
+        # Pinned collision footprint:
+        # rear extent = -0.05 - 0.005
+        # front extent = +0.12 + 0.005
+        # nominal sagittal footprint length = 0.18 m.
+        nominal_foot_length_m = (
+            max(point[0] for point in SOLE_CENTRES)
+            - min(point[0] for point in SOLE_CENTRES)
+            + 2.0 * SOLE_RADIUS
+        )
+
+        # Float32 geometry can land a few nanometres below the exact
+        # analytical threshold. A 1 um numerical tolerance prevents an
+        # exact-boundary pose from being rejected without materially
+        # relaxing the physical clearance requirement.
+        clearance_tolerance_m = 1.0e-6
+
+        fully_cleared = (
+            sole_bottom_min
+            >= (
+                c.height_m
+                + c.clearance_margin_m
+                - clearance_tolerance_m
+            )
+        )
+
+        insertion_start_x = (
+            c.first_riser_m
+            - nominal_foot_length_m
+        )
+
+        insertion_value = (
+            (
+                x_min - insertion_start_x
+            )
+            / nominal_foot_length_m
+        ).clamp(0, 1)
+
+        insertion_gate = (
+            swing_ok
+            & fully_cleared
+            & (
+                x_max
+                >= c.first_riser_m - 0.02
+            )
+            & (
+                normal_z
+                >= c.foot_normal_cos
+            )
+        )
+
+        tread_insertion = torch.where(
+            insertion_gate,
+            insertion_value,
+            0.0,
+        ).amax(dim=1)
+
+        clear_insert_potentials = torch.stack(
+            (
+                face_clearance,
+                tread_insertion,
+            ),
+            dim=1,
+        )
+
+        clear_insert_increments = (
+            clear_insert_potentials
+            - self.clear_insert_best
+        ).clamp_min(0)
+
+        self.clear_insert_best = torch.maximum(
+            self.clear_insert_best,
+            clear_insert_potentials,
+        )
 
         # Early high kicks are penalized throughout the approach, not just once
         # the pelvis happens to enter the old clearance window.
@@ -178,7 +308,10 @@ class PhysicalStepState:
         components = dict(first_support=first.to(root.dtype), base_transfer=transfer.to(root.dtype),
                           both_feet=both.to(root.dtype), complete=complete.to(root.dtype),
                           approach=increments[:, 0], clearance=increments[:, 1],
-                          supported_rise=increments[:, 2], early_lift=early_lift,
+                          supported_rise=increments[:, 2],
+                          face_clearance=clear_insert_increments[:, 0],
+                          tread_insertion=clear_insert_increments[:, 1],
+                          early_lift=early_lift,
                           riser_risk=riser_risk, touchdown=touchdown)
         measurements = dict(first_support_count=first, base_transfer_count=transfer,
                             both_feet_count=both, completion_count=complete,
