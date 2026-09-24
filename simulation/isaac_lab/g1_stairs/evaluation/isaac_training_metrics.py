@@ -21,8 +21,6 @@ class InstrumentedRslRlVecEnvWrapper:
 
     def __init__(self, wrapped) -> None:
         self._wrapped = wrapped
-        self._approach_teacher = None
-        self._approach_teacher_cfg = None
         self._previous_actions = None
         self._previous_joint_acc = None
         self.reset_metrics()
@@ -50,67 +48,11 @@ class InstrumentedRslRlVecEnvWrapper:
         self._forbidden_contact_count = 0
         self._finite_action_env_steps = 0
         self._physical043_counts = {}
-        self._teacher_gate_sum = 0.0
-        self._teacher_error_sum = 0.0
-        self._teacher_reward_sum = 0.0
-
-    def configure_approach_teacher(self, teacher, config) -> None:
-        self._approach_teacher = teacher
-        self._approach_teacher_cfg = config
-
     def step(self, actions):
         import torch
 
-        teacher_raw = None
-        teacher_gate = None
-        if self._approach_teacher is not None:
-            from simulation.isaac_lab.g1_stairs.approach_teacher import (
-                smooth_l1_per_environment,
-                smooth_release_gate,
-                teacher_observation,
-            )
-            current = self._wrapped.get_observations()
-            locomotion_obs = teacher_observation(current)
-            with torch.no_grad():
-                target = self._approach_teacher(locomotion_obs)
-
-            env = self.unwrapped
-            root_x = (
-                env.scene["robot"].data.root_pos_w[:, 0]
-                - env.scene.env_origins[:, 0]
-            )
-            stair = (
-                env.cfg.scene.terrain.terrain_generator
-                .sub_terrains["three_step_ascent"]
-            )
-            distance = float(stair.start_clearance) - root_x
-            teacher_gate = smooth_release_gate(
-                distance,
-                self._approach_teacher_cfg.release_near_m,
-                self._approach_teacher_cfg.release_far_m,
-            )
-            teacher_error = smooth_l1_per_environment(
-                actions,
-                target,
-                self._approach_teacher_cfg.huber_delta,
-            )
-            teacher_raw = -teacher_gate * teacher_error
-
         result = self._wrapped.step(actions)
-        observations, rewards, dones, extras = result
-        if teacher_raw is not None:
-            weighted = (
-                self._approach_teacher_cfg.coefficient
-                * teacher_raw
-                * float(self.unwrapped.step_dt)
-            )
-            rewards = rewards + weighted
-            result = (observations, rewards, dones, extras)
-            self._teacher_gate_sum += float(teacher_gate.mean().item())
-            self._teacher_error_sum += float((-teacher_raw).mean().item())
-            self._teacher_reward_sum += float(
-                (teacher_raw * float(self.unwrapped.step_dt)).mean().item()
-            )
+        _, rewards, dones, extras = result
         env = self.unwrapped
         physical_runtime = getattr(env, "_physical_step043", None)
         if physical_runtime is not None:
@@ -267,13 +209,6 @@ class InstrumentedRslRlVecEnvWrapper:
                 "raw": raw,
                 "weight": float(manager.get_term_cfg(name).weight),
             }
-        if self._approach_teacher is not None:
-            snapshot["approach_teacher_gate_mean"] = self._teacher_gate_sum / steps
-            snapshot["approach_teacher_error_mean"] = self._teacher_error_sum / steps
-            rewards["approach_teacher_prior"] = {
-                "raw": self._teacher_reward_sum,
-                "weight": self._approach_teacher_cfg.coefficient,
-            }
         snapshot["base_above_rate"] = self._reward_components.get(
             "base_above_transition", 0.0
         )
@@ -346,6 +281,16 @@ class MetricsOnPolicyRunnerMixin:
                 "environment_steps_per_second": float(collection_size / duration),
             }
         )
+        if "approach_teacher" in loss:
+            snapshot["approach_teacher_loss"] = float(
+                loss["approach_teacher"]
+            )
+            snapshot["approach_teacher_gate_mean"] = float(
+                loss["approach_teacher_gate"]
+            )
+            snapshot["approach_teacher_error_mean"] = float(
+                loss["approach_teacher_error"]
+            )
         try:
             import torch
 

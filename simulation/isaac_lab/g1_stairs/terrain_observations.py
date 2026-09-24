@@ -10,6 +10,24 @@ from isaaclab.managers import SceneEntityCfg
 from .terrain_state import riser_height_per_env, stair_cfg
 
 
+def approach_teacher_gate(
+    env,
+    release_near_m: float = 0.25,
+    release_far_m: float = 0.40,
+) -> torch.Tensor:
+    """Return the training-only far-approach gate as shape [N, 1]."""
+    if not 0.0 <= release_near_m < release_far_m:
+        raise ValueError("expected 0 <= release_near_m < release_far_m")
+    robot = env.scene["robot"]
+    root_x = robot.data.root_pos_w[:, 0] - env.scene.env_origins[:, 0]
+    distance = float(stair_cfg(env).start_clearance) - root_x
+    alpha = ((distance - release_near_m) / (
+        release_far_m - release_near_m
+    )).clamp(0.0, 1.0)
+    gate = alpha * alpha * (3.0 - 2.0 * alpha)
+    return gate.unsqueeze(1)
+
+
 def stair_geometry(
     env,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),

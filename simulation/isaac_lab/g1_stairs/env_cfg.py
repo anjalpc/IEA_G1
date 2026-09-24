@@ -13,6 +13,7 @@ import isaaclab.sim as sim_utils
 import isaaclab.terrains as terrain_gen
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationTermCfg as ObsTerm
+from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import RewardTermCfg as RewTerm
 from isaaclab.managers import SceneEntityCfg
 from isaaclab.scene import InteractiveSceneCfg
@@ -173,6 +174,19 @@ class StairObservationsCfg(_UPSTREAM.ObservationsCfg):
 
     # Enabled only by the recorded experiment configuration before gym.make().
     approach_teacher = None
+
+    @configclass
+    class ApproachTeacherGateCfg(ObsGroup):
+        gate = ObsTerm(
+            func=terrain_observations.approach_teacher_gate,
+            params={"release_near_m": 0.25, "release_far_m": 0.40},
+        )
+
+        def __post_init__(self):
+            self.enable_corruption = False
+            self.concatenate_terms = True
+
+    approach_teacher_gate = None
 
     @configclass
     class CriticCfg(_UPSTREAM.ObservationsCfg.CriticCfg):

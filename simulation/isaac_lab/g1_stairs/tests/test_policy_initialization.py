@@ -146,7 +146,7 @@ class PolicyInitializationTest(unittest.TestCase):
             "unitree_velocity_onnx_transfer",
         )
         self.assertEqual(
-            metadata["terrain_columns_max_abs"],
+            metadata["new_columns_max_abs"],
             0.0,
         )
 

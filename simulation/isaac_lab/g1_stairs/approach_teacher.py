@@ -67,6 +67,14 @@ def enable_approach_teacher_observations(env_cfg) -> None:
     """Add a separate teacher group; never infer it by slicing actor input."""
     teacher_cls = env_cfg.observations.__class__.ApproachTeacherCfg
     env_cfg.observations.approach_teacher = teacher_cls()
+    gate_cls = env_cfg.observations.__class__.ApproachTeacherGateCfg
+    env_cfg.observations.approach_teacher_gate = gate_cls()
+
+
+def configure_approach_teacher_gate(env_cfg, config: ApproachTeacherConfig) -> None:
+    term = env_cfg.observations.approach_teacher_gate.gate
+    term.params["release_near_m"] = config.release_near_m
+    term.params["release_far_m"] = config.release_far_m
 
 
 def teacher_observation(observations) -> torch.Tensor:
@@ -82,3 +90,32 @@ def teacher_observation(observations) -> torch.Tensor:
     if not torch.isfinite(value).all():
         raise RuntimeError("approach_teacher observations are non-finite")
     return value
+
+
+def teacher_gate(observations) -> torch.Tensor:
+    try:
+        value = observations["approach_teacher_gate"]
+    except (KeyError, TypeError) as exc:
+        raise RuntimeError("approach_teacher_gate observation is missing") from exc
+    if value.ndim != 2 or value.shape[1] != 1:
+        raise RuntimeError(
+            "expected approach_teacher_gate [N, 1], got "
+            f"{tuple(value.shape)}"
+        )
+    if not torch.isfinite(value).all():
+        raise RuntimeError("approach_teacher_gate is non-finite")
+    return value
+
+
+def gated_teacher_loss(
+    student_mean: torch.Tensor,
+    teacher_action: torch.Tensor,
+    gate: torch.Tensor,
+    delta: float,
+) -> torch.Tensor:
+    per_environment = smooth_l1_per_environment(
+        student_mean,
+        teacher_action,
+        delta,
+    )
+    return (per_environment * gate.squeeze(1)).mean()

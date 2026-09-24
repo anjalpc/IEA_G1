@@ -3,6 +3,7 @@
 from dataclasses import replace
 import ast
 import importlib.util
+import os
 from pathlib import Path
 import unittest
 
@@ -20,9 +21,10 @@ from simulation.isaac_lab.g1_stairs.scripts.training.prepare_experiment import (
 
 class HalfwayResetTest(unittest.TestCase):
     @unittest.skipUnless(
-        importlib.util.find_spec("isaaclab")
+        os.environ.get("IEA_G1_ISAAC_APP_TESTS") == "1"
+        and importlib.util.find_spec("isaaclab")
         and importlib.util.find_spec("unitree_rl_lab"),
-        "Isaac Lab runtime is not installed",
+        "requires an explicitly launched Isaac application context",
     )
     def test_normal_stair_env_cfg_instantiates_without_halfway_reset(self):
         from simulation.isaac_lab.g1_stairs.env_cfg import StairEnvCfg

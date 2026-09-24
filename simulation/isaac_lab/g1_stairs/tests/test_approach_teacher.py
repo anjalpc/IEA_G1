@@ -5,9 +5,11 @@ import unittest
 import torch
 
 from simulation.isaac_lab.g1_stairs.approach_teacher import (
+    gated_teacher_loss,
     parse_approach_teacher_config,
     smooth_l1_per_environment,
     smooth_release_gate,
+    teacher_gate,
     teacher_observation,
 )
 
@@ -31,6 +33,48 @@ class ApproachTeacherTest(unittest.TestCase):
         action = torch.zeros(4, 29)
         loss = smooth_l1_per_environment(action, action, 0.25)
         torch.testing.assert_close(loss, torch.zeros(4))
+
+    def test_stored_teacher_rows_and_gates_remain_aligned(self) -> None:
+        observations = {
+            "approach_teacher": torch.arange(3.0).reshape(3, 1).repeat(1, 480),
+            "approach_teacher_gate": torch.tensor([[0.0], [0.5], [1.0]]),
+        }
+        permutation = torch.tensor([2, 0, 1])
+        shuffled = {
+            name: value[permutation]
+            for name, value in observations.items()
+        }
+        obs = teacher_observation(shuffled)
+        gate = teacher_gate(shuffled)
+        torch.testing.assert_close(obs[:, 0], torch.tensor([2.0, 0.0, 1.0]))
+        torch.testing.assert_close(gate[:, 0], torch.tensor([1.0, 0.0, 0.5]))
+
+    def test_auxiliary_loss_is_actor_only_and_teacher_is_frozen(self) -> None:
+        actor = torch.nn.Linear(4, 2)
+        critic = torch.nn.Linear(4, 1)
+        teacher = torch.nn.Linear(4, 2)
+        teacher.requires_grad_(False)
+        inputs = torch.ones(3, 4)
+        student_mean = actor(inputs)
+        with torch.no_grad():
+            target = teacher(inputs)
+        loss = gated_teacher_loss(
+            student_mean,
+            target,
+            torch.ones(3, 1),
+            0.25,
+        )
+        loss.backward()
+        self.assertTrue(any(p.grad is not None for p in actor.parameters()))
+        self.assertTrue(all(p.grad is None for p in critic.parameters()))
+        self.assertTrue(all(p.grad is None for p in teacher.parameters()))
+
+    def test_zero_gate_produces_zero_actor_gradient(self) -> None:
+        student = torch.tensor([[1.0, -1.0]], requires_grad=True)
+        target = torch.zeros_like(student)
+        loss = gated_teacher_loss(student, target, torch.zeros(1, 1), 0.25)
+        loss.backward()
+        torch.testing.assert_close(student.grad, torch.zeros_like(student))
 
     def test_invalid_release_interval_is_rejected(self) -> None:
         with self.assertRaisesRegex(ValueError, "near < far"):

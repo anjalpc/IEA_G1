@@ -81,12 +81,14 @@ def main() -> None:
     resolved_config = load_resolved_config(Path(resolved_config_value))
 
     from simulation.isaac_lab.g1_stairs.approach_teacher import (
+        configure_approach_teacher_gate,
         enable_approach_teacher_observations,
         parse_approach_teacher_config,
     )
     approach_teacher_cfg = parse_approach_teacher_config(resolved_config)
     if approach_teacher_cfg is not None:
         enable_approach_teacher_observations(env_cfg)
+        configure_approach_teacher_gate(env_cfg, approach_teacher_cfg)
         print("[INFO] Approach teacher:", approach_teacher_cfg, flush=True)
 
     observations_cfg = resolved_config.get(
@@ -608,7 +610,12 @@ def main() -> None:
 
     env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
     env = InstrumentedRslRlVecEnvWrapper(env)
+    original_ppo_class = on_policy_runner_module.PPO
+    teacher = None
     if approach_teacher_cfg is not None:
+        from simulation.isaac_lab.g1_stairs.approach_teacher_ppo import (
+            ApproachTeacherPPO,
+        )
         from simulation.isaac_lab.g1_stairs.policy_initialization import (
             load_frozen_unitree_actor,
         )
@@ -616,7 +623,7 @@ def main() -> None:
             Path(resolved_config["policy_initialization"]["source"]["path"]),
             device=agent_cfg.device,
         )
-        env.configure_approach_teacher(teacher, approach_teacher_cfg)
+        on_policy_runner_module.PPO = ApproachTeacherPPO
 
     class MetricsOnPolicyRunner(MetricsOnPolicyRunnerMixin, OnPolicyRunner):
         def save(self, path: str, infos=None):
@@ -631,12 +638,18 @@ def main() -> None:
             )
             return result
 
-    runner = MetricsOnPolicyRunner(
-        env,
-        agent_cfg.to_dict(),
-        log_dir=str(log_dir),
-        device=agent_cfg.device,
-    )
+    try:
+        runner = MetricsOnPolicyRunner(
+            env,
+            agent_cfg.to_dict(),
+            log_dir=str(log_dir),
+            device=agent_cfg.device,
+        )
+    finally:
+        on_policy_runner_module.PPO = original_ppo_class
+
+    if approach_teacher_cfg is not None:
+        runner.alg.configure_approach_teacher(teacher, approach_teacher_cfg)
 
     original_store_code_state = on_policy_runner_module.store_code_state
 
