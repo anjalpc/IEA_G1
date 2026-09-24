@@ -52,7 +52,7 @@ def main() -> None:
     import torch
 
     import omni.usd
-    from pxr import UsdGeom, UsdPhysics
+    from pxr import Usd, UsdGeom, UsdPhysics
 
     from simulation.isaac_lab.g1_stairs.contracts import (
         NOMINAL_RISER_HEIGHT_M,
@@ -122,7 +122,10 @@ def main() -> None:
 
             found = 0
 
-            for prim in stage.Traverse():
+            for prim in Usd.PrimRange(
+                stage.GetPseudoRoot(),
+                Usd.TraverseInstanceProxies(),
+            ):
                 path_str = str(prim.GetPath())
 
                 if not any(token in path_str for token in interesting_tokens):
