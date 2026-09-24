@@ -28,6 +28,7 @@ Usage:
   simctl train <config.yaml>
   simctl stop
   simctl status
+  simctl diagnose
   simctl info
   simctl runs
   simctl use <run_id>
@@ -359,6 +360,65 @@ cmd_stop() {
     fi
 
     echo "Training stopped."
+}
+
+cmd_diagnose() {
+    local RUN_ID
+    local RUN_DIR
+    local REPORT_SCRIPT
+
+    RUN_ID="$(current_run)"
+    RUN_DIR="${RUN_ROOT}/${RUN_ID}"
+
+    REPORT_SCRIPT="$REPO/simulation/isaac_lab/g1_stairs/scripts/diagnostics/build_run_diagnostic_report.py"
+
+    echo "========================================"
+    echo " G1 STAIR DIAGNOSTICS"
+    echo "========================================"
+    echo "Run: $RUN_ID"
+    echo
+
+    if [ ! -d "$RUN_DIR" ]; then
+        echo "Run directory not found:" >&2
+        echo "  $RUN_DIR" >&2
+        return 1
+    fi
+
+    if [ ! -f "$REPORT_SCRIPT" ]; then
+        echo "Diagnostic report script not found:" >&2
+        echo "  $REPORT_SCRIPT" >&2
+        return 1
+    fi
+
+    # Container-created run artifacts can be root-owned. Do not mutate
+    # ownership here. Fail clearly instead of hiding filesystem problems.
+    if [ ! -w "$RUN_DIR" ]; then
+        echo "Run directory is not writable by current user:" >&2
+        echo "  $RUN_DIR" >&2
+        echo >&2
+        echo "Fix ownership explicitly, for example:" >&2
+        echo "  sudo chown -R $(id -un):$(id -gn) \"$RUN_DIR\"" >&2
+        return 1
+    fi
+
+    python3 \
+      "$REPORT_SCRIPT" \
+      "$RUN_DIR"
+
+    echo
+    echo "========================================"
+    echo " DIAGNOSTIC REPORT"
+    echo "========================================"
+    echo
+
+    cat "$RUN_DIR/diagnostic_report.md"
+
+    echo
+    echo "========================================"
+    echo " OUTPUTS"
+    echo "========================================"
+    echo "$RUN_DIR/diagnostic_summary.json"
+    echo "$RUN_DIR/diagnostic_report.md"
 }
 
 cmd_status() {
@@ -890,6 +950,9 @@ case "${1:-help}" in
         ;;
     status)
         cmd_status
+        ;;
+    diagnose)
+        cmd_diagnose
         ;;
     runs)
         cmd_runs
