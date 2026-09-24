@@ -1,0 +1,16 @@
+schema_version: 1
+experiment:
+  id: 043b_approach_preservation_diag10
+  purpose: Short behavioral validation of original Unitree approach-gait preservation
+  type: controlled_behavioral_test
+  meaningful_stair_training: false
+inheritance:
+  base_config: experiments/g1_stairs/configs/043b_approach_preservation_base.yaml
+  resolved_config_required: true
+execution:
+  environments: 512
+  maximum_iterations: 10
+  training_seed: 42
+  headless: true
+launch_gates:
+  allow_launch: true
