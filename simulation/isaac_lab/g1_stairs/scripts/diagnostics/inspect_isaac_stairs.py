@@ -32,6 +32,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Print the live robot/contact fields required by the evaluator and exit.",
     )
+    parser.add_argument(
+        "--audit-colliders",
+        action="store_true",
+        help="Print live imported collision prims for the robot feet and stair scene, then exit.",
+    )
     AppLauncher.add_app_launcher_args(parser)
     return parser.parse_args()
 
@@ -45,6 +50,9 @@ def main() -> None:
     # Kit-dependent imports must happen after AppLauncher starts Isaac Sim.
     import gymnasium as gym
     import torch
+
+    import omni.usd
+    from pxr import UsdGeom, UsdPhysics
 
     from simulation.isaac_lab.g1_stairs.contracts import (
         NOMINAL_RISER_HEIGHT_M,
@@ -97,6 +105,97 @@ def main() -> None:
     env.reset()
 
     try:
+        if args.audit_colliders:
+            stage = omni.usd.get_context().get_stage()
+            if stage is None:
+                raise RuntimeError("USD stage is unavailable")
+
+            print("=== LIVE COLLIDER AUDIT ===", flush=True)
+
+            interesting_tokens = (
+                "left_ankle_roll_link",
+                "right_ankle_roll_link",
+                "stair",
+                "step",
+                "terrain",
+            )
+
+            found = 0
+
+            for prim in stage.Traverse():
+                path_str = str(prim.GetPath())
+
+                if not any(token in path_str for token in interesting_tokens):
+                    continue
+
+                if not prim.HasAPI(UsdPhysics.CollisionAPI):
+                    continue
+
+                found += 1
+
+                type_name = prim.GetTypeName()
+                print(
+                    f"COLLIDER path={path_str} type={type_name}",
+                    flush=True,
+                )
+
+                if prim.IsA(UsdGeom.Sphere):
+                    geom = UsdGeom.Sphere(prim)
+                    print(
+                        f"  radius={geom.GetRadiusAttr().Get()}",
+                        flush=True,
+                    )
+
+                elif prim.IsA(UsdGeom.Cube):
+                    geom = UsdGeom.Cube(prim)
+                    print(
+                        f"  size={geom.GetSizeAttr().Get()}",
+                        flush=True,
+                    )
+                    scale = prim.GetAttribute("xformOp:scale")
+                    if scale and scale.HasAuthoredValueOpinion():
+                        print(
+                            f"  scale={scale.Get()}",
+                            flush=True,
+                        )
+
+                elif prim.IsA(UsdGeom.Capsule):
+                    geom = UsdGeom.Capsule(prim)
+                    print(
+                        f"  radius={geom.GetRadiusAttr().Get()} "
+                        f"height={geom.GetHeightAttr().Get()}",
+                        flush=True,
+                    )
+
+                elif prim.IsA(UsdGeom.Mesh):
+                    geom = UsdGeom.Mesh(prim)
+                    points = geom.GetPointsAttr().Get()
+                    print(
+                        f"  mesh_points={0 if points is None else len(points)}",
+                        flush=True,
+                    )
+
+                xformable = UsdGeom.Xformable(prim)
+                if xformable:
+                    matrix = xformable.ComputeLocalToWorldTransform(
+                        Usd.TimeCode.Default()
+                    )
+                    t = matrix.ExtractTranslation()
+                    print(
+                        f"  world_translation="
+                        f"({float(t[0]):.6f}, "
+                        f"{float(t[1]):.6f}, "
+                        f"{float(t[2]):.6f})",
+                        flush=True,
+                    )
+
+            print(
+                f"collider_count={found}",
+                flush=True,
+            )
+            print("=== END LIVE COLLIDER AUDIT ===", flush=True)
+            return
+
         if args.audit_evaluation_inputs:
             robot = env.unwrapped.scene["robot"]
 
