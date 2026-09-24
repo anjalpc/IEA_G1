@@ -496,17 +496,21 @@ class StructuredStep044State:
             * forward_fraction
         )
 
+        # 044C: the dense lift-and-advance potential is a discovery
+        # signal.  Do not require the discrete swing state that this
+        # potential is intended to help the policy discover.
+        #
+        # Spatial locality is still enforced by forward_fraction:
+        # it is zero until the foot enters the pre-riser lift zone.
+        # Stop paying this potential once the front edge reaches the
+        # riser; crossing and later progress use the ordered events.
+        lift_advance_gate = (
+            (x_max < c.first_riser_m)
+            & safe[:, None]
+        )
+
         lift_advance_value = torch.where(
-            swing_eligible
-            | (
-                (self.foot_stage >= LIFTED)
-                & (
-                    self.foot_stage
-                    <= RISER_READY
-                )
-                & opposite_support
-                & safe[:, None]
-            ),
+            lift_advance_gate,
             lift_advance_value,
             0.0,
         )

@@ -1,0 +1,21 @@
+schema_version: 1
+
+experiment:
+  id: 044c_structured_single_step_smoke
+  purpose: >
+    Runtime smoke for the 044C local ungated lift-and-advance
+    discovery potential.
+  type: smoke
+  meaningful_stair_training: false
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/044_structured_single_step_base.yaml
+  resolved_config_required: true
+
+execution:
+  environments: 512
+  maximum_iterations: 1
+  training_seed: 42
+
+launch_gates:
+  allow_launch: true
