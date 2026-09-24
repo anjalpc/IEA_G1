@@ -741,8 +741,51 @@ class StairEventDiagnostics:
     def reset(self, ids) -> None:
         """Reset episode-local diagnostic state for completed environments."""
 
+        torch = self._torch
+
         if ids is None:
             ids = slice(None)
+
+        elif isinstance(ids, torch.Tensor):
+            if ids.dtype == torch.bool:
+                if ids.shape != (self.num_envs,):
+                    raise RuntimeError(
+                        "boolean reset mask must have shape "
+                        f"({self.num_envs},), got "
+                        f"{tuple(ids.shape)}"
+                    )
+
+            elif ids.dtype in (
+                torch.int32,
+                torch.int64,
+            ):
+                # Integer tensors are interpreted by PyTorch as explicit
+                # environment indices. A full-length 0/1 vector is almost
+                # certainly an RSL-RL done mask and must not be accepted
+                # silently as indices.
+                if (
+                    ids.ndim == 1
+                    and ids.shape == (self.num_envs,)
+                    and torch.all(
+                        (ids == 0)
+                        | (ids == 1)
+                    )
+                ):
+                    raise RuntimeError(
+                        "received full-length integer 0/1 reset vector; "
+                        "convert RSL-RL dones to torch.bool before reset"
+                    )
+
+                if ids.ndim != 1:
+                    raise RuntimeError(
+                        "integer reset environment indices must be 1-D"
+                    )
+
+            else:
+                raise RuntimeError(
+                    "reset ids must be a boolean mask or integer indices, "
+                    f"got dtype={ids.dtype}"
+                )
 
         for value in (
             self._seen_near_riser,

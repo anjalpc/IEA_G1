@@ -161,11 +161,19 @@ class InstrumentedRslRlVecEnvWrapper:
                         dones
                     )
 
+                # RslRlVecEnvWrapper returns dones as torch.long
+                # for RSL-RL compatibility. Convert once here so both
+                # terminal classification and episode-local reset use
+                # identical boolean-mask semantics.
+                done_mask = dones.to(
+                    dtype=torch.bool
+                )
+
                 # Classify completed episodes from the immutable
                 # PRE-AUTORESET physical snapshot before clearing any
                 # episode-local diagnostic evidence.
                 self._stair_event_diagnostics.observe_terminations(
-                    dones,
+                    done_mask,
                     physical_failure=physical["failure"],
                     physical_success=physical["success"],
                     stage=physical["stage"],
@@ -175,7 +183,7 @@ class InstrumentedRslRlVecEnvWrapper:
                 # Only after terminal classification may completed
                 # environments rearm their episode-local diagnostics.
                 self._stair_event_diagnostics.reset(
-                    dones
+                    done_mask
                 )
 
         robot = env.scene["robot"]

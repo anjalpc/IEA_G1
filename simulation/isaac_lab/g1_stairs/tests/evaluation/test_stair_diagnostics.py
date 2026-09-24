@@ -478,6 +478,75 @@ class StairEventDiagnosticsTest(unittest.TestCase):
             2,
         )
 
+    def test_full_length_integer_done_vector_is_rejected_by_reset(self):
+        dones = self.torch.tensor(
+            [1, 0],
+            dtype=self.torch.long,
+        )
+
+        with self.assertRaisesRegex(
+            RuntimeError,
+            "integer 0/1 reset vector",
+        ):
+            self.events.reset(dones)
+
+    def test_boolean_done_mask_rearms_only_completed_environment(self):
+        self.payload[
+            "swing_ok"
+        ][:, 0] = True
+
+        self.update()
+
+        counts, _, _ = (
+            self.events.consume_iteration()
+        )
+
+        self.assertEqual(
+            counts[
+                "left_swing_entry_count"
+            ],
+            2,
+        )
+
+        # Runtime RSL-RL dones are long, but the bridge must convert
+        # them to bool before reset.
+        runtime_dones = self.torch.tensor(
+            [1, 0],
+            dtype=self.torch.long,
+        )
+
+        self.events.reset(
+            runtime_dones.to(
+                dtype=self.torch.bool
+            )
+        )
+
+        # Leave swing, then enter it again.
+        self.payload[
+            "swing_ok"
+        ][:, 0] = False
+
+        self.update()
+
+        self.payload[
+            "swing_ok"
+        ][:, 0] = True
+
+        self.update()
+
+        counts, _, _ = (
+            self.events.consume_iteration()
+        )
+
+        # Only environment 0 was rearmed. Environment 1 must retain
+        # its existing episode latch.
+        self.assertEqual(
+            counts[
+                "left_swing_entry_count"
+            ],
+            1,
+        )
+
     def test_episode_reset_rearms_only_selected_environment(self):
         self.payload[
             "distance_to_riser_face"
