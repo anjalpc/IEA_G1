@@ -1,0 +1,20 @@
+schema_version: 1
+
+experiment:
+  id: 043d_pre_crossing_lift_smoke
+  purpose: >
+    One-iteration integration smoke for 043D pre-crossing vertical lift.
+  type: contract_smoke
+  meaningful_stair_training: false
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/043d_pre_crossing_lift_base.yaml
+  resolved_config_required: true
+
+execution:
+  environments: 32
+  maximum_iterations: 1
+  training_seed: 42
+
+launch_gates:
+  allow_launch: true

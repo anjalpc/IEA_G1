@@ -40,6 +40,7 @@ class PhysicalStepState:
         self.seen_upper = torch.zeros((num_envs, 2), dtype=torch.bool, device=device)
         self.best = torch.zeros((num_envs, 3), device=device)
         self.clear_insert_best = torch.zeros((num_envs, 2), device=device)
+        self.pre_crossing_lift_best = torch.zeros(num_envs, device=device)
         self.previous_velocity = torch.zeros((num_envs, 2, 3), device=device)
         self.previous_contact = torch.zeros((num_envs, 2), dtype=torch.bool, device=device)
         self.has_previous = torch.zeros(num_envs, dtype=torch.bool, device=device)
@@ -49,7 +50,7 @@ class PhysicalStepState:
         # Keep the last immutable snapshot for post-autoreset metrics.
         for value in (self.stage, self.ready, self.base_reference, self.lower_age,
                       self.upper_age, self.seen_upper, self.best,
-                      self.clear_insert_best,
+                      self.clear_insert_best, self.pre_crossing_lift_best,
                       self.previous_velocity, self.previous_contact, self.has_previous):
             value[ids] = 0
 
@@ -214,6 +215,57 @@ class PhysicalStepState:
             )
         )
 
+        # ------------------------------------------------------------
+        # 043D: pre-crossing vertical lift.
+        #
+        # 043C diagnostics and video showed that the swing footprint
+        # still reached the riser roughly 5 cm below tread height.
+        #
+        # Reward ONLY vertical sole-height improvement while the swing
+        # footprint is in the final 20 cm before the riser and has not
+        # yet crossed the riser plane.
+        #
+        # Forward progress alone cannot increase this potential because
+        # its value depends only on clearance_value.
+        #
+        # swing_ok already requires:
+        #   - stable opposite-foot lower support;
+        #   - swing foot unloaded;
+        #   - safe body state;
+        #   - detector readiness.
+        # ------------------------------------------------------------
+
+        pre_crossing_zone = (
+            (x_max >= c.first_riser_m - 0.20)
+            & (x_max < c.first_riser_m)
+        )
+
+        # Suppress sub-micrometre numerical residue at the nominal
+        # lower-floor sole height. This applies only to the 043D term;
+        # historical clearance and 043C shaping remain unchanged.
+        meaningful_lift = (
+            sole_bottom_min
+            > clearance_tolerance_m
+        )
+
+        pre_crossing_lift_value = torch.where(
+            swing_ok
+            & pre_crossing_zone
+            & meaningful_lift,
+            clearance_value,
+            0.0,
+        ).amax(dim=1)
+
+        pre_crossing_lift = (
+            pre_crossing_lift_value
+            - self.pre_crossing_lift_best
+        ).clamp_min(0)
+
+        self.pre_crossing_lift_best = torch.maximum(
+            self.pre_crossing_lift_best,
+            pre_crossing_lift_value,
+        )
+
         insertion_start_x = (
             c.first_riser_m
             - nominal_foot_length_m
@@ -311,6 +363,7 @@ class PhysicalStepState:
                           supported_rise=increments[:, 2],
                           face_clearance=clear_insert_increments[:, 0],
                           tread_insertion=clear_insert_increments[:, 1],
+                          pre_crossing_lift=pre_crossing_lift,
                           early_lift=early_lift,
                           riser_risk=riser_risk, touchdown=touchdown)
         measurements = dict(first_support_count=first, base_transfer_count=transfer,

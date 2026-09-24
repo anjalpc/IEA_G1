@@ -83,6 +83,7 @@ CUSTOM_COMPONENTS = (
 EXPERIMENTAL_COMPONENTS = (
     "face_clearance",
     "tread_insertion",
+    "pre_crossing_lift",
 )
 
 CONFIGURABLE_COMPONENTS = (

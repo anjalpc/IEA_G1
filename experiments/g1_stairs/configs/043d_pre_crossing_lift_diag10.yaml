@@ -1,0 +1,22 @@
+schema_version: 1
+
+experiment:
+  id: 043d_pre_crossing_lift_diag10
+  purpose: >
+    Ten-iteration diagnostic to determine whether explicit vertical
+    swing-foot lift before riser crossing changes the first-riser
+    interaction while preserving the Unitree approach gait.
+  type: controlled_behavioral_diagnostic
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/043d_pre_crossing_lift_base.yaml
+  resolved_config_required: true
+
+execution:
+  environments: 512
+  maximum_iterations: 10
+  training_seed: 42
+
+launch_gates:
+  allow_launch: true

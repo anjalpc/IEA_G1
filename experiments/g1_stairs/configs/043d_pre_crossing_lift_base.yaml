@@ -1,0 +1,25 @@
+schema_version: 1
+
+experiment:
+  id: 043d_pre_crossing_lift_base
+  purpose: >
+    Replace ineffective near-face clearance shaping with bounded
+    pre-crossing vertical swing-foot lift while preserving the
+    clear-before-insert gate and Unitree approach teacher.
+  type: controlled_pre_crossing_lift_reward
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/043c_clear_then_insert_base.yaml
+  resolved_config_required: true
+
+reward_experiment:
+  rewards:
+    stage_plan:
+      physical_single_step_043:
+        step043_face_clearance: 0.0
+        step043_pre_crossing_lift: 1.0
+        step043_tread_insertion: 1.0
+
+launch_gates:
+  allow_launch: false

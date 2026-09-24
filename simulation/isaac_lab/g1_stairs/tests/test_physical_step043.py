@@ -87,6 +87,66 @@ class ContractTests(unittest.TestCase):
             687,
         )
 
+    def test_043d_resolves_pre_crossing_lift_contract(self):
+        cfg = resolve_config(
+            ROOT
+            / "experiments/g1_stairs/configs/"
+            "043d_pre_crossing_lift_smoke.yaml"
+        )[0]
+
+        weights = active_reward_weights(cfg)
+
+        self.assertEqual(
+            weights["step043_clearance"],
+            0.0,
+        )
+        self.assertEqual(
+            weights["step043_face_clearance"],
+            0.0,
+        )
+        self.assertEqual(
+            weights["step043_pre_crossing_lift"],
+            1.0,
+        )
+        self.assertEqual(
+            weights["step043_tread_insertion"],
+            1.0,
+        )
+
+        self.assertTrue(
+            cfg["approach_teacher"]["enabled"]
+        )
+        self.assertEqual(
+            cfg["approach_teacher"]["coefficient"],
+            1.0,
+        )
+
+        self.assertEqual(
+            cfg["policy_initialization"]["stair_observations"],
+            485,
+        )
+        self.assertEqual(
+            cfg["policy_initialization"]["critic_observations"],
+            687,
+        )
+        self.assertEqual(
+            cfg["actions"]["dimension"],
+            29,
+        )
+
+        self.assertEqual(
+            cfg["execution"]["environments"],
+            32,
+        )
+        self.assertEqual(
+            cfg["execution"]["maximum_iterations"],
+            1,
+        )
+        self.assertEqual(
+            cfg["execution"]["training_seed"],
+            42,
+        )
+
     def test_disabled_path_is_noop_without_isaac(self):
         self.assertIsNone(parse_physical_step_config({}))
         configure_physical_step(object(), {}, {})
@@ -393,6 +453,173 @@ class TensorTests(unittest.TestCase):
             ),
             2.0,
             places=5,
+        )
+
+    def test_043d_pre_crossing_lift_requires_vertical_progress(self):
+        # Left foot is the swing foot. The right foot remains stable
+        # lower-floor support.
+        self.frame["forces"][:, 0, 2] = 0
+
+        # Final pre-riser zone:
+        #
+        # x_max = 0.85 + 0.125 = 0.975 m
+        #
+        # so the footprint is close to the riser but has not crossed it.
+        self.frame["foot_pos"][:, 0, 0] = 0.85
+
+        # Ground-level sole:
+        #
+        # sole_bottom = 0.035 - 0.035 = 0.0 m.
+        self.frame["foot_pos"][:, 0, 2] = 0.035
+
+        low, _ = self.advance(1)
+
+        self.assertEqual(
+            float(
+                low["components"][
+                    "pre_crossing_lift"
+                ].sum()
+            ),
+            0.0,
+        )
+
+        # Move forward without lifting:
+        #
+        # x_max = 0.87 + 0.125 = 0.995 m.
+        #
+        # Forward progress by itself must still give no lift credit.
+        self.frame["foot_pos"][:, 0, 0] = 0.87
+
+        forward_only, _ = self.advance(1)
+
+        self.assertEqual(
+            float(
+                forward_only["components"][
+                    "pre_crossing_lift"
+                ].sum()
+            ),
+            0.0,
+        )
+
+        # Lift the sole halfway to the required 8.5 cm target:
+        #
+        # foot origin z = 0.0775
+        # sole bottom   = 0.0425
+        # 0.0425 / 0.085 = 0.5.
+        self.frame["foot_pos"][:, 0, 2] = 0.0775
+
+        half, _ = self.advance(1)
+
+        self.assertAlmostEqual(
+            float(
+                half["components"][
+                    "pre_crossing_lift"
+                ].sum()
+            ),
+            1.0,
+            places=5,
+        )
+
+        # Two environments each reached bounded potential 0.5.
+        self.assertAlmostEqual(
+            float(
+                self.state.pre_crossing_lift_best.sum()
+            ),
+            1.0,
+            places=5,
+        )
+
+        # Holding the same pose cannot repay the bounded improvement.
+        repeated, _ = self.advance(5)
+
+        self.assertEqual(
+            float(
+                repeated["components"][
+                    "pre_crossing_lift"
+                ].sum()
+            ),
+            0.0,
+        )
+
+        # Reach full required clearance while still before the face:
+        #
+        # foot origin z = 0.120
+        # sole bottom   = 0.085 m.
+        self.frame["foot_pos"][:, 0, 2] = 0.12
+
+        full, _ = self.advance(1)
+
+        self.assertAlmostEqual(
+            float(
+                full["components"][
+                    "pre_crossing_lift"
+                ].sum()
+            ),
+            1.0,
+            places=5,
+        )
+
+        # Total bounded potential is now 1.0 per environment.
+        self.assertAlmostEqual(
+            float(
+                self.state.pre_crossing_lift_best.sum()
+            ),
+            2.0,
+            places=5,
+        )
+
+        # Move the front footprint across the riser:
+        #
+        # x_max = 0.88 + 0.125 = 1.005 m.
+        #
+        # The pre-crossing term must shut off after crossing.
+        self.frame["foot_pos"][:, 0, 0] = 0.88
+
+        crossed, _ = self.advance(1)
+
+        self.assertEqual(
+            float(
+                crossed["components"][
+                    "pre_crossing_lift"
+                ].sum()
+            ),
+            0.0,
+        )
+
+    def test_043d_low_forward_crossing_earns_neither_lift_nor_insertion(self):
+        # Left foot becomes swing foot; right remains stable support.
+        self.frame["forces"][:, 0, 2] = 0
+
+        # Front extent crosses the face:
+        #
+        # x_max = 0.88 + 0.125 = 1.005 m.
+        self.frame["foot_pos"][:, 0, 0] = 0.88
+
+        # But the sole remains at lower-floor height.
+        self.frame["foot_pos"][:, 0, 2] = 0.035
+
+        result, _ = self.advance(1)
+
+        # Crossing forward without vertical lift cannot earn the new
+        # pre-crossing vertical objective.
+        self.assertEqual(
+            float(
+                result["components"][
+                    "pre_crossing_lift"
+                ].sum()
+            ),
+            0.0,
+        )
+
+        # Existing 043C insertion remains locked because the sole has
+        # not achieved physical clearance.
+        self.assertEqual(
+            float(
+                result["components"][
+                    "tread_insertion"
+                ].sum()
+            ),
+            0.0,
         )
 
     def test_root_crossing_without_support_never_completes(self):
