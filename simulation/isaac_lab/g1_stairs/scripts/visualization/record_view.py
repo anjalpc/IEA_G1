@@ -120,6 +120,11 @@ def git_diff_sha(path: Path) -> str | None:
 parser = argparse.ArgumentParser(
     description="Phase 11 deterministic G1 checkpoint recorder."
 )
+parser.add_argument(
+    "--show-colliders",
+    action="store_true",
+    help="Show PhysX collision geometry in the rendered recording.",
+)
 
 parser.add_argument(
     "--task",
@@ -204,6 +209,16 @@ args.enable_cameras = True
 
 app_launcher = AppLauncher(args)
 simulation_app = app_launcher.app
+
+if args.show_colliders:
+    import carb
+
+    settings = carb.settings.get_settings()
+    settings.set_int(
+        "/persistent/physics/visualizationDisplayColliders",
+        2,
+    )
+    print("[VIEW] Physics collider visualization enabled")
 
 
 def main() -> None:
