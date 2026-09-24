@@ -1,0 +1,96 @@
+schema_version: 1
+
+experiment:
+  id: 044_structured_single_step_base
+  purpose: >
+    Structured physical single-step reward with ordered per-foot
+    lift, riser-ready, valid-crossing, touchdown, upper-support
+    and body-transfer milestones.
+  type: structured_single_step_reward
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/043b_approach_preservation_base.yaml
+  resolved_config_required: true
+
+physical_step:
+  enabled: false
+
+structured_step:
+  enabled: true
+
+  first_riser_m: 1.0
+  height_m: 0.06
+  tread_m: 0.25
+  width_m: 1.2
+  continuation_m: 0.4
+
+  footprint_margin_m: 0.005
+  sole_height_tolerance_m: 0.015
+
+  support_force_bodyweight_fraction: 0.15
+  support_speed_mps: 0.15
+  support_angular_speed_radps: 1.0
+  support_dwell_s: 0.12
+
+  upright_cos: 0.90
+  foot_normal_cos: 0.94
+  forbidden_force_n: 5.0
+
+  clearance_margin_m: 0.025
+  lift_zone_distance_m: 0.25
+  meaningful_lift_m: 0.04
+  riser_ready_distance_m: 0.05
+  premature_lift_height_m: 0.08
+
+  touchdown_downward_speed_mps: 0.25
+  touchdown_horizontal_speed_mps: 0.20
+
+  minimum_base_height_m: 0.45
+  base_height_gain_fraction: 0.70
+
+  geometry_tolerance_m: 1.0e-6
+
+reward_experiment:
+  active_stage: structured_single_step_044
+
+  rewards:
+    stage_plan:
+      structured_single_step_044:
+
+        track_stair_velocity_world: 0.25
+        track_ang_vel_z: 0.50
+        upright: -2.00
+        action_rate: -0.02
+        joint_acc: -2.5e-7
+        dof_pos_limits: -5.00
+        feet_slide: -0.20
+        undesired_contacts: -1.00
+        stair_heading_alignment: -1.00
+
+        step044_approach: 0.25
+        step044_lift_advance: 2.00
+
+        step044_meaningful_lift: 0.50
+        step044_riser_ready: 2.00
+        step044_valid_crossing: 2.00
+
+        step044_tread_insertion: 1.50
+
+        step044_good_touchdown: 2.00
+        step044_stable_upper_support: 4.00
+
+        step044_supported_body_rise: 1.00
+        step044_body_transfer: 4.00
+        step044_both_feet_supported: 3.00
+        step044_complete: 5.00
+
+        step044_premature_lift: -0.50
+        step044_riser_risk: -1.50
+
+        step044_low_crossing: -3.00
+        step044_clearance_loss: -1.00
+        step044_bad_touchdown: -1.00
+
+launch_gates:
+  allow_launch: false

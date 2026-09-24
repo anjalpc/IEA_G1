@@ -1,0 +1,21 @@
+schema_version: 1
+
+experiment:
+  id: 044a_structured_single_step_smoke
+  purpose: >
+    One-iteration integration smoke for the isolated 044 structured
+    single-step physical reward/state machine.
+  type: contract_smoke
+  meaningful_stair_training: false
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/044_structured_single_step_base.yaml
+  resolved_config_required: true
+
+execution:
+  environments: 32
+  maximum_iterations: 1
+  training_seed: 42
+
+launch_gates:
+  allow_launch: true

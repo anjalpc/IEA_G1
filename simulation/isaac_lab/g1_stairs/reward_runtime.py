@@ -82,7 +82,26 @@ def active_reward_weights(resolved: dict[str, Any]) -> dict[str, float]:
     This keeps legacy experiments compatible while allowing new rewards
     to be registered dynamically by reward_registry.
     """
-    if resolved.get("physical_step", {}).get("enabled", False):
+    physical_enabled = resolved.get(
+        "physical_step", {}
+    ).get("enabled", False)
+
+    structured_enabled = resolved.get(
+        "structured_step", {}
+    ).get("enabled", False)
+
+    if physical_enabled and structured_enabled:
+        raise ValueError(
+            "physical_step and structured_step "
+            "cannot both be enabled"
+        )
+
+    if structured_enabled:
+        # 044 is a separate exact-replacement objective.
+        from .reward_registry import experiment_stage_weights
+        return experiment_stage_weights(resolved)[1]
+
+    if physical_enabled:
         # 043 is a replacement objective, not another cumulative legacy stage.
         from .reward_registry import experiment_stage_weights
         return experiment_stage_weights(resolved)[1]
@@ -172,6 +191,19 @@ def apply_resolved_rewards(
 ) -> dict[str, float]:
     """Make the runtime reward set exactly match the resolved experiment."""
     weights = active_reward_weights(resolved)
+
+    if resolved.get("structured_step", {}).get("enabled", False):
+        from .structured_step044_config import (
+            configure_structured_step044,
+        )
+
+        configure_structured_step044(
+            env_cfg,
+            resolved,
+            weights,
+        )
+
+        return weights
 
     if resolved.get("physical_step", {}).get("enabled", False):
         from .physical_step_config import configure_physical_step
