@@ -1,0 +1,136 @@
+schema_version: 1
+experiment:
+  id: 043_physical_single_step_base
+  purpose: Corrected physical support and bounded reward diagnostic, not final human-like locomotion
+  type: physical_single_step_diagnostic
+  meaningful_stair_training: false
+inheritance:
+  base_config: experiments/g1_stairs/configs/nominal_stairs_base.yaml
+  resolved_config_required: true
+task:
+  episode_length_s: 20.0
+  objective: Normal approach, controlled first landing, body transfer, trailing-foot recovery and 0.4 m continuation
+terrain:
+  type: fixed_single_step_ascent
+  riser_height_m: 0.06
+  tread_depth_m: 0.25
+  step_count: 1
+  # Fixed tile is 5.75 m long: 2 m approach + .25 m tread + 3.5 m platform.
+  platform_length_m: 3.5
+  required_platform_continuation_m: 0.4
+  platform_starts_immediately_after_third_tread: false
+  curriculum_enabled: false
+observations:
+  actor_height_scan: false
+  terrain_scan_in_actor: false
+  policy_order: [base_angular_velocity, projected_gravity, velocity_command, joint_position_offset, joint_velocity, previous_action, stair_geometry]
+  additions:
+    local_terrain_height_scan:
+      actor_input: false
+  deployment_warning: Geometry is privileged simulator input; real sensing remains required before hardware deployment
+policy_initialization:
+  type: unitree_velocity_onnx_transfer
+  terrain_observations: 5
+  stair_observations: 485
+  critic_observations: 687
+  pretrained_actor_trainable: true
+command:
+  forward_velocity_mps: 0.50
+  stair_velocity_schedule:
+    enabled: true
+    approach_velocity_mps: 0.50
+    stair_velocity_mps: 0.18
+    slowdown_start_distance_m: 0.60
+    slowdown_end_distance_m: 0.30
+    platform_velocity_mps: 0.50
+    platform_accel_distance_m: 0.40
+commands:
+  forward_velocity_mps: [0.50, 0.50]
+  effective_velocity_source: geometry_conditioned_command_schedule
+physical_step:
+  enabled: true
+  first_riser_m: 1.0
+  height_m: 0.06
+  tread_m: 0.25
+  width_m: 1.2
+  continuation_m: 0.4
+  footprint_margin_m: 0.005
+  sole_height_tolerance_m: 0.015
+  support_force_bodyweight_fraction: 0.15
+  support_speed_mps: 0.15
+  support_angular_speed_radps: 1.0
+  support_dwell_s: 0.12
+  upright_cos: 0.90
+  foot_normal_cos: 0.94
+  forbidden_force_n: 5.0
+  takeoff_distance_m: 0.32
+  clearance_margin_m: 0.025
+  touchdown_downward_speed_mps: 0.25
+  touchdown_horizontal_speed_mps: 0.20
+  minimum_base_height_m: 0.45
+  base_height_gain_fraction: 0.70
+reward_experiment:
+  active_stage: physical_single_step_043
+  rewards:
+    stage_plan:
+      physical_single_step_043:
+        track_stair_velocity_world: 0.25
+        track_ang_vel_z: 0.5
+        upright: -2.0
+        action_rate: -0.02
+        joint_acc: -2.5e-7
+        dof_pos_limits: -5.0
+        feet_slide: -0.2
+        undesired_contacts: -1.0
+        stair_heading_alignment: -1.0
+        step043_first_support: 2.0
+        step043_base_transfer: 3.0
+        step043_both_feet: 3.0
+        step043_complete: 5.0
+        step043_approach: 0.25
+        step043_clearance: 0.25
+        step043_supported_rise: 0.50
+        step043_early_lift: -1.0
+        step043_riser_risk: -1.0
+        step043_touchdown: -1.0
+rewards:
+  accounting_043:
+    event_payouts: Literal weighted payout once per episode; raw event divided by control dt
+    bounded_shaping: Total positive approach/clearance/rise budgets are 0.25/0.25/0.50 per episode
+    continuous_penalties: early_lift and riser_risk are rates integrated with dt
+    touchdown_penalty: Pre-contact excess speed squared, paid at contact onset, not each contact frame
+    tracking_std_mps: 0.15
+ppo:
+  initial_action_noise_std: 0.15
+  learning_rate: 1.0e-5
+  learning_rate_schedule: fixed
+  desired_kl: 0.01
+  action_clip: 5.0
+terminations:
+  independent_stair_success_evaluator_active: false
+  reason: 043 uses an instrumented physical training snapshot; independent replay/video confirmation still required
+success_definition:
+  independent_from_reward: false
+  requirements:
+    ascend_step_1: true
+    ascend_step_2: false
+    ascend_step_3: false
+    travel_after_final_step_m: 0.4
+    upright_dwell_s: 0.0
+    stable_support_dwell_s: 0.12
+    both_feet_establish_upper_support: true
+    forbidden_contacts: false
+evaluation:
+  automatic_periodic_evaluation: false
+  select_by_training_return: false
+  independent_replay_required_before_promotion: true
+recording:
+  periodic_evaluation_video: false
+  reason: This smoke does not automatically render videos; existing inspection/replay tooling remains separate
+metric_deferrals:
+  inactive_reward_components:
+    reason: Only the explicit 043 reward set is instantiated
+    required_before: activating any additional reward
+launch_gates:
+  independent_evaluator_implemented: false
+  allow_launch: false

@@ -666,6 +666,13 @@ def main() -> None:
         num_learning_iterations=agent_cfg.max_iterations,
         init_at_random_ep_len=False,
     )
+    if resolved_config.get("physical_step", {}).get("enabled", False):
+        from simulation.isaac_lab.g1_stairs.physical_step_runtime import summary
+        physical_summary = summary(env.unwrapped)
+        physical_summary["ppo_learn_returned"] = True
+        (Path(metrics_dir_value) / "physical_step043_summary.yaml").write_text(
+            yaml.safe_dump(physical_summary, sort_keys=False), encoding="utf-8"
+        )
     env.close()
 
     if halfway_summary is not None:

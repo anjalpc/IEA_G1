@@ -82,6 +82,11 @@ def active_reward_weights(resolved: dict[str, Any]) -> dict[str, float]:
     This keeps legacy experiments compatible while allowing new rewards
     to be registered dynamically by reward_registry.
     """
+    if resolved.get("physical_step", {}).get("enabled", False):
+        # 043 is a replacement objective, not another cumulative legacy stage.
+        from .reward_registry import experiment_stage_weights
+        return experiment_stage_weights(resolved)[1]
+
     try:
         rewards_cfg = resolved["rewards"]
         stage_plan = rewards_cfg["stage_plan"]
@@ -167,6 +172,11 @@ def apply_resolved_rewards(
 ) -> dict[str, float]:
     """Make the runtime reward set exactly match the resolved experiment."""
     weights = active_reward_weights(resolved)
+
+    if resolved.get("physical_step", {}).get("enabled", False):
+        from .physical_step_config import configure_physical_step
+        configure_physical_step(env_cfg, resolved, weights)
+        return weights
 
     rewards_cfg = env_cfg.rewards
 

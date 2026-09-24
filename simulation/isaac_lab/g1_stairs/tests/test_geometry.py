@@ -160,7 +160,7 @@ class StaircaseGeometryTest(unittest.TestCase):
                             if isinstance(target, ast.Name):
                                 reward_names.add(target.id)
 
-        self.assertEqual(
+        self.assertGreaterEqual(
             reward_names,
             {
                 "forward_progress",

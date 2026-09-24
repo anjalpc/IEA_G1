@@ -1,0 +1,16 @@
+schema_version: 1
+experiment:
+  id: 043a_physical_single_step_smoke
+  purpose: One PPO iteration to validate corrected reward accounting and physical snapshot integration
+  type: contract_smoke
+  meaningful_stair_training: false
+inheritance:
+  base_config: experiments/g1_stairs/configs/043_physical_single_step_base.yaml
+  resolved_config_required: true
+execution:
+  environments: 32
+  maximum_iterations: 1
+  training_seed: 42
+launch_gates:
+  # Infrastructure-only run, never a climbing-success certification.
+  allow_launch: true

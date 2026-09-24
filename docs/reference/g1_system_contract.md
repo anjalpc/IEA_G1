@@ -360,6 +360,52 @@ release remains an explicit operator decision.
 
 ## Maintenance rule
 
+### Opt-in 043 physical single-step smoke (not hardware promotion)
+
+`experiments/g1_stairs/configs/043a_physical_single_step_smoke.yaml` starts
+from the original Unitree ONNX actor, the normal fixed lower-floor reset,
+one 6 cm riser and a 25 cm first landing region. The unchanged 5.75 m tile
+has a 3.5 m effective continuation platform. This diagnostic is not the
+final three-step 20 cm thesis course. Historical 042 and earlier configs
+are unchanged.
+
+The command slows from 0.50 to 0.18 m/s; episode length is 20 s. Actor,
+critic and action dimensions remain 485/687/29. G1 mode_machine 5, control
+timing, policy/action order and PPO settings remain those of 042. BrainCo
+hands are still absent from this diagnostic asset and required before
+final training/deployment. No frozen-teacher loss is introduced here.
+
+043 uses transformed ankle-roll collision sphere samples from the pinned
+mode-5 URDF, vertical load relative to actual model weight, foot speed,
+angular speed, orientation, tread containment, forbidden-body contact and
+0.12 s support dwell. Footprint coverage is a geometric proxy, not measured
+centre of pressure. First support requires the first tread rectangle;
+subsequent support may move onto the continuous platform. Both feet must
+establish support, not stand motionless together throughout the gait.
+These thresholds are explicit initial diagnostic choices, not a claim of
+validated dynamic feasibility or a guarantee of natural-looking motion.
+
+The snapshot boundary follows [Isaac Lab v2.3.0's step order](https://github.com/isaac-sim/IsaacLab/blob/v2.3.0/source/isaaclab/isaaclab/envs/manager_based_rl_env.py):
+termination, reward, then automatic reset. Foot poses and velocities use the
+[pinned link-frame data API](https://github.com/isaac-sim/IsaacLab/blob/v2.3.0/source/isaaclab/isaaclab/assets/articulation/articulation_data.py),
+not offsets mixed between the link and centre-of-mass frames.
+
+Physical state updates once per control step through termination checks,
+independently of reward weights/order. Explicit per-environment reset clears
+state while retaining the last pre-autoreset snapshot for metrics. Event
+payouts are 2/3/3/5 for first support/body transfer/trailing recovery/completion;
+raw event terms divide by dt to cancel RewardManager's dt multiplication.
+Positive preparation budgets are capped at 0.25/0.25/0.50 per episode.
+
+The smoke is 32 environments, one iteration, seed 42. Tensor counterexample
+tests and an actual Isaac smoke are mandatory before enabling longer runs.
+`physical_step043_summary.yaml` records event counts and their environment-
+step denominator; training metrics persist `step043_*` in `extra_json` and
+TensorBoard. Zero completed episodes is not a measured zero success rate.
+These are training-detector metrics, not independent proof of successful
+climbing. Independent replay/video acceptance and walking-preservation
+ablation remain separate work; the base config is launch-blocked.
+
 Update this document in the same change whenever any of these change:
 
 - physical G1 machine type or motor hardware;

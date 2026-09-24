@@ -47,6 +47,7 @@ class InstrumentedRslRlVecEnvWrapper:
         self._fall_count = 0
         self._forbidden_contact_count = 0
         self._finite_action_env_steps = 0
+        self._physical043_counts = {}
 
     def step(self, actions):
         import torch
@@ -54,6 +55,18 @@ class InstrumentedRslRlVecEnvWrapper:
         result = self._wrapped.step(actions)
         _, rewards, dones, extras = result
         env = self.unwrapped
+        physical_runtime = getattr(env, "_physical_step043", None)
+        if physical_runtime is not None:
+            physical = physical_runtime.snapshot
+            # Already computed before auto-reset; never recompute from reset poses.
+            for name, value in physical["measurements"].items():
+                key = "step043_" + name
+                self._physical043_counts[key] = self._physical043_counts.get(key, 0) + int(value.sum().item())
+            for name, value in (("episodes_finished", dones),
+                                ("successful_episodes", dones & physical["success"]),
+                                ("failed_episodes", dones & physical["failure"])):
+                key = "step043_" + name
+                self._physical043_counts[key] = self._physical043_counts.get(key, 0) + int(value.sum().item())
         robot = env.scene["robot"]
         data = robot.data
         dt = float(env.step_dt)
@@ -206,6 +219,21 @@ class InstrumentedRslRlVecEnvWrapper:
         snapshot["completion_rate"] = self._reward_components.get(
             "completed_transition", 0.0
         )
+        if self._physical043_counts:
+            # Historical fields below are maxima/step frequencies, NOT their
+            # advertised episode means/rates. Do not mislabel them for 043.
+            for name in ("maximum_x_mean_m", "maximum_base_height_mean_m",
+                         "maximum_step_reached_mean", "platform_reached_rate",
+                         "fall_rate", "forbidden_contact_rate", "base_above_rate",
+                         "both_feet_supported_rate", "completion_rate"):
+                snapshot.pop(name, None)
+            snapshot.update(self._physical043_counts)
+            snapshot["step043_environment_steps"] = steps * self.num_envs
+            finished = self._physical043_counts.get("step043_episodes_finished", 0)
+            if finished:
+                snapshot["success_rate"] = self._physical043_counts.get("step043_successful_episodes", 0) / finished
+            else:
+                snapshot["success_rate"] = None  # Not zero successes out of zero episodes.
         self.reset_metrics()
         return snapshot, rewards
 
@@ -223,6 +251,10 @@ class MetricsOnPolicyRunnerMixin:
 
         print("[POST_UPDATE] consume_metrics ENTER", flush=True)
         snapshot, rewards = self.env.consume_metrics()
+        if getattr(self, "writer", None) is not None:
+            for name, value in snapshot.items():
+                if name.startswith("step043_"):
+                    self.writer.add_scalar("PhysicalStep043/" + name, value, locs["it"])
         print("[POST_UPDATE] consume_metrics EXIT", flush=True)
         collection_size = self.num_steps_per_env * self.env.num_envs * self.gpu_world_size
         duration = locs["collection_time"] + locs["learn_time"]
