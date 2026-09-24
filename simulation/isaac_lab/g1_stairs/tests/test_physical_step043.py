@@ -235,6 +235,159 @@ class TensorTests(unittest.TestCase):
         result, _ = self.advance(1)
         self.assertEqual(float(result["components"]["touchdown"].sum()), 0)
 
+    def test_diagnostic_payload_exposes_existing_physical_quantities(self):
+        result, _ = self.advance(1)
+
+        diagnostics = result["diagnostics"]
+
+        expected = {
+            "root",
+            "foot_x_min",
+            "foot_x_max",
+            "sole_bottom_min",
+            "sole_bottom_max",
+            "foot_normal_z",
+            "vertical_force",
+            "bodyweight",
+            "loaded",
+            "slow_translation",
+            "slow_rotation",
+            "lateral_contained",
+            "support_quality",
+            "lower_geometry",
+            "upper_geometry",
+            "landing_rectangle",
+            "stable_lower",
+            "stable_upper",
+            "swing_zone",
+            "swing_ok",
+            "clearance_value",
+            "distance_to_riser_face",
+            "contact",
+            "contact_onset",
+            "near_upper",
+            "precontact_velocity",
+            "foot_velocity",
+            "foot_angular_velocity",
+            "upright",
+            "safe",
+            "forbidden",
+        }
+
+        self.assertEqual(
+            set(diagnostics),
+            expected,
+        )
+
+        self.assertEqual(
+            tuple(diagnostics["root"].shape),
+            (2, 3),
+        )
+
+        for name in (
+            "foot_x_min",
+            "foot_x_max",
+            "sole_bottom_min",
+            "sole_bottom_max",
+            "foot_normal_z",
+            "vertical_force",
+            "loaded",
+            "stable_lower",
+            "stable_upper",
+            "distance_to_riser_face",
+            "contact",
+            "contact_onset",
+        ):
+            self.assertEqual(
+                tuple(diagnostics[name].shape),
+                (2, 2),
+                name,
+            )
+
+        self.assertEqual(
+            tuple(
+                diagnostics[
+                    "precontact_velocity"
+                ].shape
+            ),
+            (2, 2, 3),
+        )
+
+        self.assertEqual(
+            tuple(
+                diagnostics[
+                    "foot_velocity"
+                ].shape
+            ),
+            (2, 2, 3),
+        )
+
+    def test_diagnostic_payload_is_storage_isolated_from_task_outputs(self):
+        result, _ = self.advance(1)
+
+        authoritative = {
+            "failure": result["failure"].clone(),
+            "success": result["success"].clone(),
+            "stage": result["stage"].clone(),
+            "components": {
+                name: value.clone()
+                for name, value
+                in result["components"].items()
+            },
+            "measurements": {
+                name: value.clone()
+                for name, value
+                in result["measurements"].items()
+            },
+        }
+
+        for value in result["diagnostics"].values():
+            if value.dtype == self.torch.bool:
+                value.logical_not_()
+            else:
+                value.fill_(123.0)
+
+        self.assertTrue(
+            self.torch.equal(
+                result["failure"],
+                authoritative["failure"],
+            )
+        )
+        self.assertTrue(
+            self.torch.equal(
+                result["success"],
+                authoritative["success"],
+            )
+        )
+        self.assertTrue(
+            self.torch.equal(
+                result["stage"],
+                authoritative["stage"],
+            )
+        )
+
+        for name, expected in (
+            authoritative["components"].items()
+        ):
+            self.assertTrue(
+                self.torch.equal(
+                    result["components"][name],
+                    expected,
+                ),
+                name,
+            )
+
+        for name, expected in (
+            authoritative["measurements"].items()
+        ):
+            self.assertTrue(
+                self.torch.equal(
+                    result["measurements"][name],
+                    expected,
+                ),
+                name,
+            )
+
     def test_nonfinite_state_fails_closed(self):
         self.frame["foot_pos"][0, 0, 0] = math.nan
         with self.assertRaisesRegex(RuntimeError, "non-finite"):

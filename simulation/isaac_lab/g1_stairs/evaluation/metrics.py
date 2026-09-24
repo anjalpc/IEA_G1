@@ -72,6 +72,34 @@ REWARD_FIELDS = (
     "weighted_value",
 )
 
+REWARD_DIAGNOSTIC_FIELDS = (
+    "iteration",
+    "total_simulated_steps",
+    "name",
+    "sample_count",
+    "mean",
+    "std",
+    "min",
+    "max",
+    "nonzero_fraction",
+    "positive_fraction",
+    "negative_fraction",
+    "weight",
+    "weighted_mean",
+    "weighted_abs_mean",
+)
+
+STAIR_DIAGNOSTIC_FIELDS = (
+    "iteration",
+    "total_simulated_steps",
+    "name",
+    "sample_count",
+    "mean",
+    "std",
+    "min",
+    "max",
+)
+
 EPISODE_FIELDS = (
     "run_id",
     "checkpoint",
@@ -206,6 +234,12 @@ class RunMetricsWriter:
         self.reward_path = (
             self.output_directory / "reward_components.csv"
         )
+        self.reward_diagnostic_path = (
+            self.output_directory / "reward_diagnostics.csv"
+        )
+        self.stair_diagnostic_path = (
+            self.output_directory / "stair_diagnostics.csv"
+        )
         self.episode_path = (
             self.output_directory / "evaluation_episodes.csv"
         )
@@ -313,6 +347,128 @@ class RunMetricsWriter:
             self.reward_path,
             REWARD_FIELDS,
             reward_rows,
+        )
+
+    def record_reward_diagnostics(
+        self,
+        *,
+        iteration: int,
+        total_simulated_steps: int,
+        diagnostics: Mapping[
+            str,
+            Mapping[str, Any],
+        ],
+    ) -> None:
+        """Record reward distributions separately from reward evidence."""
+
+        rows: list[dict[str, Any]] = []
+
+        required = {
+            "sample_count",
+            "mean",
+            "std",
+            "min",
+            "max",
+            "nonzero_fraction",
+            "positive_fraction",
+            "negative_fraction",
+            "weight",
+            "weighted_mean",
+            "weighted_abs_mean",
+        }
+
+        for name in sorted(diagnostics):
+            values = diagnostics[name]
+            missing = required - values.keys()
+
+            if missing:
+                raise ValueError(
+                    f"reward diagnostic {name} is missing: "
+                    + ", ".join(sorted(missing))
+                )
+
+            row = {
+                "iteration": iteration,
+                "total_simulated_steps": (
+                    total_simulated_steps
+                ),
+                "name": name,
+                **{
+                    key: values[key]
+                    for key in required
+                },
+            }
+
+            for key, value in row.items():
+                _require_finite(
+                    value,
+                    f"reward diagnostic {name} {key}",
+                )
+
+            rows.append(row)
+
+        _append_csv(
+            self.reward_diagnostic_path,
+            REWARD_DIAGNOSTIC_FIELDS,
+            rows,
+        )
+
+    def record_stair_diagnostics(
+        self,
+        *,
+        iteration: int,
+        total_simulated_steps: int,
+        diagnostics: Mapping[
+            str,
+            Mapping[str, Any],
+        ],
+    ) -> None:
+        """Record generic long-form stair-mechanics statistics."""
+
+        rows: list[dict[str, Any]] = []
+
+        required = {
+            "sample_count",
+            "mean",
+            "std",
+            "min",
+            "max",
+        }
+
+        for name in sorted(diagnostics):
+            values = diagnostics[name]
+            missing = required - values.keys()
+
+            if missing:
+                raise ValueError(
+                    f"stair diagnostic {name} is missing: "
+                    + ", ".join(sorted(missing))
+                )
+
+            row = {
+                "iteration": iteration,
+                "total_simulated_steps": (
+                    total_simulated_steps
+                ),
+                "name": name,
+                **{
+                    key: values[key]
+                    for key in required
+                },
+            }
+
+            for key, value in row.items():
+                _require_finite(
+                    value,
+                    f"stair diagnostic {name} {key}",
+                )
+
+            rows.append(row)
+
+        _append_csv(
+            self.stair_diagnostic_path,
+            STAIR_DIAGNOSTIC_FIELDS,
+            rows,
         )
 
     def record_episode(

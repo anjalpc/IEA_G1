@@ -7,6 +7,10 @@ import statistics
 from pathlib import Path
 
 from simulation.isaac_lab.g1_stairs.evaluation.metrics import RunMetricsWriter
+from simulation.isaac_lab.g1_stairs.evaluation.stair_diagnostics import (
+    NamedTensorStatsAccumulator,
+    physical_diagnostic_matrix,
+)
 
 
 def recover_raw_reward_step(weighted_rate, dt: float, weight: float):
@@ -48,6 +52,13 @@ class InstrumentedRslRlVecEnvWrapper:
         self._forbidden_contact_count = 0
         self._finite_action_env_steps = 0
         self._physical043_counts = {}
+
+        # Distribution diagnostics are separate from the historical
+        # reward-component accumulator. They never feed back into PPO.
+        self._reward_distribution = None
+        self._reward_distribution_weights = {}
+        self._stair_distribution = None
+
     def step(self, actions):
         import torch
 
@@ -66,6 +77,34 @@ class InstrumentedRslRlVecEnvWrapper:
                                 ("failed_episodes", dones & physical["failure"])):
                 key = "step043_" + name
                 self._physical043_counts[key] = self._physical043_counts.get(key, 0) + int(value.sum().item())
+
+            diagnostic_payload = physical.get("diagnostics")
+
+            if diagnostic_payload is not None:
+                names, values = physical_diagnostic_matrix(
+                    diagnostic_payload
+                )
+
+                if self._stair_distribution is None:
+                    self._stair_distribution = (
+                        NamedTensorStatsAccumulator(
+                            names
+                        )
+                    )
+
+                if (
+                    self._stair_distribution.names
+                    != names
+                ):
+                    raise RuntimeError(
+                        "physical diagnostic signal order changed "
+                        "during one training iteration"
+                    )
+
+                self._stair_distribution.update(
+                    values
+                )
+
         robot = env.scene["robot"]
         data = robot.data
         dt = float(env.step_dt)
@@ -95,21 +134,65 @@ class InstrumentedRslRlVecEnvWrapper:
             self._forbidden_contact_count += int(torch.count_nonzero(contacts).item())
 
         manager = env.reward_manager
+
+        reward_names = []
+        reward_columns = []
+
         for index, name in enumerate(manager.active_terms):
             cfg = manager.get_term_cfg(name)
+            weight = float(cfg.weight)
             weighted_rate = manager._step_reward[:, index]
+
             raw_step = recover_raw_reward_step(
                 weighted_rate,
                 dt,
-                float(cfg.weight),
+                weight,
             )
+
             if raw_step is None:
                 # RewardManager has already erased the raw value by
                 # multiplying it by zero, so it cannot be reconstructed.
                 continue
+
             self._reward_components[name] = (
                 self._reward_components.get(name, 0.0)
                 + float(raw_step.mean().item())
+            )
+
+            reward_names.append(name)
+            reward_columns.append(raw_step)
+            self._reward_distribution_weights[
+                name
+            ] = weight
+
+        if reward_columns:
+            reward_names = tuple(
+                reward_names
+            )
+
+            values = torch.stack(
+                reward_columns,
+                dim=1,
+            )
+
+            if self._reward_distribution is None:
+                self._reward_distribution = (
+                    NamedTensorStatsAccumulator(
+                        reward_names
+                    )
+                )
+
+            if (
+                self._reward_distribution.names
+                != reward_names
+            ):
+                raise RuntimeError(
+                    "active reward term order changed "
+                    "during one training iteration"
+                )
+
+            self._reward_distribution.update(
+                values
             )
 
         if self.clip_actions is not None:
@@ -233,8 +316,70 @@ class InstrumentedRslRlVecEnvWrapper:
                 snapshot["success_rate"] = self._physical043_counts.get("step043_successful_episodes", 0) / finished
             else:
                 snapshot["success_rate"] = None  # Not zero successes out of zero episodes.
+
+        reward_diagnostics = {}
+
+        if self._reward_distribution is not None:
+            reward_stats = (
+                self._reward_distribution.snapshot()
+            )
+
+            for name, values in reward_stats.items():
+                weight = (
+                    self._reward_distribution_weights[
+                        name
+                    ]
+                )
+
+                reward_diagnostics[name] = {
+                    "sample_count": (
+                        values["sample_count"]
+                    ),
+                    "mean": values["mean"],
+                    "std": values["std"],
+                    "min": values["min"],
+                    "max": values["max"],
+                    "nonzero_fraction": (
+                        values[
+                            "nonzero_fraction"
+                        ]
+                    ),
+                    "positive_fraction": (
+                        values[
+                            "positive_fraction"
+                        ]
+                    ),
+                    "negative_fraction": (
+                        values[
+                            "negative_fraction"
+                        ]
+                    ),
+                    "weight": weight,
+                    "weighted_mean": (
+                        values["mean"]
+                        * weight
+                    ),
+                    "weighted_abs_mean": (
+                        values["mean_abs"]
+                        * abs(weight)
+                    ),
+                }
+
+        stair_diagnostics = {}
+
+        if self._stair_distribution is not None:
+            stair_diagnostics = (
+                self._stair_distribution.snapshot()
+            )
+
         self.reset_metrics()
-        return snapshot, rewards
+
+        return (
+            snapshot,
+            rewards,
+            reward_diagnostics,
+            stair_diagnostics,
+        )
 
 
 class MetricsOnPolicyRunnerMixin:
@@ -249,7 +394,12 @@ class MetricsOnPolicyRunnerMixin:
         print("[POST_UPDATE] base_log EXIT", flush=True)
 
         print("[POST_UPDATE] consume_metrics ENTER", flush=True)
-        snapshot, rewards = self.env.consume_metrics()
+        (
+            snapshot,
+            rewards,
+            reward_diagnostics,
+            stair_diagnostics,
+        ) = self.env.consume_metrics()
         if getattr(self, "writer", None) is not None:
             for name, value in snapshot.items():
                 if name.startswith("step043_"):
@@ -300,5 +450,26 @@ class MetricsOnPolicyRunnerMixin:
         except Exception:
             snapshot["gpu_memory_used_mib"] = None
         print("[POST_UPDATE] metrics_write ENTER", flush=True)
-        self._metrics_writer.record_training_snapshot(snapshot, rewards)
+
+        self._metrics_writer.record_training_snapshot(
+            snapshot,
+            rewards,
+        )
+
+        self._metrics_writer.record_reward_diagnostics(
+            iteration=snapshot["iteration"],
+            total_simulated_steps=snapshot[
+                "total_simulated_steps"
+            ],
+            diagnostics=reward_diagnostics,
+        )
+
+        self._metrics_writer.record_stair_diagnostics(
+            iteration=snapshot["iteration"],
+            total_simulated_steps=snapshot[
+                "total_simulated_steps"
+            ],
+            diagnostics=stair_diagnostics,
+        )
+
         print("[POST_UPDATE] metrics_write EXIT", flush=True)

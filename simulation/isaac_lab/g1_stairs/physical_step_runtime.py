@@ -172,8 +172,54 @@ class PhysicalStepState:
             else:
                 self.totals[name] += value.to(torch.long).sum()
         self.totals["environment_steps"] = self.totals.get("environment_steps", 0) + root.shape[0]
-        self.snapshot = dict(components=components, failure=failure, success=complete,
-                             measurements=measurements, stage=self.stage.clone())
+
+        # Diagnostic payload only.
+        #
+        # Every tensor is cloned so downstream instrumentation cannot mutate
+        # reward, termination, success, stage, or physical detector state.
+        # Nothing in this payload is consumed by the task itself.
+        diagnostics = dict(
+            root=root.clone(),
+            foot_x_min=x_min.clone(),
+            foot_x_max=x_max.clone(),
+            sole_bottom_min=bottom.amin(dim=2).clone(),
+            sole_bottom_max=bottom.amax(dim=2).clone(),
+            foot_normal_z=normal_z.clone(),
+            vertical_force=forces[..., 2].clone(),
+            bodyweight=bodyweight.clone(),
+            loaded=loaded.clone(),
+            slow_translation=slow.clone(),
+            slow_rotation=slow_rotation.clone(),
+            lateral_contained=lateral.clone(),
+            support_quality=quality.clone(),
+            lower_geometry=lower_geometry.clone(),
+            upper_geometry=upper_geometry.clone(),
+            landing_rectangle=landing_rectangle.clone(),
+            stable_lower=stable_lower.clone(),
+            stable_upper=stable_upper.clone(),
+            swing_zone=swing_zone.clone(),
+            swing_ok=swing_ok.clone(),
+            clearance_value=clearance_value.clone(),
+            distance_to_riser_face=distance_to_face.clone(),
+            contact=contact.clone(),
+            contact_onset=onset.clone(),
+            near_upper=near_upper.clone(),
+            precontact_velocity=self.previous_velocity.clone(),
+            foot_velocity=foot_velocity.clone(),
+            foot_angular_velocity=foot_angular_velocity.clone(),
+            upright=upright.clone(),
+            safe=safe.clone(),
+            forbidden=forbidden.clone(),
+        )
+
+        self.snapshot = dict(
+            components=components,
+            failure=failure,
+            success=complete,
+            measurements=measurements,
+            stage=self.stage.clone(),
+            diagnostics=diagnostics,
+        )
         self.last_step = step
         return self.snapshot
 

@@ -13,6 +13,11 @@ from simulation.isaac_lab.g1_stairs.evaluation.metrics import (
 from simulation.isaac_lab.g1_stairs.evaluation.isaac_training_metrics import (
     recover_raw_reward_step,
 )
+from simulation.isaac_lab.g1_stairs.evaluation.stair_diagnostics import (
+    NamedTensorStatsAccumulator,
+    TensorStatsAccumulator,
+    physical_diagnostic_matrix,
+)
 from simulation.isaac_lab.g1_stairs.evaluation.stair_outcomes import (
     EpisodeResult,
     Outcome,
@@ -45,6 +50,331 @@ def result(
 
 
 class MetricsTest(unittest.TestCase):
+    def test_tensor_stats_accumulator_tracks_distribution(self):
+        import torch
+
+        stats = TensorStatsAccumulator()
+
+        stats.update(
+            torch.tensor([-2.0, 0.0, 1.0])
+        )
+        stats.update(
+            torch.tensor([3.0])
+        )
+
+        snapshot = stats.snapshot()
+
+        self.assertEqual(
+            snapshot["sample_count"],
+            4,
+        )
+        self.assertAlmostEqual(
+            snapshot["mean"],
+            0.5,
+        )
+        self.assertAlmostEqual(
+            snapshot["min"],
+            -2.0,
+        )
+        self.assertAlmostEqual(
+            snapshot["max"],
+            3.0,
+        )
+        self.assertAlmostEqual(
+            snapshot["nonzero_fraction"],
+            0.75,
+        )
+        self.assertAlmostEqual(
+            snapshot["positive_fraction"],
+            0.5,
+        )
+        self.assertAlmostEqual(
+            snapshot["negative_fraction"],
+            0.25,
+        )
+
+    def test_named_tensor_stats_accumulator_tracks_columns(self):
+        import torch
+
+        stats = NamedTensorStatsAccumulator(
+            ("first", "second")
+        )
+
+        stats.update(
+            torch.tensor(
+                [
+                    [1.0, 0.0],
+                    [3.0, -2.0],
+                ]
+            )
+        )
+
+        stats.update(
+            torch.tensor(
+                [
+                    [5.0, 4.0],
+                ]
+            )
+        )
+
+        snapshot = stats.snapshot()
+
+        self.assertEqual(
+            snapshot["first"]["sample_count"],
+            3,
+        )
+
+        self.assertAlmostEqual(
+            snapshot["first"]["mean"],
+            3.0,
+        )
+
+        self.assertAlmostEqual(
+            snapshot["first"]["min"],
+            1.0,
+        )
+
+        self.assertAlmostEqual(
+            snapshot["first"]["max"],
+            5.0,
+        )
+
+        self.assertAlmostEqual(
+            snapshot["second"][
+                "nonzero_fraction"
+            ],
+            2.0 / 3.0,
+        )
+
+        self.assertAlmostEqual(
+            snapshot["second"][
+                "positive_fraction"
+            ],
+            1.0 / 3.0,
+        )
+
+        self.assertAlmostEqual(
+            snapshot["second"][
+                "negative_fraction"
+            ],
+            1.0 / 3.0,
+        )
+
+        self.assertAlmostEqual(
+            snapshot["second"]["mean_abs"],
+            2.0,
+        )
+
+    def test_physical_diagnostic_matrix_keeps_feet_separate(self):
+        import torch
+
+        num_envs = 2
+
+        diagnostics = {
+            "root": torch.tensor(
+                [
+                    [0.1, 0.0, 0.8],
+                    [0.2, 0.0, 0.9],
+                ]
+            ),
+            "foot_x_min": torch.tensor(
+                [
+                    [0.3, 0.4],
+                    [0.5, 0.6],
+                ]
+            ),
+            "foot_x_max": torch.tensor(
+                [
+                    [0.4, 0.5],
+                    [0.6, 0.7],
+                ]
+            ),
+            "sole_bottom_min": torch.zeros(
+                num_envs,
+                2,
+            ),
+            "sole_bottom_max": torch.ones(
+                num_envs,
+                2,
+            ) * 0.01,
+            "foot_normal_z": torch.ones(
+                num_envs,
+                2,
+            ),
+            "vertical_force": torch.tensor(
+                [
+                    [150.0, 75.0],
+                    [300.0, 150.0],
+                ]
+            ),
+            "bodyweight": torch.tensor(
+                [300.0, 300.0]
+            ),
+            "loaded": torch.tensor(
+                [
+                    [True, False],
+                    [True, True],
+                ]
+            ),
+            "slow_translation": torch.ones(
+                num_envs,
+                2,
+                dtype=torch.bool,
+            ),
+            "slow_rotation": torch.ones(
+                num_envs,
+                2,
+                dtype=torch.bool,
+            ),
+            "lateral_contained": torch.ones(
+                num_envs,
+                2,
+                dtype=torch.bool,
+            ),
+            "support_quality": torch.ones(
+                num_envs,
+                2,
+                dtype=torch.bool,
+            ),
+            "lower_geometry": torch.ones(
+                num_envs,
+                2,
+                dtype=torch.bool,
+            ),
+            "upper_geometry": torch.zeros(
+                num_envs,
+                2,
+                dtype=torch.bool,
+            ),
+            "landing_rectangle": torch.ones(
+                num_envs,
+                2,
+                dtype=torch.bool,
+            ),
+            "stable_lower": torch.ones(
+                num_envs,
+                2,
+                dtype=torch.bool,
+            ),
+            "stable_upper": torch.zeros(
+                num_envs,
+                2,
+                dtype=torch.bool,
+            ),
+            "swing_zone": torch.zeros(
+                num_envs,
+                2,
+                dtype=torch.bool,
+            ),
+            "swing_ok": torch.zeros(
+                num_envs,
+                2,
+                dtype=torch.bool,
+            ),
+            "clearance_value": torch.tensor(
+                [
+                    [0.1, 0.2],
+                    [0.3, 0.4],
+                ]
+            ),
+            "distance_to_riser_face": torch.tensor(
+                [
+                    [0.6, 0.5],
+                    [0.4, 0.3],
+                ]
+            ),
+            "contact": torch.ones(
+                num_envs,
+                2,
+                dtype=torch.bool,
+            ),
+            "contact_onset": torch.zeros(
+                num_envs,
+                2,
+                dtype=torch.bool,
+            ),
+            "near_upper": torch.zeros(
+                num_envs,
+                2,
+                dtype=torch.bool,
+            ),
+            "precontact_velocity": torch.zeros(
+                num_envs,
+                2,
+                3,
+            ),
+            "foot_velocity": torch.zeros(
+                num_envs,
+                2,
+                3,
+            ),
+            "foot_angular_velocity": torch.zeros(
+                num_envs,
+                2,
+                3,
+            ),
+            "upright": torch.tensor(
+                [True, True]
+            ),
+            "safe": torch.tensor(
+                [True, False]
+            ),
+            "forbidden": torch.tensor(
+                [False, True]
+            ),
+        }
+
+        names, values = physical_diagnostic_matrix(
+            diagnostics
+        )
+
+        self.assertEqual(
+            values.shape[0],
+            num_envs,
+        )
+
+        self.assertEqual(
+            values.shape[1],
+            len(names),
+        )
+
+        self.assertIn(
+            "left_distance_to_riser_face_m",
+            names,
+        )
+
+        self.assertIn(
+            "right_distance_to_riser_face_m",
+            names,
+        )
+
+        left_force = names.index(
+            "left_vertical_force_bodyweight_fraction"
+        )
+
+        right_force = names.index(
+            "right_vertical_force_bodyweight_fraction"
+        )
+
+        self.assertAlmostEqual(
+            float(values[0, left_force]),
+            0.5,
+        )
+
+        self.assertAlmostEqual(
+            float(values[0, right_force]),
+            0.25,
+        )
+
+        self.assertNotEqual(
+            names.index(
+                "left_foot_x_max_m"
+            ),
+            names.index(
+                "right_foot_x_max_m"
+            ),
+        )
+
     def test_zero_weight_reward_raw_value_is_not_reconstructed(self):
         class ArithmeticMustNotRun:
             def __mul__(self, other):
@@ -120,6 +450,76 @@ class MetricsTest(unittest.TestCase):
             self.assertAlmostEqual(
                 float(action_rate["weighted_value"]),
                 -0.01,
+            )
+
+            writer.record_reward_diagnostics(
+                iteration=10,
+                total_simulated_steps=30720,
+                diagnostics={
+                    "action_rate": {
+                        "sample_count": 100,
+                        "mean": 0.2,
+                        "std": 0.05,
+                        "min": 0.0,
+                        "max": 0.8,
+                        "nonzero_fraction": 0.7,
+                        "positive_fraction": 0.7,
+                        "negative_fraction": 0.0,
+                        "weight": -0.05,
+                        "weighted_mean": -0.01,
+                        "weighted_abs_mean": 0.01,
+                    },
+                },
+            )
+
+            with writer.reward_diagnostic_path.open(
+                encoding="utf-8"
+            ) as stream:
+                diagnostics = list(
+                    csv.DictReader(stream)
+                )
+
+            self.assertEqual(
+                len(diagnostics),
+                1,
+            )
+            self.assertEqual(
+                diagnostics[0]["name"],
+                "action_rate",
+            )
+            self.assertEqual(
+                diagnostics[0]["sample_count"],
+                "100",
+            )
+
+            writer.record_stair_diagnostics(
+                iteration=10,
+                total_simulated_steps=30720,
+                diagnostics={
+                    "touchdown_horizontal_speed_mps": {
+                        "sample_count": 8,
+                        "mean": 0.3,
+                        "std": 0.1,
+                        "min": 0.1,
+                        "max": 0.6,
+                    },
+                },
+            )
+
+            with writer.stair_diagnostic_path.open(
+                encoding="utf-8"
+            ) as stream:
+                stair_diagnostics = list(
+                    csv.DictReader(stream)
+                )
+
+            self.assertEqual(
+                len(stair_diagnostics),
+                1,
+            )
+            self.assertEqual(
+                stair_diagnostics[0]["name"],
+                "touchdown_horizontal_speed_mps",
             )
 
     def test_episode_summary_uses_independent_outcomes(self):
