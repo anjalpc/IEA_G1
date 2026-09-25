@@ -1,0 +1,29 @@
+schema_version: 1
+
+experiment:
+  id: 046_teacher_action_blend_smoke
+  purpose: >
+    One-iteration integration smoke for hard Unitree approach action
+    authority with the 045 body-gated stair objective unchanged.
+  type: contract_smoke
+  meaningful_stair_training: false
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/045_body_gated_clearance_diag200.yaml
+  resolved_config_required: true
+
+approach_teacher:
+  enabled: true
+  coefficient: 1.0
+  release_near_m: 0.25
+  release_far_m: 0.40
+  huber_delta: 0.25
+  enforce_action_blend: true
+
+execution:
+  environments: 32
+  maximum_iterations: 1
+  training_seed: 42
+
+launch_gates:
+  allow_launch: true
