@@ -109,6 +109,7 @@ def main() -> None:
     )
     from simulation.isaac_lab.g1_stairs.evaluation.step_up_checkpoint_validation import (
         StepUpCheckpointValidator,
+        apply_resolved_replay_agent_config,
         apply_resolved_replay_config,
     )
 
@@ -141,6 +142,7 @@ def main() -> None:
 
     replay_config = None
     reference_tracking_cfg = None
+    resolved_config = None
 
     if args.resolved_config is not None:
         resolved_config_path = Path(args.resolved_config).resolve()
@@ -198,6 +200,12 @@ def main() -> None:
 
     agent_cfg = cli_args.parse_rsl_rl_cfg(args.task, args)
     agent_cfg.seed = args.seed
+
+    if resolved_config is not None:
+        apply_resolved_replay_agent_config(
+            agent_cfg,
+            resolved_config,
+        )
 
     env = gym.make(args.task, cfg=env_cfg, render_mode=None)
     if isinstance(env.unwrapped, DirectMARLEnv):

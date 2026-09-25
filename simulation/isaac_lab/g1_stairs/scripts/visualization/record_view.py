@@ -305,6 +305,7 @@ def main() -> None:
 
         from simulation.isaac_lab.g1_stairs.evaluation.step_up_checkpoint_validation import (
             apply_resolved_replay_config,
+            apply_resolved_replay_agent_config,
         )
 
         replay = apply_resolved_replay_config(
@@ -370,6 +371,12 @@ def main() -> None:
     )
 
     agent_cfg.seed = args.seed
+
+    if resolved_config is not None:
+        apply_resolved_replay_agent_config(
+            agent_cfg,
+            resolved_config,
+        )
 
     env = gym.make(
         args.task,

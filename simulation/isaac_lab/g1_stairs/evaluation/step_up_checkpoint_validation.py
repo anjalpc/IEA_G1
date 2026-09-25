@@ -49,9 +49,26 @@ class AppliedReplayConfig:
 
 
 def apply_resolved_replay_config(env_cfg, path: Path) -> AppliedReplayConfig:
-    """Reproduce the terrain and command used by a recorded experiment."""
+    """Reproduce the recorded environment contract for replay/evaluation.
+
+    Replay must use the same specialist robot, staging, observation, terrain,
+    command, and reward contracts as training. Historical non-specialist runs
+    continue through the generic terrain/command path below.
+    """
 
     resolved = yaml.safe_load(path.read_text(encoding="utf-8"))
+
+    from simulation.isaac_lab.g1_stairs.specialist_runtime import (
+        apply_specialist_runtime,
+    )
+    from simulation.isaac_lab.g1_stairs.reward_runtime import (
+        apply_resolved_rewards,
+    )
+
+    specialist_summary = apply_specialist_runtime(
+        env_cfg,
+        resolved,
+    )
 
     observations = resolved.get(
         "observations",
@@ -82,7 +99,7 @@ def apply_resolved_replay_config(env_cfg, path: Path) -> AppliedReplayConfig:
         values = resolved["commands"]["forward_velocity_mps"]
         forward_velocity_mps = float(values[0])
 
-    if not 0.0 < forward_velocity_mps <= 0.50:
+    if not 0.0 <= forward_velocity_mps <= 0.50:
         raise ValueError("invalid resolved forward velocity")
 
     terrain_generator = env_cfg.scene.terrain.terrain_generator
@@ -104,11 +121,15 @@ def apply_resolved_replay_config(env_cfg, path: Path) -> AppliedReplayConfig:
         forward_velocity_mps,
     )
 
-
     stair_schedule_cfg = command.get(
         "stair_velocity_schedule",
         {},
     )
+
+    # Match the exact reward-manager contract used by the recorded run.
+    # For specialist experiments this removes all inherited legacy terms and
+    # leaves only the YAML-declared active set.
+    apply_resolved_rewards(env_cfg, resolved)
 
     if stair_schedule_cfg.get("enabled", False):
         from simulation.isaac_lab.g1_stairs import (
@@ -159,12 +180,33 @@ def apply_resolved_replay_config(env_cfg, path: Path) -> AppliedReplayConfig:
                 schedule_params
             )
 
+    first_riser_x_m = 1.0
+    if specialist_summary is not None:
+        first_riser_x_m = float(
+            specialist_summary["terrain_origin_distance_m"]
+        )
+
     return AppliedReplayConfig(
         riser_height_m=riser_height_m,
         tread_depth_m=tread_depth_m,
         step_count=step_count,
         forward_velocity_mps=forward_velocity_mps,
+        first_riser_x_m=first_riser_x_m,
     )
+
+
+def apply_resolved_replay_agent_config(agent_cfg, resolved: dict) -> None:
+    """Apply inference-critical PPO settings from a recorded config."""
+
+    ppo = resolved.get("ppo", {})
+    if not isinstance(ppo, dict):
+        raise ValueError("ppo must be a mapping")
+
+    if "action_clip" in ppo:
+        action_clip = float(ppo["action_clip"])
+        if action_clip <= 0.0:
+            raise ValueError("ppo.action_clip must be > 0")
+        agent_cfg.clip_actions = action_clip
 
 
 class StepUpCheckpointValidator:
@@ -198,9 +240,13 @@ class StepUpCheckpointValidator:
             name: sensor_names.index(name)
             for name in FOOT_BODY_NAMES
         }
+        # Fixed bodies without collision shapes can be absent from the active
+        # ContactSensor inventory. Follow the runtime sensor contract instead
+        # of requiring every articulation body to be represented.
         self.sensor_forbidden_indices = {
             name: sensor_names.index(name)
             for name in FORBIDDEN_CONTACT_BODY_NAMES
+            if name in sensor_names
         }
 
         self.loaded_force_samples: list[float] = []
@@ -222,8 +268,9 @@ class StepUpCheckpointValidator:
 
         self.both_support_start_x: float | None = None
 
-        # Calibrate well before the riser at local X=1.0 m.
-        self.calibration_end_x_m = 0.55
+        # Preserve the historical 0.55 m calibration boundary when the first
+        # riser is at 1.0 m, while scaling correctly for specialist staging.
+        self.calibration_end_x_m = 0.55 * replay.first_riser_x_m
 
     def _local_base(self) -> tuple[float, float]:
         origin = self.scene.env_origins[0]

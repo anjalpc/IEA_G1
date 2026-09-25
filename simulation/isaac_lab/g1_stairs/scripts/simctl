@@ -891,6 +891,16 @@ cmd_evaluate() {
     CONTAINER_MODEL="${MODEL/$REPO/\/workspace\/IEA_G1}"
     OUTPUT_DIR="/workspace/IEA_G1/experiments/g1_stairs/outputs/evaluation/${RUN_ID}/model_${CHECKPOINT}_seed42"
 
+    RESOLVED_CONFIG="${REPO}/experiments/g1_stairs/runs/${RUN_ID}/resolved_config.yaml"
+
+    if [ ! -f "$RESOLVED_CONFIG" ]; then
+        echo "Resolved config not found:"
+        echo "  $RESOLVED_CONFIG"
+        exit 1
+    fi
+
+    CONTAINER_RESOLVED_CONFIG="${RESOLVED_CONFIG/$REPO/\/workspace\/IEA_G1}"
+
     echo "========================================"
     echo " G1 CHECKPOINT EVALUATION"
     echo "========================================"
@@ -910,6 +920,7 @@ cd /workspace/IEA_G1
   simulation/isaac_lab/g1_stairs/scripts/evaluation/evaluate_isaac_stairs.py \
   --task Unitree-IEA-G1-29dof-Stairs-v0 \
   --checkpoint '${CONTAINER_MODEL}' \
+  --resolved-config '${CONTAINER_RESOLVED_CONFIG}' \
   --output-dir '${OUTPUT_DIR}' \
   --max-steps 900 \
   --seed 42 \
