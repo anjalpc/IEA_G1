@@ -1,0 +1,19 @@
+schema_version: 1
+
+experiment:
+  id: 050a_locomotion_preserving_clearance_smoke
+  purpose: One-iteration integration smoke for 050 locomotion-preserving clearance
+  type: contract_smoke
+  meaningful_stair_training: false
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/050_locomotion_preserving_clearance_base.yaml
+  resolved_config_required: true
+
+execution:
+  environments: 32
+  maximum_iterations: 1
+  training_seed: 42
+
+launch_gates:
+  allow_launch: true

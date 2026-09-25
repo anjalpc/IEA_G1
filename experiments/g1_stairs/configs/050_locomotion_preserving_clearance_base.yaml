@@ -1,0 +1,30 @@
+schema_version: 1
+
+experiment:
+  id: 050_locomotion_preserving_clearance_base
+  purpose: >
+    Preserve the validated 049 clearance-first anti-exploit contract while
+    keeping the low-speed locomotion command alive through ascent and making
+    vertical shaping relative to the exact per-foot swing entry. Dynamic
+    stance loading, rather than a repeated 0.12 s stable-support dwell, gates
+    swing continuation; validated riser-ready/crossing support remains strict.
+  type: locomotion_preserving_clearance_single_step
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/049_clearance_acquisition_base.yaml
+  resolved_config_required: true
+
+structured_step:
+  reward_mode: 6
+  ascent_launch_distance_m: 0.30
+
+command:
+  stair_velocity_schedule:
+    # Do NOT abruptly replace the pretrained low-speed walking command with
+    # zero at ascent latch. Task velocity reward is already disabled after
+    # ascent, so this remains locomotion context rather than a forward reward.
+    stop_after_ascent_start: false
+
+launch_gates:
+  allow_launch: false

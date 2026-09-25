@@ -40,6 +40,7 @@ class StructuredStep044Config:
     #   3 = anti-exploit 047 ordered ascent behavior
     #   4 = 048 task contract: align -> prepare -> ascend -> stabilize
     #   5 = 049 clearance-acquisition contract: lift first, then advance
+    #   6 = 050 locomotion-preserving clearance acquisition
     reward_mode: int = 1
     ascent_launch_distance_m: float = 0.25
 
@@ -91,9 +92,9 @@ class StructuredStep044Config:
                     f"structured_step.{name} must not exceed one"
                 )
 
-        if self.reward_mode not in (1, 2, 3, 4, 5):
+        if self.reward_mode not in (1, 2, 3, 4, 5, 6):
             raise ValueError(
-                "structured_step.reward_mode must be 1, 2, 3, 4, or 5"
+                "structured_step.reward_mode must be 1, 2, 3, 4, 5, or 6"
             )
 
         if self.alignment_root_y_tolerance_m >= self.width_m / 2:
@@ -353,7 +354,7 @@ def configure_structured_step044(env_cfg, resolved, weights):
         "std"
     ] = 0.15
 
-    if config.reward_mode in (3, 4, 5):
+    if config.reward_mode in (3, 4, 5, 6):
         # Remove the positive per-control-step survival bonus in 047/048/049.
         # Perfect commanded-velocity tracking is zero reward; deviations are
         # negative.
@@ -361,7 +362,7 @@ def configure_structured_step044(env_cfg, resolved, weights):
             "zero_centered"
         ] = True
 
-    if config.reward_mode in (4, 5):
+    if config.reward_mode in (4, 5, 6):
         # Once the ordered ascent phase starts, generic forward-speed tracking
         # is no longer a task objective. Physical stair milestones and terminal
         # stability own the task from that point onward.

@@ -1,0 +1,22 @@
+schema_version: 1
+
+experiment:
+  id: 050b_locomotion_preserving_clearance_diag20
+  purpose: >
+    Twenty-iteration diagnostic for the SWING -> meaningful lift -> full
+    clearance transition with the 049 anti-exploit and failure contracts
+    preserved.
+  type: diagnostic_short
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/050_locomotion_preserving_clearance_base.yaml
+  resolved_config_required: true
+
+execution:
+  environments: 2048
+  maximum_iterations: 20
+  training_seed: 42
+
+launch_gates:
+  allow_launch: true
