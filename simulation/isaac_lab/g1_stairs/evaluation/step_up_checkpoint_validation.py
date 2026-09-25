@@ -6,8 +6,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from statistics import median
 
-import yaml
-
 from simulation.isaac_lab.g1_stairs.step_up_isaac import (
     FOOT_BODY_NAMES,
     FORBIDDEN_CONTACT_BODY_NAMES,
@@ -48,6 +46,21 @@ class AppliedReplayConfig:
     first_riser_x_m: float = 1.0
 
 
+def load_replay_resolved_config(path: Path) -> dict:
+    """Load replay config through the same normalization path as training.
+
+    Specialist configs keep their reward stage under
+    ``reward_experiment.rewards.stage_plan``.  The training runtime normalizes
+    that schema before reward application, so replay must do exactly the same
+    instead of parsing the YAML directly.
+    """
+    from simulation.isaac_lab.g1_stairs.reward_runtime import (
+        load_resolved_config,
+    )
+
+    return load_resolved_config(path)
+
+
 def apply_resolved_replay_config(env_cfg, path: Path) -> AppliedReplayConfig:
     """Reproduce the recorded environment contract for replay/evaluation.
 
@@ -56,7 +69,7 @@ def apply_resolved_replay_config(env_cfg, path: Path) -> AppliedReplayConfig:
     continue through the generic terrain/command path below.
     """
 
-    resolved = yaml.safe_load(path.read_text(encoding="utf-8"))
+    resolved = load_replay_resolved_config(path)
 
     from simulation.isaac_lab.g1_stairs.specialist_runtime import (
         apply_specialist_runtime,

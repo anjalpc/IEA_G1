@@ -1,10 +1,14 @@
 """Tests for checkpoint step-up calibration lifecycle."""
 
+import tempfile
 import unittest
+from pathlib import Path
+
 
 from simulation.isaac_lab.g1_stairs.evaluation.step_up_checkpoint_validation import (
     apply_resolved_replay_agent_config,
     calibration_ready,
+    load_replay_resolved_config,
 )
 
 
@@ -26,6 +30,38 @@ class StepUpCheckpointCalibrationTest(unittest.TestCase):
     def test_calibration_rejects_invalid_minimum(self):
         with self.assertRaises(ValueError):
             calibration_ready([], [], minimum_samples=0)
+
+
+    def test_replay_loader_normalizes_specialist_reward_schema(self):
+        payload = """
+reward_experiment:
+  active_stage: specialist_foundation
+  strict_runtime_set: true
+  rewards:
+    stage_plan:
+      specialist_foundation:
+        upright: -2.0
+        action_rate: -0.01
+"""
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "resolved_config.yaml"
+            path.write_text(payload, encoding="utf-8")
+            resolved = load_replay_resolved_config(path)
+
+        self.assertIn("rewards", resolved)
+        self.assertIn("stage_plan", resolved["rewards"])
+        self.assertEqual(
+            resolved["rewards"]["stage_plan"][
+                "specialist_foundation"
+            ]["enabled_terms"]["upright_raw"],
+            -2.0,
+        )
+        self.assertEqual(
+            resolved["rewards"]["stage_plan"][
+                "specialist_foundation"
+            ]["enabled_terms"]["action_rate_raw"],
+            -0.01,
+        )
 
     def test_replay_agent_uses_recorded_action_clip(self):
         class AgentCfg:

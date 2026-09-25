@@ -791,9 +791,39 @@ cd /workspace/IEA_G1
 
     HOST_OUTPUT="${OUTPUT_DIR/\/workspace\/IEA_G1/$REPO}"
 
+    VIDEO_FILE="$(
+        find "$HOST_OUTPUT" -type f -name '*.mp4' -print -quit 2>/dev/null || true
+    )"
+
+    if [ -z "$VIDEO_FILE" ]; then
+        echo "ERROR: video command exited without producing an MP4:" >&2
+        echo "  $HOST_OUTPUT" >&2
+        exit 1
+    fi
+
+    METADATA_FILE="${HOST_OUTPUT}/metadata.json"
+    if [ ! -f "$METADATA_FILE" ]; then
+        echo "ERROR: video metadata is missing:" >&2
+        echo "  $METADATA_FILE" >&2
+        exit 1
+    fi
+
+    python3 - "$METADATA_FILE" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+path = Path(sys.argv[1])
+data = json.loads(path.read_text(encoding="utf-8"))
+if data.get("completed") is not True:
+    raise SystemExit(f"video metadata is not complete: {path}")
+if int(data.get("completed_steps", 0)) <= 0:
+    raise SystemExit(f"video metadata has no completed steps: {path}")
+PY
+
     echo
     echo "Video output:"
-    find "$HOST_OUTPUT" -type f -name '*.mp4' -print || true
+    echo "  $VIDEO_FILE"
 }
 
 
