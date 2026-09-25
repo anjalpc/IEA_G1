@@ -15,6 +15,9 @@ from simulation.isaac_lab.g1_stairs.evaluation.stair_diagnostics import (
     StairEventDiagnostics,
     physical_diagnostic_matrix,
 )
+from simulation.isaac_lab.g1_stairs.step_up_isaac import (
+    FORBIDDEN_CONTACT_BODY_NAMES,
+)
 
 
 def recover_raw_reward_step(weighted_rate, dt: float, weight: float):
@@ -22,6 +25,27 @@ def recover_raw_reward_step(weighted_rate, dt: float, weight: float):
     if weight == 0.0:
         return None
     return weighted_rate * dt / weight
+
+
+def resolve_available_body_indices(
+    available_names,
+    requested_names=FORBIDDEN_CONTACT_BODY_NAMES,
+):
+    """Resolve only contact bodies represented by the active sensor asset.
+
+    Fixed bodies without collision shapes can legitimately be absent from a
+    ContactSensor body inventory. Metrics must therefore follow the runtime
+    sensor contract rather than assuming every articulation body is tracked.
+    """
+    index_by_name = {
+        name: index
+        for index, name in enumerate(available_names)
+    }
+    return [
+        index_by_name[name]
+        for name in requested_names
+        if name in index_by_name
+    ]
 
 
 class InstrumentedRslRlVecEnvWrapper:
@@ -417,15 +441,24 @@ class InstrumentedRslRlVecEnvWrapper:
 
         sensor = env.scene.sensors.get("contact_forces")
         if sensor is not None:
-            forbidden_names = (
-                "pelvis", "torso_link", "left_knee_link", "right_knee_link",
-                "left_elbow_link", "right_elbow_link", "left_rubber_hand",
-                "right_rubber_hand",
+            indices = resolve_available_body_indices(
+                sensor.body_names,
             )
-            indices = [sensor.body_names.index(name) for name in forbidden_names]
-            forces = sensor.data.net_forces_w[:, indices]
-            contacts = torch.linalg.vector_norm(forces, dim=2).ge(5.0).any(dim=1)
-            self._forbidden_contact_count += int(torch.count_nonzero(contacts).item())
+            if indices:
+                forces = sensor.data.net_forces_w[:, indices]
+                contacts = (
+                    torch.linalg.vector_norm(
+                        forces,
+                        dim=2,
+                    )
+                    .ge(5.0)
+                    .any(dim=1)
+                )
+                self._forbidden_contact_count += int(
+                    torch.count_nonzero(
+                        contacts
+                    ).item()
+                )
 
         manager = env.reward_manager
 

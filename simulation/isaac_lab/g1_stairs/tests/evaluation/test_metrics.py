@@ -12,6 +12,7 @@ from simulation.isaac_lab.g1_stairs.evaluation.metrics import (
 )
 from simulation.isaac_lab.g1_stairs.evaluation.isaac_training_metrics import (
     recover_raw_reward_step,
+    resolve_available_body_indices,
 )
 from simulation.isaac_lab.g1_stairs.evaluation.stair_diagnostics import (
     NamedTensorStatsAccumulator,
@@ -50,6 +51,25 @@ def result(
 
 
 class MetricsTest(unittest.TestCase):
+    def test_forbidden_contact_indices_follow_runtime_sensor_inventory(self):
+        available_names = (
+            "pelvis",
+            "left_knee_link",
+            "right_knee_link",
+            "left_elbow_link",
+            "right_elbow_link",
+            "left_ankle_roll_link",
+        )
+
+        indices = resolve_available_body_indices(
+            available_names
+        )
+
+        self.assertEqual(
+            indices,
+            [0, 1, 2, 3, 4],
+        )
+
     def test_tensor_stats_accumulator_tracks_distribution(self):
         import torch
 
