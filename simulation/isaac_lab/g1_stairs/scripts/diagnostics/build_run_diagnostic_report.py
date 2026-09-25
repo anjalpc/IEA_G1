@@ -205,6 +205,22 @@ def _episode_analysis(
 ) -> dict[str, Any]:
     counts = _sum_named_counts(rows)
 
+    # Structured 044/047 persists its own ordered episode vocabulary. Map it
+    # into the historical generic funnel names so the existing report remains
+    # useful instead of silently showing zeros. Raw mode-specific counts are
+    # still preserved in ``counts``.
+    structured_aliases = {
+        "episodes_near_riser_count": "episodes_ascent_started_count",
+        "episodes_riser_crossing_count": "episodes_valid_crossing_count",
+        "episodes_upper_touchdown_count": "episodes_good_touchdown_count",
+        "episodes_first_support_count": "episodes_stable_upper_count",
+        "episodes_base_transfer_count": "episodes_body_transfer_count",
+    }
+
+    for generic, structured in structured_aliases.items():
+        if generic not in counts and structured in counts:
+            counts[generic] = counts[structured]
+
     funnel = {
         name: counts.get(name, 0)
         for name in FUNNEL
@@ -385,6 +401,8 @@ def _stair_analysis(
 
     interesting_tokens = (
         "clearance",
+        "maintained",
+        "ascent",
         "distance_to_riser",
         "touchdown",
         "support",
@@ -447,6 +465,12 @@ def _training_analysis(
         "approach_teacher_loss",
         "approach_teacher_gate_mean",
         "approach_teacher_error_mean",
+        "teacher_execution_gate_mean",
+        "executed_action_rate_mean",
+        "executed_action_legs_abs_mean",
+        "executed_action_arms_abs_mean",
+        "executed_action_waist_abs_mean",
+        "step044_ascent_start_distance_mean_m",
     )
 
     values = {}

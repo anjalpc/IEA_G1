@@ -37,6 +37,7 @@ class StructuredStep044Config:
     # Reward/state semantics:
     #   1 = historical 044 behavior
     #   2 = body-gated 045 ascent behavior
+    #   3 = anti-exploit 047 ordered ascent behavior
     reward_mode: int = 1
     ascent_launch_distance_m: float = 0.25
 
@@ -70,9 +71,9 @@ class StructuredStep044Config:
                     f"structured_step.{name} must not exceed one"
                 )
 
-        if self.reward_mode not in (1, 2):
+        if self.reward_mode not in (1, 2, 3):
             raise ValueError(
-                "structured_step.reward_mode must be 1 or 2"
+                "structured_step.reward_mode must be 1, 2, or 3"
             )
 
         if self.ascent_launch_distance_m >= self.first_riser_m:
@@ -200,11 +201,13 @@ EVENT_COMPONENTS = (
     "low_crossing",
     "clearance_loss",
     "bad_touchdown",
+    "failure",
 )
 
 BOUNDED_COMPONENTS = (
     "approach",
     "lift_advance",
+    "maintained_clearance_advance",
     "tread_insertion",
     "supported_body_rise",
 )
@@ -292,6 +295,13 @@ def configure_structured_step044(env_cfg, resolved, weights):
     env_cfg.rewards.track_stair_velocity_world.params[
         "std"
     ] = 0.15
+
+    if config.reward_mode == 3:
+        # Remove the positive per-control-step survival bonus in 047. Perfect
+        # commanded-velocity tracking is zero reward; deviations are negative.
+        env_cfg.rewards.track_stair_velocity_world.params[
+            "zero_centered"
+        ] = True
 
     stair = (
         env_cfg.scene.terrain.terrain_generator

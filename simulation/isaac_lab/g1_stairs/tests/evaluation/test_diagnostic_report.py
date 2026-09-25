@@ -272,6 +272,34 @@ class DiagnosticReportTest(unittest.TestCase):
             )
 
 
+    def test_structured_047_episode_names_populate_generic_funnel(self):
+        with tempfile.TemporaryDirectory() as directory:
+            run = Path(directory)
+            write_csv(
+                run / "stair_episode_counts.csv",
+                ["iteration", "total_simulated_steps", "name", "count"],
+                [
+                    {"iteration": 1, "total_simulated_steps": 100, "name": "episodes_finished_count", "count": 10},
+                    {"iteration": 1, "total_simulated_steps": 100, "name": "episodes_ascent_started_count", "count": 9},
+                    {"iteration": 1, "total_simulated_steps": 100, "name": "episodes_swing_count", "count": 8},
+                    {"iteration": 1, "total_simulated_steps": 100, "name": "episodes_valid_crossing_count", "count": 5},
+                    {"iteration": 1, "total_simulated_steps": 100, "name": "episodes_good_touchdown_count", "count": 4},
+                    {"iteration": 1, "total_simulated_steps": 100, "name": "episodes_stable_upper_count", "count": 3},
+                    {"iteration": 1, "total_simulated_steps": 100, "name": "episodes_body_transfer_count", "count": 2},
+                    {"iteration": 1, "total_simulated_steps": 100, "name": "episodes_both_feet_count", "count": 1},
+                    {"iteration": 1, "total_simulated_steps": 100, "name": "episodes_completion_count", "count": 1},
+                ],
+            )
+            summary = build_summary(run)
+            funnel = summary["episodes"]["funnel"]
+            self.assertEqual(funnel["episodes_near_riser_count"], 9)
+            self.assertEqual(funnel["episodes_riser_crossing_count"], 5)
+            self.assertEqual(funnel["episodes_upper_touchdown_count"], 4)
+            self.assertEqual(funnel["episodes_first_support_count"], 3)
+            self.assertEqual(funnel["episodes_base_transfer_count"], 2)
+            self.assertEqual(funnel["episodes_completion_count"], 1)
+
+
 FUNNEL_NAMES = (
     "episodes_finished_count",
     "episodes_near_riser_count",
@@ -284,6 +312,7 @@ FUNNEL_NAMES = (
     "episodes_both_feet_count",
     "episodes_completion_count",
 )
+
 
 
 if __name__ == "__main__":

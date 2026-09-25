@@ -182,6 +182,29 @@ class StructuredStep044State:
             device=device,
         )
 
+        # 047 anti-exploit state. These are dormant for reward modes 1/2.
+        self.ascent_started = torch.zeros(
+            num_envs,
+            dtype=torch.bool,
+            device=device,
+        )
+
+        self.previous_full_clearance = torch.zeros(
+            (num_envs, 2),
+            dtype=torch.bool,
+            device=device,
+        )
+
+        self.qualified_x_best = torch.zeros(
+            (num_envs, 2),
+            device=device,
+        )
+
+        self.maintained_advance_total = torch.zeros(
+            (num_envs, 2),
+            device=device,
+        )
+
     def reset(self, ids):
         values = (
             self.foot_stage,
@@ -203,6 +226,10 @@ class StructuredStep044State:
             self.body_transfer_seen,
             self.both_feet_seen,
             self.complete_seen,
+            self.ascent_started,
+            self.previous_full_clearance,
+            self.qualified_x_best,
+            self.maintained_advance_total,
         )
 
         for value in values:
@@ -328,6 +355,20 @@ class StructuredStep044State:
             )
         )
 
+        ascent_start_event = torch.zeros_like(
+            ascent_active
+        )
+
+        if c.reward_mode == 3:
+            # 047: entering the launch corridor is a one-way episode phase
+            # transition. It must remain active after the pelvis crosses the
+            # riser so the trailing foot is never locked out.
+            ascent_start_event = (
+                ascent_active
+                & ~self.ascent_started
+            )
+            self.ascent_started |= ascent_active
+
         swing_eligible = (
             self.ready[:, None]
             & safe[:, None]
@@ -340,6 +381,20 @@ class StructuredStep044State:
             swing_eligible = (
                 swing_eligible
                 & ascent_active[:, None]
+            )
+        elif c.reward_mode == 3:
+            # Once ascent is latched, either foot may become the swing foot.
+            # Do not retain the lower x-bound of the first-foot lift zone: the
+            # trailing foot can legitimately still be behind it after body
+            # transfer. The riser plane remains a hard pre-crossing bound.
+            swing_eligible = (
+                self.ready[:, None]
+                & safe[:, None]
+                & opposite_support
+                & ~loaded
+                & ~contact
+                & self.ascent_started[:, None]
+                & (x_max < c.first_riser_m)
             )
 
         previous_stage = (
@@ -425,6 +480,9 @@ class StructuredStep044State:
             & safe[:, None]
         )
 
+        if c.reward_mode == 3:
+            riser_ready_event &= ~contact
+
         self.foot_stage = torch.where(
             riser_ready_event,
             torch.full_like(
@@ -450,15 +508,33 @@ class StructuredStep044State:
         # Dominant historical failure:
         # front edge reaches plane without physical clearance.
         # --------------------------------------------------------
-        low_crossing_raw = (
-            crossing_onset
-            & ~full_clearance
-            & (
-                self.foot_stage
-                < CROSSED
+        if c.reward_mode == 3:
+            # Any premature/invalid plane crossing is a failure of the ordered
+            # pre-crossing contract, not only a geometrically low crossing.
+            valid_crossing_geometry = (
+                (previous_stage == RISER_READY)
+                & full_clearance
+                & good_normal
+                & opposite_support
+                & ~contact
+                & safe[:, None]
             )
-            & safe[:, None]
-        )
+            low_crossing_raw = (
+                crossing_onset
+                & ~valid_crossing_geometry
+                & (self.foot_stage < CROSSED)
+                & safe[:, None]
+            )
+        else:
+            low_crossing_raw = (
+                crossing_onset
+                & ~full_clearance
+                & (
+                    self.foot_stage
+                    < CROSSED
+                )
+                & safe[:, None]
+            )
 
         low_crossing_event = (
             low_crossing_raw
@@ -481,6 +557,9 @@ class StructuredStep044State:
             & safe[:, None]
         )
 
+        if c.reward_mode == 3:
+            valid_crossing_event &= ~contact
+
         self.foot_stage = torch.where(
             valid_crossing_event,
             torch.full_like(
@@ -490,12 +569,23 @@ class StructuredStep044State:
             self.foot_stage,
         )
 
-        # Lift-then-drop exploit prevention.
-        clearance_loss_raw = (
-            (previous_stage == RISER_READY)
-            & ~full_clearance
-            & ~valid_crossing_event
-        )
+        # Lift-then-drop exploit prevention. Historical modes only
+        # penalized a drop after RISER_READY. Mode 3 starts protection as soon
+        # as a LIFTED/RISER_READY foot has actually held full clearance.
+        if c.reward_mode == 3:
+            clearance_loss_raw = (
+                (previous_stage >= LIFTED)
+                & (previous_stage <= RISER_READY)
+                & self.previous_full_clearance
+                & ~full_clearance
+                & ~valid_crossing_event
+            )
+        else:
+            clearance_loss_raw = (
+                (previous_stage == RISER_READY)
+                & ~full_clearance
+                & ~valid_crossing_event
+            )
 
         clearance_loss_event = (
             clearance_loss_raw
@@ -543,25 +633,9 @@ class StructuredStep044State:
                 0.0,
             )
 
-        else:
+        elif c.reward_mode == 2:
             # ----------------------------------------------------
             # 045 body-gated vertical-clearance shaping.
-            #
-            # No positive reward is obtained from pushing the foot
-            # farther forward.  Once the body is actually close to
-            # the stair, reward only swing-foot vertical clearance.
-            #
-            # Squaring the normalized clearance keeps a gradient
-            # below full clearance while strongly reducing the value
-            # of tiny lifts:
-            #
-            #   10% clearance -> 1% potential
-            #   50% clearance -> 25% potential
-            #  100% clearance -> 100% potential
-            #
-            # The existing best-so-far subtraction below means this
-            # remains bounded per foot and cannot be accumulated by
-            # oscillating the leg.
             # ----------------------------------------------------
             clearance_potential = (
                 height_fraction.square()
@@ -582,6 +656,32 @@ class StructuredStep044State:
                 clearance_potential,
                 0.0,
             )
+        else:
+            # ----------------------------------------------------
+            # 047 bounded lift discovery.
+            #
+            # This signal deliberately contains no forward-progress term and
+            # is assigned only a small weight in the 047 config. It helps PPO
+            # discover vertical swing but cannot become the main objective.
+            # ----------------------------------------------------
+            clearance_potential = (
+                height_fraction.square()
+            )
+
+            clearance_gate = (
+                self.ascent_started[:, None]
+                & safe[:, None]
+                & opposite_support
+                & ~loaded
+                & ~contact
+                & (x_max < c.first_riser_m)
+            )
+
+            lift_advance_value = torch.where(
+                clearance_gate,
+                clearance_potential,
+                0.0,
+            )
 
         lift_advance = (
             lift_advance_value
@@ -592,6 +692,110 @@ class StructuredStep044State:
             self.lift_advance_best,
             lift_advance_value,
         )
+
+        # --------------------------------------------------------
+        # 047 maintained-clearance forward advance.
+        #
+        # Forward credit is available only on consecutive frames of full
+        # clearance. The first high-clearance frame merely establishes the
+        # frontier and pays nothing. If the foot advances while low and then
+        # re-lifts, the frontier jumps forward without back-credit. Therefore
+        # lift/drop/re-lift and backward/forward oscillations cannot farm this
+        # potential. Total credit is bounded to 1 per foot per episode.
+        # --------------------------------------------------------
+        maintained_clearance_advance = torch.zeros_like(
+            sole_bottom
+        )
+        qualified_clearance_now = torch.zeros_like(
+            full_clearance
+        )
+
+        if c.reward_mode == 3:
+            pre_cross_stage = (
+                (previous_stage >= LIFTED)
+                & (previous_stage <= RISER_READY)
+            ) | meaningful_lift_event
+
+            qualified_now = (
+                self.ascent_started[:, None]
+                & safe[:, None]
+                & opposite_support
+                & ~loaded
+                & ~contact
+                & pre_cross_stage
+                & full_clearance
+                & good_normal
+                & landing_rectangle
+            )
+            qualified_clearance_now = qualified_now
+
+            # Never shape beyond the physical riser plane.
+            riser_x = torch.full_like(
+                x_max,
+                c.first_riser_m,
+            )
+            qualified_x = torch.minimum(
+                x_max,
+                riser_x,
+            )
+
+            rising_clearance = (
+                qualified_now
+                & ~self.previous_full_clearance
+            )
+
+            # Establish/re-establish the frontier without paying for distance
+            # covered while clearance was absent.
+            self.qualified_x_best = torch.where(
+                rising_clearance,
+                torch.maximum(
+                    self.qualified_x_best,
+                    qualified_x,
+                ),
+                self.qualified_x_best,
+            )
+
+            continuous_clearance = (
+                qualified_now
+                & self.previous_full_clearance
+            )
+
+            delta = (
+                qualified_x
+                - self.qualified_x_best
+            ).clamp_min(0.0)
+
+            normalized_delta = (
+                delta
+                / c.lift_zone_distance_m
+            )
+
+            remaining = (
+                1.0
+                - self.maintained_advance_total
+            ).clamp_min(0.0)
+
+            maintained_clearance_advance = torch.where(
+                continuous_clearance,
+                torch.minimum(
+                    normalized_delta,
+                    remaining,
+                ),
+                0.0,
+            )
+
+            self.maintained_advance_total += (
+                maintained_clearance_advance
+            )
+
+            self.qualified_x_best = torch.where(
+                qualified_now,
+                torch.maximum(
+                    self.qualified_x_best,
+                    qualified_x,
+                ),
+                self.qualified_x_best,
+            )
 
         # --------------------------------------------------------
         # Tread insertion after VALID crossing only.
@@ -617,6 +821,9 @@ class StructuredStep044State:
             & good_normal
             & safe[:, None]
         )
+
+        if c.reward_mode == 3:
+            insertion_gate &= landing_rectangle
 
         insertion_value = torch.where(
             insertion_gate,
@@ -688,10 +895,21 @@ class StructuredStep044State:
             & safe[:, None]
         )
 
+        if c.reward_mode == 3:
+            # Invalid geometry/normal is still a bad touchdown even when the
+            # contact speed is small. The +1 makes that event non-zero.
+            bad_touchdown_penalty = (
+                1.0 + bad_touchdown_value
+            )
+        else:
+            bad_touchdown_penalty = (
+                bad_touchdown_value
+            )
+
         bad_touchdown = torch.where(
             touchdown_candidate
             & ~good_touchdown_event,
-            bad_touchdown_value,
+            bad_touchdown_penalty,
             0.0,
         )
 
@@ -765,11 +983,24 @@ class StructuredStep044State:
             / c.height_m
         ).clamp(0.0, 1.0)
 
-        supported_body_rise_value *= (
+        body_rise_gate = (
             self.ready
             & safe
             & stable_upper.any(dim=1)
-        ).to(dtype)
+        )
+
+        if c.reward_mode == 3:
+            # Physical upper contact alone is not enough. The SAME currently
+            # stable foot must already have passed crossing -> touchdown ->
+            # UPPER_SUPPORT in the ordered state machine.
+            body_rise_gate &= (
+                self.seen_upper
+                & stable_upper
+            ).any(dim=1)
+
+        supported_body_rise_value *= (
+            body_rise_gate.to(dtype)
+        )
 
         supported_body_rise = (
             supported_body_rise_value
@@ -799,6 +1030,12 @@ class StructuredStep044State:
             )
         )
 
+        if c.reward_mode == 3:
+            body_transfer_condition &= (
+                self.seen_upper
+                & stable_upper
+            ).any(dim=1)
+
         body_transfer_event = (
             body_transfer_condition
             & ~self.body_transfer_seen
@@ -815,6 +1052,11 @@ class StructuredStep044State:
             & stable_upper.any(dim=1)
             & safe
         )
+
+        if c.reward_mode == 3:
+            both_feet_condition &= (
+                stable_upper.all(dim=1)
+            )
 
         both_feet_supported_event = (
             both_feet_condition
@@ -859,13 +1101,21 @@ class StructuredStep044State:
         # --------------------------------------------------------
         # Failure-aware rate terms.
         # --------------------------------------------------------
-        premature_zone = (
-            x_max
-            < (
-                c.first_riser_m
-                - c.lift_zone_distance_m
+        if c.reward_mode == 3:
+            # 047 defines "premature" by the body-level approach/ascent phase,
+            # not by an individual foot's x-position. After launch, the
+            # trailing foot may legitimately still be far behind the riser.
+            premature_zone = (
+                ~self.ascent_started[:, None]
+            ).expand_as(x_max)
+        else:
+            premature_zone = (
+                x_max
+                < (
+                    c.first_riser_m
+                    - c.lift_zone_distance_m
+                )
             )
-        )
 
         premature_lift = torch.where(
             premature_zone,
@@ -931,12 +1181,21 @@ class StructuredStep044State:
         self.previous_contact = (
             contact.clone()
         )
+        self.previous_full_clearance = (
+            qualified_clearance_now.clone()
+            if c.reward_mode == 3
+            else full_clearance.clone()
+        )
         self.has_previous[:] = True
 
         components = {
             "approach": approach,
             "lift_advance": (
                 lift_advance.sum(dim=1)
+            ),
+            "maintained_clearance_advance": (
+                maintained_clearance_advance
+                .sum(dim=1)
             ),
             "meaningful_lift": (
                 meaningful_lift_event
@@ -991,11 +1250,38 @@ class StructuredStep044State:
             "bad_touchdown": (
                 bad_touchdown.sum(dim=1)
             ),
+            "failure": failure.to(dtype),
         }
 
         diagnostics = {
             "foot_stage":
                 self.foot_stage.clone(),
+            "distance_to_riser":
+                distance_to_riser.clone(),
+            "ascent_started":
+                self.ascent_started.clone(),
+            "ascent_start_event":
+                ascent_start_event.clone(),
+            "full_clearance":
+                full_clearance.clone(),
+            "maintained_clearance_advance":
+                maintained_clearance_advance.clone(),
+            "maintained_advance_total":
+                self.maintained_advance_total.clone(),
+            "qualified_x_best":
+                self.qualified_x_best.clone(),
+            "seen_upper":
+                self.seen_upper.clone(),
+            "body_transfer_seen":
+                self.body_transfer_seen.clone(),
+            "both_feet_seen":
+                self.both_feet_seen.clone(),
+            "complete_seen":
+                self.complete_seen.clone(),
+            "low_crossing_seen":
+                self.low_crossing_seen.clone(),
+            "clearance_loss_seen":
+                self.clearance_loss_seen.clone(),
             "height_fraction":
                 height_fraction.clone(),
             "forward_fraction":
@@ -1351,6 +1637,11 @@ def snapshot(env, config):
         )
     )
 
+    if c.reward_mode == 3:
+        # In 047 the landing rectangle is genuinely 2-D: forward tread/end
+        # containment plus lateral stair-width containment.
+        landing_rectangle &= lateral_contained
+
     lower = (
         lower_geometry
         & support_quality
@@ -1472,6 +1763,19 @@ def snapshot(env, config):
     )
 
     measurements = {
+        "ascent_start_count":
+            diagnostics[
+                "ascent_start_event"
+            ],
+
+        "maintained_advance_count":
+            (
+                diagnostics[
+                    "maintained_clearance_advance"
+                ]
+                > 0
+            ).any(dim=1),
+
         "meaningful_lift_count":
             diagnostics[
                 "meaningful_lift_event"

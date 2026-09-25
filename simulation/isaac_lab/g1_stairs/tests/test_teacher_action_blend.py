@@ -4,6 +4,8 @@ import torch
 
 from simulation.isaac_lab.g1_stairs.approach_teacher import (
     blend_teacher_student_actions,
+    control_aware_actor_mean,
+    student_control_authority,
 )
 
 
@@ -86,6 +88,49 @@ class TeacherActionBlendTests(unittest.TestCase):
                 self.teacher,
                 torch.full((3, 1), 1.01),
             )
+
+    def test_student_control_authority_is_complement_of_teacher_gate(self):
+        gate = torch.tensor([[1.0], [0.5], [0.0]])
+        authority = student_control_authority(gate)
+        self.assertTrue(
+            torch.equal(
+                authority,
+                torch.tensor([0.0, 0.5, 1.0]),
+            )
+        )
+
+    def test_student_control_authority_rejects_invalid_gate(self):
+        with self.assertRaisesRegex(RuntimeError, r"\[0, 1\]"):
+            student_control_authority(
+                torch.tensor([[1.1]])
+            )
+
+    def test_control_aware_actor_loss_is_zero_under_full_teacher_authority(self):
+        values = torch.tensor([2.0, -1.0, 4.0])
+        result = control_aware_actor_mean(
+            values,
+            torch.ones((3, 1)),
+            enabled=True,
+        )
+        self.assertEqual(float(result), 0.0)
+
+    def test_control_aware_actor_loss_is_full_under_student_authority(self):
+        values = torch.tensor([2.0, -1.0, 4.0])
+        result = control_aware_actor_mean(
+            values,
+            torch.zeros((3, 1)),
+            enabled=True,
+        )
+        self.assertEqual(float(result), float(values.mean()))
+
+    def test_historical_actor_loss_ignores_gate_when_disabled(self):
+        values = torch.tensor([2.0, -1.0, 4.0])
+        result = control_aware_actor_mean(
+            values,
+            torch.ones((3, 1)),
+            enabled=False,
+        )
+        self.assertEqual(float(result), float(values.mean()))
 
 
 if __name__ == "__main__":

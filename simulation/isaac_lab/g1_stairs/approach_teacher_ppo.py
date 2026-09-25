@@ -8,6 +8,7 @@ import torch.nn as nn
 from rsl_rl.algorithms import PPO
 
 from .approach_teacher import (
+    control_aware_actor_mean,
     gated_teacher_loss,
     smooth_l1_per_environment,
     teacher_diagnostic_terms,
@@ -137,7 +138,32 @@ class ApproachTeacherPPO(PPO):
                 1.0 - self.clip_param,
                 1.0 + self.clip_param,
             )
-            surrogate_loss = torch.max(surrogate, surrogate_clipped).mean()
+            surrogate_values = torch.max(
+                surrogate,
+                surrogate_clipped,
+            )
+
+            stored_gate = teacher_gate(obs_batch)
+            # The student action has no physical authority where the teacher
+            # gate is one. 047 therefore removes task-policy and entropy
+            # gradients from those samples. Historical modes keep the exact
+            # unweighted PPO objective through the opt-in flag.
+            surrogate_loss = control_aware_actor_mean(
+                surrogate_values,
+                stored_gate,
+                enabled=(
+                    self._approach_teacher_cfg
+                    .gate_task_actor_loss
+                ),
+            )
+            entropy_loss = control_aware_actor_mean(
+                entropy_batch,
+                stored_gate,
+                enabled=(
+                    self._approach_teacher_cfg
+                    .gate_task_actor_loss
+                ),
+            )
 
             if self.use_clipped_value_loss:
                 value_clipped = target_values_batch + (
@@ -153,7 +179,6 @@ class ApproachTeacherPPO(PPO):
                 value_loss = (returns_batch - value_batch).pow(2).mean()
 
             stored_teacher_obs = teacher_observation(obs_batch)
-            stored_gate = teacher_gate(obs_batch)
             with torch.no_grad():
                 teacher_action = self._approach_teacher(stored_teacher_obs)
             teacher_loss = gated_teacher_loss(
@@ -230,7 +255,7 @@ class ApproachTeacherPPO(PPO):
             loss = (
                 surrogate_loss
                 + self.value_loss_coef * value_loss
-                - self.entropy_coef * entropy_batch.mean()
+                - self.entropy_coef * entropy_loss
                 + self._approach_teacher_cfg.coefficient * teacher_loss
             )
 

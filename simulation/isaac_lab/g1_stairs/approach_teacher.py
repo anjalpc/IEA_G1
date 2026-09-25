@@ -78,6 +78,7 @@ class ApproachTeacherConfig:
     release_far_m: float
     huber_delta: float
     enforce_action_blend: bool = False
+    gate_task_actor_loss: bool = False
 
 
 def parse_approach_teacher_config(
@@ -93,6 +94,9 @@ def parse_approach_teacher_config(
         huber_delta=float(raw["huber_delta"]),
         enforce_action_blend=bool(
             raw.get("enforce_action_blend", False)
+        ),
+        gate_task_actor_loss=bool(
+            raw.get("gate_task_actor_loss", False)
         ),
     )
     if cfg.coefficient <= 0.0:
@@ -164,6 +168,59 @@ def blend_teacher_student_actions(
         gate * teacher
         + (1.0 - gate) * student
     )
+
+
+def student_control_authority(
+    gate: torch.Tensor,
+) -> torch.Tensor:
+    """Return student execution authority as shape [N].
+
+    The approach gate is teacher authority: one far away and zero near the
+    riser. Student authority is therefore its complement. This helper is used
+    only when an experiment explicitly opts into control-aware actor updates.
+    """
+
+    if gate.ndim != 2 or gate.shape[1] != 1:
+        raise RuntimeError(
+            "expected teacher gate [N, 1], got "
+            f"{tuple(gate.shape)}"
+        )
+    if not torch.isfinite(gate).all():
+        raise RuntimeError(
+            "student control authority received non-finite gate"
+        )
+    if bool(((gate < 0.0) | (gate > 1.0)).any()):
+        raise RuntimeError(
+            "teacher gate must lie in [0, 1]"
+        )
+    return 1.0 - gate.squeeze(1)
+
+
+def control_aware_actor_mean(
+    values: torch.Tensor,
+    gate: torch.Tensor,
+    *,
+    enabled: bool,
+) -> torch.Tensor:
+    """Average actor-only loss with optional student-authority weighting."""
+
+    if values.ndim != 1:
+        raise RuntimeError(
+            "expected per-sample actor values [N], got "
+            f"{tuple(values.shape)}"
+        )
+    authority = student_control_authority(gate)
+    if authority.shape[0] != values.shape[0]:
+        raise RuntimeError(
+            "actor values/gate batch sizes differ"
+        )
+    if not torch.isfinite(values).all():
+        raise RuntimeError(
+            "actor loss values must be finite"
+        )
+    if not enabled:
+        return values.mean()
+    return (values * authority).mean()
 
 
 def smooth_l1_per_environment(

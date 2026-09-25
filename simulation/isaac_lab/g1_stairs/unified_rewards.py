@@ -5,6 +5,8 @@ from __future__ import annotations
 import torch
 from isaaclab.managers import SceneEntityCfg
 
+from .reward_math import exp_tracking_score
+
 from .terrain_state import riser_height_per_env, stair_cfg
 
 
@@ -582,6 +584,7 @@ def track_stair_velocity_world_exp(
     slowdown_end_distance_m: float = 0.35,
     platform_velocity_mps: float = 0.50,
     platform_accel_distance_m: float = 0.40,
+    zero_centered: bool = False,
 ) -> torch.Tensor:
     """Track staircase-aligned world velocity.
 
@@ -618,8 +621,14 @@ def track_stair_velocity_world_exp(
 
     variance = max(float(std) ** 2, 1.0e-8)
 
-    return torch.exp(
-        -squared_error / variance
+    # Historical modes use the original positive tracking reward. 047 opts
+    # into a zero-centered form so merely surviving for more control steps
+    # cannot accumulate positive return. Perfect tracking is 0; tracking
+    # error is negative.
+    return exp_tracking_score(
+        squared_error,
+        variance,
+        zero_centered=zero_centered,
     )
 
 
