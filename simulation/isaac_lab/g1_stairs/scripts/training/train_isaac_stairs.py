@@ -80,6 +80,21 @@ def main() -> None:
 
     resolved_config = load_resolved_config(Path(resolved_config_value))
 
+    from simulation.isaac_lab.g1_stairs.specialist_runtime import (
+        apply_specialist_runtime,
+    )
+
+    specialist_summary = apply_specialist_runtime(
+        env_cfg,
+        resolved_config,
+    )
+    if specialist_summary is not None:
+        print(
+            "[INFO] Specialist stair runtime:",
+            specialist_summary,
+            flush=True,
+        )
+
     from simulation.isaac_lab.g1_stairs.approach_teacher import (
         configure_approach_teacher_gate,
         enable_approach_teacher_observations,
@@ -256,9 +271,9 @@ def main() -> None:
             command_cfg["forward_velocity_mps"]
         )
 
-        if not 0.0 < forward_velocity_mps <= 0.50:
+        if not 0.0 <= forward_velocity_mps <= 0.50:
             raise ValueError(
-                "command.forward_velocity_mps must be in (0.0, 0.50]"
+                "command.forward_velocity_mps must be in [0.0, 0.50]"
             )
 
         env_cfg.commands.base_velocity.ranges.lin_vel_x = (

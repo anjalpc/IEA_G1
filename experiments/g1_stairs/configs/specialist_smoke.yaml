@@ -1,0 +1,21 @@
+schema_version: 1
+
+experiment:
+  id: specialist_smoke
+  purpose: >
+    One-iteration integration smoke for the configuration-driven specialist
+    stair runtime. This is not a learning result.
+  type: contract_smoke
+  meaningful_stair_training: false
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/specialist_base.yaml
+  resolved_config_required: true
+
+execution:
+  environments: 32
+  maximum_iterations: 1
+  training_seed: 42
+
+launch_gates:
+  allow_launch: true

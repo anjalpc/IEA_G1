@@ -1,0 +1,112 @@
+schema_version: 1
+
+experiment:
+  id: specialist_base
+  purpose: >
+    Clean specialist stair-climbing foundation. Start the G1 from rest close
+    to the first riser, train a fresh 29-DoF actor, and keep historical
+    locomotion-prior/teacher runtimes out of this path.
+  type: specialist_stair_skill
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/nominal_stairs_base.yaml
+  resolved_config_required: true
+
+code:
+  project_branch: resolved_from_git_at_launch
+
+specialist_stair:
+  enabled: true
+  episode_length_s: 8.0
+  staging:
+    distance_before_riser_m: [0.35, 0.50]
+    lateral_offset_m: [-0.04, 0.04]
+    yaw_offset_rad: [-0.05236, 0.05236]
+
+terrain:
+  type: fixed_single_step_ascent
+  riser_height_m: 0.06
+  tread_depth_m: 0.25
+  step_count: 1
+  platform_length_m: 3.5
+  required_platform_continuation_m: 0.4
+  curriculum_enabled: false
+
+observations:
+  history_length: 1
+  actor_height_scan: false
+  velocity_command: false
+  proprioception_history_steps: 1
+  terrain_scan_in_actor: false
+  additions:
+    local_terrain_height_scan:
+      actor_input: false
+  policy_order:
+    - base_angular_velocity
+    - projected_gravity
+    - joint_position_offset
+    - joint_velocity
+    - previous_action
+    - explicit_stair_geometry
+
+policy_initialization:
+  type: random
+  source: null
+  locomotion_observations: null
+  terrain_observations: null
+  stair_observations: null
+  pretrained_actor_trainable: false
+  critic_initialization: fresh
+
+robot:
+  asset: G1_SPECIALIST_ROBOT_CFG
+  asset_revision: official_29dof_usd_with_deployment_pd_contract
+
+reset_distribution:
+  base_pose: near_riser_distribution
+  base_pose_offset: configured_from_specialist_stair_staging
+  base_velocity: fixed_zero
+  joint_position_scale: [1.0, 1.0]
+  joint_velocity_radps: [0.0, 0.0]
+
+start_pose:
+  distribution: near_riser_randomized
+  distance_before_first_riser_m: [0.35, 0.50]
+  lateral_offset_m: [-0.04, 0.04]
+  yaw_randomization_rad: [-0.05236, 0.05236]
+
+command:
+  # The specialist skill is not a velocity-tracking policy. Forward progress
+  # will come from the stair objective introduced in the reward patch.
+  forward_velocity_mps: 0.0
+
+commands:
+  forward_velocity_mps: [0.0, 0.0]
+  lateral_velocity_mps: [0.0, 0.0]
+  yaw_velocity_radps: [0.0, 0.0]
+  effective_velocity_source: disabled_for_specialist_skill
+
+reward_experiment:
+  active_stage: specialist_foundation
+  rule: >
+    Foundation-only stabilizers. This stage validates the new runtime; it is
+    not the final stair-climbing reward.
+  rewards:
+    stage_plan:
+      specialist_foundation:
+        upright: -2.0
+        action_rate: -0.01
+        joint_acc: -2.5e-7
+        dof_pos_limits: -5.0
+        undesired_contacts: -1.0
+
+ppo:
+  initial_action_noise_std: 0.50
+  learning_rate: 0.001
+  learning_rate_schedule: adaptive
+  desired_kl: 0.01
+  action_clip: 5.0
+
+launch_gates:
+  allow_launch: false

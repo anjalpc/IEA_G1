@@ -90,3 +90,19 @@ Scientific parameters belong in committed experiment YAML files. Do not change a
 Canonical training records the resolved configuration, exact IEA_G1 Git commit and branch, clean/dirty state, Isaac Lab source revision, runtime package versions, and host/GPU information.
 
 The lower-level preparation and AWS wrapper scripts under `simulation/isaac_lab/g1_stairs/scripts/training/` remain implementation details used by `simctl` and by debugging workflows.
+
+## Active specialist path
+
+The active specialist stair-climbing path is configuration-driven. It does not
+create experiment-number-specific Python implementations.
+
+- `configs/specialist_base.yaml` defines the reusable specialist skill profile.
+- `configs/specialist_smoke.yaml` is the one-iteration integration gate.
+- `specialist_stair.enabled: true` selects the official USD/deployment-PD robot
+  profile and near-riser staging distribution.
+- `policy_initialization.type: random` is mandatory for this profile.
+- Legacy `physical_step`, `structured_step`, teacher, and halfway-reset runtimes
+  are rejected if accidentally mixed into a specialist experiment.
+
+Historical experiment configs remain available until the specialist runtime is
+validated and the separate archive migration is performed.
