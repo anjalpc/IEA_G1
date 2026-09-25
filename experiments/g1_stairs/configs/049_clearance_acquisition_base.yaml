@@ -1,0 +1,38 @@
+schema_version: 1
+
+experiment:
+  id: 049_clearance_acquisition_base
+  purpose: >
+    Preserve the validated 048 approach/alignment/stability contract while
+    making the first post-launch objective explicit vertical sole clearance.
+    Low riser crossings terminate immediately; forward stair credit remains
+    locked until full clearance has been acquired and maintained.
+  type: clearance_acquisition_single_step
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/048_task_aligned_stable_base.yaml
+  resolved_config_required: true
+
+structured_step:
+  reward_mode: 5
+  # Start the prepared ascent phase modestly earlier than 048 (0.25 m) so the
+  # student has time to reshape the flat-ground swing before the riser.
+  ascent_launch_distance_m: 0.30
+
+reward_experiment:
+  rewards:
+    stage_plan:
+      structured_single_step_044:
+        # Keep all 048 regularizers and post-crossing rewards unchanged.
+        # Rebalance only the bounded PRE-CROSSING budget toward vertical
+        # clearance discovery. Maximum pre-crossing positive credit remains
+        # 2.40 < |clearance_loss|=2.50 and < |failure|=3.00.
+        step044_approach: 0.05
+        step044_lift_advance: 0.75
+        step044_meaningful_lift: 0.20
+        step044_maintained_clearance_advance: 0.70
+        step044_riser_ready: 0.70
+
+launch_gates:
+  allow_launch: false

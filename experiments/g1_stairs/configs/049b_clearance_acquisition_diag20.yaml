@@ -1,0 +1,17 @@
+schema_version: 1
+experiment:
+  id: 049b_clearance_acquisition_diag20
+  purpose: >
+    Twenty-iteration diagnostic for the first broken transition observed in
+    048B: SWING -> vertical clearance before any forward riser crossing.
+  type: controlled_behavioral_diagnostic
+  meaningful_stair_training: true
+inheritance:
+  base_config: experiments/g1_stairs/configs/049_clearance_acquisition_base.yaml
+  resolved_config_required: true
+execution:
+  environments: 2048
+  maximum_iterations: 20
+  training_seed: 42
+launch_gates:
+  allow_launch: true
