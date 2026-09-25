@@ -89,6 +89,7 @@ commands:
 
 reward_experiment:
   active_stage: specialist_foundation
+  strict_runtime_set: true
   rule: >
     Foundation-only stabilizers. This stage validates the new runtime; it is
     not the final stair-climbing reward.

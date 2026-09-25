@@ -185,12 +185,67 @@ def active_reward_weights(resolved: dict[str, Any]) -> dict[str, float]:
 
     return weights
 
+def _strict_runtime_reward_set_enabled(resolved: dict[str, Any]) -> bool:
+    reward_experiment = resolved.get("reward_experiment", {})
+    if not isinstance(reward_experiment, dict):
+        return False
+    return bool(reward_experiment.get("strict_runtime_set", False))
+
+
+def _configured_reward_names(rewards_cfg: Any) -> set[str]:
+    """Return reward-term attributes currently configured on an env cfg.
+
+    Isaac Lab reward config terms expose both ``func`` and ``weight``.  Using
+    that runtime interface keeps pruning independent of experiment numbers or
+    a hard-coded catalog of historical reward names.
+    """
+    names: set[str] = set()
+    for name in dir(rewards_cfg):
+        if name.startswith("_"):
+            continue
+        value = getattr(rewards_cfg, name)
+        if value is None:
+            continue
+        if hasattr(value, "func") and hasattr(value, "weight"):
+            names.add(name)
+    return names
+
+
+def _apply_strict_runtime_reward_set(
+    rewards_cfg: Any,
+    weights: dict[str, float],
+) -> None:
+    """Make the manager-visible reward set exactly match ``weights``.
+
+    Historical configs remain on the compatibility path unless they opt into
+    ``reward_experiment.strict_runtime_set``.
+    """
+    configured = _configured_reward_names(rewards_cfg)
+    missing = sorted(set(weights) - configured)
+    if missing:
+        raise ValueError(
+            "resolved experiment activates reward terms missing from "
+            f"StairRewardsCfg: {', '.join(missing)}"
+        )
+
+    for reward_name in configured:
+        term = getattr(rewards_cfg, reward_name)
+        if reward_name in weights:
+            term.weight = weights[reward_name]
+        else:
+            setattr(rewards_cfg, reward_name, None)
+
+
 def apply_resolved_rewards(
     env_cfg: Any,
     resolved: dict[str, Any],
 ) -> dict[str, float]:
     """Make the runtime reward set exactly match the resolved experiment."""
     weights = active_reward_weights(resolved)
+
+    if _strict_runtime_reward_set_enabled(resolved):
+        _apply_strict_runtime_reward_set(env_cfg.rewards, weights)
+        return weights
 
     if resolved.get("structured_step", {}).get("enabled", False):
         from .structured_step044_config import (

@@ -3,7 +3,10 @@
 import unittest
 from pathlib import Path
 
-from simulation.isaac_lab.g1_stairs.reward_runtime import active_reward_weights
+from simulation.isaac_lab.g1_stairs.reward_runtime import (
+    active_reward_weights,
+    apply_resolved_rewards,
+)
 from simulation.isaac_lab.g1_stairs.scripts.training.prepare_experiment import resolve_config
 
 
@@ -56,6 +59,52 @@ class RewardRuntimeTests(unittest.TestCase):
                 "task_completion": 3.0,
             },
         )
+
+
+    def test_strict_runtime_set_prunes_undeclared_rewards(self):
+        class _Term:
+            def __init__(self, weight):
+                self.func = object()
+                self.weight = weight
+
+        class _Rewards:
+            upright = _Term(-1.0)
+            action_rate = _Term(-0.01)
+            legacy_extra = _Term(7.0)
+
+        class _EnvCfg:
+            rewards = _Rewards()
+
+        resolved = {
+            "reward_experiment": {
+                "active_stage": "foundation",
+                "strict_runtime_set": True,
+            },
+            "rewards": {
+                "terms": {
+                    "upright_raw": {"active_weight": -2.0},
+                    "action_rate_raw": {"active_weight": -0.02},
+                },
+                "stage_plan": {
+                    "foundation": {
+                        "enabled_terms": {
+                            "upright_raw": -2.0,
+                            "action_rate_raw": -0.02,
+                        }
+                    }
+                },
+            },
+        }
+
+        weights = apply_resolved_rewards(_EnvCfg(), resolved)
+
+        self.assertEqual(
+            weights,
+            {"upright": -2.0, "action_rate": -0.02},
+        )
+        self.assertEqual(_EnvCfg.rewards.upright.weight, -2.0)
+        self.assertEqual(_EnvCfg.rewards.action_rate.weight, -0.02)
+        self.assertIsNone(_EnvCfg.rewards.legacy_extra)
 
     def test_unknown_stage_is_rejected(self):
         resolved = {
