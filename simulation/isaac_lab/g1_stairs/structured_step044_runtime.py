@@ -300,6 +300,34 @@ class StructuredStep044State:
             < c.first_riser_m
         )
 
+        # --------------------------------------------------------
+        # Optional 045 body-gated ascent.
+        #
+        # Historical 044 behavior remains unchanged in reward_mode 1.
+        #
+        # In reward_mode 2 the foot cannot unlock the stair state
+        # machine by reaching forward while the pelvis is still far
+        # from the riser.  The root/pelvis must first enter the final
+        # approach corridor.
+        # --------------------------------------------------------
+        distance_to_riser = (
+            c.first_riser_m
+            - root[:, 0]
+        )
+
+        ascent_active = (
+            self.ready
+            & safe
+            & (
+                distance_to_riser
+                <= c.ascent_launch_distance_m
+            )
+            & (
+                distance_to_riser
+                > -c.geometry_tolerance_m
+            )
+        )
+
         swing_eligible = (
             self.ready[:, None]
             & safe[:, None]
@@ -307,6 +335,12 @@ class StructuredStep044State:
             & ~loaded
             & in_lift_zone
         )
+
+        if c.reward_mode == 2:
+            swing_eligible = (
+                swing_eligible
+                & ascent_active[:, None]
+            )
 
         previous_stage = (
             self.foot_stage.clone()
@@ -491,29 +525,63 @@ class StructuredStep044State:
             / c.lift_zone_distance_m
         ).clamp(0.0, 1.0)
 
-        lift_advance_value = (
-            height_fraction
-            * forward_fraction
-        )
+        if c.reward_mode == 1:
+            # Historical 044C behavior.
+            lift_advance_value = (
+                height_fraction
+                * forward_fraction
+            )
 
-        # 044C: the dense lift-and-advance potential is a discovery
-        # signal.  Do not require the discrete swing state that this
-        # potential is intended to help the policy discover.
-        #
-        # Spatial locality is still enforced by forward_fraction:
-        # it is zero until the foot enters the pre-riser lift zone.
-        # Stop paying this potential once the front edge reaches the
-        # riser; crossing and later progress use the ordered events.
-        lift_advance_gate = (
-            (x_max < c.first_riser_m)
-            & safe[:, None]
-        )
+            lift_advance_gate = (
+                (x_max < c.first_riser_m)
+                & safe[:, None]
+            )
 
-        lift_advance_value = torch.where(
-            lift_advance_gate,
-            lift_advance_value,
-            0.0,
-        )
+            lift_advance_value = torch.where(
+                lift_advance_gate,
+                lift_advance_value,
+                0.0,
+            )
+
+        else:
+            # ----------------------------------------------------
+            # 045 body-gated vertical-clearance shaping.
+            #
+            # No positive reward is obtained from pushing the foot
+            # farther forward.  Once the body is actually close to
+            # the stair, reward only swing-foot vertical clearance.
+            #
+            # Squaring the normalized clearance keeps a gradient
+            # below full clearance while strongly reducing the value
+            # of tiny lifts:
+            #
+            #   10% clearance -> 1% potential
+            #   50% clearance -> 25% potential
+            #  100% clearance -> 100% potential
+            #
+            # The existing best-so-far subtraction below means this
+            # remains bounded per foot and cannot be accumulated by
+            # oscillating the leg.
+            # ----------------------------------------------------
+            clearance_potential = (
+                height_fraction.square()
+            )
+
+            clearance_gate = (
+                ascent_active[:, None]
+                & opposite_support
+                & ~loaded
+                & (
+                    x_max
+                    < c.first_riser_m
+                )
+            )
+
+            lift_advance_value = torch.where(
+                clearance_gate,
+                clearance_potential,
+                0.0,
+            )
 
         lift_advance = (
             lift_advance_value

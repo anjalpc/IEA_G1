@@ -1,0 +1,28 @@
+schema_version: 1
+
+experiment:
+  id: 045_body_gated_clearance_diag200
+  purpose: >
+    Body-gated stair-ascent diagnostic. Preserve the historical
+    Unitree approach and disable stair-specific swing learning until
+    the robot root enters the final 0.25 m before the first riser.
+    Within that launch region, reward bounded vertical swing-foot
+    clearance rather than forward foot projection.
+  type: controlled_behavioral_diagnostic
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/044_structured_single_step_base.yaml
+  resolved_config_required: true
+
+structured_step:
+  reward_mode: 2
+  ascent_launch_distance_m: 0.25
+
+execution:
+  environments: 2048
+  maximum_iterations: 200
+  training_seed: 42
+
+launch_gates:
+  allow_launch: true

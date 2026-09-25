@@ -34,6 +34,12 @@ class StructuredStep044Config:
     riser_ready_distance_m: float = 0.05
     premature_lift_height_m: float = 0.08
 
+    # Reward/state semantics:
+    #   1 = historical 044 behavior
+    #   2 = body-gated 045 ascent behavior
+    reward_mode: int = 1
+    ascent_launch_distance_m: float = 0.25
+
     touchdown_downward_speed_mps: float = 0.25
     touchdown_horizontal_speed_mps: float = 0.20
 
@@ -63,6 +69,16 @@ class StructuredStep044Config:
                 raise ValueError(
                     f"structured_step.{name} must not exceed one"
                 )
+
+        if self.reward_mode not in (1, 2):
+            raise ValueError(
+                "structured_step.reward_mode must be 1 or 2"
+            )
+
+        if self.ascent_launch_distance_m >= self.first_riser_m:
+            raise ValueError(
+                "ascent launch distance must lie before the first riser"
+            )
 
         nominal_foot_length_m = 0.18
         if self.tread_m <= (
