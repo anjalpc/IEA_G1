@@ -29,6 +29,8 @@ class InstrumentedRslRlVecEnvWrapper:
 
     def __init__(self, wrapped) -> None:
         self._wrapped = wrapped
+        self._teacher_action_blend = None
+        self._teacher_action_blend_cfg = None
         self._previous_actions = None
         self._previous_joint_acc = None
 
@@ -40,6 +42,19 @@ class InstrumentedRslRlVecEnvWrapper:
 
     def __getattr__(self, name):
         return getattr(self._wrapped, name)
+
+    def configure_teacher_action_blend(
+        self,
+        teacher,
+        config,
+    ) -> None:
+        if teacher is None:
+            raise RuntimeError(
+                "teacher action blend requires frozen Unitree teacher"
+            )
+
+        self._teacher_action_blend = teacher
+        self._teacher_action_blend_cfg = config
 
     def reset_metrics(self) -> None:
         self._steps = 0
@@ -78,7 +93,43 @@ class InstrumentedRslRlVecEnvWrapper:
     def step(self, actions):
         import torch
 
-        result = self._wrapped.step(actions)
+        executed_actions = actions
+
+        if self._teacher_action_blend is not None:
+            from simulation.isaac_lab.g1_stairs.approach_teacher import (
+                blend_teacher_student_actions,
+                teacher_gate,
+                teacher_observation,
+            )
+
+            current = self._wrapped.get_observations()
+
+            teacher_obs = teacher_observation(
+                current
+            )
+
+            gate = teacher_gate(
+                current
+            )
+
+            with torch.no_grad():
+                teacher_actions = (
+                    self._teacher_action_blend(
+                        teacher_obs
+                    )
+                )
+
+            executed_actions = (
+                blend_teacher_student_actions(
+                    actions,
+                    teacher_actions,
+                    gate,
+                )
+            )
+
+        result = self._wrapped.step(
+            executed_actions
+        )
         _, rewards, dones, extras = result
         env = self.unwrapped
         physical_runtime = getattr(env, "_physical_step043", None)

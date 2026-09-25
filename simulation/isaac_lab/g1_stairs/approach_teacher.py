@@ -77,6 +77,7 @@ class ApproachTeacherConfig:
     release_near_m: float
     release_far_m: float
     huber_delta: float
+    enforce_action_blend: bool = False
 
 
 def parse_approach_teacher_config(
@@ -90,6 +91,9 @@ def parse_approach_teacher_config(
         release_near_m=float(raw["release_near_m"]),
         release_far_m=float(raw["release_far_m"]),
         huber_delta=float(raw["huber_delta"]),
+        enforce_action_blend=bool(
+            raw.get("enforce_action_blend", False)
+        ),
     )
     if cfg.coefficient <= 0.0:
         raise ValueError("approach_teacher.coefficient must be positive")
@@ -110,6 +114,56 @@ def smooth_release_gate(
     """One far away, zero near the riser, cubic between the limits."""
     alpha = ((distance_m - near_m) / (far_m - near_m)).clamp(0.0, 1.0)
     return alpha * alpha * (3.0 - 2.0 * alpha)
+
+
+def blend_teacher_student_actions(
+    student: torch.Tensor,
+    teacher: torch.Tensor,
+    gate: torch.Tensor,
+) -> torch.Tensor:
+    """Map policy actions to executed actions during stair approach.
+
+    gate == 1 -> exact frozen Unitree teacher action
+    gate == 0 -> exact student action
+    otherwise -> convex teacher/student blend
+    """
+
+    if student.shape != teacher.shape:
+        raise RuntimeError(
+            "student/teacher action shapes differ: "
+            f"{tuple(student.shape)} vs {tuple(teacher.shape)}"
+        )
+
+    if student.ndim != 2 or student.shape[1] != len(BODY_JOINTS):
+        raise RuntimeError(
+            "expected student/teacher actions [N, 29], got "
+            f"{tuple(student.shape)}"
+        )
+
+    if gate.shape != (student.shape[0], 1):
+        raise RuntimeError(
+            "expected teacher gate "
+            f"{(student.shape[0], 1)}, got {tuple(gate.shape)}"
+        )
+
+    if not (
+        torch.isfinite(student).all()
+        and torch.isfinite(teacher).all()
+        and torch.isfinite(gate).all()
+    ):
+        raise RuntimeError(
+            "teacher action blend received non-finite values"
+        )
+
+    if bool(((gate < 0.0) | (gate > 1.0)).any()):
+        raise RuntimeError(
+            "teacher action blend gate must lie in [0, 1]"
+        )
+
+    return (
+        gate * teacher
+        + (1.0 - gate) * student
+    )
 
 
 def smooth_l1_per_environment(

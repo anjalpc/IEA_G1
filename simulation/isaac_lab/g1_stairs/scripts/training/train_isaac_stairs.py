@@ -625,6 +625,24 @@ def main() -> None:
         )
         on_policy_runner_module.PPO = ApproachTeacherPPO
 
+    if (
+        approach_teacher_cfg is not None
+        and approach_teacher_cfg.enforce_action_blend
+    ):
+        env.configure_teacher_action_blend(
+            teacher,
+            approach_teacher_cfg,
+        )
+
+        print(
+            "[INFO] Teacher action authority ENABLED: "
+            f"teacher-only >= {approach_teacher_cfg.release_far_m:.3f} m; "
+            f"blend {approach_teacher_cfg.release_far_m:.3f} -> "
+            f"{approach_teacher_cfg.release_near_m:.3f} m; "
+            f"student-only <= {approach_teacher_cfg.release_near_m:.3f} m",
+            flush=True,
+        )
+
     class MetricsOnPolicyRunner(MetricsOnPolicyRunnerMixin, OnPolicyRunner):
         def save(self, path: str, infos=None):
             print(
