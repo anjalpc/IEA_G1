@@ -1,0 +1,28 @@
+# Python environment
+.venv/
+__pycache__/
+*.pyc
+
+# Generated results
+outputs/
+runs/
+logs/
+cache/
+checkpoints/
+
+# Raw datasets / downloaded source material
+01_source/
+*.zip
+*.c3d
+*.avi
+*.mp4
+
+# MAHR generated/cache data
+MAHR/**/cache/
+MAHR/**/outputs/
+
+# Misc
+.DS_Store
+
+# External repository
+MAHR/
