@@ -314,6 +314,36 @@ def main() -> None:
                     "platform_accel_distance_m"
                 ]
             ),
+            "centerline_gain_s": float(
+                stair_schedule_cfg.get(
+                    "centerline_gain_s",
+                    0.0,
+                )
+            ),
+            "max_lateral_velocity_mps": float(
+                stair_schedule_cfg.get(
+                    "max_lateral_velocity_mps",
+                    0.0,
+                )
+            ),
+            "heading_gain_s": float(
+                stair_schedule_cfg.get(
+                    "heading_gain_s",
+                    0.0,
+                )
+            ),
+            "max_yaw_rate_radps": float(
+                stair_schedule_cfg.get(
+                    "max_yaw_rate_radps",
+                    0.0,
+                )
+            ),
+            "stop_after_ascent_start": bool(
+                stair_schedule_cfg.get(
+                    "stop_after_ascent_start",
+                    False,
+                )
+            ),
         }
 
         # Preserve the original three command channels and their five-frame

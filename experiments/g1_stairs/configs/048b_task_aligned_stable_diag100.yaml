@@ -1,0 +1,15 @@
+schema_version: 1
+experiment:
+  id: 048b_task_aligned_stable_diag100
+  purpose: 100-iteration diagnostic for align -> climb -> stabilize task contract
+  type: controlled_behavioral_diagnostic
+  meaningful_stair_training: true
+inheritance:
+  base_config: experiments/g1_stairs/configs/048_task_aligned_stable_base.yaml
+  resolved_config_required: true
+execution:
+  environments: 2048
+  maximum_iterations: 100
+  training_seed: 42
+launch_gates:
+  allow_launch: true

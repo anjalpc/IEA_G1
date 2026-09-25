@@ -581,8 +581,13 @@ class InstrumentedRslRlVecEnvWrapper:
 
         local_x = data.root_pos_w[:, 0] - env.scene.env_origins[:, 0]
         local_z = data.root_pos_w[:, 2] - env.scene.env_origins[:, 2]
-        course_x = local_x + 1.0
-        self._maximum_x = max(self._maximum_x, float(course_x.max().item()))
+        # Report the same local-X coordinate used by the stair detector.
+        # The old +1.0 presentation offset made a robot at local x=0.30 look
+        # as if it had already crossed the 1.0 m riser plane.
+        self._maximum_x = max(
+            self._maximum_x,
+            float(local_x.max().item()),
+        )
         self._maximum_height = max(
             self._maximum_height, float(local_z.max().item())
         )

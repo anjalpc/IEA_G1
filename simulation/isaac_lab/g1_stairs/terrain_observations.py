@@ -140,6 +140,11 @@ def stair_velocity_command(
     slowdown_end_distance_m: float = 0.35,
     platform_velocity_mps: float = 0.50,
     platform_accel_distance_m: float = 0.40,
+    centerline_gain_s: float = 0.0,
+    max_lateral_velocity_mps: float = 0.0,
+    heading_gain_s: float = 0.0,
+    max_yaw_rate_radps: float = 0.0,
+    stop_after_ascent_start: bool = False,
 ) -> torch.Tensor:
     """Return geometry-conditioned [vx, vy, yaw_rate] command.
 
@@ -175,6 +180,25 @@ def stair_velocity_command(
             "platform_accel_distance_m must be positive"
         )
 
+    for name, value in (
+        ("centerline_gain_s", centerline_gain_s),
+        ("max_lateral_velocity_mps", max_lateral_velocity_mps),
+        ("heading_gain_s", heading_gain_s),
+        ("max_yaw_rate_radps", max_yaw_rate_radps),
+    ):
+        if value < 0.0:
+            raise ValueError(f"{name} must be non-negative")
+
+    if (centerline_gain_s > 0.0) != (max_lateral_velocity_mps > 0.0):
+        raise ValueError(
+            "centerline correction requires positive gain and lateral limit"
+        )
+
+    if (heading_gain_s > 0.0) != (max_yaw_rate_radps > 0.0):
+        raise ValueError(
+            "heading correction requires positive gain and yaw-rate limit"
+        )
+
     robot = env.scene["robot"]
     cfg = stair_cfg(env)
 
@@ -182,6 +206,24 @@ def stair_velocity_command(
         robot.data.root_pos_w[:, 0]
         - env.scene.env_origins[:, 0]
     )
+    root_y = (
+        robot.data.root_pos_w[:, 1]
+        - env.scene.env_origins[:, 1]
+    )
+
+    yaw = torch.zeros_like(root_x)
+    if heading_gain_s > 0.0:
+        qw, qx, qy, qz = (
+            robot.data.root_quat_w.unbind(dim=1)
+        )
+        yaw = torch.atan2(
+            2.0 * (qw * qz + qx * qy),
+            1.0 - 2.0 * (qy * qy + qz * qz),
+        )
+        yaw = torch.atan2(
+            torch.sin(yaw),
+            torch.cos(yaw),
+        )
 
     first_riser = float(cfg.start_clearance)
 
@@ -250,13 +292,39 @@ def stair_velocity_command(
         speed,
     )
 
-    zeros = torch.zeros_like(speed)
+    lateral = torch.zeros_like(speed)
+    if centerline_gain_s > 0.0:
+        lateral = torch.clamp(
+            -centerline_gain_s * root_y,
+            -max_lateral_velocity_mps,
+            max_lateral_velocity_mps,
+        )
+
+    yaw_rate = torch.zeros_like(speed)
+    if heading_gain_s > 0.0:
+        yaw_rate = torch.clamp(
+            -heading_gain_s * yaw,
+            -max_yaw_rate_radps,
+            max_yaw_rate_radps,
+        )
+
+    if stop_after_ascent_start:
+        runtime = getattr(
+            env,
+            "_structured_step044",
+            None,
+        )
+        if runtime is not None:
+            not_ascent = (~runtime.ascent_started).to(speed.dtype)
+            speed = speed * not_ascent
+            lateral = lateral * not_ascent
+            yaw_rate = yaw_rate * not_ascent
 
     return torch.stack(
         (
             speed,
-            zeros,
-            zeros,
+            lateral,
+            yaw_rate,
         ),
         dim=1,
     )

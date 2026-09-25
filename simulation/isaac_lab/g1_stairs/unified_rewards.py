@@ -584,7 +584,13 @@ def track_stair_velocity_world_exp(
     slowdown_end_distance_m: float = 0.35,
     platform_velocity_mps: float = 0.50,
     platform_accel_distance_m: float = 0.40,
+    centerline_gain_s: float = 0.0,
+    max_lateral_velocity_mps: float = 0.0,
+    heading_gain_s: float = 0.0,
+    max_yaw_rate_radps: float = 0.0,
+    stop_after_ascent_start: bool = False,
     zero_centered: bool = False,
+    disable_after_ascent_start: bool = False,
 ) -> torch.Tensor:
     """Track staircase-aligned world velocity.
 
@@ -604,6 +610,11 @@ def track_stair_velocity_world_exp(
         slowdown_end_distance_m=slowdown_end_distance_m,
         platform_velocity_mps=platform_velocity_mps,
         platform_accel_distance_m=platform_accel_distance_m,
+        centerline_gain_s=centerline_gain_s,
+        max_lateral_velocity_mps=max_lateral_velocity_mps,
+        heading_gain_s=heading_gain_s,
+        max_yaw_rate_radps=max_yaw_rate_radps,
+        stop_after_ascent_start=stop_after_ascent_start,
     )
 
     error_x = (
@@ -611,8 +622,12 @@ def track_stair_velocity_world_exp(
         - target[:, 0]
     )
 
-    # Stair direction is world +X, so desired world lateral speed is zero.
-    error_y = robot.data.root_lin_vel_w[:, 1]
+    # The 048 command may include a bounded centerline correction in world Y.
+    # Historical schedules keep target[:, 1] exactly zero.
+    error_y = (
+        robot.data.root_lin_vel_w[:, 1]
+        - target[:, 1]
+    )
 
     squared_error = (
         error_x * error_x
@@ -625,17 +640,60 @@ def track_stair_velocity_world_exp(
     # into a zero-centered form so merely surviving for more control steps
     # cannot accumulate positive return. Perfect tracking is 0; tracking
     # error is negative.
-    return exp_tracking_score(
+    score = exp_tracking_score(
         squared_error,
         variance,
         zero_centered=zero_centered,
     )
+
+    if disable_after_ascent_start:
+        runtime = getattr(
+            env,
+            "_structured_step044",
+            None,
+        )
+        if runtime is not None:
+            score = torch.where(
+                runtime.ascent_started,
+                torch.zeros_like(score),
+                score,
+            )
+
+    return score
+
+
+def stair_centerline_alignment(
+    env,
+    asset_cfg: SceneEntityCfg,
+    full_penalty_lateral_m: float = 0.30,
+) -> torch.Tensor:
+    """Negative-only root centerline error relative to stair center."""
+
+    if full_penalty_lateral_m <= 0.0:
+        raise ValueError(
+            "full_penalty_lateral_m must be positive"
+        )
+
+    robot = env.scene[asset_cfg.name]
+    root_y = (
+        robot.data.root_pos_w[:, 1]
+        - env.scene.env_origins[:, 1]
+    )
+
+    normalized = torch.clamp(
+        torch.abs(root_y) / full_penalty_lateral_m,
+        0.0,
+        1.0,
+    )
+
+    return normalized.square()
 
 
 def stair_heading_alignment(
     env,
     asset_cfg: SceneEntityCfg,
     full_penalty_yaw_rad: float = 0.50,
+    continue_on_upper: bool = False,
 ) -> torch.Tensor:
     """Penalize heading away from staircase +X while stairs remain ahead."""
 
@@ -674,11 +732,14 @@ def stair_heading_alignment(
         1.0,
     )
 
-    stairs_ahead = (
-        root_x < platform_start
-    ).to(normalized.dtype)
+    if continue_on_upper:
+        active = torch.ones_like(normalized)
+    else:
+        active = (
+            root_x < platform_start
+        ).to(normalized.dtype)
 
-    return stairs_ahead * normalized * normalized
+    return active * normalized * normalized
 
 
 def terrain_relative_swing_clearance_dynamic(

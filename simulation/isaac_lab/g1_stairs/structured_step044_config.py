@@ -38,8 +38,25 @@ class StructuredStep044Config:
     #   1 = historical 044 behavior
     #   2 = body-gated 045 ascent behavior
     #   3 = anti-exploit 047 ordered ascent behavior
+    #   4 = 048 task contract: align -> prepare -> ascend -> stabilize
     reward_mode: int = 1
     ascent_launch_distance_m: float = 0.25
+
+    # 048 launch alignment and terminal-stability contract. Historical modes
+    # ignore these fields so 044/045/047 remain reproducible.
+    alignment_root_y_tolerance_m: float = 0.15
+    alignment_foot_y_tolerance_m: float = 0.35
+    alignment_yaw_tolerance_rad: float = 0.20
+    ascent_max_forward_speed_mps: float = 0.25
+    ascent_max_lateral_speed_mps: float = 0.12
+    terminal_linear_speed_mps: float = 0.08
+    terminal_angular_speed_radps: float = 0.35
+    terminal_stability_dwell_s: float = 0.50
+    terminal_upright_cos: float = 0.97
+    terminal_base_height_gain_fraction: float = 0.90
+    prelaunch_timeout_s: float = 6.00
+    ascent_stall_timeout_s: float = 2.50
+    failure_clawback_scale: float = 1.50
 
     touchdown_downward_speed_mps: float = 0.25
     touchdown_horizontal_speed_mps: float = 0.20
@@ -62,8 +79,10 @@ class StructuredStep044Config:
 
         for name in (
             "upright_cos",
+            "terminal_upright_cos",
             "foot_normal_cos",
             "base_height_gain_fraction",
+            "terminal_base_height_gain_fraction",
             "support_force_bodyweight_fraction",
         ):
             if getattr(self, name) > 1:
@@ -71,9 +90,44 @@ class StructuredStep044Config:
                     f"structured_step.{name} must not exceed one"
                 )
 
-        if self.reward_mode not in (1, 2, 3):
+        if self.reward_mode not in (1, 2, 3, 4):
             raise ValueError(
-                "structured_step.reward_mode must be 1, 2, or 3"
+                "structured_step.reward_mode must be 1, 2, 3, or 4"
+            )
+
+        if self.alignment_root_y_tolerance_m >= self.width_m / 2:
+            raise ValueError(
+                "root alignment corridor must lie inside stair width"
+            )
+
+        if self.alignment_foot_y_tolerance_m >= self.width_m / 2:
+            raise ValueError(
+                "foot alignment corridor must lie inside stair width"
+            )
+
+        if self.terminal_linear_speed_mps >= self.support_speed_mps:
+            raise ValueError(
+                "terminal linear speed must be stricter than support speed"
+            )
+
+        if self.terminal_angular_speed_radps >= self.support_angular_speed_radps:
+            raise ValueError(
+                "terminal angular speed must be stricter than support angular speed"
+            )
+
+        if self.terminal_upright_cos < self.upright_cos:
+            raise ValueError(
+                "terminal upright threshold must be at least as strict as upright"
+            )
+
+        if self.terminal_base_height_gain_fraction < self.base_height_gain_fraction:
+            raise ValueError(
+                "terminal body-height threshold must be at least as strict as transfer"
+            )
+
+        if self.ascent_stall_timeout_s <= self.terminal_stability_dwell_s:
+            raise ValueError(
+                "ascent stall timeout must exceed terminal stability dwell"
             )
 
         if self.ascent_launch_distance_m >= self.first_riser_m:
@@ -249,6 +303,7 @@ def configure_structured_step044(env_cfg, resolved, weights):
         "feet_slide",
         "undesired_contacts",
         "stair_heading_alignment",
+        "stair_centerline_alignment",
     }
 
     allowed = regularizers | {
@@ -287,6 +342,7 @@ def configure_structured_step044(env_cfg, resolved, weights):
                     weight=weights[key],
                     params={
                         "config": params,
+                        "reward_weights": weights,
                         "component": name,
                     },
                 ),
@@ -296,11 +352,25 @@ def configure_structured_step044(env_cfg, resolved, weights):
         "std"
     ] = 0.15
 
-    if config.reward_mode == 3:
-        # Remove the positive per-control-step survival bonus in 047. Perfect
-        # commanded-velocity tracking is zero reward; deviations are negative.
+    if config.reward_mode in (3, 4):
+        # Remove the positive per-control-step survival bonus in 047/048.
+        # Perfect commanded-velocity tracking is zero reward; deviations are
+        # negative.
         env_cfg.rewards.track_stair_velocity_world.params[
             "zero_centered"
+        ] = True
+
+    if config.reward_mode == 4:
+        # Once the ordered ascent phase starts, generic forward-speed tracking
+        # is no longer a task objective. Physical stair milestones and terminal
+        # stability own the task from that point onward.
+        env_cfg.rewards.track_stair_velocity_world.params[
+            "disable_after_ascent_start"
+        ] = True
+        # Heading remains a negative-only alignment constraint on the upper
+        # surface until terminal stability is achieved.
+        env_cfg.rewards.stair_heading_alignment.params[
+            "continue_on_upper"
         ] = True
 
     stair = (
@@ -328,14 +398,20 @@ def configure_structured_step044(env_cfg, resolved, weights):
     env_cfg.terminations.step044_failure = (
         TerminationTermCfg(
             func=runtime.failure,
-            params={"config": params},
+            params={
+                "config": params,
+                "reward_weights": weights,
+            },
         )
     )
 
     env_cfg.terminations.step044_success = (
         TerminationTermCfg(
             func=runtime.success,
-            params={"config": params},
+            params={
+                "config": params,
+                "reward_weights": weights,
+            },
         )
     )
 

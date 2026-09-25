@@ -69,10 +69,11 @@ def rotate(q, vectors):
 class StructuredStep044State:
     """Per-foot ordered stair-transition state."""
 
-    def __init__(self, num_envs, device, config):
+    def __init__(self, num_envs, device, config, reward_weights=None):
         import torch
 
         self.config = config
+        self.reward_weights = dict(reward_weights or {})
         self.last_step = None
         self.snapshot = None
         self.totals = {}
@@ -205,6 +206,68 @@ class StructuredStep044State:
             device=device,
         )
 
+        # 048 terminal stability dwell. Dormant in earlier reward modes.
+        self.terminal_stability_age = torch.zeros(
+            num_envs,
+            device=device,
+        )
+
+        self.prelaunch_age = torch.zeros(
+            num_envs,
+            device=device,
+        )
+
+        self.ascent_progress_age = torch.zeros(
+            num_envs,
+            device=device,
+        )
+
+        self.positive_stair_credit = torch.zeros(
+            num_envs,
+            device=device,
+        )
+
+        if config.reward_mode == 4:
+            required_weights = {
+                "step044_approach",
+                "step044_lift_advance",
+                "step044_maintained_clearance_advance",
+                "step044_meaningful_lift",
+                "step044_riser_ready",
+                "step044_valid_crossing",
+                "step044_tread_insertion",
+                "step044_good_touchdown",
+                "step044_stable_upper_support",
+                "step044_supported_body_rise",
+                "step044_body_transfer",
+                "step044_both_feet_supported",
+                "step044_complete",
+                "step044_failure",
+            }
+            missing = sorted(
+                required_weights - set(self.reward_weights)
+            )
+            if missing:
+                raise RuntimeError(
+                    "048 requires reward weights for failure clawback: "
+                    f"{missing}"
+                )
+            positive_names = required_weights - {"step044_failure"}
+            nonpositive = sorted(
+                name
+                for name in positive_names
+                if self.reward_weights[name] <= 0.0
+            )
+            if nonpositive:
+                raise RuntimeError(
+                    "048 positive milestone weights must be positive: "
+                    f"{nonpositive}"
+                )
+            if self.reward_weights["step044_failure"] >= 0.0:
+                raise RuntimeError(
+                    "048 failure reward weight must be negative"
+                )
+
     def reset(self, ids):
         values = (
             self.foot_stage,
@@ -230,6 +293,10 @@ class StructuredStep044State:
             self.previous_full_clearance,
             self.qualified_x_best,
             self.maintained_advance_total,
+            self.terminal_stability_age,
+            self.prelaunch_age,
+            self.ascent_progress_age,
+            self.positive_stair_credit,
         )
 
         for value in values:
@@ -253,6 +320,10 @@ class StructuredStep044State:
         contact,
         foot_velocity,
         forbidden,
+        root_linear_velocity=None,
+        root_angular_velocity=None,
+        root_yaw=None,
+        foot_lateral_max=None,
     ):
         import torch
 
@@ -282,6 +353,25 @@ class StructuredStep044State:
         c = self.config
         dtype = root.dtype
 
+        if c.reward_mode == 4:
+            mode4_values = (
+                root_linear_velocity,
+                root_angular_velocity,
+                root_yaw,
+                foot_lateral_max,
+            )
+            if any(value is None for value in mode4_values):
+                raise RuntimeError(
+                    "048 requires root velocity, yaw, and foot lateral geometry"
+                )
+            if not all(
+                bool(torch.isfinite(value).all())
+                for value in mode4_values
+            ):
+                raise RuntimeError(
+                    "048 non-finite alignment/stability input"
+                )
+
         upright = (
             -gravity[:, 2]
             >= c.upright_cos
@@ -296,12 +386,25 @@ class StructuredStep044State:
             )
         )
 
-        # Calibrate base height only from real double lower support.
-        calibrate = (
-            ~self.ready
-            & stable_lower.all(dim=1)
-            & safe
-        )
+        # Historical modes calibrate only from real double lower support.
+        # 048 instead initializes once from the safe post-reset body pose.
+        # Requiring a 0.12 s simultaneous double-support dwell here prevented
+        # continuous walking episodes from ever arming the stair state machine.
+        if c.reward_mode == 4:
+            calibrate = (
+                ~self.ready
+                & safe
+                & (
+                    root[:, 0]
+                    < c.first_riser_m - c.ascent_launch_distance_m
+                )
+            )
+        else:
+            calibrate = (
+                ~self.ready
+                & stable_lower.all(dim=1)
+                & safe
+            )
 
         self.base_reference = torch.where(
             calibrate,
@@ -310,6 +413,49 @@ class StructuredStep044State:
         )
 
         self.ready |= calibrate
+
+        root_centered = torch.ones_like(safe)
+        feet_centered = torch.ones_like(safe)
+        yaw_aligned = torch.ones_like(safe)
+        launch_speed_ok = torch.ones_like(safe)
+        terminal_motion_ok = torch.ones_like(safe)
+
+        if c.reward_mode == 4:
+            root_centered = (
+                torch.abs(root[:, 1])
+                <= c.alignment_root_y_tolerance_m
+            )
+            feet_centered = (
+                foot_lateral_max
+                <= c.alignment_foot_y_tolerance_m
+            ).all(dim=1)
+            yaw_aligned = (
+                torch.abs(root_yaw)
+                <= c.alignment_yaw_tolerance_rad
+            )
+            launch_speed_ok = (
+                root_linear_velocity[:, 0]
+                >= -c.geometry_tolerance_m
+            ) & (
+                root_linear_velocity[:, 0]
+                <= c.ascent_max_forward_speed_mps
+            ) & (
+                torch.abs(root_linear_velocity[:, 1])
+                <= c.ascent_max_lateral_speed_mps
+            )
+            terminal_motion_ok = (
+                torch.linalg.vector_norm(
+                    root_linear_velocity[:, :2],
+                    dim=1,
+                )
+                <= c.terminal_linear_speed_mps
+            ) & (
+                torch.linalg.vector_norm(
+                    root_angular_velocity,
+                    dim=1,
+                )
+                <= c.terminal_angular_speed_radps
+            )
 
         opposite_support = (
             stable_lower.flip(dims=(1,))
@@ -355,14 +501,26 @@ class StructuredStep044State:
             )
         )
 
+        if c.reward_mode == 4:
+            # 048 launch requires actual task preparation, not merely X
+            # proximity: centered body and feet, correct heading, controlled
+            # approach speed, and at least one loaded foot.
+            ascent_active &= (
+                root_centered
+                & feet_centered
+                & yaw_aligned
+                & launch_speed_ok
+                & loaded.any(dim=1)
+            )
+
         ascent_start_event = torch.zeros_like(
             ascent_active
         )
 
-        if c.reward_mode == 3:
-            # 047: entering the launch corridor is a one-way episode phase
-            # transition. It must remain active after the pelvis crosses the
-            # riser so the trailing foot is never locked out.
+        if c.reward_mode in (3, 4):
+            # 047/048: entering the launch corridor is a one-way episode phase
+            # transition. It remains active after the pelvis crosses the riser
+            # so the trailing foot is never locked out.
             ascent_start_event = (
                 ascent_active
                 & ~self.ascent_started
@@ -382,7 +540,7 @@ class StructuredStep044State:
                 swing_eligible
                 & ascent_active[:, None]
             )
-        elif c.reward_mode == 3:
+        elif c.reward_mode in (3, 4):
             # Once ascent is latched, either foot may become the swing foot.
             # Do not retain the lower x-bound of the first-foot lift zone: the
             # trailing foot can legitimately still be behind it after body
@@ -480,7 +638,7 @@ class StructuredStep044State:
             & safe[:, None]
         )
 
-        if c.reward_mode == 3:
+        if c.reward_mode in (3, 4):
             riser_ready_event &= ~contact
 
         self.foot_stage = torch.where(
@@ -508,7 +666,7 @@ class StructuredStep044State:
         # Dominant historical failure:
         # front edge reaches plane without physical clearance.
         # --------------------------------------------------------
-        if c.reward_mode == 3:
+        if c.reward_mode in (3, 4):
             # Any premature/invalid plane crossing is a failure of the ordered
             # pre-crossing contract, not only a geometrically low crossing.
             valid_crossing_geometry = (
@@ -557,7 +715,7 @@ class StructuredStep044State:
             & safe[:, None]
         )
 
-        if c.reward_mode == 3:
+        if c.reward_mode in (3, 4):
             valid_crossing_event &= ~contact
 
         self.foot_stage = torch.where(
@@ -572,7 +730,7 @@ class StructuredStep044State:
         # Lift-then-drop exploit prevention. Historical modes only
         # penalized a drop after RISER_READY. Mode 3 starts protection as soon
         # as a LIFTED/RISER_READY foot has actually held full clearance.
-        if c.reward_mode == 3:
+        if c.reward_mode in (3, 4):
             clearance_loss_raw = (
                 (previous_stage >= LIFTED)
                 & (previous_stage <= RISER_READY)
@@ -710,7 +868,7 @@ class StructuredStep044State:
             full_clearance
         )
 
-        if c.reward_mode == 3:
+        if c.reward_mode in (3, 4):
             pre_cross_stage = (
                 (previous_stage >= LIFTED)
                 & (previous_stage <= RISER_READY)
@@ -822,7 +980,7 @@ class StructuredStep044State:
             & safe[:, None]
         )
 
-        if c.reward_mode == 3:
+        if c.reward_mode in (3, 4):
             insertion_gate &= landing_rectangle
 
         insertion_value = torch.where(
@@ -895,7 +1053,7 @@ class StructuredStep044State:
             & safe[:, None]
         )
 
-        if c.reward_mode == 3:
+        if c.reward_mode in (3, 4):
             # Invalid geometry/normal is still a bad touchdown even when the
             # contact speed is small. The +1 makes that event non-zero.
             bad_touchdown_penalty = (
@@ -989,7 +1147,7 @@ class StructuredStep044State:
             & stable_upper.any(dim=1)
         )
 
-        if c.reward_mode == 3:
+        if c.reward_mode in (3, 4):
             # Physical upper contact alone is not enough. The SAME currently
             # stable foot must already have passed crossing -> touchdown ->
             # UPPER_SUPPORT in the ordered state machine.
@@ -1030,7 +1188,7 @@ class StructuredStep044State:
             )
         )
 
-        if c.reward_mode == 3:
+        if c.reward_mode in (3, 4):
             body_transfer_condition &= (
                 self.seen_upper
                 & stable_upper
@@ -1053,7 +1211,7 @@ class StructuredStep044State:
             & safe
         )
 
-        if c.reward_mode == 3:
+        if c.reward_mode in (3, 4):
             both_feet_condition &= (
                 stable_upper.all(dim=1)
             )
@@ -1067,41 +1225,87 @@ class StructuredStep044State:
             both_feet_supported_event
         )
 
-        complete_condition = (
-            self.both_feet_seen
-            & upper_geometry.all(dim=1)
-            & safe
-            & (
-                root[:, 2]
-                >= (
-                    self.base_reference
-                    + c.height_m
-                    * c.base_height_gain_fraction
+        if c.reward_mode == 4:
+            # 048 success is CLIMB + STABILIZE, not "keep moving in +X".
+            # Both feet must be genuinely stable on the upper surface, the
+            # transferred body must remain elevated/aligned, and the whole body
+            # must stay quiet continuously for the terminal dwell.
+            terminal_stable = (
+                self.both_feet_seen
+                & self.body_transfer_seen
+                & upper_geometry.all(dim=1)
+                & stable_upper.all(dim=1)
+                & safe
+                & root_centered
+                & feet_centered
+                & yaw_aligned
+                & terminal_motion_ok
+                & (
+                    -gravity[:, 2]
+                    >= c.terminal_upright_cos
+                )
+                & (
+                    root[:, 2]
+                    >= (
+                        self.base_reference
+                        + c.height_m
+                        * c.terminal_base_height_gain_fraction
+                    )
                 )
             )
-            & (
-                root[:, 0]
-                >= (
-                    c.first_riser_m
-                    + c.tread_m
-                    + c.continuation_m
+
+            self.terminal_stability_age = torch.where(
+                terminal_stable,
+                self.terminal_stability_age + dt,
+                0.0,
+            )
+
+            complete_condition = (
+                terminal_stable
+                & (
+                    self.terminal_stability_age
+                    >= (
+                        c.terminal_stability_dwell_s
+                        - c.geometry_tolerance_m
+                    )
                 )
             )
-        )
+        else:
+            terminal_stable = torch.zeros_like(safe)
+            complete_condition = (
+                self.both_feet_seen
+                & upper_geometry.all(dim=1)
+                & safe
+                & (
+                    root[:, 2]
+                    >= (
+                        self.base_reference
+                        + c.height_m
+                        * c.base_height_gain_fraction
+                    )
+                )
+                & (
+                    root[:, 0]
+                    >= (
+                        c.first_riser_m
+                        + c.tread_m
+                        + c.continuation_m
+                    )
+                )
+            )
 
         complete_event = (
             complete_condition
             & ~self.complete_seen
         )
 
-        self.complete_seen |= (
-            complete_event
-        )
+        # The completion latch is updated only after simultaneous failures
+        # have been masked below.
 
         # --------------------------------------------------------
         # Failure-aware rate terms.
         # --------------------------------------------------------
-        if c.reward_mode == 3:
+        if c.reward_mode in (3, 4):
             # 047 defines "premature" by the body-level approach/ascent phase,
             # not by an individual foot's x-position. After launch, the
             # trailing foot may legitimately still be far behind the riser.
@@ -1159,19 +1363,132 @@ class StructuredStep044State:
             * foot_velocity[..., 0].clamp_min(0.0)
         ).sum(dim=1)
 
+        # 048: alignment/approach cannot be farmed by camping indefinitely.
+        # From the first safe calibration frame, the policy has a bounded time
+        # to reach the valid launch contract. This is deliberately a phase
+        # deadline, not a positive forward-speed reward.
+        if c.reward_mode == 4:
+            self.prelaunch_age = torch.where(
+                self.ready & ~self.ascent_started,
+                self.prelaunch_age + dt,
+                torch.zeros_like(self.prelaunch_age),
+            )
+            failure_prelaunch_timeout = (
+                self.ready
+                & ~self.ascent_started
+                & (self.prelaunch_age >= c.prelaunch_timeout_s)
+            )
+        else:
+            failure_prelaunch_timeout = torch.zeros_like(safe)
+
+        # 048: once ascent has begun, refusing to make physical progress is not
+        # a viable timeout strategy. Any ordered milestone or bounded physical
+        # progress rearms the timer; otherwise a prolonged stall terminates.
+        if c.reward_mode == 4:
+            progress_event = (
+                ascent_start_event
+                | enter_swing.any(dim=1)
+                | meaningful_lift_event.any(dim=1)
+                | (maintained_clearance_advance > c.geometry_tolerance_m).any(dim=1)
+                | riser_ready_event.any(dim=1)
+                | valid_crossing_event.any(dim=1)
+                | (tread_insertion > c.geometry_tolerance_m).any(dim=1)
+                | good_touchdown_event.any(dim=1)
+                | stable_upper_event.any(dim=1)
+                | (supported_body_rise > c.geometry_tolerance_m)
+                | body_transfer_event
+                | both_feet_supported_event
+            )
+
+            self.ascent_progress_age = torch.where(
+                ~self.ascent_started,
+                0.0,
+                torch.where(
+                    progress_event,
+                    0.0,
+                    self.ascent_progress_age + dt,
+                ),
+            )
+
+            failure_stall = (
+                self.ascent_started
+                & (
+                    self.ascent_progress_age
+                    >= c.ascent_stall_timeout_s
+                )
+                & ~complete_condition
+            )
+        else:
+            progress_event = torch.zeros_like(safe)
+            failure_stall = torch.zeros_like(safe)
+
+        failure_forbidden = forbidden
+        failure_tilt = (
+            -gravity[:, 2]
+            < 0.70
+        )
+        failure_low_base = (
+            root[:, 2]
+            < c.minimum_base_height_m
+        )
+
         failure = (
-            forbidden
-            | (
-                -gravity[:, 2]
-                < 0.70
-            )
-            | (
-                root[:, 2]
-                < c.minimum_base_height_m
-            )
+            failure_forbidden
+            | failure_tilt
+            | failure_low_base
+            | failure_prelaunch_timeout
+            | failure_stall
         )
 
         complete_event &= ~failure
+        self.complete_seen |= complete_event
+
+        if c.reward_mode == 4:
+            positive_step_credit = (
+                approach
+                * self.reward_weights["step044_approach"]
+                + lift_advance.sum(dim=1)
+                * self.reward_weights["step044_lift_advance"]
+                + maintained_clearance_advance.sum(dim=1)
+                * self.reward_weights["step044_maintained_clearance_advance"]
+                + meaningful_lift_event.to(dtype).sum(dim=1)
+                * self.reward_weights["step044_meaningful_lift"]
+                + riser_ready_event.to(dtype).sum(dim=1)
+                * self.reward_weights["step044_riser_ready"]
+                + valid_crossing_event.to(dtype).sum(dim=1)
+                * self.reward_weights["step044_valid_crossing"]
+                + tread_insertion.sum(dim=1)
+                * self.reward_weights["step044_tread_insertion"]
+                + good_touchdown_event.to(dtype).sum(dim=1)
+                * self.reward_weights["step044_good_touchdown"]
+                + stable_upper_event.to(dtype).sum(dim=1)
+                * self.reward_weights["step044_stable_upper_support"]
+                + supported_body_rise
+                * self.reward_weights["step044_supported_body_rise"]
+                + body_transfer_event.to(dtype)
+                * self.reward_weights["step044_body_transfer"]
+                + both_feet_supported_event.to(dtype)
+                * self.reward_weights["step044_both_feet_supported"]
+                + complete_event.to(dtype)
+                * self.reward_weights["step044_complete"]
+            )
+
+            self.positive_stair_credit += positive_step_credit
+
+            failure_weight = abs(
+                self.reward_weights["step044_failure"]
+            )
+            failure_component = torch.where(
+                failure,
+                1.0
+                + c.failure_clawback_scale
+                * self.positive_stair_credit
+                / failure_weight,
+                0.0,
+            )
+        else:
+            positive_step_credit = torch.zeros_like(root[:, 0])
+            failure_component = failure.to(dtype)
 
         # Advance history only after all transition tests.
         self.previous_x_max = x_max.clone()
@@ -1183,7 +1500,7 @@ class StructuredStep044State:
         )
         self.previous_full_clearance = (
             qualified_clearance_now.clone()
-            if c.reward_mode == 3
+            if c.reward_mode in (3, 4)
             else full_clearance.clone()
         )
         self.has_previous[:] = True
@@ -1250,7 +1567,7 @@ class StructuredStep044State:
             "bad_touchdown": (
                 bad_touchdown.sum(dim=1)
             ),
-            "failure": failure.to(dtype),
+            "failure": failure_component,
         }
 
         diagnostics = {
@@ -1316,6 +1633,42 @@ class StructuredStep044State:
                 both_feet_supported_event.clone(),
             "completion_event":
                 complete_event.clone(),
+            "root_centered":
+                root_centered.clone(),
+            "feet_centered":
+                feet_centered.clone(),
+            "yaw_aligned":
+                yaw_aligned.clone(),
+            "launch_speed_ok":
+                launch_speed_ok.clone(),
+            "terminal_motion_ok":
+                terminal_motion_ok.clone(),
+            "terminal_stable":
+                terminal_stable.clone(),
+            "terminal_stability_age_s":
+                self.terminal_stability_age.clone(),
+            "prelaunch_age_s":
+                self.prelaunch_age.clone(),
+            "failure_forbidden":
+                failure_forbidden.clone(),
+            "failure_tilt":
+                failure_tilt.clone(),
+            "failure_low_base":
+                failure_low_base.clone(),
+            "failure_prelaunch_timeout":
+                failure_prelaunch_timeout.clone(),
+            "failure_stall":
+                failure_stall.clone(),
+            "progress_event":
+                progress_event.clone(),
+            "ascent_progress_age_s":
+                self.ascent_progress_age.clone(),
+            "positive_stair_credit":
+                self.positive_stair_credit.clone(),
+            "positive_step_credit":
+                positive_step_credit.clone(),
+            "failure_penalty_value":
+                failure_component.clone(),
             "failure":
                 failure.clone(),
         }
@@ -1345,7 +1698,7 @@ def reset(env, env_ids):
         )
 
 
-def snapshot(env, config):
+def snapshot(env, config, reward_weights=None):
     """Build the physical snapshot once per control step."""
     import torch
 
@@ -1374,6 +1727,7 @@ def snapshot(env, config):
             env.num_envs,
             env.device,
             cfg,
+            reward_weights=reward_weights,
         )
 
         runtime.foot_ids = [
@@ -1539,6 +1893,25 @@ def snapshot(env, config):
         data.projected_gravity_b
     )
 
+    root_linear_velocity = (
+        data.root_lin_vel_w
+    )
+    root_angular_velocity = (
+        data.root_ang_vel_w
+    )
+
+    qw, qx, qy, qz = (
+        data.root_quat_w.unbind(dim=1)
+    )
+    root_yaw = torch.atan2(
+        2.0 * (qw * qz + qx * qy),
+        1.0 - 2.0 * (qy * qy + qz * qz),
+    )
+    root_yaw = torch.atan2(
+        torch.sin(root_yaw),
+        torch.cos(root_yaw),
+    )
+
     upright = (
         -gravity[:, 2]
         >= c.upright_cos
@@ -1637,7 +2010,7 @@ def snapshot(env, config):
         )
     )
 
-    if c.reward_mode == 3:
+    if c.reward_mode in (3, 4):
         # In 047 the landing rectangle is genuinely 2-D: forward tread/end
         # containment plus lateral stair-width containment.
         landing_rectangle &= lateral_contained
@@ -1702,6 +2075,10 @@ def snapshot(env, config):
         contact=contact,
         foot_velocity=foot_velocity,
         forbidden=forbidden,
+        root_linear_velocity=root_linear_velocity,
+        root_angular_velocity=root_angular_velocity,
+        root_yaw=root_yaw,
+        foot_lateral_max=y_max,
     )
 
     diagnostics = result[
@@ -1757,6 +2134,14 @@ def snapshot(env, config):
                 upright.clone(),
             "safe":
                 safe.clone(),
+            "root_linear_velocity":
+                root_linear_velocity.clone(),
+            "root_angular_velocity":
+                root_angular_velocity.clone(),
+            "root_yaw":
+                root_yaw.clone(),
+            "foot_lateral_max":
+                y_max.clone(),
             "forbidden":
                 forbidden.clone(),
         }
@@ -1829,6 +2214,31 @@ def snapshot(env, config):
         "failure_env_steps":
             result["failure"],
 
+        "failure_forbidden_count":
+            diagnostics["failure_forbidden"],
+
+        "failure_tilt_count":
+            diagnostics["failure_tilt"],
+
+        "failure_low_base_count":
+            diagnostics["failure_low_base"],
+
+        "failure_prelaunch_timeout_count":
+            diagnostics["failure_prelaunch_timeout"],
+
+        "failure_stall_count":
+            diagnostics["failure_stall"],
+
+        "aligned_launch_env_steps": (
+            diagnostics["root_centered"]
+            & diagnostics["feet_centered"]
+            & diagnostics["yaw_aligned"]
+            & diagnostics["launch_speed_ok"]
+        ),
+
+        "terminal_stable_env_steps":
+            diagnostics["terminal_stable"],
+
         "calibrated_env_steps":
             runtime.ready.clone(),
     }
@@ -1875,11 +2285,13 @@ def snapshot(env, config):
 def reward(
     env,
     config,
+    reward_weights,
     component,
 ):
     value = snapshot(
         env,
         config,
+        reward_weights=reward_weights,
     )["components"][component]
 
     # Isaac RewardManager multiplies every term by dt.
@@ -1894,17 +2306,19 @@ def reward(
     )
 
 
-def failure(env, config):
+def failure(env, config, reward_weights):
     return snapshot(
         env,
         config,
+        reward_weights=reward_weights,
     )["failure"]
 
 
-def success(env, config):
+def success(env, config, reward_weights):
     return snapshot(
         env,
         config,
+        reward_weights=reward_weights,
     )["success"]
 
 

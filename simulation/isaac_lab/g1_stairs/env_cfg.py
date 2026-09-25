@@ -517,6 +517,17 @@ class StairRewardsCfg:
         },
     )
 
+    # 048: explicit lateral position alignment with the staircase centerline.
+    # This is negative-only and therefore cannot be farmed by standing still.
+    stair_centerline_alignment = RewTerm(
+        func=unified_rewards.stair_centerline_alignment,
+        weight=-1.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "full_penalty_lateral_m": 0.30,
+        },
+    )
+
 
     # 038: positive per-environment geometry-conditioned swing lift.
     terrain_relative_swing_clearance_dynamic = RewTerm(

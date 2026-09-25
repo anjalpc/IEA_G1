@@ -1,0 +1,110 @@
+schema_version: 1
+
+experiment:
+  id: 048_task_aligned_stable_base
+  purpose: >
+    Phase-constrained single-step task: preserve the Unitree approach by
+    imitation, center and align before launch, climb through the ordered
+    anti-exploit state machine, then stop and remain stable on the upper
+    surface before success.
+  type: task_aligned_stable_single_step
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/047_anti_exploit_single_step_base.yaml
+  resolved_config_required: true
+
+task:
+  objective: >
+    Approach under teacher imitation, align to stair centerline, slow and
+    prepare, perform an ordered single-step ascent, transfer the body, recover
+    the trailing foot, and hold a stable upper-surface stance.
+
+command:
+  forward_velocity_mps: 0.35
+  stair_velocity_schedule:
+    enabled: true
+    approach_velocity_mps: 0.35
+    stair_velocity_mps: 0.12
+    slowdown_start_distance_m: 0.70
+    slowdown_end_distance_m: 0.30
+    platform_velocity_mps: 0.00
+    platform_accel_distance_m: 0.40
+    centerline_gain_s: 1.00
+    max_lateral_velocity_mps: 0.12
+    heading_gain_s: 1.50
+    max_yaw_rate_radps: 0.35
+    stop_after_ascent_start: true
+
+commands:
+  forward_velocity_mps: [0.35, 0.35]
+  effective_velocity_source: geometry_conditioned_command_schedule
+
+structured_step:
+  reward_mode: 4
+  ascent_launch_distance_m: 0.25
+  alignment_root_y_tolerance_m: 0.15
+  alignment_foot_y_tolerance_m: 0.35
+  alignment_yaw_tolerance_rad: 0.20
+  ascent_max_forward_speed_mps: 0.25
+  ascent_max_lateral_speed_mps: 0.12
+  terminal_linear_speed_mps: 0.08
+  terminal_angular_speed_radps: 0.35
+  terminal_stability_dwell_s: 0.50
+  terminal_upright_cos: 0.97
+  terminal_base_height_gain_fraction: 0.90
+  prelaunch_timeout_s: 6.00
+  ascent_stall_timeout_s: 2.50
+  failure_clawback_scale: 1.50
+
+approach_teacher:
+  enabled: true
+  coefficient: 1.0
+  release_near_m: 0.25
+  release_far_m: 0.40
+  huber_delta: 0.25
+  # Teacher remains training-only. The student always executes its own action.
+  enforce_action_blend: false
+  # Far away, task PPO gradients are masked while imitation preserves gait.
+  gate_task_actor_loss: true
+
+reward_experiment:
+  active_stage: structured_single_step_044
+  rewards:
+    stage_plan:
+      structured_single_step_044:
+        # Negative-only velocity error on approach; disabled after ascent latch.
+        track_stair_velocity_world: 0.15
+        track_ang_vel_z: 0.00
+        upright: -2.00
+        action_rate: -0.02
+        joint_acc: -2.5e-7
+        dof_pos_limits: -5.00
+        feet_slide: -0.20
+        undesired_contacts: -1.00
+        stair_heading_alignment: -1.00
+        stair_centerline_alignment: -1.00
+
+        step044_approach: 0.05
+        step044_lift_advance: 0.15
+        step044_maintained_clearance_advance: 1.00
+        step044_meaningful_lift: 0.15
+        step044_riser_ready: 1.00
+        step044_valid_crossing: 2.50
+        step044_tread_insertion: 1.00
+        step044_good_touchdown: 2.00
+        step044_stable_upper_support: 4.00
+        step044_supported_body_rise: 1.00
+        step044_body_transfer: 4.00
+        step044_both_feet_supported: 3.00
+        step044_complete: 5.00
+
+        step044_premature_lift: -0.50
+        step044_riser_risk: -1.50
+        step044_low_crossing: -3.00
+        step044_clearance_loss: -2.50
+        step044_bad_touchdown: -2.00
+        step044_failure: -3.00
+
+launch_gates:
+  allow_launch: false
