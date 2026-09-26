@@ -80,6 +80,25 @@ class IsaacLabAdapterTest(unittest.TestCase):
         )
         self.assertEqual(indices, {"pelvis": 1, "left_ankle_roll_link": 2})
 
+    def test_optional_contact_bodies_may_be_absent_from_sensor(self):
+        from simulation.isaac_lab.g1_stairs.contact_sensor_contract import (
+            resolve_available_body_indices,
+        )
+
+        indices = resolve_available_body_indices(
+            (
+                "pelvis",
+                "left_ankle_roll_link",
+                "right_ankle_roll_link",
+            ),
+            (
+                "pelvis",
+                "left_rubber_hand",
+                "right_rubber_hand",
+            ),
+        )
+        self.assertEqual(indices, {"pelvis": 0})
+
     def test_missing_required_body_fails_closed(self):
         with self.assertRaisesRegex(ValueError, "right_ankle_roll_link"):
             resolve_body_indices(

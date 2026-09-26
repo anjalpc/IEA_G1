@@ -5,6 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 
+from simulation.isaac_lab.g1_stairs.contact_sensor_contract import (
+    resolve_available_body_indices,
+)
 from simulation.isaac_lab.g1_stairs.geometry import nominal_staircase
 from simulation.isaac_lab.g1_stairs.evaluation.stair_outcomes import StepSample
 from simulation.isaac_lab.g1_stairs.evaluation.stair_outcomes import StairOutcomeConfig
@@ -157,9 +160,12 @@ def capture_isaac_lab_state(
     sensor = scene.sensors["contact_forces"]
     forces = sensor.data.net_forces_w[env_index]
 
-    required_contact_bodies = tuple(CONTACT_BODY_LABELS) + FOOT_BODY_NAMES
     sensor_indices = resolve_body_indices(
-        tuple(sensor.body_names), required_contact_bodies
+        tuple(sensor.body_names), FOOT_BODY_NAMES
+    )
+    contact_indices = resolve_available_body_indices(
+        tuple(sensor.body_names),
+        tuple(CONTACT_BODY_LABELS),
     )
     robot_indices = resolve_body_indices(
         tuple(robot.body_names), FOOT_BODY_NAMES
@@ -177,8 +183,9 @@ def capture_isaac_lab_state(
     finite = all(bool(torch.all(torch.isfinite(value)).item()) for value in tensors)
 
     contacts = []
-    for body_name, label in CONTACT_BODY_LABELS.items():
-        force = forces[sensor_indices[body_name]]
+    for body_name, sensor_index in contact_indices.items():
+        label = CONTACT_BODY_LABELS[body_name]
+        force = forces[sensor_index]
         if bool((torch.linalg.vector_norm(force) > contact_threshold_n).item()):
             contacts.append(label)
 

@@ -10,6 +10,9 @@ from simulation.isaac_lab.g1_stairs.approach_teacher import (
     action_group_mean_abs,
 )
 from simulation.isaac_lab.g1_stairs.evaluation.metrics import RunMetricsWriter
+from simulation.isaac_lab.g1_stairs.contact_sensor_contract import (
+    resolve_available_body_indices,
+)
 from simulation.isaac_lab.g1_stairs.evaluation.stair_diagnostics import (
     NamedTensorStatsAccumulator,
     StairEventDiagnostics,
@@ -25,27 +28,6 @@ def recover_raw_reward_step(weighted_rate, dt: float, weight: float):
     if weight == 0.0:
         return None
     return weighted_rate * dt / weight
-
-
-def resolve_available_body_indices(
-    available_names,
-    requested_names=FORBIDDEN_CONTACT_BODY_NAMES,
-):
-    """Resolve only contact bodies represented by the active sensor asset.
-
-    Fixed bodies without collision shapes can legitimately be absent from a
-    ContactSensor body inventory. Metrics must therefore follow the runtime
-    sensor contract rather than assuming every articulation body is tracked.
-    """
-    index_by_name = {
-        name: index
-        for index, name in enumerate(available_names)
-    }
-    return [
-        index_by_name[name]
-        for name in requested_names
-        if name in index_by_name
-    ]
 
 
 class InstrumentedRslRlVecEnvWrapper:
@@ -441,9 +423,11 @@ class InstrumentedRslRlVecEnvWrapper:
 
         sensor = env.scene.sensors.get("contact_forces")
         if sensor is not None:
-            indices = resolve_available_body_indices(
+            resolved = resolve_available_body_indices(
                 sensor.body_names,
+                FORBIDDEN_CONTACT_BODY_NAMES,
             )
+            indices = list(resolved.values())
             if indices:
                 forces = sensor.data.net_forces_w[:, indices]
                 contacts = (

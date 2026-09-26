@@ -10,9 +10,11 @@ from simulation.isaac_lab.g1_stairs.evaluation.metrics import (
     RunMetricsWriter,
     wilson_interval,
 )
+from simulation.isaac_lab.g1_stairs.contact_sensor_contract import (
+    resolve_available_body_indices,
+)
 from simulation.isaac_lab.g1_stairs.evaluation.isaac_training_metrics import (
     recover_raw_reward_step,
-    resolve_available_body_indices,
 )
 from simulation.isaac_lab.g1_stairs.evaluation.stair_diagnostics import (
     NamedTensorStatsAccumulator,
@@ -62,12 +64,27 @@ class MetricsTest(unittest.TestCase):
         )
 
         indices = resolve_available_body_indices(
-            available_names
+            available_names,
+            (
+                "pelvis",
+                "left_knee_link",
+                "right_knee_link",
+                "left_elbow_link",
+                "right_elbow_link",
+                "left_rubber_hand",
+                "right_rubber_hand",
+            ),
         )
 
         self.assertEqual(
             indices,
-            [0, 1, 2, 3, 4],
+            {
+                "pelvis": 0,
+                "left_knee_link": 1,
+                "right_knee_link": 2,
+                "left_elbow_link": 3,
+                "right_elbow_link": 4,
+            },
         )
 
     def test_tensor_stats_accumulator_tracks_distribution(self):

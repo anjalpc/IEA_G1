@@ -73,6 +73,22 @@ class TestStepUpIsaacAdapter(unittest.TestCase):
                 FOOT_BODY_NAMES,
             )
 
+    def test_optional_forbidden_contacts_follow_sensor_inventory(self):
+        from simulation.isaac_lab.g1_stairs.contact_sensor_contract import (
+            resolve_available_body_indices,
+        )
+
+        indices = resolve_available_body_indices(
+            (
+                "pelvis",
+                "left_ankle_roll_link",
+                "right_ankle_roll_link",
+            ),
+            FORBIDDEN_CONTACT_BODY_NAMES,
+        )
+
+        self.assertEqual(indices, {"pelvis": 0})
+
     def test_single_step_geometry_defaults(self):
         cfg = StepUpIsaacConfig()
 

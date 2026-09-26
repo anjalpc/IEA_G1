@@ -5,6 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 import math
 
+from simulation.isaac_lab.g1_stairs.contact_sensor_contract import (
+    resolve_available_body_indices,
+)
 from simulation.isaac_lab.g1_stairs.step_up_state import (
     FootSupportObservation,
     StepUpObservation,
@@ -122,7 +125,11 @@ def capture_step_up_observation(
 
     sensor_indices = _resolve_indices(
         tuple(sensor.body_names),
-        FOOT_BODY_NAMES + FORBIDDEN_CONTACT_BODY_NAMES,
+        FOOT_BODY_NAMES,
+    )
+    forbidden_sensor_indices = resolve_available_body_indices(
+        tuple(sensor.body_names),
+        FORBIDDEN_CONTACT_BODY_NAMES,
     )
 
     data = robot.data
@@ -212,10 +219,10 @@ def capture_step_up_observation(
 
     forbidden_contact = False
 
-    for name in FORBIDDEN_CONTACT_BODY_NAMES:
+    for sensor_index in forbidden_sensor_indices.values():
         force = sensor.data.net_forces_w[
             env_index,
-            sensor_indices[name],
+            sensor_index,
         ]
 
         force_norm = float(
