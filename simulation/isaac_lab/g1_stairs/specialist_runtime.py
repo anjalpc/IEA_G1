@@ -222,6 +222,10 @@ def apply_specialist_runtime(
     if staging is None:
         return None
 
+    # parse_specialist_staging_config() validates this mapping and mode.
+    # Re-read it here because initialization_type is local to the parser.
+    initialization_type = resolved["policy_initialization"]["type"]
+
     # Import simulator-dependent configuration only when the specialist path
     # is actually selected and after AppLauncher is already running.
     from .robot_cfg import G1_SPECIALIST_ROBOT_CFG

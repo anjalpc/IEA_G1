@@ -1,8 +1,13 @@
 from __future__ import annotations
 
+import sys
+from types import SimpleNamespace
+
 import pytest
 
+import simulation.isaac_lab.g1_stairs.specialist_runtime as specialist_runtime
 from simulation.isaac_lab.g1_stairs.specialist_runtime import (
+    apply_specialist_runtime,
     parse_specialist_staging_config,
 )
 
@@ -66,3 +71,66 @@ def test_specialist_profile_rejects_legacy_runtime_mix() -> None:
 
 def test_specialist_profile_is_opt_in() -> None:
     assert parse_specialist_staging_config({}) is None
+
+
+class _FakeRobotCfg:
+    def replace(self, **kwargs):
+        return self
+
+
+def test_apply_specialist_runtime_reports_checkpoint_initialization(monkeypatch) -> None:
+    config = _config()
+    config["policy_initialization"] = {
+        "type": "rsl_rl_checkpoint_actor_transfer",
+        "source": {"path": "/tmp/model_950.pt"},
+        "critic_initialization": "fresh",
+    }
+
+    fake_robot_cfg_module = SimpleNamespace(
+        G1_SPECIALIST_ROBOT_CFG=_FakeRobotCfg()
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "simulation.isaac_lab.g1_stairs.robot_cfg",
+        fake_robot_cfg_module,
+    )
+    monkeypatch.setattr(
+        specialist_runtime,
+        "_configure_specialist_observations",
+        lambda env_cfg, resolved: {
+            "proprioception_history_steps": 1,
+            "velocity_command_observation": False,
+        },
+    )
+
+    stair_cfg = SimpleNamespace(start_clearance=None)
+    env_cfg = SimpleNamespace(
+        scene=SimpleNamespace(
+            robot=None,
+            terrain=SimpleNamespace(
+                terrain_generator=SimpleNamespace(
+                    sub_terrains={"three_step_ascent": stair_cfg}
+                )
+            ),
+        ),
+        events=SimpleNamespace(
+            reset_base=SimpleNamespace(
+                params={
+                    "pose_range": {"x": None, "y": None, "yaw": None},
+                    "velocity_range": {
+                        key: None
+                        for key in ("x", "y", "z", "roll", "pitch", "yaw")
+                    },
+                }
+            ),
+            reset_robot_joints=SimpleNamespace(
+                params={"position_range": None, "velocity_range": None}
+            ),
+        ),
+        episode_length_s=20.0,
+    )
+
+    summary = apply_specialist_runtime(env_cfg, config)
+
+    assert summary is not None
+    assert summary["policy_initialization"] == "rsl_rl_checkpoint_actor_transfer"
