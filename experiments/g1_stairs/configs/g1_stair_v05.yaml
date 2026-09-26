@@ -154,7 +154,7 @@ ppo:
 
 execution:
   environments: 256
-  maximum_iterations: 150
+  maximum_iterations: 4000
   training_seed: 42
 
 launch_gates:
