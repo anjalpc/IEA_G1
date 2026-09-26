@@ -31,6 +31,7 @@ reward_experiment:
         joint_acc: -2.5e-7
         dof_pos_limits: -5.0
         undesired_contacts: -1.0
+        failure_termination_event: -4.0
         approach_progress: 1.0
         swing_clearance_progress: 2.5
         upper_foothold_progress: 2.5
@@ -41,7 +42,9 @@ reward_experiment:
 
 reward_parameters:
   approach_progress:
-    preparation_distance_m: 0.18
+    # With fixed ~0.30 m root staging, the nominal front-sole gap is about
+    # 0.20 m. Reward aggregate foot advance until roughly a 0.10 m gap.
+    preparation_distance_m: 0.10
   swing_clearance_progress:
     activation_distance_m: 0.30
     insertion_target_m: 0.10

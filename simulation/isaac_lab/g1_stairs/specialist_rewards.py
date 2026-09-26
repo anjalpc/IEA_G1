@@ -322,8 +322,21 @@ class _PotentialDifferenceTerm(_SingleStepRewardBase):
         return result
 
 
+def failure_termination_event(env: "ManagerBasedRLEnv") -> torch.Tensor:
+    """Emit one exact event for a native non-timeout episode termination."""
+
+    terminated = getattr(env, "reset_terminated", None)
+    if terminated is None:
+        raise RuntimeError(
+            "failure_termination_event requires env.reset_terminated"
+        )
+    if float(env.step_dt) <= 0.0:
+        raise ValueError("reward step dt must be positive")
+    return terminated.to(dtype=torch.float32) / float(env.step_dt)
+
+
 class approach_progress(_PotentialDifferenceTerm):
-    """Reward closing the initial gap, then saturate before the riser face."""
+    """Reward actual foot approach toward the riser, not pelvis-only lean."""
 
     def __init__(self, cfg, env: "ManagerBasedRLEnv"):
         super().__init__(cfg, env)
@@ -370,7 +383,13 @@ class approach_progress(_PotentialDifferenceTerm):
             maximum_supported_foot_speed_mps=maximum_supported_foot_speed_mps,
             minimum_upright_gravity_z=minimum_upright_gravity_z,
         )
-        distance = float(m["riser_x"]) - m["root_x"]
+        # Use the mean front-sole position as the approach coordinate.  This
+        # makes pelvis-only forward lean worth zero approach progress and makes
+        # a single extended foot contribute only half of the two-foot advance.
+        distance = (
+            float(m["riser_x"])
+            - m["front_x"].mean(dim=1)
+        )
 
         new = ~self._distance_initialized
         self._initial_distance[new] = distance[new].detach()

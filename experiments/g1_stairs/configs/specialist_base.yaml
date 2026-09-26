@@ -20,9 +20,9 @@ specialist_stair:
   enabled: true
   episode_length_s: 8.0
   staging:
-    distance_before_riser_m: [0.35, 0.50]
-    lateral_offset_m: [-0.04, 0.04]
-    yaw_offset_rad: [-0.05236, 0.05236]
+    distance_before_riser_m: [0.30, 0.30]
+    lateral_offset_m: [0.0, 0.0]
+    yaw_offset_rad: [0.0, 0.0]
 
 terrain:
   type: fixed_single_step_ascent
@@ -71,10 +71,10 @@ reset_distribution:
   joint_velocity_radps: [0.0, 0.0]
 
 start_pose:
-  distribution: near_riser_randomized
-  distance_before_first_riser_m: [0.35, 0.50]
-  lateral_offset_m: [-0.04, 0.04]
-  yaw_randomization_rad: [-0.05236, 0.05236]
+  distribution: near_riser_fixed_nominal
+  distance_before_first_riser_m: [0.30, 0.30]
+  lateral_offset_m: [0.0, 0.0]
+  yaw_randomization_rad: [0.0, 0.0]
 
 command:
   # The specialist skill is not a velocity-tracking policy. Forward progress

@@ -111,6 +111,7 @@ def main() -> None:
         StepUpCheckpointValidator,
         apply_resolved_replay_agent_config,
         apply_resolved_replay_config,
+        stair_outcome_config_from_replay,
     )
 
     output_dir = Path(args.output_dir).resolve()
@@ -233,7 +234,12 @@ def main() -> None:
 
     obs = env.get_observations()
 
-    evaluator = StairOutcomeEvaluator()
+    if replay_config is None:
+        evaluator = StairOutcomeEvaluator()
+    else:
+        evaluator = StairOutcomeEvaluator(
+            config=stair_outcome_config_from_replay(replay_config)
+        )
     writer = RunMetricsWriter(output_dir, output_dir.name)
 
     robot = env.unwrapped.scene["robot"]
@@ -616,7 +622,10 @@ def main() -> None:
         env.unwrapped,
         time_s=0.0,
     )
-    initial_sample = to_step_sample(initial_state)
+    initial_sample = to_step_sample(
+        initial_state,
+        config=evaluator.config,
+    )
 
     initial_diagnostic = posture_sample(initial_sample)
 
@@ -632,7 +641,10 @@ def main() -> None:
         maxlen=31,
     )
 
-    mid_approach_target_x_m = 1.50
+    mid_approach_target_x_m = 0.5 * (
+        evaluator.config.start_x_m
+        + evaluator.config.first_riser_x_m
+    )
     mid_approach_error = float("inf")
     pre_riser_max_x = float("-inf")
 
@@ -668,7 +680,10 @@ def main() -> None:
             time_s=steps * float(env.unwrapped.step_dt),
             timed_out=timed_out,
         )
-        sample = to_step_sample(state)
+        sample = to_step_sample(
+            state,
+            config=evaluator.config,
+        )
         diagnostic_sample = posture_sample(
             sample,
             policy_actions=actions,
@@ -766,18 +781,20 @@ def main() -> None:
         "definitions": {
             "start": "first valid sample after environment initialization",
             "mid_approach": (
-                "sample closest to course x = 1.50 m"
+                "sample closest to the midpoint between evaluator start "
+                "and first-riser X"
             ),
             "pre_riser": (
-                "maximum course x strictly before first riser x = 2.00 m"
+                "maximum course X strictly before the configured first "
+                "riser"
             ),
             "terminal": (
                 "sample that produced the reward-independent evaluator outcome"
             ),
         },
-        "first_riser_x_m": (
-            evaluator.config.first_riser_x_m
-        ),
+        "start_x_m": evaluator.config.start_x_m,
+        "first_riser_x_m": evaluator.config.first_riser_x_m,
+        "mid_approach_target_x_m": mid_approach_target_x_m,
         "foot_collision_model": {
             "source": (
                 "g1_29dof_rev_1_0.urdf "

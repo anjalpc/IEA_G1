@@ -43,7 +43,27 @@ class AppliedReplayConfig:
     tread_depth_m: float
     step_count: int
     forward_velocity_mps: float
-    first_riser_x_m: float = 1.0
+    start_x_m: float = 1.0
+    first_riser_x_m: float = 2.0
+    required_platform_continuation_m: float = 2.0
+
+
+def stair_outcome_config_from_replay(replay: AppliedReplayConfig):
+    """Build evaluator geometry from the exact recorded replay contract."""
+
+    from simulation.isaac_lab.g1_stairs.evaluation.stair_outcomes import (
+        StairOutcomeConfig,
+    )
+
+    return StairOutcomeConfig(
+        approach_length_m=float(replay.first_riser_x_m),
+        start_x_m=float(replay.start_x_m),
+        tread_depth_m=float(replay.tread_depth_m),
+        step_count=int(replay.step_count),
+        required_platform_continuation_m=float(
+            replay.required_platform_continuation_m
+        ),
+    )
 
 
 def load_replay_resolved_config(path: Path) -> dict:
@@ -104,6 +124,9 @@ def apply_resolved_replay_config(env_cfg, path: Path) -> AppliedReplayConfig:
     riser_height_m = float(terrain["riser_height_m"])
     tread_depth_m = float(terrain["tread_depth_m"])
     step_count = int(terrain["step_count"])
+    required_platform_continuation_m = float(
+        terrain.get("required_platform_continuation_m", 2.0)
+    )
 
     if not 0.0 < riser_height_m <= 0.20:
         raise ValueError("invalid resolved riser height")
@@ -199,18 +222,26 @@ def apply_resolved_replay_config(env_cfg, path: Path) -> AppliedReplayConfig:
                 schedule_params
             )
 
-    first_riser_x_m = 1.0
+    # Evaluator course coordinates must match the runtime local coordinates.
+    # Specialist terrain origins are the robot start, so local X=0 is the
+    # evaluator start and the first riser is exactly start_clearance ahead.
     if specialist_summary is not None:
-        first_riser_x_m = float(
-            specialist_summary["terrain_origin_distance_m"]
-        )
+        start_x_m = 0.0
+        first_riser_x_m = float(stair_cfg.start_clearance)
+    else:
+        start_x_m = 1.0
+        first_riser_x_m = start_x_m + float(stair_cfg.start_clearance)
 
     return AppliedReplayConfig(
         riser_height_m=riser_height_m,
         tread_depth_m=tread_depth_m,
         step_count=step_count,
         forward_velocity_mps=forward_velocity_mps,
+        start_x_m=start_x_m,
         first_riser_x_m=first_riser_x_m,
+        required_platform_continuation_m=(
+            required_platform_continuation_m
+        ),
     )
 
 

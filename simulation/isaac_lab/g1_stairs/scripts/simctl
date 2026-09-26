@@ -475,8 +475,14 @@ row = rows[-1]
 iteration = int(float(row["iteration"]))
 wall = float(row.get("wall_time_s") or 0)
 reward = row.get("episode_return_mean", "")
-max_x = row.get("maximum_x_mean_m", "")
-step = row.get("maximum_step_reached_mean", "")
+max_x = (
+    row.get("maximum_x_any_m")
+    or row.get("maximum_x_mean_m", "")
+)
+step = (
+    row.get("maximum_step_reached_any")
+    or row.get("maximum_step_reached_mean", "")
+)
 platform = row.get("platform_reached_rate", "")
 action_rate = row.get("action_rate_mean", "")
 power = row.get("mechanical_power_mean", "")
@@ -521,9 +527,9 @@ else:
 if reward:
     print(f"Mean return: {reward}")
 if max_x:
-    print(f"Maximum X mean: {max_x} m")
+    print(f"Maximum X (any env): {max_x} m")
 if step:
-    print(f"Maximum step: {step}")
+    print(f"Maximum step (any env): {step}")
 if platform:
     print(f"Platform reached: {platform}")
 if action_rate:

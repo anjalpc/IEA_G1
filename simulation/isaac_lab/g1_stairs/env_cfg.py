@@ -377,6 +377,10 @@ class StairRewardsCfg:
     dof_pos_limits = copy.deepcopy(_UPSTREAM_CFG.rewards.dof_pos_limits)
     undesired_contacts = copy.deepcopy(_UPSTREAM_CFG.rewards.undesired_contacts)
     action_rate = copy.deepcopy(_UPSTREAM_CFG.rewards.action_rate)
+    failure_termination_event = RewTerm(
+        func=stair_rewards.failure_termination_event,
+        weight=-1.0,
+    )
 
     # Geometry-driven specialist task terms.  Parameters remain bounded and
     # config-overridable through reward_parameters in the resolved YAML.

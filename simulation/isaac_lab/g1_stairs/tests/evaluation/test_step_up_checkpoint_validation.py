@@ -6,9 +6,11 @@ from pathlib import Path
 
 
 from simulation.isaac_lab.g1_stairs.evaluation.step_up_checkpoint_validation import (
+    AppliedReplayConfig,
     apply_resolved_replay_agent_config,
     calibration_ready,
     load_replay_resolved_config,
+    stair_outcome_config_from_replay,
 )
 
 
@@ -62,6 +64,24 @@ reward_experiment:
             ]["enabled_terms"]["action_rate_raw"],
             -0.01,
         )
+
+
+    def test_replay_outcome_geometry_uses_recorded_specialist_frame(self):
+        config = stair_outcome_config_from_replay(
+            AppliedReplayConfig(
+                riser_height_m=0.06,
+                tread_depth_m=0.25,
+                step_count=1,
+                forward_velocity_mps=0.0,
+                start_x_m=0.0,
+                first_riser_x_m=0.30,
+                required_platform_continuation_m=0.40,
+            )
+        )
+        self.assertEqual(config.start_x_m, 0.0)
+        self.assertEqual(config.first_riser_x_m, 0.30)
+        self.assertEqual(config.step_count, 1)
+        self.assertEqual(config.required_platform_continuation_m, 0.40)
 
     def test_replay_agent_uses_recorded_action_clip(self):
         class AgentCfg:

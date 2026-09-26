@@ -87,6 +87,7 @@ class RewardRuntimeTests(unittest.TestCase):
                 "joint_acc": -2.5e-7,
                 "dof_pos_limits": -5.0,
                 "undesired_contacts": -1.0,
+                "failure_termination_event": -4.0,
                 "approach_progress": 1.0,
                 "swing_clearance_progress": 2.5,
                 "upper_foothold_progress": 2.5,
@@ -95,6 +96,23 @@ class RewardRuntimeTests(unittest.TestCase):
                 "riser_strike_event": -2.0,
                 "single_step_success": 6.0,
             },
+        )
+
+
+    def test_single_step_acquisition_staging_is_fixed_nominal(self):
+        root = Path(__file__).resolve().parents[4]
+        resolved, _ = resolve_config(
+            root / "experiments/g1_stairs/configs/specialist_single_step_smoke.yaml"
+        )
+        staging = resolved["specialist_stair"]["staging"]
+        self.assertEqual(staging["distance_before_riser_m"], [0.30, 0.30])
+        self.assertEqual(staging["lateral_offset_m"], [0.0, 0.0])
+        self.assertEqual(staging["yaw_offset_rad"], [0.0, 0.0])
+        self.assertEqual(
+            resolved["reward_parameters"]["approach_progress"][
+                "preparation_distance_m"
+            ],
+            0.10,
         )
 
     def test_reward_parameter_overrides_are_active_term_scoped(self):

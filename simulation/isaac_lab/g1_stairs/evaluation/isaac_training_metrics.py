@@ -11,13 +11,57 @@ from simulation.isaac_lab.g1_stairs.action_diagnostics import (
 )
 from simulation.isaac_lab.g1_stairs.evaluation.metrics import RunMetricsWriter
 from simulation.isaac_lab.g1_stairs.contact_sensor_contract import (
+    FOOT_BODY_NAMES,
     FORBIDDEN_CONTACT_BODY_NAMES,
     resolve_available_body_indices,
+)
+from simulation.isaac_lab.g1_stairs.contracts import (
+    G1_SOLE_SPHERE_CENTRES_M,
+    G1_SOLE_SPHERE_RADIUS_M,
 )
 from simulation.isaac_lab.g1_stairs.evaluation.stair_diagnostics import (
     NamedTensorStatsAccumulator,
 )
-from simulation.isaac_lab.g1_stairs.terrain_state import stair_cfg
+from simulation.isaac_lab.g1_stairs.reward_math import tread_containment_score
+from simulation.isaac_lab.g1_stairs.terrain_state import (
+    riser_height_per_env,
+    stair_cfg,
+)
+
+
+STAIR_DIAGNOSTIC_NAMES = (
+    "root_distance_to_riser_m",
+    "mean_foot_front_distance_to_riser_m",
+    "lead_foot_front_distance_to_riser_m",
+    "maximum_sole_bottom_m",
+    "maximum_clearance_above_riser_m",
+    "maximum_upper_containment",
+    "maximum_vertical_foot_force_n",
+    "minimum_foot_speed_mps",
+    "root_height_m",
+    "upright_gravity_z",
+    "native_failure_termination",
+)
+
+
+def _quat_rotate_wxyz(quaternion, vector):
+    import torch
+
+    q_w = quaternion[..., :1]
+    q_v = quaternion[..., 1:]
+    uv = torch.cross(q_v, vector, dim=-1)
+    uuv = torch.cross(q_v, uv, dim=-1)
+    return vector + 2.0 * (q_w * uv + uuv)
+
+
+def _body_linear_velocity(data):
+    if hasattr(data, "body_link_lin_vel_w"):
+        return data.body_link_lin_vel_w
+    if hasattr(data, "body_lin_vel_w"):
+        return data.body_lin_vel_w
+    raise RuntimeError(
+        "robot articulation data has no body linear velocity tensor"
+    )
 
 
 def recover_raw_reward_step(weighted_rate, dt: float, weight: float):
@@ -38,6 +82,8 @@ class InstrumentedRslRlVecEnvWrapper:
         self._previous_actions = None
         self._previous_executed_actions = None
         self._previous_joint_acc = None
+        self._stair_body_indices = None
+        self._stair_sensor_indices = None
 
         self.reset_metrics()
 
@@ -86,6 +132,9 @@ class InstrumentedRslRlVecEnvWrapper:
         # reward-component accumulator. They never feed back into PPO.
         self._reward_distribution = None
         self._reward_distribution_weights = {}
+        self._stair_distribution = NamedTensorStatsAccumulator(
+            STAIR_DIAGNOSTIC_NAMES
+        )
 
     def step(self, actions):
         import torch
@@ -309,15 +358,105 @@ class InstrumentedRslRlVecEnvWrapper:
         self._platform_reached = self._platform_reached or bool(
             torch.any(local_x >= platform_start).item()
         )
+
+        # Reward-independent mechanics diagnostics. These signals never feed
+        # PPO; they only make the current physical bottleneck observable.
+        if self._stair_body_indices is None:
+            body_index = {name: i for i, name in enumerate(robot.body_names)}
+            sensor_index = {
+                name: i for i, name in enumerate(sensor.body_names)
+            } if sensor is not None else {}
+            missing_bodies = [
+                name for name in FOOT_BODY_NAMES if name not in body_index
+            ]
+            missing_sensor = [
+                name for name in FOOT_BODY_NAMES if name not in sensor_index
+            ]
+            if missing_bodies or missing_sensor:
+                raise RuntimeError(
+                    "stair diagnostics require both ankle-roll bodies in "
+                    "robot and contact sensor"
+                )
+            self._stair_body_indices = tuple(
+                body_index[name] for name in FOOT_BODY_NAMES
+            )
+            self._stair_sensor_indices = tuple(
+                sensor_index[name] for name in FOOT_BODY_NAMES
+            )
+
+        foot_ids = list(self._stair_body_indices)
+        sensor_ids = list(self._stair_sensor_indices)
+        foot_pos_w = data.body_pos_w[:, foot_ids]
+        foot_quat_w = data.body_quat_w[:, foot_ids]
+        foot_vel_w = _body_linear_velocity(data)[:, foot_ids]
+
+        centres = torch.tensor(
+            G1_SOLE_SPHERE_CENTRES_M,
+            dtype=foot_pos_w.dtype,
+            device=foot_pos_w.device,
+        ).view(1, 1, 4, 3).expand(
+            foot_pos_w.shape[0], 2, 4, 3
+        )
+        quaternions = foot_quat_w.unsqueeze(2).expand(
+            foot_pos_w.shape[0], 2, 4, 4
+        )
+        sole_centres_w = foot_pos_w.unsqueeze(2) + _quat_rotate_wxyz(
+            quaternions, centres
+        )
+        sole_local = (
+            sole_centres_w
+            - env.scene.env_origins[:, None, None, :]
+        )
+        rear_x = sole_local[..., 0].amin(dim=2)
+        front_x = sole_local[..., 0].amax(dim=2)
+        sole_bottom = (
+            sole_local[..., 2] - G1_SOLE_SPHERE_RADIUS_M
+        ).amin(dim=2)
+        foot_speed = torch.linalg.vector_norm(foot_vel_w, dim=2)
+        vertical_force = sensor.data.net_forces_w[:, sensor_ids, 2].clamp_min(0.0)
+        riser_height = riser_height_per_env(env)
+        containment = tread_containment_score(
+            rear_x,
+            front_x,
+            riser_x_m=first_riser,
+            tread_depth_m=tread_depth,
+            margin_m=0.015,
+        )
+        lead_front = front_x.amax(dim=1)
+        mean_front = front_x.mean(dim=1)
+        maximum_sole_bottom = sole_bottom.amax(dim=1)
+        maximum_clearance = (
+            maximum_sole_bottom - riser_height
+        )
+        native_failure = env.reset_terminated.to(dtype=local_x.dtype)
+
+        self._stair_distribution.update(
+            torch.stack(
+                (
+                    first_riser - local_x,
+                    first_riser - mean_front,
+                    first_riser - lead_front,
+                    maximum_sole_bottom,
+                    maximum_clearance,
+                    containment.amax(dim=1),
+                    vertical_force.amax(dim=1),
+                    foot_speed.amin(dim=1),
+                    local_z,
+                    -data.projected_gravity_b[:, 2],
+                    native_failure,
+                ),
+                dim=1,
+            )
+        )
         return result
 
     def consume_metrics(self) -> tuple[dict, dict[str, dict[str, float]]]:
         steps = max(self._steps, 1)
         snapshot = {
             "episode_return_mean": self._reward_total,
-            "maximum_x_mean_m": self._maximum_x,
-            "maximum_base_height_mean_m": self._maximum_height,
-            "maximum_step_reached_mean": self._maximum_step,
+            "maximum_x_any_m": self._maximum_x,
+            "maximum_base_height_any_m": self._maximum_height,
+            "maximum_step_reached_any": self._maximum_step,
             "platform_reached_rate": float(self._platform_reached),
             "action_saturation_count": self._action_saturation_count,
             "joint_limit_violation_count": self._joint_limit_violation_count,
@@ -423,7 +562,18 @@ class InstrumentedRslRlVecEnvWrapper:
                     ),
                 }
 
-        stair_diagnostics = {}
+        stair_diagnostics = {
+            name: {
+                "sample_count": values["sample_count"],
+                "mean": values["mean"],
+                "std": values["std"],
+                "min": values["min"],
+                "max": values["max"],
+            }
+            for name, values in (
+                self._stair_distribution.snapshot().items()
+            )
+        }
 
         self.reset_metrics()
 
