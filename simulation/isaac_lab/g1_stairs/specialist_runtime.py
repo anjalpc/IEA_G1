@@ -84,10 +84,33 @@ def parse_specialist_staging_config(
     initialization = resolved.get("policy_initialization", {})
     if not isinstance(initialization, dict):
         raise ValueError("policy_initialization must be a mapping")
-    if initialization.get("type") != "random":
+    initialization_type = initialization.get("type")
+    allowed_initializations = {
+        "random",
+        "rsl_rl_checkpoint_actor_transfer",
+    }
+    if initialization_type not in allowed_initializations:
         raise ValueError(
-            "specialist_stair requires policy_initialization.type: random"
+            "specialist_stair requires policy_initialization.type to be "
+            "random or rsl_rl_checkpoint_actor_transfer"
         )
+
+    if initialization_type == "rsl_rl_checkpoint_actor_transfer":
+        source = initialization.get("source")
+        if (
+            not isinstance(source, dict)
+            or not isinstance(source.get("path"), str)
+            or not source["path"].strip()
+        ):
+            raise ValueError(
+                "rsl_rl_checkpoint_actor_transfer requires "
+                "policy_initialization.source.path"
+            )
+
+        if initialization.get("critic_initialization", "fresh") != "fresh":
+            raise ValueError(
+                "checkpoint actor transfer requires a fresh critic"
+            )
 
     staging = specialist.get("staging")
     if not isinstance(staging, dict):
@@ -244,7 +267,7 @@ def apply_specialist_runtime(
     return {
         "enabled": True,
         "robot_profile": "deployment_pd_official_usd",
-        "policy_initialization": "random",
+        "policy_initialization": initialization_type,
         "distance_before_riser_m": [
             staging.distance_min_m,
             staging.distance_max_m,

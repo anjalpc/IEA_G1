@@ -88,6 +88,107 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
+
+def initialize_actor_from_rsl_rl_checkpoint(
+    runner,
+    checkpoint_path: Path,
+) -> dict[str, object]:
+    """Transfer actor parameters and action std from an RSL-RL checkpoint.
+
+    The critic and optimizer intentionally remain freshly initialized. This is
+    a curriculum-transfer path, not a full training resume: learned motor
+    behavior is preserved while the value function is relearned for the new
+    reward objective.
+    """
+
+    checkpoint_path = checkpoint_path.resolve()
+    if not checkpoint_path.is_file():
+        raise FileNotFoundError(checkpoint_path)
+
+    checkpoint = torch.load(
+        checkpoint_path,
+        map_location="cpu",
+        weights_only=True,
+    )
+    if not isinstance(checkpoint, dict):
+        raise RuntimeError(
+            "RSL-RL checkpoint must contain a mapping"
+        )
+
+    source_state = checkpoint.get("model_state_dict")
+    if not isinstance(source_state, dict):
+        raise RuntimeError(
+            "RSL-RL checkpoint is missing model_state_dict"
+        )
+
+    policy = runner.alg.policy
+    target_state = policy.state_dict()
+
+    actor_keys = sorted(
+        key for key in source_state
+        if key.startswith("actor.")
+    )
+    transfer_keys = ["std", *actor_keys]
+
+    if not actor_keys:
+        raise RuntimeError(
+            "RSL-RL checkpoint contains no actor parameters"
+        )
+
+    missing_source = [
+        key for key in transfer_keys
+        if key not in source_state
+    ]
+    if missing_source:
+        raise RuntimeError(
+            "RSL-RL checkpoint is missing actor transfer keys: "
+            + ", ".join(missing_source)
+        )
+
+    missing_target = [
+        key for key in transfer_keys
+        if key not in target_state
+    ]
+    if missing_target:
+        raise RuntimeError(
+            "Runtime policy is missing actor transfer keys: "
+            + ", ".join(missing_target)
+        )
+
+    for key in transfer_keys:
+        source = source_state[key]
+        target = target_state[key]
+        if tuple(source.shape) != tuple(target.shape):
+            raise RuntimeError(
+                f"Checkpoint tensor {key} shape mismatch: "
+                f"source={tuple(source.shape)} "
+                f"runtime={tuple(target.shape)}"
+            )
+
+    merged_state = dict(target_state)
+    for key in transfer_keys:
+        target = target_state[key]
+        merged_state[key] = source_state[key].to(
+            device=target.device,
+            dtype=target.dtype,
+        )
+
+    policy.load_state_dict(merged_state, strict=True)
+
+    metadata = {
+        "type": "rsl_rl_checkpoint_actor_transfer",
+        "source": str(checkpoint_path),
+        "source_sha256": _sha256(checkpoint_path),
+        "source_iteration": checkpoint.get("iter"),
+        "transferred_actor_tensors": len(actor_keys),
+        "transferred_action_std": True,
+        "critic_initialization": "fresh",
+        "optimizer_initialization": "fresh",
+    }
+
+    print("[INFO] Policy initialization:", metadata, flush=True)
+    return metadata
+
 def initialize_actor_from_unitree_onnx(
     runner,
     onnx_path: Path,

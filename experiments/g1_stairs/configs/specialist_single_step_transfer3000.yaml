@@ -1,0 +1,65 @@
+schema_version: 1
+
+experiment:
+  id: specialist_single_step_transfer3000
+  purpose: >
+    Curriculum continuation from the stabilized specialist actor learned in
+    model_950. Preserve actor weights and action standard deviation, reset the
+    critic and PPO optimizer, remove continuous survival reward, and continue
+    single-step skill acquisition without changing robot, observations,
+    actions, terrain, or stair progression geometry.
+  type: specialist_stair_curriculum_transfer
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/specialist_single_step_base.yaml
+  resolved_config_required: true
+
+policy_initialization:
+  type: rsl_rl_checkpoint_actor_transfer
+  source:
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/specialist_single_step_train3000_20260926_103301/model_950.pt
+  critic_initialization: fresh
+  optimizer_initialization: fresh
+  transfer_action_std: true
+
+reward_experiment:
+  active_stage: specialist_single_step_acquisition
+  strict_runtime_set: true
+  rule: >
+    Curriculum acquisition stage. The transferred actor already has stable
+    standing behavior, so continuous alive reward is removed. Balance remains
+    a regularizer while bounded stair progression and terminal success define
+    the positive task return.
+  rewards:
+    stage_plan:
+      specialist_single_step_acquisition:
+        alive: 0.0
+        upright: -5.0
+        base_angular_velocity: -0.05
+        feet_slide: -0.2
+        action_rate: -0.01
+        joint_acc: -2.5e-7
+        dof_pos_limits: -5.0
+        undesired_contacts: -1.0
+        failure_termination_event: -4.0
+        approach_progress: 1.0
+        swing_clearance_progress: 2.5
+        upper_foothold_progress: 2.5
+        body_transfer_progress: 3.0
+        trailing_foot_recovery: 2.0
+        riser_strike_event: -2.0
+        single_step_success: 6.0
+
+ppo:
+  learning_rate: 0.0001
+  learning_rate_schedule: adaptive
+  desired_kl: 0.01
+
+execution:
+  environments: 256
+  maximum_iterations: 3000
+  training_seed: 42
+
+launch_gates:
+  allow_launch: true

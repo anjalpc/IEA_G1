@@ -13,6 +13,7 @@ from onnx import helper, numpy_helper
 from simulation.isaac_lab.g1_stairs.policy_initialization import (
     LOCOMOTION_OBS_DIM,
     TERRAIN_OBS_DIM,
+    initialize_actor_from_rsl_rl_checkpoint,
     initialize_actor_from_unitree_onnx,
 )
 
@@ -149,6 +150,84 @@ class PolicyInitializationTest(unittest.TestCase):
             metadata["new_columns_max_abs"],
             0.0,
         )
+
+    def test_rsl_rl_checkpoint_actor_transfer_preserves_critic(self) -> None:
+        class FakePolicy(torch.nn.Module):
+            def __init__(self) -> None:
+                super().__init__()
+                self.actor = torch.nn.Sequential(
+                    torch.nn.Linear(98, 512),
+                    torch.nn.ELU(),
+                    torch.nn.Linear(512, 256),
+                    torch.nn.ELU(),
+                    torch.nn.Linear(256, 128),
+                    torch.nn.ELU(),
+                    torch.nn.Linear(128, 29),
+                )
+                self.critic = torch.nn.Sequential(
+                    torch.nn.Linear(288, 512),
+                    torch.nn.ELU(),
+                    torch.nn.Linear(512, 256),
+                    torch.nn.ELU(),
+                    torch.nn.Linear(256, 128),
+                    torch.nn.ELU(),
+                    torch.nn.Linear(128, 1),
+                )
+                self.std = torch.nn.Parameter(torch.full((29,), 0.5))
+
+        source_policy = FakePolicy()
+        target_policy = FakePolicy()
+
+        with torch.no_grad():
+            for parameter in source_policy.actor.parameters():
+                parameter.add_(1.0)
+            source_policy.std.fill_(0.23)
+
+        critic_before = {
+            key: value.detach().clone()
+            for key, value in target_policy.critic.state_dict().items()
+        }
+
+        runner = SimpleNamespace(
+            alg=SimpleNamespace(policy=target_policy)
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            checkpoint = Path(tmp) / "model_950.pt"
+            torch.save(
+                {
+                    "model_state_dict": source_policy.state_dict(),
+                    "optimizer_state_dict": {"state": {}, "param_groups": []},
+                    "iter": 950,
+                    "infos": None,
+                },
+                checkpoint,
+            )
+
+            metadata = initialize_actor_from_rsl_rl_checkpoint(
+                runner=runner,
+                checkpoint_path=checkpoint,
+            )
+
+        target_state = target_policy.state_dict()
+        source_state = source_policy.state_dict()
+
+        for key in source_state:
+            if key == "std" or key.startswith("actor."):
+                torch.testing.assert_close(
+                    target_state[key],
+                    source_state[key],
+                )
+
+        for key, before in critic_before.items():
+            torch.testing.assert_close(
+                target_policy.critic.state_dict()[key],
+                before,
+            )
+
+        self.assertEqual(metadata["source_iteration"], 950)
+        self.assertEqual(metadata["critic_initialization"], "fresh")
+        self.assertEqual(metadata["optimizer_initialization"], "fresh")
 
 
 if __name__ == "__main__":

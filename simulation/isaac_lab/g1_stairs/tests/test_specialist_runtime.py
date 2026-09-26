@@ -33,11 +33,26 @@ def test_specialist_staging_distribution_is_centered_on_0425_m() -> None:
     assert parsed.episode_length_s == pytest.approx(8.0)
 
 
-def test_specialist_profile_requires_random_initialization() -> None:
+def test_specialist_profile_accepts_checkpoint_actor_transfer() -> None:
+    config = _config()
+    config["policy_initialization"] = {
+        "type": "rsl_rl_checkpoint_actor_transfer",
+        "source": {"path": "/tmp/model_950.pt"},
+        "critic_initialization": "fresh",
+    }
+
+    parsed = parse_specialist_staging_config(config)
+    assert parsed is not None
+
+
+def test_specialist_profile_rejects_other_initialization_modes() -> None:
     config = _config()
     config["policy_initialization"]["type"] = "unitree_velocity_onnx_transfer"
 
-    with pytest.raises(ValueError, match="requires policy_initialization.type: random"):
+    with pytest.raises(
+        ValueError,
+        match="random or rsl_rl_checkpoint_actor_transfer",
+    ):
         parse_specialist_staging_config(config)
 
 

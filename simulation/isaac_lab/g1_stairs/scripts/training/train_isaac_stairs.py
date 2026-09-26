@@ -51,6 +51,7 @@ def main() -> None:
     )
 
     from simulation.isaac_lab.g1_stairs.policy_initialization import (
+        initialize_actor_from_rsl_rl_checkpoint,
         initialize_actor_from_unitree_onnx,
     )
 
@@ -556,6 +557,13 @@ def main() -> None:
         initialize_actor_from_unitree_onnx(
             runner=runner,
             onnx_path=Path(
+                initialization_cfg["source"]["path"]
+            ),
+        )
+    elif initialization_type == "rsl_rl_checkpoint_actor_transfer":
+        initialize_actor_from_rsl_rl_checkpoint(
+            runner=runner,
+            checkpoint_path=Path(
                 initialization_cfg["source"]["path"]
             ),
         )
