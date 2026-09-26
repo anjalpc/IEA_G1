@@ -323,14 +323,11 @@ def main() -> None:
         )
 
     if resolved_config is not None:
-        from simulation.isaac_lab.g1_stairs.halfway_reset import (
-            configure_halfway_reset,
-            parse_halfway_reset_config,
+        from simulation.isaac_lab.g1_stairs.runtime_contract import (
+            reject_archived_pre_specialist_runtime,
         )
 
-        halfway_cfg = parse_halfway_reset_config(resolved_config)
-        if halfway_cfg is not None:
-            configure_halfway_reset(env_cfg, halfway_cfg)
+        reject_archived_pre_specialist_runtime(resolved_config)
 
         # Reconstruct reference-conditioned observations and residual
         # action semantics used by experiments 029+.

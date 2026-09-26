@@ -2,8 +2,8 @@
 
 This module intentionally contains no experiment-number-specific behavior.
 Experiment YAML selects whether the specialist profile is active and defines
-its staging distribution. Historical locomotion-prior experiments remain
-unchanged when ``specialist_stair.enabled`` is false or absent.
+its staging distribution. Archived pre-specialist controller/reward runtimes are intentionally not
+executable from the active specialist branch.
 """
 
 from __future__ import annotations
@@ -77,15 +77,9 @@ def parse_specialist_staging_config(
     if not isinstance(specialist, dict) or not specialist.get("enabled", False):
         return None
 
-    # A specialist experiment must not silently inherit one of the old
-    # controller/reward replacement paths.
-    for section in ("structured_step", "physical_step", "approach_teacher", "halfway_reset"):
-        section_cfg = resolved.get(section)
-        if isinstance(section_cfg, dict) and section_cfg.get("enabled", False):
-            raise ValueError(
-                "specialist_stair cannot be combined with legacy runtime "
-                f"section {section!r}"
-            )
+    from .runtime_contract import reject_archived_pre_specialist_runtime
+
+    reject_archived_pre_specialist_runtime(resolved)
 
     initialization = resolved.get("policy_initialization", {})
     if not isinstance(initialization, dict):

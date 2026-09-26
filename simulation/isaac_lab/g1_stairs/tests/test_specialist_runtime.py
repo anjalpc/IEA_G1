@@ -45,7 +45,7 @@ def test_specialist_profile_rejects_legacy_runtime_mix() -> None:
     config = _config()
     config["structured_step"] = {"enabled": True}
 
-    with pytest.raises(ValueError, match="cannot be combined"):
+    with pytest.raises(ValueError, match="archived pre-specialist runtime"):
         parse_specialist_staging_config(config)
 
 

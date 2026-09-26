@@ -52,3 +52,25 @@ def validate_runtime_versions(
         raise RuntimeVersionMismatch(
             "runtime version preflight failed: " + "; ".join(mismatches)
         )
+
+ARCHIVED_PRE_SPECIALIST_RUNTIME_SECTIONS = (
+    "approach_teacher",
+    "halfway_reset",
+    "physical_step",
+    "structured_step",
+)
+
+
+def reject_archived_pre_specialist_runtime(resolved: dict) -> None:
+    """Fail closed when an archived controller/reward runtime is requested."""
+    enabled = []
+    for section in ARCHIVED_PRE_SPECIALIST_RUNTIME_SECTIONS:
+        value = resolved.get(section)
+        if isinstance(value, dict) and value.get("enabled", False):
+            enabled.append(section)
+
+    if enabled:
+        raise ValueError(
+            "archived pre-specialist runtime section(s) are not executable on "
+            "the specialist branch: " + ", ".join(enabled)
+        )

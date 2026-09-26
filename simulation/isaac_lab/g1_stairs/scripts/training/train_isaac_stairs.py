@@ -9,7 +9,6 @@ import os
 from pathlib import Path
 import shutil
 import sys
-import yaml
 
 from isaaclab.app import AppLauncher
 
@@ -80,6 +79,12 @@ def main() -> None:
 
     resolved_config = load_resolved_config(Path(resolved_config_value))
 
+    from simulation.isaac_lab.g1_stairs.runtime_contract import (
+        reject_archived_pre_specialist_runtime,
+    )
+
+    reject_archived_pre_specialist_runtime(resolved_config)
+
     from simulation.isaac_lab.g1_stairs.specialist_runtime import (
         apply_specialist_runtime,
     )
@@ -94,17 +99,6 @@ def main() -> None:
             specialist_summary,
             flush=True,
         )
-
-    from simulation.isaac_lab.g1_stairs.approach_teacher import (
-        configure_approach_teacher_gate,
-        enable_approach_teacher_observations,
-        parse_approach_teacher_config,
-    )
-    approach_teacher_cfg = parse_approach_teacher_config(resolved_config)
-    if approach_teacher_cfg is not None:
-        enable_approach_teacher_observations(env_cfg)
-        configure_approach_teacher_gate(env_cfg, approach_teacher_cfg)
-        print("[INFO] Approach teacher:", approach_teacher_cfg, flush=True)
 
     observations_cfg = resolved_config.get(
         "observations",
@@ -122,15 +116,6 @@ def main() -> None:
             flush=True,
         )
 
-    from simulation.isaac_lab.g1_stairs.halfway_reset import (
-        configure_halfway_reset,
-        parse_halfway_reset_config,
-        validate_halfway_reset,
-    )
-
-    halfway_cfg = parse_halfway_reset_config(resolved_config)
-    if halfway_cfg is not None:
-        configure_halfway_reset(env_cfg, halfway_cfg)
     terrain_cfg = resolved_config.get("terrain", {})
     if "riser_height_range_m" in terrain_cfg:
         values = terrain_cfg[
@@ -367,8 +352,6 @@ def main() -> None:
             env_cfg.observations.policy,
             env_cfg.observations.critic,
         ]
-        if approach_teacher_cfg is not None:
-            observation_groups.append(env_cfg.observations.approach_teacher)
         for observation_group in observation_groups:
             observation_group.velocity_commands.func = (
                 terrain_observations.stair_velocity_command
@@ -478,11 +461,7 @@ def main() -> None:
     log_dir = log_dir.resolve()
     print(f"[INFO] Logging experiment in directory: {log_dir}")
 
-    if halfway_cfg is not None:
-        print("[021] before gym.make", flush=True)
     env = gym.make(args.task, cfg=env_cfg, render_mode=None)
-    if halfway_cfg is not None:
-        print("[021] environment constructed", flush=True)
     if isinstance(env.unwrapped, DirectMARLEnv):
         env = multi_agent_to_single_agent(env)
 
@@ -524,169 +503,8 @@ def main() -> None:
             flush=True,
         )
 
-    halfway_summary = None
-    if halfway_cfg is not None:
-        import torch
-
-        print("[021] resetting halfway environment", flush=True)
-
-        reset_result = env.reset()
-        reset_observations = (
-            reset_result[0]
-            if isinstance(reset_result, tuple)
-            else reset_result
-        )
-
-        print("[021] first reset complete", flush=True)
-
-        # IMPORTANT:
-        # Do not drive PhysX manually here.
-        #
-        # Use the normal ManagerBasedRLEnv stepping path so actions,
-        # scene writes, physics, sensors, observations and managers are
-        # synchronized exactly as they are during PPO training.
-        action_dim = env.unwrapped.action_manager.total_action_dim
-
-        zero_actions = torch.zeros(
-            (env.unwrapped.num_envs, action_dim),
-            dtype=torch.float32,
-            device=env.unwrapped.device,
-        )
-
-        warmup_steps = max(
-            1,
-            min(int(halfway_cfg.settle_steps), 2),
-        )
-
-        observations = reset_observations
-
-        print(
-            f"[021] bounded contact warmup: {warmup_steps} env steps",
-            flush=True,
-        )
-
-        for step_index in range(warmup_steps):
-            print(
-                f"[021] warmup step {step_index + 1}/{warmup_steps} ENTER",
-                flush=True,
-            )
-
-            step_result = env.step(zero_actions)
-
-            observations = (
-                step_result[0]
-                if isinstance(step_result, tuple)
-                else step_result
-            )
-
-            print(
-                f"[021] warmup step {step_index + 1}/{warmup_steps} EXIT",
-                flush=True,
-            )
-
-        print("[021] startup preflight", flush=True)
-
-        # Do NOT call validate_halfway_reset() here.
-        #
-        # The environment has already:
-        #   - constructed successfully,
-        #   - executed the halfway reset,
-        #   - completed two normal env.step() calls,
-        #   - evaluated the active transition rewards.
-        #
-        # The old custom validator was blocking startup even though the
-        # actual RL stepping path was healthy.  Physical support remains
-        # enforced and measured by the runtime transition terms during PPO.
-        def _collect_tensors(value):
-            if torch.is_tensor(value):
-                return [value]
-            if isinstance(value, dict):
-                tensors = []
-                for nested in value.values():
-                    tensors.extend(_collect_tensors(nested))
-                return tensors
-            if isinstance(value, (tuple, list)):
-                tensors = []
-                for nested in value:
-                    tensors.extend(_collect_tensors(nested))
-                return tensors
-            return []
-
-        observation_tensors = _collect_tensors(observations)
-
-        finite_observations = all(
-            bool(torch.isfinite(tensor).all().item())
-            for tensor in observation_tensors
-        )
-
-        if not finite_observations:
-            raise RuntimeError(
-                "021 startup preflight failed: non-finite observations"
-            )
-
-        halfway_summary = {
-            "startup_preflight": "passed",
-            "physical_validation": "runtime_transition_detector",
-            "finite_observation_rate": 1.0,
-            "detector_initial_state": "FIRST_SUPPORT",
-            "warmup_env_steps": warmup_steps,
-            "ppo_iteration_completed": False,
-        }
-
-        summary_path = (
-            Path(metrics_dir_value)
-            / "halfway_reset_smoke.yaml"
-        )
-
-        summary_path.write_text(
-            yaml.safe_dump(
-                halfway_summary,
-                sort_keys=False,
-            ),
-            encoding="utf-8",
-        )
-
-        print("=== 021 HALFWAY STARTUP PREFLIGHT ===", flush=True)
-
-        for name, value in halfway_summary.items():
-            print(f"{name}: {value}", flush=True)
-
-        print("[021] startup preflight complete", flush=True)
-
     env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
     env = InstrumentedRslRlVecEnvWrapper(env)
-    original_ppo_class = on_policy_runner_module.PPO
-    teacher = None
-    if approach_teacher_cfg is not None:
-        from simulation.isaac_lab.g1_stairs.approach_teacher_ppo import (
-            ApproachTeacherPPO,
-        )
-        from simulation.isaac_lab.g1_stairs.policy_initialization import (
-            load_frozen_unitree_actor,
-        )
-        teacher = load_frozen_unitree_actor(
-            Path(resolved_config["policy_initialization"]["source"]["path"]),
-            device=agent_cfg.device,
-        )
-        on_policy_runner_module.PPO = ApproachTeacherPPO
-
-    if (
-        approach_teacher_cfg is not None
-        and approach_teacher_cfg.enforce_action_blend
-    ):
-        env.configure_teacher_action_blend(
-            teacher,
-            approach_teacher_cfg,
-        )
-
-        print(
-            "[INFO] Teacher action authority ENABLED: "
-            f"teacher-only >= {approach_teacher_cfg.release_far_m:.3f} m; "
-            f"blend {approach_teacher_cfg.release_far_m:.3f} -> "
-            f"{approach_teacher_cfg.release_near_m:.3f} m; "
-            f"student-only <= {approach_teacher_cfg.release_near_m:.3f} m",
-            flush=True,
-        )
 
     class MetricsOnPolicyRunner(MetricsOnPolicyRunnerMixin, OnPolicyRunner):
         def save(self, path: str, infos=None):
@@ -701,18 +519,12 @@ def main() -> None:
             )
             return result
 
-    try:
-        runner = MetricsOnPolicyRunner(
-            env,
-            agent_cfg.to_dict(),
-            log_dir=str(log_dir),
-            device=agent_cfg.device,
-        )
-    finally:
-        on_policy_runner_module.PPO = original_ppo_class
-
-    if approach_teacher_cfg is not None:
-        runner.alg.configure_approach_teacher(teacher, approach_teacher_cfg)
+    runner = MetricsOnPolicyRunner(
+        env,
+        agent_cfg.to_dict(),
+        log_dir=str(log_dir),
+        device=agent_cfg.device,
+    )
 
     original_store_code_state = on_policy_runner_module.store_code_state
 
@@ -763,21 +575,7 @@ def main() -> None:
         num_learning_iterations=agent_cfg.max_iterations,
         init_at_random_ep_len=False,
     )
-    if resolved_config.get("physical_step", {}).get("enabled", False):
-        from simulation.isaac_lab.g1_stairs.physical_step_runtime import summary
-        physical_summary = summary(env.unwrapped)
-        physical_summary["ppo_learn_returned"] = True
-        (Path(metrics_dir_value) / "physical_step043_summary.yaml").write_text(
-            yaml.safe_dump(physical_summary, sort_keys=False), encoding="utf-8"
-        )
     env.close()
-
-    if halfway_summary is not None:
-        halfway_summary["ppo_iteration_completed"] = True
-        summary_path.write_text(
-            yaml.safe_dump(halfway_summary, sort_keys=False),
-            encoding="utf-8",
-        )
 
     completion_marker = Path(metrics_dir_value) / "training_complete.yaml"
     completion_marker.write_text(

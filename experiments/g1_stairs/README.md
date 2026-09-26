@@ -30,29 +30,20 @@ The `experiments/g1_stairs/` tree therefore stores experiment definitions and
 evidence, while `simulation/isaac_lab/g1_stairs/` stores executable simulation,
 training, evaluation, and analysis code.
 
-## Experiment progression
+## Active experiment profiles
 
-The committed YAML files form a small progression of reproducible checks and experiments:
+The active config directory is intentionally small and configuration-driven:
 
-1. `001_upstream_flat_ground.yaml`
-   - One-iteration infrastructure check based on the upstream G1 task.
-   - Validates the Isaac Lab, Unitree RL Lab, RSL-RL, and GPU stack.
+- `nominal_stairs_base.yaml`: shared reproducibility, robot, timing, action, and terrain contract.
+- `specialist_base.yaml`: reusable near-riser specialist skill profile.
+- `specialist_smoke.yaml`: one-iteration integration gate.
 
-2. `002_stairs_smoke.yaml`
-   - One-iteration smoke test for the project stair task.
-   - Validates task registration, G1 asset loading, nominal staircase geometry, and stepping.
+Historical experiment definitions 001 through 050 and their associated
+controller/reward implementations are preserved under
+`archive/pre_specialist_20260925/`. They are not imported by the active
+runtime.
 
-3. `003_nominal_reward_debug.yaml`
-   - Nominal fixed-stair training configuration.
-   - Uses the exact three-step course and the current progress-plus-upright reward stage.
-
-4. `004_experiment_b_smoke.yaml`
-   - One-iteration reward and infrastructure smoke derived from the nominal configuration.
-   - Use this after environment or runtime changes before launching longer training.
-
-Historical experiment evidence belongs under `archive/`. Do not rewrite archived paths or results to match later repository reorganizations.
-
-## Nominal staircase
+## Thesis target staircase
 
 - Direction: positive X.
 - Riser height: 0.20 m.
@@ -61,16 +52,18 @@ Historical experiment evidence belongs under `archive/`. Do not rewrite archived
 - Total rise: 0.60 m.
 - Continuous upper platform after the third step.
 - Required post-stair continuation: 2.00 m.
-- Initial base position: `(1.00, 0.00, 0.80)` m.
-- Initial position and yaw randomization: disabled.
+
+The specialist curriculum begins from a simpler one-step geometry and scales
+toward this target. Its staging distribution is defined in the active YAML,
+not hard-coded here.
 
 ## Running an experiment
 
 Use `simctl` as the normal operator entry point:
 
 ```bash
-simulation/isaac_lab/g1_stairs/scripts/simctl \
-  train experiments/g1_stairs/configs/004_experiment_b_smoke.yaml
+simulation/isaac_lab/g1_stairs/scripts/simctl train \
+  experiments/g1_stairs/configs/specialist_smoke.yaml
 ```
 
 Check the selected run:
@@ -104,5 +97,7 @@ create experiment-number-specific Python implementations.
 - Legacy `physical_step`, `structured_step`, teacher, and halfway-reset runtimes
   are rejected if accidentally mixed into a specialist experiment.
 
-Historical experiment configs remain available until the specialist runtime is
-validated and the separate archive migration is performed.
+Historical 001-050 configs and obsolete runtime implementations are now
+archived under `archive/pre_specialist_20260925/`. The active specialist path
+retains all generic numerical diagnostics, replay/evaluation tooling, and
+reference-motion infrastructure.

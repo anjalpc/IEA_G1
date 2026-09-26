@@ -13,31 +13,6 @@ from .reward_registry import (
 )
 
 
-RAW_TO_RUNTIME_TERM = {
-    "distance_target_foot_lift_raw": "distance_target_foot_lift",
-    "forward_progress_raw": "forward_progress",
-    "stair_progress_raw": "stair_progress",
-    "upright_raw": "upright",
-    "platform_entry_raw": "platform_entry",
-    "task_completion_raw": "task_completion",
-    "track_lin_vel_xy_raw": "track_lin_vel_xy",
-    "action_rate_raw": "action_rate",
-    "waist_deviation_raw": "waist_deviation",
-    "stair_swing_clearance_raw": "stair_swing_clearance",
-    "anticipatory_swing_clearance_raw": "anticipatory_swing_clearance",
-    "contact_gated_stair_clearance_raw": "contact_gated_stair_clearance",
-    "curriculum_riser_clearance_raw": "curriculum_riser_clearance",
-    "pre_riser_foot_lift_raw": "pre_riser_foot_lift",
-    "riser_crossing_clearance_raw": "riser_crossing_clearance",
-    "riser_face_strike_proxy_raw": "riser_face_strike_proxy",
-    "curriculum_foot_over_tread_raw": "curriculum_foot_over_tread",
-    "validated_tread_contact_raw": "validated_tread_contact",
-    "base_above_transition_raw": "base_above_transition",
-    "both_feet_supported_transition_raw": "both_feet_supported_transition",
-    "completed_transition_raw": "completed_transition",
-}
-
-
 def load_resolved_config(path: Path) -> dict[str, Any]:
     """Load and normalize a resolved experiment configuration.
 
@@ -73,38 +48,13 @@ def load_resolved_config(path: Path) -> dict[str, Any]:
 def active_reward_weights(resolved: dict[str, Any]) -> dict[str, float]:
     """Resolve cumulative runtime rewards through the declared active stage.
 
-    A reward is valid when either:
-
-    1. it has an explicit historical RAW_TO_RUNTIME_TERM mapping, or
-    2. it is declared in the resolved rewards.terms catalog and follows
-       the canonical ``*_raw`` naming convention.
-
-    This keeps legacy experiments compatible while allowing new rewards
-    to be registered dynamically by reward_registry.
+    Active rewards are declared by experiment YAML and normalized through the
+    canonical ``*_raw`` naming convention. Historical numbered reward modes
+    are archived and rejected by the active runtime boundary.
     """
-    physical_enabled = resolved.get(
-        "physical_step", {}
-    ).get("enabled", False)
+    from .runtime_contract import reject_archived_pre_specialist_runtime
 
-    structured_enabled = resolved.get(
-        "structured_step", {}
-    ).get("enabled", False)
-
-    if physical_enabled and structured_enabled:
-        raise ValueError(
-            "physical_step and structured_step "
-            "cannot both be enabled"
-        )
-
-    if structured_enabled:
-        # 044 is a separate exact-replacement objective.
-        from .reward_registry import experiment_stage_weights
-        return experiment_stage_weights(resolved)[1]
-
-    if physical_enabled:
-        # 043 is a replacement objective, not another cumulative legacy stage.
-        from .reward_registry import experiment_stage_weights
-        return experiment_stage_weights(resolved)[1]
+    reject_archived_pre_specialist_runtime(resolved)
 
     try:
         rewards_cfg = resolved["rewards"]
@@ -157,21 +107,16 @@ def active_reward_weights(resolved: dict[str, Any]) -> dict[str, float]:
                     f"has non-numeric weight: {weight!r}"
                 )
 
-            # Legacy explicitly mapped rewards.
-            resolved_name = RAW_TO_RUNTIME_TERM.get(raw_name)
-
-            # New dynamically registered rewards.
-            if resolved_name is None:
-                if (
-                    raw_name.endswith("_raw")
-                    and raw_name in declared_terms
-                ):
-                    resolved_name = runtime_name(raw_name)
-                else:
-                    raise ValueError(
-                        f"active reward {raw_name} "
-                        "has no runtime implementation"
-                    )
+            if (
+                raw_name.endswith("_raw")
+                and raw_name in declared_terms
+            ):
+                resolved_name = runtime_name(raw_name)
+            else:
+                raise ValueError(
+                    f"active reward {raw_name} "
+                    "has no runtime implementation"
+                )
 
             weights[resolved_name] = float(weight)
 
@@ -247,24 +192,6 @@ def apply_resolved_rewards(
         _apply_strict_runtime_reward_set(env_cfg.rewards, weights)
         return weights
 
-    if resolved.get("structured_step", {}).get("enabled", False):
-        from .structured_step044_config import (
-            configure_structured_step044,
-        )
-
-        configure_structured_step044(
-            env_cfg,
-            resolved,
-            weights,
-        )
-
-        return weights
-
-    if resolved.get("physical_step", {}).get("enabled", False):
-        from .physical_step_config import configure_physical_step
-        configure_physical_step(env_cfg, resolved, weights)
-        return weights
-
     rewards_cfg = env_cfg.rewards
 
     declared_terms = resolved.get("rewards", {}).get(
@@ -272,7 +199,7 @@ def apply_resolved_rewards(
         {},
     )
 
-    candidate_names = set(RAW_TO_RUNTIME_TERM.values())
+    candidate_names: set[str] = set()
 
     if isinstance(declared_terms, dict):
         candidate_names.update(

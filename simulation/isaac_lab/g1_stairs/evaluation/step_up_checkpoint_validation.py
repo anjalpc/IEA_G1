@@ -71,6 +71,12 @@ def apply_resolved_replay_config(env_cfg, path: Path) -> AppliedReplayConfig:
 
     resolved = load_replay_resolved_config(path)
 
+    from simulation.isaac_lab.g1_stairs.runtime_contract import (
+        reject_archived_pre_specialist_runtime,
+    )
+
+    reject_archived_pre_specialist_runtime(resolved)
+
     from simulation.isaac_lab.g1_stairs.specialist_runtime import (
         apply_specialist_runtime,
     )

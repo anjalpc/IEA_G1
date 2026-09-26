@@ -1,91 +1,59 @@
-# G1 three-step Isaac Lab task
+# G1 specialist stair-climbing task
 
-This package contains the Isaac Lab stair-climbing task for the Unitree G1 EDU U7.
+This package contains the active Isaac Lab task for the Unitree G1 EDU U7
+specialist stair-climbing policy.
 
-Current thesis contract:
+## Active architecture
 
-- mode-machine 5
-- 29 body-DoF locomotion actions
-- fixed start, centered and facing the stairs
-- three 0.20 m risers with 0.25 m treads
-- continuous upper platform
-- at least 2.0 m forward travel after the third step
+The specialist skill is configuration-driven. Python modules implement generic
+contracts and reusable mechanics; experiment YAML selects geometry, staging,
+rewards, curriculum, and execution scope. Do not create experiment-number-specific
+Python modules.
 
-Randomization is introduced only after the nominal task works.
+The active specialist foundation uses:
 
-## Dependencies
+- 29 body-DoF joint-position-offset actions;
+- the official 29-DoF Unitree USD with deployment-matched PD gains;
+- random policy initialization, with no locomotion teacher or actor transfer;
+- near-riser standing resets;
+- explicit stair geometry in the actor observation;
+- generic numerical diagnostics and recorded run provenance.
 
-Upstream dependencies remain pristine under the workspace `src/` directory:
+Reference-motion modules remain active because they may be reused for
+reference-guided specialist training. Historical 001-050 controller/reward
+implementations are preserved under
+`experiments/g1_stairs/archive/pre_specialist_20260925/` and are not executable
+through the active training/replay path.
 
-```text
-workspace/
-├── IEA_G1/
-└── src/
-    ├── IsaacLab/
-    ├── unitree_rl_lab/
-    └── unitree_ros/
-```
+## Diagnostics
 
-Do not modify Unitree RL Lab or Unitree ROS for project-specific changes.
-
-The project-specific G1 asset override is:
-
-`simulation/isaac_lab/g1_stairs/robot_cfg.py`
-
-It loads the pinned mode-5 URDF from Unitree ROS while preserving the upstream G1 actuator and joint configuration.
-
-## Setup
-
-From a fresh IEA_G1 clone:
-
-```bash
-./scripts/setup_workspace.sh
-docker/isaac-lab/build.sh
-docker/isaac-lab/run.sh
-```
-
-Run the committed infrastructure smoke test:
-
-```bash
-simulation/isaac_lab/g1_stairs/scripts/simctl \
-  train experiments/g1_stairs/configs/004_experiment_b_smoke.yaml
-```
-
-Check it with:
-
-```bash
-simulation/isaac_lab/g1_stairs/scripts/simctl status
-```
-
-Expected result: `Status: completed` and `Exit code: 0`.
-The one-iteration smoke may not produce a resolved checkpoint.
+The cleanup does not remove the glass-box diagnostic architecture. Active tools
+include run manifests, resolved configs, reward distributions, action-group
+statistics, contact/safety metrics, checkpoint evaluation, posture diagnostics,
+video replay, and `simctl`.
 
 ## Tests
 
-Run the stair package tests inside the Isaac container:
+Run the complete active package suite inside the Isaac container:
 
 ```bash
-docker exec isaac-lab-fixed bash -lc 'cd /workspace/IEA_G1 && /workspace/isaaclab/isaaclab.sh -p -m pytest simulation/isaac_lab/g1_stairs/tests -q'
+docker exec isaac-lab-fixed bash -lc '
+cd /workspace/IEA_G1
+export PYTHONPATH=/workspace/IEA_G1:${PYTHONPATH}
+/workspace/isaaclab/isaaclab.sh -p -m pytest -q -p no:cacheprovider \
+  simulation/isaac_lab/g1_stairs/tests
+'
 ```
 
-Current expected result: `39 passed`.
+## Operator entry point
 
-## Experiments and provenance
+Run the specialist integration gate with:
 
-Experiment definitions live under `experiments/g1_stairs/configs/`.
-Generated runs, logs, checkpoints, videos, and evaluation outputs are local artifacts.
+```bash
+simulation/isaac_lab/g1_stairs/scripts/simctl train \
+  experiments/g1_stairs/configs/specialist_smoke.yaml
+```
 
-Recorded runs capture the exact IEA_G1 Git commit and branch, clean/dirty state, resolved experiment configuration, Isaac Lab revision, runtime package versions, and GPU/host information.
-
-Training is refused when the IEA_G1 worktree is dirty.
-
-Use committed YAML files for scientific parameters rather than overriding recorded experiment settings ad hoc on the command line.
-
-## BrainCo hands
-
-The locomotion policy controls the 29 G1 body joints only.
-BrainCo Revo2 finger joints are not locomotion actions.
-
-Future Isaac assets that include the physical hands must include their mass, inertia, collision geometry, and neutral pose without changing the 29-action locomotion contract.
-
-See `docs/setup/reproducibility.md` for the complete fresh-workspace setup.
+Scientific parameters belong in committed YAML. Recorded runs capture the
+resolved configuration, IEA_G1 commit, runtime dependency revisions, package
+versions, and host/GPU provenance.

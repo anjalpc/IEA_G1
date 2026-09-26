@@ -1,0 +1,35 @@
+schema_version: 1
+archive:
+  id: pre_specialist_20260925
+  date: 2026-09-25
+  generation: experiments_001_through_050
+  status: historical_read_only
+  reason: >
+    The specialist stair controller was qualified through clean training,
+    video replay, and checkpoint evaluation. Historical controller/reward
+    generations were moved out of the active runtime to prevent accidental
+    dependency leakage while preserving Git history and experiment evidence.
+  source_commit: parent_of_archive_cleanup_commit
+  preservation_method: git_mv
+qualified_specialist_foundation:
+  run_id: specialist_smoke_20260925_152110
+  policy_initialization: random
+  actor_observation_dim: 98
+  critic_observation_dim: 288
+  action_dim: 29
+  terrain:
+    step_count: 1
+    riser_height_m: 0.06
+    tread_depth_m: 0.25
+  reward_manager_terms: 5
+runtime_pins:
+  isaac_lab_commit: 3c6e67bb5c7ada942a6d1884ab69338f57596f77
+  unitree_rl_lab_commit: 4960b84732b0c2ec593dccbfe963fda1bcd7b1e3
+active_runtime_policy:
+  archived_sections_fail_closed:
+    - approach_teacher
+    - halfway_reset
+    - physical_step
+    - structured_step
+  diagnostics_preserved: true
+  reference_motion_preserved: true
