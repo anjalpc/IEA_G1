@@ -88,6 +88,79 @@ def support_quality(
     )
 
 
+
+
+def supported_single_foot_lift_score(
+    *,
+    sole_bottom_m: torch.Tensor,
+    vertical_force_n: torch.Tensor,
+    foot_speed_mps: torch.Tensor,
+    bodyweight_n: torch.Tensor,
+    riser_height_m: torch.Tensor,
+    lower_support_height_tolerance_m: float,
+    lower_support_force_bodyweight_fraction: float,
+    maximum_lower_support_foot_speed_mps: float,
+) -> torch.Tensor:
+    """Return a bounded single-foot lift score with opposite-foot support.
+
+    ``sole_bottom_m``, ``vertical_force_n`` and ``foot_speed_mps`` must be
+    shaped ``[N, 2]`` in left/right foot order.  A candidate swing foot earns
+    height progress only while the opposite foot remains loaded, near the
+    lower floor, and sufficiently slow.
+    """
+
+    if sole_bottom_m.ndim != 2 or sole_bottom_m.shape[1] != 2:
+        raise ValueError("sole_bottom_m must have shape [N, 2]")
+    if vertical_force_n.shape != sole_bottom_m.shape:
+        raise ValueError("vertical_force_n must match sole_bottom_m")
+    if foot_speed_mps.shape != sole_bottom_m.shape:
+        raise ValueError("foot_speed_mps must match sole_bottom_m")
+    if bodyweight_n.ndim != 1 or bodyweight_n.shape[0] != sole_bottom_m.shape[0]:
+        raise ValueError("bodyweight_n must have shape [N]")
+    if riser_height_m.ndim != 1 or riser_height_m.shape[0] != sole_bottom_m.shape[0]:
+        raise ValueError("riser_height_m must have shape [N]")
+    if lower_support_height_tolerance_m <= 0.0:
+        raise ValueError("lower_support_height_tolerance_m must be positive")
+    if not 0.0 < lower_support_force_bodyweight_fraction <= 1.0:
+        raise ValueError(
+            "lower_support_force_bodyweight_fraction must be in (0, 1]"
+        )
+    if maximum_lower_support_foot_speed_mps <= 0.0:
+        raise ValueError(
+            "maximum_lower_support_foot_speed_mps must be positive"
+        )
+
+    target_height = riser_height_m.unsqueeze(1).clamp_min(1.0e-4)
+    lift_fraction = (sole_bottom_m / target_height).clamp(0.0, 1.0)
+
+    lower_height_score = (
+        1.0
+        - torch.abs(sole_bottom_m) / float(lower_support_height_tolerance_m)
+    ).clamp(0.0, 1.0)
+    full_lower_force = (
+        bodyweight_n.unsqueeze(1)
+        * float(lower_support_force_bodyweight_fraction)
+    ).clamp_min(1.0e-6)
+    lower_force_score = (
+        vertical_force_n / full_lower_force
+    ).clamp(0.0, 1.0)
+    lower_speed_score = (
+        1.0
+        - foot_speed_mps / float(maximum_lower_support_foot_speed_mps)
+    ).clamp(0.0, 1.0)
+    lower_support = (
+        lower_height_score * lower_force_score * lower_speed_score
+    )
+
+    return torch.stack(
+        (
+            lift_fraction[:, 0] * lower_support[:, 1],
+            lift_fraction[:, 1] * lower_support[:, 0],
+        ),
+        dim=1,
+    ).amax(dim=1)
+
+
 def coupled_swing_score(
     *,
     sole_bottom_m: torch.Tensor,

@@ -6,6 +6,7 @@ import torch
 from simulation.isaac_lab.g1_stairs.reward_math import (
     coupled_swing_score,
     support_quality,
+    supported_single_foot_lift_score,
     tread_containment_score,
 )
 
@@ -45,6 +46,46 @@ def test_coupled_swing_requires_lift_and_advance() -> None:
     assert no_advance.item() == 0.0
     assert valid.item() == pytest.approx(1.0)
 
+
+
+def test_supported_single_foot_lift_requires_opposite_lower_support() -> None:
+    common = dict(
+        bodyweight_n=torch.tensor([400.0]),
+        riser_height_m=torch.tensor([0.06]),
+        lower_support_height_tolerance_m=0.02,
+        lower_support_force_bodyweight_fraction=0.30,
+        maximum_lower_support_foot_speed_mps=0.20,
+    )
+
+    supported = supported_single_foot_lift_score(
+        sole_bottom_m=torch.tensor([[0.06, 0.0]]),
+        vertical_force_n=torch.tensor([[0.0, 200.0]]),
+        foot_speed_mps=torch.tensor([[0.10, 0.0]]),
+        **common,
+    )
+    unloaded = supported_single_foot_lift_score(
+        sole_bottom_m=torch.tensor([[0.06, 0.0]]),
+        vertical_force_n=torch.tensor([[0.0, 0.0]]),
+        foot_speed_mps=torch.tensor([[0.10, 0.0]]),
+        **common,
+    )
+    two_foot_jump = supported_single_foot_lift_score(
+        sole_bottom_m=torch.tensor([[0.06, 0.06]]),
+        vertical_force_n=torch.tensor([[0.0, 0.0]]),
+        foot_speed_mps=torch.tensor([[0.10, 0.10]]),
+        **common,
+    )
+    half_lift = supported_single_foot_lift_score(
+        sole_bottom_m=torch.tensor([[0.03, 0.0]]),
+        vertical_force_n=torch.tensor([[0.0, 200.0]]),
+        foot_speed_mps=torch.tensor([[0.10, 0.0]]),
+        **common,
+    )
+
+    assert supported.item() == pytest.approx(1.0)
+    assert unloaded.item() == 0.0
+    assert two_foot_jump.item() == 0.0
+    assert half_lift.item() == pytest.approx(0.5)
 
 def test_tread_containment_requires_complete_foot_inside_margin() -> None:
     contained = tread_containment_score(

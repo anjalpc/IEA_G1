@@ -1,0 +1,79 @@
+schema_version: 1
+
+experiment:
+  id: specialist_single_step_lift_transfer1000
+  purpose: >
+    Lift-acquisition curriculum continuation from model_1500 of the first
+    transfer run. Preserve the stabilized/near-riser actor, reset critic and
+    PPO optimizer, reduce approach shaping to a small retention term, and add
+    a dense supported single-foot lift precursor before the existing coupled
+    swing-clearance, upper-foothold, and body-transfer rewards.
+  type: specialist_stair_lift_curriculum_transfer
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/specialist_single_step_base.yaml
+  resolved_config_required: true
+
+policy_initialization:
+  type: rsl_rl_checkpoint_actor_transfer
+  source:
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/specialist_single_step_transfer3000_20260926_112515/model_1500.pt
+  critic_initialization: fresh
+  optimizer_initialization: fresh
+  transfer_action_std: true
+
+reward_experiment:
+  active_stage: specialist_single_step_lift_acquisition
+  strict_runtime_set: true
+  rule: >
+    The transferred actor already balances and positions itself near the
+    riser. Approach is retained only weakly. The new bounded lift potential
+    rewards raising exactly one foot toward the 6 cm step while the opposite
+    foot remains load-bearing on the lower floor. Existing coupled swing
+    shaping then supplies forward insertion and extra clearance; upper support
+    hands off to foothold and body-transfer terms.
+  rewards:
+    stage_plan:
+      specialist_single_step_lift_acquisition:
+        alive: 0.0
+        upright: -5.0
+        base_angular_velocity: -0.05
+        feet_slide: -0.2
+        action_rate: -0.01
+        joint_acc: -2.5e-7
+        dof_pos_limits: -5.0
+        undesired_contacts: -1.0
+        failure_termination_event: -4.0
+        approach_progress: 0.25
+        swing_lift_progress: 3.0
+        swing_clearance_progress: 2.5
+        upper_foothold_progress: 2.5
+        body_transfer_progress: 3.0
+        trailing_foot_recovery: 2.0
+        riser_strike_event: -2.0
+        single_step_success: 6.0
+
+reward_parameters:
+  swing_lift_progress:
+    lower_support_height_tolerance_m: 0.020
+    lower_support_force_bodyweight_fraction: 0.30
+    maximum_lower_support_foot_speed_mps: 0.20
+    tread_margin_m: 0.015
+    foot_height_tolerance_m: 0.025
+    support_force_bodyweight_fraction: 0.15
+    maximum_supported_foot_speed_mps: 0.15
+    minimum_upright_gravity_z: 0.80
+
+ppo:
+  learning_rate: 0.0001
+  learning_rate_schedule: adaptive
+  desired_kl: 0.01
+
+execution:
+  environments: 256
+  maximum_iterations: 1000
+  training_seed: 42
+
+launch_gates:
+  allow_launch: true

@@ -7,6 +7,7 @@ import statistics
 from pathlib import Path
 
 from simulation.isaac_lab.g1_stairs.action_diagnostics import (
+    ACTION_GROUP_INDICES,
     action_group_mean_abs,
 )
 from simulation.isaac_lab.g1_stairs.evaluation.metrics import RunMetricsWriter
@@ -16,6 +17,7 @@ from simulation.isaac_lab.g1_stairs.contact_sensor_contract import (
     resolve_available_body_indices,
 )
 from simulation.isaac_lab.g1_stairs.contracts import (
+    BODY_JOINTS,
     G1_SOLE_SPHERE_CENTRES_M,
     G1_SOLE_SPHERE_RADIUS_M,
 )
@@ -33,16 +35,78 @@ STAIR_DIAGNOSTIC_NAMES = (
     "root_distance_to_riser_m",
     "mean_foot_front_distance_to_riser_m",
     "lead_foot_front_distance_to_riser_m",
+    "left_foot_front_distance_to_riser_m",
+    "right_foot_front_distance_to_riser_m",
+    "left_sole_bottom_m",
+    "right_sole_bottom_m",
     "maximum_sole_bottom_m",
     "maximum_clearance_above_riser_m",
     "maximum_upper_containment",
     "maximum_vertical_foot_force_n",
+    "left_vertical_foot_force_n",
+    "right_vertical_foot_force_n",
     "minimum_foot_speed_mps",
     "maximum_supported_horizontal_foot_speed_mps",
     "root_height_m",
     "upright_gravity_z",
     "native_failure_termination",
 )
+
+
+POSTURE_BASE_DIAGNOSTIC_NAMES = (
+    "posture_root_roll_rad",
+    "posture_root_pitch_rad",
+    "posture_root_yaw_rad",
+    "posture_root_lin_vel_x_mps",
+    "posture_root_lin_vel_y_mps",
+    "posture_root_lin_vel_z_mps",
+    "posture_root_ang_vel_x_radps",
+    "posture_root_ang_vel_y_radps",
+    "posture_root_ang_vel_z_radps",
+    "posture_root_minus_mean_foot_x_m",
+    "posture_root_minus_mean_foot_y_m",
+    "posture_legs_error_rms_rad",
+    "posture_arms_error_rms_rad",
+    "posture_waist_error_rms_rad",
+    "posture_legs_action_rms",
+    "posture_arms_action_rms",
+    "posture_waist_action_rms",
+)
+
+
+def _joint_posture_names(prefix: str) -> tuple[str, ...]:
+    return tuple(
+        f"{prefix}_{name.removesuffix('_joint')}"
+        for name in BODY_JOINTS
+    )
+
+
+POSTURE_DIAGNOSTIC_NAMES = (
+    *POSTURE_BASE_DIAGNOSTIC_NAMES,
+    *_joint_posture_names("posture_joint_pos_rad"),
+    *_joint_posture_names("posture_joint_default_rad"),
+    *_joint_posture_names("posture_joint_error_rad"),
+    *_joint_posture_names("posture_joint_vel_radps"),
+    *_joint_posture_names("posture_policy_action"),
+)
+
+
+def _quat_to_euler_wxyz(quaternion):
+    import torch
+
+    w, x, y, z = quaternion.unbind(dim=1)
+    roll = torch.atan2(
+        2.0 * (w * x + y * z),
+        1.0 - 2.0 * (x * x + y * y),
+    )
+    pitch = torch.asin(
+        (2.0 * (w * y - z * x)).clamp(-1.0, 1.0)
+    )
+    yaw = torch.atan2(
+        2.0 * (w * z + x * y),
+        1.0 - 2.0 * (y * y + z * z),
+    )
+    return roll, pitch, yaw
 
 
 def _quat_rotate_wxyz(quaternion, vector):
@@ -85,6 +149,7 @@ class InstrumentedRslRlVecEnvWrapper:
         self._previous_joint_acc = None
         self._stair_body_indices = None
         self._stair_sensor_indices = None
+        self._posture_joint_indices = None
 
         self.reset_metrics()
 
@@ -135,6 +200,9 @@ class InstrumentedRslRlVecEnvWrapper:
         self._reward_distribution_weights = {}
         self._stair_distribution = NamedTensorStatsAccumulator(
             STAIR_DIAGNOSTIC_NAMES
+        )
+        self._posture_distribution = NamedTensorStatsAccumulator(
+            POSTURE_DIAGNOSTIC_NAMES
         )
 
     def step(self, actions):
@@ -452,10 +520,16 @@ class InstrumentedRslRlVecEnvWrapper:
                     first_riser - local_x,
                     first_riser - mean_front,
                     first_riser - lead_front,
+                    first_riser - front_x[:, 0],
+                    first_riser - front_x[:, 1],
+                    sole_bottom[:, 0],
+                    sole_bottom[:, 1],
                     maximum_sole_bottom,
                     maximum_clearance,
                     containment.amax(dim=1),
                     vertical_force.amax(dim=1),
+                    vertical_force[:, 0],
+                    vertical_force[:, 1],
                     foot_speed.amin(dim=1),
                     supported_horizontal_speed.amax(dim=1),
                     local_z,
@@ -465,6 +539,82 @@ class InstrumentedRslRlVecEnvWrapper:
                 dim=1,
             )
         )
+
+        # Full-body posture observability.  These signals never affect PPO.
+        # They distinguish a configured/default posture from a posture that
+        # the policy actively commands, including the persistent arm stance.
+        if self._posture_joint_indices is None:
+            joint_index = {
+                name: index
+                for index, name in enumerate(robot.joint_names)
+            }
+            missing = [
+                name for name in BODY_JOINTS
+                if name not in joint_index
+            ]
+            if missing:
+                raise RuntimeError(
+                    "posture diagnostics require BODY_JOINTS: "
+                    + ", ".join(missing)
+                )
+            self._posture_joint_indices = tuple(
+                joint_index[name] for name in BODY_JOINTS
+            )
+
+        posture_ids = list(self._posture_joint_indices)
+        joint_pos = data.joint_pos[:, posture_ids]
+        joint_default = data.default_joint_pos[:, posture_ids]
+        joint_error = joint_pos - joint_default
+        joint_vel = data.joint_vel[:, posture_ids]
+
+        if actions.ndim != 2 or actions.shape[1] != len(BODY_JOINTS):
+            raise RuntimeError(
+                "posture diagnostics require policy actions [N, 29]"
+            )
+
+        roll, pitch, yaw = _quat_to_euler_wxyz(data.root_quat_w)
+        mean_foot_xy = foot_pos_w[..., :2].mean(dim=1)
+        root_minus_foot = data.root_pos_w[:, :2] - mean_foot_xy
+
+        def _rms(values, indices):
+            return torch.sqrt(
+                torch.mean(values[:, indices] ** 2, dim=1)
+            )
+
+        base_posture = torch.stack(
+            (
+                roll,
+                pitch,
+                yaw,
+                data.root_lin_vel_w[:, 0],
+                data.root_lin_vel_w[:, 1],
+                data.root_lin_vel_w[:, 2],
+                data.root_ang_vel_w[:, 0],
+                data.root_ang_vel_w[:, 1],
+                data.root_ang_vel_w[:, 2],
+                root_minus_foot[:, 0],
+                root_minus_foot[:, 1],
+                _rms(joint_error, ACTION_GROUP_INDICES["legs"]),
+                _rms(joint_error, ACTION_GROUP_INDICES["arms"]),
+                _rms(joint_error, ACTION_GROUP_INDICES["waist"]),
+                _rms(actions, ACTION_GROUP_INDICES["legs"]),
+                _rms(actions, ACTION_GROUP_INDICES["arms"]),
+                _rms(actions, ACTION_GROUP_INDICES["waist"]),
+            ),
+            dim=1,
+        )
+        posture_matrix = torch.cat(
+            (
+                base_posture,
+                joint_pos,
+                joint_default,
+                joint_error,
+                joint_vel,
+                actions,
+            ),
+            dim=1,
+        )
+        self._posture_distribution.update(posture_matrix)
         return result
 
     def consume_metrics(self) -> tuple[dict, dict[str, dict[str, float]]]:
@@ -585,6 +735,10 @@ class InstrumentedRslRlVecEnvWrapper:
                     ),
                 }
 
+        diagnostic_snapshots = {
+            **self._stair_distribution.snapshot(),
+            **self._posture_distribution.snapshot(),
+        }
         stair_diagnostics = {
             name: {
                 "sample_count": values["sample_count"],
@@ -593,9 +747,7 @@ class InstrumentedRslRlVecEnvWrapper:
                 "min": values["min"],
                 "max": values["max"],
             }
-            for name, values in (
-                self._stair_distribution.snapshot().items()
-            )
+            for name, values in diagnostic_snapshots.items()
         }
 
         self.reset_metrics()

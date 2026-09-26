@@ -121,6 +121,33 @@ class RewardRuntimeTests(unittest.TestCase):
             0.10,
         )
 
+
+    def test_lift_transfer_config_activates_supported_lift_curriculum(self):
+        root = Path(__file__).resolve().parents[4]
+        resolved, _ = resolve_config(
+            root / (
+                "experiments/g1_stairs/configs/"
+                "specialist_single_step_lift_transfer1000.yaml"
+            )
+        )
+        materialize_legacy_reward_config(resolved)
+        weights = active_reward_weights(resolved)
+        self.assertEqual(weights["alive"], 0.0)
+        self.assertEqual(weights["approach_progress"], 0.25)
+        self.assertEqual(weights["swing_lift_progress"], 3.0)
+        self.assertEqual(weights["swing_clearance_progress"], 2.5)
+        self.assertEqual(weights["upper_foothold_progress"], 2.5)
+        self.assertEqual(weights["single_step_success"], 6.0)
+        self.assertEqual(
+            resolved["policy_initialization"]["type"],
+            "rsl_rl_checkpoint_actor_transfer",
+        )
+        self.assertTrue(
+            resolved["policy_initialization"]["source"]["path"].endswith(
+                "specialist_single_step_transfer3000_20260926_112515/model_1500.pt"
+            )
+        )
+
     def test_reward_parameter_overrides_are_active_term_scoped(self):
         class _Term:
             def __init__(self, weight, **params):

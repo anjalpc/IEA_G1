@@ -14,6 +14,7 @@ from simulation.isaac_lab.g1_stairs.contact_sensor_contract import (
     resolve_available_body_indices,
 )
 from simulation.isaac_lab.g1_stairs.evaluation.isaac_training_metrics import (
+    POSTURE_DIAGNOSTIC_NAMES,
     recover_raw_reward_step,
 )
 from simulation.isaac_lab.g1_stairs.evaluation.stair_diagnostics import (
@@ -53,6 +54,25 @@ def result(
 
 
 class MetricsTest(unittest.TestCase):
+
+    def test_posture_diagnostics_cover_arm_default_error_and_action(self):
+        expected = {
+            "posture_joint_pos_rad_left_shoulder_pitch",
+            "posture_joint_default_rad_left_shoulder_pitch",
+            "posture_joint_error_rad_left_shoulder_pitch",
+            "posture_joint_vel_radps_left_shoulder_pitch",
+            "posture_policy_action_left_shoulder_pitch",
+            "posture_joint_pos_rad_right_elbow",
+            "posture_policy_action_right_wrist_yaw",
+            "posture_arms_error_rms_rad",
+            "posture_arms_action_rms",
+        }
+        self.assertTrue(expected.issubset(set(POSTURE_DIAGNOSTIC_NAMES)))
+        self.assertEqual(
+            len(POSTURE_DIAGNOSTIC_NAMES),
+            len(set(POSTURE_DIAGNOSTIC_NAMES)),
+        )
+
     def test_forbidden_contact_indices_follow_runtime_sensor_inventory(self):
         available_names = (
             "pelvis",

@@ -32,6 +32,7 @@ from .contracts import (
 from .reward_math import (
     coupled_swing_score,
     support_quality,
+    supported_single_foot_lift_score,
     tread_containment_score,
 )
 from .terrain_state import riser_height_per_env, stair_cfg
@@ -415,6 +416,86 @@ class approach_progress(_PotentialDifferenceTerm):
             (self._initial_root_distance - root_distance) / advance_target
         ).clamp(0.0, 1.0)
         potential = torch.minimum(foot_progress, root_progress)
+
+        return self._potential_rate(
+            potential,
+            dt=float(env.step_dt),
+            valid_mask=m["task_safe"],
+        )
+
+
+class swing_lift_progress(_PotentialDifferenceTerm):
+    """Reward a supported single-foot lift up to the current riser height.
+
+    The opposite foot must remain load-bearing on the lower floor, which
+    prevents a two-foot jump from satisfying the lift precursor.  The
+    potential hands off continuously to upper-tread support so touchdown does
+    not create a negative shaping spike.
+    """
+
+    def __call__(
+        self,
+        env: "ManagerBasedRLEnv",
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+        contact_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces"),
+        lower_support_height_tolerance_m: float = 0.020,
+        lower_support_force_bodyweight_fraction: float = 0.30,
+        maximum_lower_support_foot_speed_mps: float = 0.20,
+        tread_margin_m: float = 0.015,
+        foot_height_tolerance_m: float = 0.025,
+        support_force_bodyweight_fraction: float = 0.15,
+        maximum_supported_foot_speed_mps: float = 0.15,
+        minimum_upright_gravity_z: float = 0.80,
+    ) -> torch.Tensor:
+        if lower_support_height_tolerance_m <= 0.0:
+            raise ValueError(
+                "lower_support_height_tolerance_m must be positive"
+            )
+        if not 0.0 < lower_support_force_bodyweight_fraction <= 1.0:
+            raise ValueError(
+                "lower_support_force_bodyweight_fraction must be in (0, 1]"
+            )
+        if maximum_lower_support_foot_speed_mps <= 0.0:
+            raise ValueError(
+                "maximum_lower_support_foot_speed_mps must be positive"
+            )
+
+        m = self._measure(
+            env,
+            asset_cfg=asset_cfg,
+            contact_sensor_cfg=contact_sensor_cfg,
+            tread_margin_m=tread_margin_m,
+            foot_height_tolerance_m=foot_height_tolerance_m,
+            support_force_bodyweight_fraction=support_force_bodyweight_fraction,
+            maximum_supported_foot_speed_mps=maximum_supported_foot_speed_mps,
+            minimum_upright_gravity_z=minimum_upright_gravity_z,
+        )
+
+        # Lift to the step-top height first.  The existing coupled swing term
+        # subsequently asks for the additional clearance margin and forward
+        # insertion.  Reaching the tread height therefore earns a dense,
+        # bounded precursor without requiring horizontal motion first.
+        supported_lift = supported_single_foot_lift_score(
+            sole_bottom_m=m["sole_bottom"],
+            vertical_force_n=m["vertical_force"],
+            foot_speed_mps=m["foot_speed"],
+            bodyweight_n=m["bodyweight_n"],
+            riser_height_m=m["riser_height"],
+            lower_support_height_tolerance_m=(
+                lower_support_height_tolerance_m
+            ),
+            lower_support_force_bodyweight_fraction=(
+                lower_support_force_bodyweight_fraction
+            ),
+            maximum_lower_support_foot_speed_mps=(
+                maximum_lower_support_foot_speed_mps
+            ),
+        )
+
+        # Once the lifted foot acquires the upper tread, preserve the potential
+        # through touchdown and later body transfer.
+        upper_support = m["physical_support"].amax(dim=1)
+        potential = torch.maximum(supported_lift, upper_support)
 
         return self._potential_rate(
             potential,
