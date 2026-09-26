@@ -252,6 +252,45 @@ def coupled_swing_score(
     return height_fraction * forward_fraction
 
 
+
+def support_relative_forward_progress(
+    *,
+    root_x_m: torch.Tensor,
+    support_anchor_x_m: torch.Tensor,
+    activation_root_x_m: torch.Tensor,
+    target_forward_from_support_m: float,
+) -> torch.Tensor:
+    """Return bounded sagittal body progress relative to the planted support foot.
+
+    The target is expressed from the support-foot anchor rather than world X,
+    so the term cannot be earned by sliding the support foot forward.  Progress
+    begins at the root position recorded when the clearance/hover state first
+    becomes physically valid.
+    """
+
+    if root_x_m.ndim != 1:
+        raise ValueError("root_x_m must have shape [N]")
+    if support_anchor_x_m.shape != root_x_m.shape:
+        raise ValueError("support_anchor_x_m must match root_x_m")
+    if activation_root_x_m.shape != root_x_m.shape:
+        raise ValueError("activation_root_x_m must match root_x_m")
+    if target_forward_from_support_m <= 0.0:
+        raise ValueError("target_forward_from_support_m must be positive")
+
+    nominal_target_x = (
+        support_anchor_x_m + float(target_forward_from_support_m)
+    )
+    # Always require some new motion after activation even if the body is
+    # already unusually far forward when the term turns on.
+    target_x = torch.maximum(
+        nominal_target_x,
+        activation_root_x_m + 0.020,
+    )
+    denominator = (target_x - activation_root_x_m).clamp_min(0.020)
+    return (
+        (root_x_m - activation_root_x_m) / denominator
+    ).clamp(0.0, 1.0)
+
 def swing_arc_waypoints(
     *,
     start_x_m: torch.Tensor,

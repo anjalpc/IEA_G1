@@ -76,6 +76,10 @@ STAIR_DIAGNOSTIC_NAMES = (
     "swing_foot_speed_mps",
     "swing_lower_floor_recontact",
     "root_to_support_foot_y_m",
+    "root_to_support_foot_x_m",
+    "body_advance_target_x_m",
+    "body_advance_progress",
+    "body_advance_gate",
     "swing_foot_force_share",
     "support_foot_force_share",
     "both_feet_airborne",
@@ -604,6 +608,22 @@ class InstrumentedRslRlVecEnvWrapper:
         lane_y = getattr(env, "_g1_stair_swing_lane_y", None)
         if lane_y is None:
             lane_y = sole_center[:, swing_index, 1]
+        body_advance_target_x = getattr(
+            env, "_g1_stair_body_advance_target_x", None
+        )
+        if body_advance_target_x is None:
+            body_advance_target_x = torch.zeros_like(local_x)
+        body_advance_progress = getattr(
+            env, "_g1_stair_body_advance_progress", None
+        )
+        if body_advance_progress is None:
+            body_advance_progress = torch.zeros_like(local_x)
+        body_advance_gate = getattr(
+            env, "_g1_stair_body_advance_gate", None
+        )
+        if body_advance_gate is None:
+            body_advance_gate = torch.zeros_like(local_x, dtype=torch.bool)
+        body_advance_gate = body_advance_gate.to(dtype=local_x.dtype)
 
         total_foot_force = vertical_force.sum(dim=1).clamp_min(1.0)
         swing_force_share = vertical_force[:, swing_index] / total_foot_force
@@ -674,6 +694,13 @@ class InstrumentedRslRlVecEnvWrapper:
                         data.root_pos_w[:, 1]
                         - foot_pos_w[:, support_index, 1]
                     ),
+                    local_x.new_tensor(0.0).expand_as(local_x) + (
+                        data.root_pos_w[:, 0]
+                        - foot_pos_w[:, support_index, 0]
+                    ),
+                    body_advance_target_x,
+                    body_advance_progress,
+                    body_advance_gate,
                     swing_force_share,
                     support_force_share,
                     both_airborne,

@@ -454,6 +454,27 @@ class StairRewardsCfg:
             "minimum_upright_gravity_z": 0.80,
         },
     )
+    swing_body_advance_progress = RewTerm(
+        func=stair_rewards.swing_body_advance_progress,
+        weight=0.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "contact_sensor_cfg": SceneEntityCfg("contact_forces"),
+            "swing_left": True,
+            "target_forward_from_support_m": 0.080,
+            "clearance_x_fraction": 0.60,
+            "clearance_x_tolerance_m": 0.040,
+            "minimum_clearance_above_riser_m": 0.010,
+            "support_anchor_limit_m": 0.050,
+            "support_force_bodyweight_fraction": 0.25,
+            "swing_unload_bodyweight_fraction": 0.25,
+            "tread_margin_m": 0.015,
+            "foot_height_tolerance_m": 0.025,
+            "upper_support_force_bodyweight_fraction": 0.15,
+            "maximum_supported_foot_speed_mps": 0.15,
+            "minimum_upright_gravity_z": 0.80,
+        },
+    )
     swing_waypoint_guard = RewTerm(
         func=stair_rewards.swing_waypoint_guard,
         weight=-1.0,

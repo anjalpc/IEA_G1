@@ -221,12 +221,34 @@ class RewardRuntimeTests(unittest.TestCase):
         self.assertTrue(progress["phase0_bottleneck"])
         self.assertTrue(progress["phase0_require_grounded_swing"])
         self.assertTrue(guard["enforce_phase0_support"])
-        self.assertEqual(resolved["execution"]["maximum_iterations"], 150)
         self.assertTrue(
             resolved["policy_initialization"]["source"]["path"].endswith(
                 "g1_stair_v04_20260926_135458/model_50.pt"
             )
         )
+
+    def test_v06_continues_v05_actor_with_only_body_advance_added(self):
+        root = Path(__file__).resolve().parents[4]
+        resolved, _ = resolve_config(
+            root / "experiments/g1_stairs/configs/g1_stair_v06.yaml"
+        )
+        materialize_legacy_reward_config(resolved)
+        weights = active_reward_weights(resolved)
+        self.assertEqual(weights["swing_waypoint_progress"], 4.0)
+        self.assertEqual(weights["swing_waypoint_guard"], -1.5)
+        self.assertEqual(weights["swing_body_advance_progress"], 1.5)
+        self.assertEqual(weights["body_transfer_progress"], 3.0)
+        self.assertEqual(resolved["execution"]["maximum_iterations"], 3000)
+        self.assertEqual(resolved["ppo"]["learning_rate"], 0.00005)
+        self.assertTrue(
+            resolved["policy_initialization"]["source"]["path"].endswith(
+                "g1_stair_v05_20260926_144601/model_3999.pt"
+            )
+        )
+        params = resolved["reward_parameters"]["swing_body_advance_progress"]
+        self.assertEqual(params["target_forward_from_support_m"], 0.080)
+        self.assertEqual(params["clearance_x_fraction"], 0.60)
+        self.assertEqual(params["support_anchor_limit_m"], 0.050)
 
     def test_reward_parameter_overrides_are_active_term_scoped(self):
         class _Term:

@@ -1,0 +1,68 @@
+schema_version: 1
+
+experiment:
+  id: g1_stair_v06
+  purpose: >
+    Continue from the mature v05 model_3999 swing skill and correct only the
+    observed clearance-to-hover failure: once the left foot has genuinely
+    reached the phase-2/3 clearance region with the right support foot still
+    anchored, reward controlled sagittal root/COM advance toward a modest
+    support-relative target. Preserve the full v05 lift, support, posture,
+    lateral-lane, orientation, touchdown, and terminal contracts.
+  type: specialist_stair_body_commitment
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_stair_v05.yaml
+  resolved_config_required: true
+
+policy_initialization:
+  type: rsl_rl_checkpoint_actor_transfer
+  source:
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/g1_stair_v05_20260926_144601/model_3999.pt
+  critic_initialization: fresh
+  optimizer_initialization: fresh
+  transfer_action_std: true
+
+reward_experiment:
+  active_stage: support_locked_waypoint
+  strict_runtime_set: true
+  rule: >
+    Preserve v05 exactly and add one bounded potential: during the live
+    phase-2/3 riser-clearance state, move the root forward relative to the
+    planted right support foot. The term is not a forward-velocity command;
+    it cannot be earned by sliding the support foot, and swing retraction out
+    of the live clearance state removes the potential.
+  rewards:
+    stage_plan:
+      support_locked_waypoint:
+        swing_body_advance_progress: 1.5
+
+reward_parameters:
+  swing_body_advance_progress:
+    swing_left: true
+    target_forward_from_support_m: 0.080
+    clearance_x_fraction: 0.60
+    clearance_x_tolerance_m: 0.040
+    minimum_clearance_above_riser_m: 0.010
+    support_anchor_limit_m: 0.050
+    support_force_bodyweight_fraction: 0.25
+    swing_unload_bodyweight_fraction: 0.25
+    tread_margin_m: 0.015
+    foot_height_tolerance_m: 0.025
+    upper_support_force_bodyweight_fraction: 0.15
+    maximum_supported_foot_speed_mps: 0.15
+    minimum_upright_gravity_z: 0.80
+
+ppo:
+  learning_rate: 0.00005
+  learning_rate_schedule: adaptive
+  desired_kl: 0.01
+
+execution:
+  environments: 256
+  maximum_iterations: 3000
+  training_seed: 42
+
+launch_gates:
+  allow_launch: true

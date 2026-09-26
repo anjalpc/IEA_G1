@@ -8,6 +8,7 @@ from simulation.isaac_lab.g1_stairs.reward_math import (
     coupled_swing_score,
     deadzone_score,
     support_quality,
+    support_relative_forward_progress,
     supported_single_foot_lift_score,
     swing_arc_waypoints,
     target_band_score,
@@ -224,3 +225,38 @@ def test_swing_arc_waypoints_reject_invalid_phase_order() -> None:
             clearance_margin_m=0.025,
             hover_margin_m=0.025,
         )
+
+
+def test_support_relative_forward_progress_requires_new_body_advance() -> None:
+    support_x = torch.tensor([-0.02])
+    activation_root_x = torch.tensor([0.00])
+
+    start = support_relative_forward_progress(
+        root_x_m=torch.tensor([0.00]),
+        support_anchor_x_m=support_x,
+        activation_root_x_m=activation_root_x,
+        target_forward_from_support_m=0.08,
+    )
+    halfway = support_relative_forward_progress(
+        root_x_m=torch.tensor([0.03]),
+        support_anchor_x_m=support_x,
+        activation_root_x_m=activation_root_x,
+        target_forward_from_support_m=0.08,
+    )
+    reached = support_relative_forward_progress(
+        root_x_m=torch.tensor([0.06]),
+        support_anchor_x_m=support_x,
+        activation_root_x_m=activation_root_x,
+        target_forward_from_support_m=0.08,
+    )
+    retreat = support_relative_forward_progress(
+        root_x_m=torch.tensor([-0.02]),
+        support_anchor_x_m=support_x,
+        activation_root_x_m=activation_root_x,
+        target_forward_from_support_m=0.08,
+    )
+
+    assert start.item() == pytest.approx(0.0)
+    assert halfway.item() == pytest.approx(0.5)
+    assert reached.item() == pytest.approx(1.0)
+    assert retreat.item() == pytest.approx(0.0)

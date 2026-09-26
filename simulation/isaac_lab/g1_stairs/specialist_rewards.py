@@ -37,6 +37,7 @@ from .reward_math import (
     support_quality,
     supported_single_foot_lift_score,
     swing_arc_waypoints,
+    support_relative_forward_progress,
     target_band_score,
     tread_containment_score,
 )
@@ -826,6 +827,174 @@ class swing_waypoint_progress(_PotentialDifferenceTerm):
         env._g1_stair_phase0_ground_score = phase0_ground_score.detach().clone()
         env._g1_stair_phase0_bottleneck_score = phase0_locked.detach().clone()
         env._g1_stair_swing_left = bool(swing_left)
+
+        return self._potential_rate(
+            potential,
+            dt=float(env.step_dt),
+            valid_mask=m["task_safe"],
+        )
+
+
+class swing_body_advance_progress(_PotentialDifferenceTerm):
+    """Reward controlled sagittal body commitment after riser clearance.
+
+    This term is deliberately narrower than a forward-velocity command.  It
+    stays dormant until the learned swing has reached the phase-2/3 clearance
+    region with the opposite foot still planted.  From that point it rewards
+    only new root advance toward a target that remains inside/near the support
+    footprint.  If the swing retracts below the live clearance gate before
+    touchdown, the potential is lost and the same term produces the matching
+    negative shaping signal.
+    """
+
+    def __init__(self, cfg, env: "ManagerBasedRLEnv"):
+        super().__init__(cfg, env)
+        self._swing_start_x = torch.zeros(
+            env.num_envs, dtype=torch.float32, device=env.device
+        )
+        self._support_anchor_x = torch.zeros(
+            env.num_envs, dtype=torch.float32, device=env.device
+        )
+        self._activation_root_x = torch.zeros(
+            env.num_envs, dtype=torch.float32, device=env.device
+        )
+        self._geometry_initialized = torch.zeros(
+            env.num_envs, dtype=torch.bool, device=env.device
+        )
+        self._advance_initialized = torch.zeros(
+            env.num_envs, dtype=torch.bool, device=env.device
+        )
+
+    def reset(self, env_ids=None) -> None:
+        super().reset(env_ids=env_ids)
+        if env_ids is None:
+            env_ids = slice(None)
+        self._swing_start_x[env_ids] = 0.0
+        self._support_anchor_x[env_ids] = 0.0
+        self._activation_root_x[env_ids] = 0.0
+        self._geometry_initialized[env_ids] = False
+        self._advance_initialized[env_ids] = False
+
+    def __call__(
+        self,
+        env: "ManagerBasedRLEnv",
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+        contact_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces"),
+        swing_left: bool = True,
+        target_forward_from_support_m: float = 0.080,
+        clearance_x_fraction: float = 0.60,
+        clearance_x_tolerance_m: float = 0.040,
+        minimum_clearance_above_riser_m: float = 0.010,
+        support_anchor_limit_m: float = 0.050,
+        support_force_bodyweight_fraction: float = 0.25,
+        swing_unload_bodyweight_fraction: float = 0.25,
+        tread_margin_m: float = 0.015,
+        foot_height_tolerance_m: float = 0.025,
+        upper_support_force_bodyweight_fraction: float = 0.15,
+        maximum_supported_foot_speed_mps: float = 0.15,
+        minimum_upright_gravity_z: float = 0.80,
+    ) -> torch.Tensor:
+        if target_forward_from_support_m <= 0.0:
+            raise ValueError("target_forward_from_support_m must be positive")
+        if not 0.0 < clearance_x_fraction < 1.0:
+            raise ValueError("clearance_x_fraction must be in (0, 1)")
+        if clearance_x_tolerance_m < 0.0:
+            raise ValueError("clearance_x_tolerance_m cannot be negative")
+        if minimum_clearance_above_riser_m < 0.0:
+            raise ValueError("minimum_clearance_above_riser_m cannot be negative")
+        if support_anchor_limit_m <= 0.0:
+            raise ValueError("support_anchor_limit_m must be positive")
+        if not 0.0 < support_force_bodyweight_fraction <= 1.0:
+            raise ValueError("support_force_bodyweight_fraction must be in (0, 1]")
+        if not 0.0 <= swing_unload_bodyweight_fraction < 1.0:
+            raise ValueError("swing_unload_bodyweight_fraction must be in [0, 1)")
+
+        m = self._measure(
+            env,
+            asset_cfg=asset_cfg,
+            contact_sensor_cfg=contact_sensor_cfg,
+            tread_margin_m=tread_margin_m,
+            foot_height_tolerance_m=foot_height_tolerance_m,
+            support_force_bodyweight_fraction=upper_support_force_bodyweight_fraction,
+            maximum_supported_foot_speed_mps=maximum_supported_foot_speed_mps,
+            minimum_upright_gravity_z=minimum_upright_gravity_z,
+        )
+        swing = 0 if bool(swing_left) else 1
+        support = 1 - swing
+
+        new_geometry = ~self._geometry_initialized
+        self._swing_start_x[new_geometry] = (
+            m["sole_center_x"][new_geometry, swing].detach()
+        )
+        self._support_anchor_x[new_geometry] = (
+            m["sole_center_x"][new_geometry, support].detach()
+        )
+        self._geometry_initialized[new_geometry] = True
+
+        phase = getattr(env, "_g1_stair_motion_phase", None)
+        if phase is None:
+            phase = torch.zeros(
+                env.num_envs, dtype=torch.long, device=env.device
+            )
+
+        bodyweight = m["bodyweight_n"].clamp_min(1.0)
+        support_force_fraction = m["vertical_force"][:, support] / bodyweight
+        swing_force_fraction = m["vertical_force"][:, swing] / bodyweight
+        support_anchor_error = (
+            m["sole_center_x"][:, support] - self._support_anchor_x
+        ).abs()
+
+        landing_x = float(m["riser_x"]) + 0.5 * float(m["tread_depth"])
+        path = (landing_x - self._swing_start_x).clamp_min(0.05)
+        clearance_x = (
+            self._swing_start_x + float(clearance_x_fraction) * path
+        )
+        swing_clear_now = (
+            m["sole_center_x"][:, swing]
+            >= clearance_x - float(clearance_x_tolerance_m)
+        ) & (
+            m["sole_bottom"][:, swing]
+            >= m["riser_height"] + float(minimum_clearance_above_riser_m)
+        )
+        support_valid_now = (
+            support_anchor_error <= float(support_anchor_limit_m)
+        ) & (
+            support_force_fraction >= float(support_force_bodyweight_fraction)
+        ) & (
+            swing_force_fraction <= float(swing_unload_bodyweight_fraction)
+        )
+        clearance_phase = (phase >= 2) & (phase <= 3)
+        live_gate = clearance_phase & swing_clear_now & support_valid_now & m["task_safe"]
+
+        activate = live_gate & ~self._advance_initialized
+        self._activation_root_x[activate] = m["root_x"][activate].detach()
+        self._advance_initialized[activate] = True
+
+        progress = support_relative_forward_progress(
+            root_x_m=m["root_x"],
+            support_anchor_x_m=self._support_anchor_x,
+            activation_root_x_m=self._activation_root_x,
+            target_forward_from_support_m=target_forward_from_support_m,
+        )
+        # Once touchdown phase is reached, keep body progress live without
+        # requiring the swing foot to remain airborne.  Before touchdown, a
+        # retraction out of the clearance state removes the potential and thus
+        # produces the intended negative difference.
+        physical_gate = live_gate | (phase >= 4)
+        potential = torch.where(
+            self._advance_initialized & physical_gate,
+            progress,
+            torch.zeros_like(progress),
+        )
+
+        env._g1_stair_root_to_support_x = (
+            m["root_x"] - self._support_anchor_x
+        ).detach().clone()
+        env._g1_stair_body_advance_target_x = (
+            self._support_anchor_x + float(target_forward_from_support_m)
+        ).detach().clone()
+        env._g1_stair_body_advance_progress = progress.detach().clone()
+        env._g1_stair_body_advance_gate = physical_gate.detach().clone()
 
         return self._potential_rate(
             potential,

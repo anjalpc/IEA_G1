@@ -1,0 +1,20 @@
+schema_version: 1
+
+experiment:
+  id: g1_stair_v06_smoke
+  purpose: >
+    Runtime qualification for v06 body-commitment transfer from v05 model_3999.
+  type: specialist_stair_body_commitment_smoke
+  meaningful_stair_training: false
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_stair_v06.yaml
+  resolved_config_required: true
+
+execution:
+  environments: 64
+  maximum_iterations: 10
+  training_seed: 42
+
+launch_gates:
+  allow_launch: true
