@@ -1,0 +1,51 @@
+schema_version: 1
+
+experiment:
+  family: g1_stair_imitation
+  purpose: task-space/contact-guided Unitree G1 stair learning
+  pure_rl_stack_modified: false
+
+reference:
+  schema: g1_stair_reference_v1
+  path: motion_imitation/outputs/g1_stair_reference_v1/g1_stair_reference_20cm_v001.json
+  source_frame_start: 151
+  source_frame_end: 277
+  reference_rate_hz: 50
+
+terrain:
+  step_count: 3
+  riser_height_m: 0.20
+  tread_depth_m: 0.25
+  total_rise_m: 0.60
+  first_riser_course_x_m: 1.0
+
+phase_controller:
+  mode: clock
+  note: initial deterministic implementation; keep phase controller isolated so contact/progress-aware phase can be added later
+
+tracking_contract:
+  primary:
+    foot_task_space: true
+    persistent_contact: true
+    root_progression: true
+    root_height: true
+    root_orientation: true
+  weak_joint_pose:
+    enabled: true
+    joints:
+      - left_hip_pitch_joint
+      - right_hip_pitch_joint
+      - left_knee_joint
+      - right_knee_joint
+      - left_ankle_pitch_joint
+      - right_ankle_pitch_joint
+  direct_lateral_joint_imitation: false
+  direct_action_imitation: false
+
+reward_activation:
+  rule: all imitation-specific rewards remain zero until their runtime diagnostics pass
+  foot_task_space: 0.0
+  contact_tracking: 0.0
+  root_position: 0.0
+  root_orientation: 0.0
+  weak_joint_pose: 0.0
