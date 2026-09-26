@@ -203,7 +203,7 @@ class _SingleStepRewardBase(ManagerTermBase):
             self._bodyweight_n.unsqueeze(1)
             * float(support_force_bodyweight_fraction)
         )
-        support = support_quality(
+        physical_support = support_quality(
             containment=containment,
             height_score=height_score,
             vertical_force_n=vertical_force,
@@ -237,7 +237,10 @@ class _SingleStepRewardBase(ManagerTermBase):
             (upright >= float(minimum_upright_gravity_z))
             & ~forbidden_contact
         )
-        support = support * task_safe.to(support.dtype).unsqueeze(1)
+        support = (
+            physical_support
+            * task_safe.to(physical_support.dtype).unsqueeze(1)
+        )
 
         return {
             "rear_x": rear_x,
@@ -248,6 +251,7 @@ class _SingleStepRewardBase(ManagerTermBase):
             "bodyweight_n": self._bodyweight_n,
             "horizontal_force_x": horizontal_force_x,
             "support": support,
+            "physical_support": physical_support,
             "root_x": local_root[:, 0],
             "root_z": local_root[:, 2],
             "root_lin_speed": torch.linalg.vector_norm(
@@ -294,6 +298,7 @@ class _PotentialDifferenceTerm(_SingleStepRewardBase):
         potential: torch.Tensor,
         *,
         dt: float,
+        valid_mask: torch.Tensor | None = None,
     ) -> torch.Tensor:
         if dt <= 0.0:
             raise ValueError("reward step dt must be positive")
@@ -301,6 +306,14 @@ class _PotentialDifferenceTerm(_SingleStepRewardBase):
         potential = potential.clamp(0.0, 1.0)
         result = torch.zeros_like(potential)
         active = self._initialized
+
+        if valid_mask is not None:
+            if valid_mask.shape != potential.shape:
+                raise ValueError(
+                    "valid_mask must match the potential shape"
+                )
+            active = active & valid_mask
+
         result[active] = (
             potential[active] - self._previous[active]
         ) / float(dt)
@@ -369,9 +382,12 @@ class approach_progress(_PotentialDifferenceTerm):
         potential = (
             (self._initial_distance - distance) / span
         ).clamp(0.0, 1.0)
-        potential = potential * m["task_safe"].to(potential.dtype)
 
-        return self._potential_rate(potential, dt=float(env.step_dt))
+        return self._potential_rate(
+            potential,
+            dt=float(env.step_dt),
+            valid_mask=m["task_safe"],
+        )
 
 
 class swing_clearance_progress(_PotentialDifferenceTerm):
@@ -415,10 +431,17 @@ class swing_clearance_progress(_PotentialDifferenceTerm):
         # Make the potential continuous through touchdown: once a foot has
         # actually acquired good upper support, lowering from swing clearance
         # onto the tread must not create a negative shaping spike.
-        foot_progress = torch.maximum(flight, m["support"])
+        foot_progress = torch.maximum(
+            flight,
+            m["physical_support"],
+        )
         potential = foot_progress.amax(dim=1)
-        potential = potential * m["task_safe"].to(potential.dtype)
-        return self._potential_rate(potential, dt=float(env.step_dt))
+
+        return self._potential_rate(
+            potential,
+            dt=float(env.step_dt),
+            valid_mask=m["task_safe"],
+        )
 
 
 class upper_foothold_progress(_PotentialDifferenceTerm):
@@ -445,8 +468,13 @@ class upper_foothold_progress(_PotentialDifferenceTerm):
             maximum_supported_foot_speed_mps=maximum_supported_foot_speed_mps,
             minimum_upright_gravity_z=minimum_upright_gravity_z,
         )
-        potential = m["support"].amax(dim=1)
-        return self._potential_rate(potential, dt=float(env.step_dt))
+        potential = m["physical_support"].amax(dim=1)
+
+        return self._potential_rate(
+            potential,
+            dt=float(env.step_dt),
+            valid_mask=m["task_safe"],
+        )
 
 
 class body_transfer_progress(_PotentialDifferenceTerm):
@@ -519,9 +547,14 @@ class body_transfer_progress(_PotentialDifferenceTerm):
             / height_target
         ).clamp(0.0, 1.0)
 
-        upper_support = m["support"].amax(dim=1)
+        upper_support = m["physical_support"].amax(dim=1)
         potential = upper_support * 0.5 * (x_fraction + z_fraction)
-        return self._potential_rate(potential, dt=float(env.step_dt))
+
+        return self._potential_rate(
+            potential,
+            dt=float(env.step_dt),
+            valid_mask=m["task_safe"],
+        )
 
 
 class trailing_foot_recovery(_PotentialDifferenceTerm):
@@ -581,9 +614,14 @@ class trailing_foot_recovery(_PotentialDifferenceTerm):
             (m["root_z"] - self._initial_root_z)
             / height_target
         ).clamp(0.0, 1.0)
-        both_support = m["support"].amin(dim=1)
+        both_support = m["physical_support"].amin(dim=1)
         potential = both_support * z_fraction
-        return self._potential_rate(potential, dt=float(env.step_dt))
+
+        return self._potential_rate(
+            potential,
+            dt=float(env.step_dt),
+            valid_mask=m["task_safe"],
+        )
 
 
 class riser_strike_event(_SingleStepRewardBase):
