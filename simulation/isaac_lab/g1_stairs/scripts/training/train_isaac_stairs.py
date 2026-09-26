@@ -424,6 +424,16 @@ def main() -> None:
             ppo_cfg["desired_kl"]
         )
 
+    if "num_mini_batches" in ppo_cfg:
+        num_mini_batches = int(
+            ppo_cfg["num_mini_batches"]
+        )
+        if num_mini_batches <= 0:
+            raise ValueError(
+                "ppo.num_mini_batches must be > 0"
+            )
+        agent_cfg.algorithm.num_mini_batches = num_mini_batches
+
     if "action_clip" in ppo_cfg:
         action_clip = float(ppo_cfg["action_clip"])
 
@@ -452,6 +462,11 @@ def main() -> None:
     print(
         "[INFO] PPO desired_kl:",
         agent_cfg.algorithm.desired_kl,
+        flush=True,
+    )
+    print(
+        "[INFO] PPO num_mini_batches:",
+        agent_cfg.algorithm.num_mini_batches,
         flush=True,
     )
 

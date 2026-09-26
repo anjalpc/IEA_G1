@@ -58,10 +58,11 @@ ppo:
   learning_rate: 0.00005
   learning_rate_schedule: adaptive
   desired_kl: 0.01
+  num_mini_batches: 32
 
 execution:
-  environments: 256
-  maximum_iterations: 3000
+  environments: 2048
+  maximum_iterations: 500
   training_seed: 42
 
 launch_gates:

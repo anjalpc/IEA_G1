@@ -238,7 +238,9 @@ class RewardRuntimeTests(unittest.TestCase):
         self.assertEqual(weights["swing_waypoint_guard"], -1.5)
         self.assertEqual(weights["swing_body_advance_progress"], 1.5)
         self.assertEqual(weights["body_transfer_progress"], 3.0)
-        self.assertEqual(resolved["execution"]["maximum_iterations"], 3000)
+        self.assertEqual(resolved["execution"]["environments"], 2048)
+        self.assertEqual(resolved["execution"]["maximum_iterations"], 500)
+        self.assertEqual(resolved["ppo"]["num_mini_batches"], 32)
         self.assertEqual(resolved["ppo"]["learning_rate"], 0.00005)
         self.assertTrue(
             resolved["policy_initialization"]["source"]["path"].endswith(
