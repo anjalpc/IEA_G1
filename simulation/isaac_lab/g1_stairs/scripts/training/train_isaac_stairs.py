@@ -389,6 +389,12 @@ def main() -> None:
     active_rewards = apply_resolved_rewards(env_cfg, resolved_config)
     print("[INFO] Active reward stage:", resolved_config["reward_experiment"]["active_stage"], flush=True)
     print("[INFO] Active rewards:", active_rewards, flush=True)
+    if resolved_config.get("reward_parameters"):
+        print(
+            "[INFO] Reward parameters:",
+            resolved_config["reward_parameters"],
+            flush=True,
+        )
 
     agent_cfg = cli_args.parse_rsl_rl_cfg(args.task, args)
     agent_cfg.seed = args.seed

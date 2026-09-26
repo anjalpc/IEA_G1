@@ -29,6 +29,7 @@ from .contracts import (
 from .isaac_terrain import ThreeStepStairsCfg
 from .robot_cfg import G1_STAIRS_ROBOT_CFG
 from . import reference_tracking as reference_rewards
+from . import specialist_rewards as stair_rewards
 from . import terrain_observations
 
 
@@ -376,6 +377,118 @@ class StairRewardsCfg:
     dof_pos_limits = copy.deepcopy(_UPSTREAM_CFG.rewards.dof_pos_limits)
     undesired_contacts = copy.deepcopy(_UPSTREAM_CFG.rewards.undesired_contacts)
     action_rate = copy.deepcopy(_UPSTREAM_CFG.rewards.action_rate)
+
+    # Geometry-driven specialist task terms.  Parameters remain bounded and
+    # config-overridable through reward_parameters in the resolved YAML.
+    approach_progress = RewTerm(
+        func=stair_rewards.approach_progress,
+        weight=1.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "contact_sensor_cfg": SceneEntityCfg("contact_forces"),
+            "preparation_distance_m": 0.18,
+            "tread_margin_m": 0.015,
+            "foot_height_tolerance_m": 0.025,
+            "support_force_bodyweight_fraction": 0.15,
+            "maximum_supported_foot_speed_mps": 0.15,
+            "minimum_upright_gravity_z": 0.80,
+        },
+    )
+    swing_clearance_progress = RewTerm(
+        func=stair_rewards.swing_clearance_progress,
+        weight=1.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "contact_sensor_cfg": SceneEntityCfg("contact_forces"),
+            "activation_distance_m": 0.30,
+            "insertion_target_m": 0.10,
+            "clearance_margin_m": 0.015,
+            "tread_margin_m": 0.015,
+            "foot_height_tolerance_m": 0.025,
+            "support_force_bodyweight_fraction": 0.15,
+            "maximum_supported_foot_speed_mps": 0.15,
+            "minimum_upright_gravity_z": 0.80,
+        },
+    )
+    upper_foothold_progress = RewTerm(
+        func=stair_rewards.upper_foothold_progress,
+        weight=1.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "contact_sensor_cfg": SceneEntityCfg("contact_forces"),
+            "tread_margin_m": 0.015,
+            "foot_height_tolerance_m": 0.025,
+            "support_force_bodyweight_fraction": 0.15,
+            "maximum_supported_foot_speed_mps": 0.15,
+            "minimum_upright_gravity_z": 0.80,
+        },
+    )
+    body_transfer_progress = RewTerm(
+        func=stair_rewards.body_transfer_progress,
+        weight=1.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "contact_sensor_cfg": SceneEntityCfg("contact_forces"),
+            "transfer_start_before_riser_m": 0.12,
+            "transfer_target_past_riser_m": 0.10,
+            "required_height_fraction": 0.80,
+            "tread_margin_m": 0.015,
+            "foot_height_tolerance_m": 0.025,
+            "support_force_bodyweight_fraction": 0.15,
+            "maximum_supported_foot_speed_mps": 0.15,
+            "minimum_upright_gravity_z": 0.80,
+        },
+    )
+    trailing_foot_recovery = RewTerm(
+        func=stair_rewards.trailing_foot_recovery,
+        weight=1.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "contact_sensor_cfg": SceneEntityCfg("contact_forces"),
+            "required_height_fraction": 0.70,
+            "tread_margin_m": 0.015,
+            "foot_height_tolerance_m": 0.025,
+            "support_force_bodyweight_fraction": 0.15,
+            "maximum_supported_foot_speed_mps": 0.15,
+            "minimum_upright_gravity_z": 0.80,
+        },
+    )
+    riser_strike_event = RewTerm(
+        func=stair_rewards.riser_strike_event,
+        weight=-1.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "contact_sensor_cfg": SceneEntityCfg("contact_forces"),
+            "face_band_m": 0.025,
+            "clearance_margin_m": 0.010,
+            "horizontal_force_bodyweight_fraction": 0.05,
+            "tread_margin_m": 0.015,
+            "foot_height_tolerance_m": 0.025,
+            "support_force_bodyweight_fraction": 0.15,
+            "maximum_supported_foot_speed_mps": 0.15,
+            "minimum_upright_gravity_z": 0.80,
+        },
+    )
+    single_step_success = RewTerm(
+        func=stair_rewards.single_step_success,
+        weight=1.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "contact_sensor_cfg": SceneEntityCfg("contact_forces"),
+            "minimum_support_score": 0.60,
+            "base_past_riser_margin_m": 0.05,
+            "required_height_fraction": 0.75,
+            "support_minimum_upright_gravity_z": 0.80,
+            "minimum_upright_gravity_z": 0.90,
+            "maximum_root_linear_speed_mps": 0.35,
+            "maximum_root_angular_speed_radps": 0.60,
+            "minimum_dwell_s": 0.12,
+            "tread_margin_m": 0.015,
+            "foot_height_tolerance_m": 0.025,
+            "support_force_bodyweight_fraction": 0.15,
+            "maximum_supported_foot_speed_mps": 0.15,
+        },
+    )
 
 
 @configclass

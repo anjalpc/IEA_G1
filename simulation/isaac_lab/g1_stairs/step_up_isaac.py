@@ -6,28 +6,13 @@ from dataclasses import dataclass
 import math
 
 from simulation.isaac_lab.g1_stairs.contact_sensor_contract import (
+    FOOT_BODY_NAMES,
+    FORBIDDEN_CONTACT_BODY_NAMES,
     resolve_available_body_indices,
 )
 from simulation.isaac_lab.g1_stairs.step_up_state import (
     FootSupportObservation,
     StepUpObservation,
-)
-
-
-FOOT_BODY_NAMES = (
-    "left_ankle_roll_link",
-    "right_ankle_roll_link",
-)
-
-FORBIDDEN_CONTACT_BODY_NAMES = (
-    "pelvis",
-    "torso_link",
-    "left_knee_link",
-    "right_knee_link",
-    "left_elbow_link",
-    "right_elbow_link",
-    "left_rubber_hand",
-    "right_rubber_hand",
 )
 
 

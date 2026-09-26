@@ -39,3 +39,15 @@ UPSTREAM_TASK_ID = "Unitree-G1-29dof-Velocity"
 FIXED_FORWARD_COMMAND_MPS = 0.35
 NOMINAL_RISER_HEIGHT_M = 0.20
 MODE_MACHINE = 5
+
+
+# Official G1 ankle-roll collision spheres, expressed in each ankle-roll
+# link frame. These are the physical sole/contact geometry used by the active
+# specialist reward and should also be used by imitation/retargeting checks.
+G1_SOLE_SPHERE_CENTRES_M = (
+    (-0.05, -0.025, -0.03),
+    (-0.05, 0.025, -0.03),
+    (0.12, -0.03, -0.03),
+    (0.12, 0.03, -0.03),
+)
+G1_SOLE_SPHERE_RADIUS_M = 0.005

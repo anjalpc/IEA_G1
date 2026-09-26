@@ -181,6 +181,57 @@ def _apply_strict_runtime_reward_set(
             setattr(rewards_cfg, reward_name, None)
 
 
+
+def _apply_reward_parameter_overrides(
+    rewards_cfg: Any,
+    weights: dict[str, float],
+    resolved: dict[str, Any],
+) -> None:
+    """Apply recorded scalar parameter overrides to active reward terms only.
+
+    This keeps reward geometry in experiment YAML instead of hiding it in
+    experiment-number-specific Python code. Existing SceneEntityCfg parameters
+    remain untouched; only keys already declared by the runtime term may be
+    overridden.
+    """
+    overrides = resolved.get("reward_parameters", {})
+    if overrides is None:
+        return
+    if not isinstance(overrides, dict):
+        raise ValueError("reward_parameters must be a mapping")
+
+    unknown_terms = sorted(set(overrides) - set(weights))
+    if unknown_terms:
+        raise ValueError(
+            "reward_parameters may only override active rewards: "
+            + ", ".join(unknown_terms)
+        )
+
+    for reward_name, params in overrides.items():
+        if not isinstance(params, dict):
+            raise ValueError(
+                f"reward_parameters.{reward_name} must be a mapping"
+            )
+        term = getattr(rewards_cfg, reward_name, None)
+        if term is None or not hasattr(term, "params"):
+            raise ValueError(
+                f"reward parameter override has no runtime term: {reward_name}"
+            )
+
+        unknown_params = sorted(set(params) - set(term.params))
+        if unknown_params:
+            raise ValueError(
+                f"reward_parameters.{reward_name} contains undeclared keys: "
+                + ", ".join(unknown_params)
+            )
+
+        for key, value in params.items():
+            if not isinstance(value, (int, float, bool)):
+                raise ValueError(
+                    f"reward_parameters.{reward_name}.{key} must be scalar"
+                )
+            term.params[key] = value
+
 def apply_resolved_rewards(
     env_cfg: Any,
     resolved: dict[str, Any],
@@ -190,6 +241,11 @@ def apply_resolved_rewards(
 
     if _strict_runtime_reward_set_enabled(resolved):
         _apply_strict_runtime_reward_set(env_cfg.rewards, weights)
+        _apply_reward_parameter_overrides(
+            env_cfg.rewards,
+            weights,
+            resolved,
+        )
         return weights
 
     rewards_cfg = env_cfg.rewards
@@ -241,4 +297,9 @@ def apply_resolved_rewards(
                 None,
             )
 
+    _apply_reward_parameter_overrides(
+        rewards_cfg,
+        weights,
+        resolved,
+    )
     return weights

@@ -11,13 +11,11 @@ from simulation.isaac_lab.g1_stairs.action_diagnostics import (
 )
 from simulation.isaac_lab.g1_stairs.evaluation.metrics import RunMetricsWriter
 from simulation.isaac_lab.g1_stairs.contact_sensor_contract import (
+    FORBIDDEN_CONTACT_BODY_NAMES,
     resolve_available_body_indices,
 )
 from simulation.isaac_lab.g1_stairs.evaluation.stair_diagnostics import (
     NamedTensorStatsAccumulator,
-)
-from simulation.isaac_lab.g1_stairs.step_up_isaac import (
-    FORBIDDEN_CONTACT_BODY_NAMES,
 )
 from simulation.isaac_lab.g1_stairs.terrain_state import stair_cfg
 
@@ -26,7 +24,9 @@ def recover_raw_reward_step(weighted_rate, dt: float, weight: float):
     """Undo RewardManager weighting when the raw value is identifiable."""
     if weight == 0.0:
         return None
-    return weighted_rate * dt / weight
+    # Isaac Lab stores _step_reward as raw_term * weight (the manager
+    # divides the dt-scaled reward by dt before exposing this buffer).
+    return weighted_rate / weight
 
 
 class InstrumentedRslRlVecEnvWrapper:

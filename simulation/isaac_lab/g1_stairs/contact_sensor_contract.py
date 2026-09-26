@@ -3,6 +3,23 @@
 from __future__ import annotations
 
 
+FOOT_BODY_NAMES = (
+    "left_ankle_roll_link",
+    "right_ankle_roll_link",
+)
+
+FORBIDDEN_CONTACT_BODY_NAMES = (
+    "pelvis",
+    "torso_link",
+    "left_knee_link",
+    "right_knee_link",
+    "left_elbow_link",
+    "right_elbow_link",
+    "left_rubber_hand",
+    "right_rubber_hand",
+)
+
+
 def resolve_available_body_indices(
     available_names,
     requested_names,

@@ -412,6 +412,18 @@ class MetricsTest(unittest.TestCase):
             ),
         )
 
+    def test_raw_reward_recovery_matches_isaac_step_reward_semantics(self):
+        # RewardManager._step_reward stores raw_term * weight, not the
+        # dt-scaled contribution. A raw term of 3.0 at weight 2.0 therefore
+        # appears as 6.0 regardless of the 0.02 s control step.
+        raw_step = recover_raw_reward_step(
+            6.0,
+            dt=0.02,
+            weight=2.0,
+        )
+
+        self.assertAlmostEqual(raw_step, 3.0)
+
     def test_zero_weight_reward_raw_value_is_not_reconstructed(self):
         class ArithmeticMustNotRun:
             def __mul__(self, other):
