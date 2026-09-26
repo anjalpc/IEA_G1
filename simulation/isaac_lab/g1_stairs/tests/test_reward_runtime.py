@@ -206,6 +206,28 @@ class RewardRuntimeTests(unittest.TestCase):
             )
         )
 
+    def test_v05_support_locked_phase0_is_bounded_and_noncompensatory(self):
+        root = Path(__file__).resolve().parents[4]
+        resolved, _ = resolve_config(
+            root / "experiments/g1_stairs/configs/g1_stair_v05.yaml"
+        )
+        materialize_legacy_reward_config(resolved)
+        weights = active_reward_weights(resolved)
+        self.assertEqual(weights["approach_progress"], 0.0)
+        self.assertEqual(weights["swing_waypoint_progress"], 4.0)
+        self.assertEqual(weights["swing_waypoint_guard"], -1.5)
+        progress = resolved["reward_parameters"]["swing_waypoint_progress"]
+        guard = resolved["reward_parameters"]["swing_waypoint_guard"]
+        self.assertTrue(progress["phase0_bottleneck"])
+        self.assertTrue(progress["phase0_require_grounded_swing"])
+        self.assertTrue(guard["enforce_phase0_support"])
+        self.assertEqual(resolved["execution"]["maximum_iterations"], 150)
+        self.assertTrue(
+            resolved["policy_initialization"]["source"]["path"].endswith(
+                "g1_stair_v04_20260926_135458/model_50.pt"
+            )
+        )
+
     def test_reward_parameter_overrides_are_active_term_scoped(self):
         class _Term:
             def __init__(self, weight, **params):

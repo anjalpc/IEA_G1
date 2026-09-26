@@ -91,6 +91,21 @@ def support_quality(
 
 
 
+def bottleneck_score(*scores: torch.Tensor) -> torch.Tensor:
+    """Return the minimum bounded component score.
+
+    This is intentionally harsher than an arithmetic mean: one broken
+    prerequisite cannot be compensated by unrelated good components.
+    """
+
+    if not scores:
+        raise ValueError("bottleneck_score requires at least one score")
+    shape = scores[0].shape
+    if any(score.shape != shape for score in scores[1:]):
+        raise ValueError("all bottleneck scores must have the same shape")
+    return torch.stack(tuple(score.clamp(0.0, 1.0) for score in scores), dim=0).amin(dim=0)
+
+
 def deadzone_score(
     absolute_error: torch.Tensor,
     *,

@@ -4,6 +4,7 @@ import pytest
 import torch
 
 from simulation.isaac_lab.g1_stairs.reward_math import (
+    bottleneck_score,
     coupled_swing_score,
     deadzone_score,
     support_quality,
@@ -12,6 +13,15 @@ from simulation.isaac_lab.g1_stairs.reward_math import (
     target_band_score,
     tread_containment_score,
 )
+
+
+def test_bottleneck_score_cannot_average_away_a_broken_prerequisite() -> None:
+    score = bottleneck_score(
+        torch.tensor([1.0, 0.9]),
+        torch.tensor([0.0, 0.8]),
+        torch.tensor([1.0, 0.7]),
+    )
+    assert score.tolist() == pytest.approx([0.0, 0.7])
 
 
 def test_coupled_swing_requires_lift_and_advance() -> None:

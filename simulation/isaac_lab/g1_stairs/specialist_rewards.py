@@ -31,6 +31,7 @@ from .contracts import (
     G1_SOLE_SPHERE_RADIUS_M,
 )
 from .reward_math import (
+    bottleneck_score,
     coupled_swing_score,
     deadzone_score,
     support_quality,
@@ -509,6 +510,10 @@ class swing_waypoint_progress(_PotentialDifferenceTerm):
         swing_left: bool = True,
         support_force_bodyweight_fraction: float = 0.40,
         swing_unload_bodyweight_fraction: float = 0.20,
+        phase0_bottleneck: bool = False,
+        phase0_require_grounded_swing: bool = False,
+        phase0_swing_height_free_m: float = 0.010,
+        phase0_swing_height_zero_m: float = 0.030,
         pelvis_support_tolerance_m: float = 0.09,
         pelvis_support_zero_m: float = 0.20,
         support_anchor_tolerance_m: float = 0.015,
@@ -552,6 +557,12 @@ class swing_waypoint_progress(_PotentialDifferenceTerm):
             raise ValueError("waypoint x fractions must satisfy 0 < early < clearance < 1")
         if transition_dwell_s <= 0.0 or touchdown_dwell_s <= 0.0:
             raise ValueError("phase dwell times must be positive")
+        if phase0_swing_height_free_m < 0.0:
+            raise ValueError("phase0_swing_height_free_m cannot be negative")
+        if phase0_swing_height_zero_m <= phase0_swing_height_free_m:
+            raise ValueError(
+                "phase0_swing_height_zero_m must exceed phase0_swing_height_free_m"
+            )
 
         m = self._measure(
             env,
@@ -608,6 +619,11 @@ class swing_waypoint_progress(_PotentialDifferenceTerm):
             (m["root_y"] - m["sole_center_y"][:, support]).abs(),
             free_tolerance=pelvis_support_tolerance_m,
             zero_at=pelvis_support_zero_m,
+        )
+        phase0_ground_score = deadzone_score(
+            m["sole_bottom"][:, swing].clamp_min(0.0),
+            free_tolerance=phase0_swing_height_free_m,
+            zero_at=phase0_swing_height_zero_m,
         )
         lateral_score = deadzone_score(
             (m["sole_center_y"][:, swing] - self._lane_y).abs(),
@@ -693,9 +709,23 @@ class swing_waypoint_progress(_PotentialDifferenceTerm):
         )
         waypoint_score = 0.5 * (x_score + z_score) * airborne_gate
 
-        phase0 = (
+        legacy_phase0 = (
             support_quality_lower + swing_unload_score + pelvis_score + body_orientation_score
         ) / 4.0
+        phase0_components = [
+            support_quality_lower,
+            swing_unload_score,
+            pelvis_score,
+            body_orientation_score,
+        ]
+        if bool(phase0_require_grounded_swing):
+            phase0_components.append(phase0_ground_score)
+        phase0_locked = bottleneck_score(*phase0_components)
+        phase0 = torch.where(
+            torch.full_like(legacy_phase0, bool(phase0_bottleneck), dtype=torch.bool),
+            phase0_locked,
+            legacy_phase0,
+        )
         phase1 = waypoint_score
         phase2 = waypoint_score
         phase3 = waypoint_score
@@ -735,6 +765,11 @@ class swing_waypoint_progress(_PotentialDifferenceTerm):
             & (pelvis_score >= 0.65)
             & (support_anchor_score >= 0.85)
             & (body_orientation_score >= 0.75)
+            & (
+                (phase0_ground_score >= 0.75)
+                if bool(phase0_require_grounded_swing)
+                else torch.ones_like(phase0_ground_score, dtype=torch.bool)
+            )
         )
         transition1 = common_airborne_transition & (x_score >= 0.75) & (z_score >= 0.75)
         transition2 = common_airborne_transition & (x_score >= 0.75) & (z_score >= 0.75)
@@ -785,6 +820,11 @@ class swing_waypoint_progress(_PotentialDifferenceTerm):
         env._g1_stair_swing_target_z = target_z.detach().clone()
         env._g1_stair_landing_target_x = landing_x_tensor.detach().clone()
         env._g1_stair_support_anchor_error = support_anchor_error.detach().clone()
+        env._g1_stair_phase0_support_quality = support_quality_lower.detach().clone()
+        env._g1_stair_phase0_swing_unload_score = swing_unload_score.detach().clone()
+        env._g1_stair_phase0_pelvis_score = pelvis_score.detach().clone()
+        env._g1_stair_phase0_ground_score = phase0_ground_score.detach().clone()
+        env._g1_stair_phase0_bottleneck_score = phase0_locked.detach().clone()
         env._g1_stair_swing_left = bool(swing_left)
 
         return self._potential_rate(
@@ -820,6 +860,13 @@ class swing_waypoint_guard(_SingleStepRewardBase):
         asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
         contact_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces"),
         swing_left: bool = True,
+        enforce_phase0_support: bool = False,
+        phase0_swing_load_free_bodyweight_fraction: float = 0.30,
+        phase0_swing_load_zero_bodyweight_fraction: float = 0.50,
+        phase0_swing_height_free_m: float = 0.012,
+        phase0_swing_height_zero_m: float = 0.035,
+        phase0_support_speed_free_mps: float = 0.15,
+        phase0_support_speed_zero_mps: float = 0.50,
         lateral_free_m: float = 0.030,
         lateral_zero_m: float = 0.100,
         support_anchor_free_m: float = 0.020,
@@ -848,6 +895,12 @@ class swing_waypoint_guard(_SingleStepRewardBase):
         maximum_supported_foot_speed_mps: float = 0.15,
         minimum_upright_gravity_z: float = 0.80,
     ) -> torch.Tensor:
+        if not 0.0 <= phase0_swing_load_free_bodyweight_fraction < phase0_swing_load_zero_bodyweight_fraction:
+            raise ValueError("phase0 swing-load thresholds must be ordered")
+        if phase0_swing_height_free_m < 0.0 or phase0_swing_height_zero_m <= phase0_swing_height_free_m:
+            raise ValueError("phase0 swing-height thresholds must be ordered")
+        if phase0_support_speed_free_mps < 0.0 or phase0_support_speed_zero_mps <= phase0_support_speed_free_mps:
+            raise ValueError("phase0 support-speed thresholds must be ordered")
         m = self._measure(
             env,
             asset_cfg=asset_cfg,
@@ -948,6 +1001,28 @@ class swing_waypoint_guard(_SingleStepRewardBase):
             (m["foot_speed"][:, swing] - float(maximum_swing_speed_mps)).clamp_min(0.0)
             / max(float(swing_speed_zero_mps) - float(maximum_swing_speed_mps), 1.0e-6)
         ).clamp(0.0, 1.0)
+        phase0_swing_loaded_bad = (
+            (swing_force_fraction - float(phase0_swing_load_free_bodyweight_fraction)).clamp_min(0.0)
+            / max(
+                float(phase0_swing_load_zero_bodyweight_fraction)
+                - float(phase0_swing_load_free_bodyweight_fraction),
+                1.0e-6,
+            )
+        ).clamp(0.0, 1.0)
+        phase0_swing_lift_bad = (
+            (m["sole_bottom"][:, swing].clamp_min(0.0) - float(phase0_swing_height_free_m)).clamp_min(0.0)
+            / max(
+                float(phase0_swing_height_zero_m) - float(phase0_swing_height_free_m),
+                1.0e-6,
+            )
+        ).clamp(0.0, 1.0)
+        phase0_support_speed_bad = (
+            (m["foot_speed"][:, support] - float(phase0_support_speed_free_mps)).clamp_min(0.0)
+            / max(
+                float(phase0_support_speed_zero_mps) - float(phase0_support_speed_free_mps),
+                1.0e-6,
+            )
+        ).clamp(0.0, 1.0)
 
         active = (phase >= 1).to(dtype=lateral_bad.dtype)
         severity = torch.stack(
@@ -970,6 +1045,22 @@ class swing_waypoint_guard(_SingleStepRewardBase):
             ),
             dim=1,
         ).amax(dim=1)
+        phase0_severity = torch.stack(
+            (
+                support_anchor_bad,
+                support_loss,
+                support_lift_bad,
+                phase0_support_speed_bad,
+                pelvis_bad,
+                root_roll_bad,
+                root_pitch_bad,
+                phase0_swing_loaded_bad,
+                phase0_swing_lift_bad,
+            ),
+            dim=1,
+        ).amax(dim=1)
+        if bool(enforce_phase0_support):
+            return torch.where(phase == 0, phase0_severity, severity)
         return severity * active
 
 

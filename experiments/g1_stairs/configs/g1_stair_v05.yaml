@@ -1,0 +1,161 @@
+schema_version: 1
+
+experiment:
+  id: g1_stair_v05
+  purpose: >
+    Bounded qualification of the v04 waypoint arc with the preparation loophole
+    closed. Start from the best early v04 actor (model_50): phase 0 now uses a
+    bottleneck score, requires the swing foot to stay grounded while unloading,
+    and applies support-anchor/pelvis/load penalties before swing begins. The
+    forward/up waypoint arc and all later phases remain unchanged.
+  type: specialist_stair_support_locked_waypoint
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/specialist_single_step_base.yaml
+  resolved_config_required: true
+
+policy_initialization:
+  type: rsl_rl_checkpoint_actor_transfer
+  source:
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/g1_stair_v04_20260926_135458/model_50.pt
+  critic_initialization: fresh
+  optimizer_initialization: fresh
+  transfer_action_std: true
+
+reward_experiment:
+  active_stage: support_locked_waypoint
+  strict_runtime_set: true
+  rule: >
+    Phase 0 is a non-compensatory preparation gate: support anchoring, swing-foot
+    unloading, pelvis placement, body orientation, and grounded swing-foot state
+    must all be acceptable together. Phase-0 support drift/load failures are
+    penalized immediately. After transition, the v04 forward/up waypoint arc,
+    lateral lane, foot orientation, body envelope, touchdown, and transfer logic
+    are unchanged.
+  rewards:
+    stage_plan:
+      support_locked_waypoint:
+        alive: 0.0
+        upright: -5.0
+        base_angular_velocity: -0.05
+        feet_slide: -0.2
+        action_rate: -0.01
+        joint_acc: -2.5e-7
+        dof_pos_limits: -5.0
+        undesired_contacts: -1.0
+        failure_termination_event: -4.0
+        approach_progress: 0.0
+        body_heading_guard: -0.25
+        swing_waypoint_progress: 4.0
+        swing_waypoint_guard: -1.5
+        posture_envelope_guard: -0.25
+        upper_foothold_progress: 2.5
+        body_transfer_progress: 3.0
+        trailing_foot_recovery: 2.0
+        riser_strike_event: -2.0
+        single_step_success: 6.0
+
+reward_parameters:
+  swing_clearance_progress: null
+  swing_waypoint_progress:
+    swing_left: true
+    support_force_bodyweight_fraction: 0.40
+    swing_unload_bodyweight_fraction: 0.20
+    phase0_bottleneck: true
+    phase0_require_grounded_swing: true
+    phase0_swing_height_free_m: 0.010
+    phase0_swing_height_zero_m: 0.030
+    pelvis_support_tolerance_m: 0.09
+    pelvis_support_zero_m: 0.20
+    support_anchor_tolerance_m: 0.015
+    support_anchor_zero_m: 0.07
+    early_x_fraction: 0.35
+    clearance_x_fraction: 0.60
+    early_lift_riser_fraction: 0.55
+    clearance_margin_m: 0.025
+    hover_margin_m: 0.025
+    waypoint_x_tolerance_m: 0.03
+    waypoint_x_zero_m: 0.12
+    waypoint_z_tolerance_m: 0.015
+    waypoint_z_zero_m: 0.055
+    lateral_lane_tolerance_m: 0.03
+    lateral_lane_zero_m: 0.08
+    foot_roll_tolerance_rad: 0.12
+    foot_roll_zero_rad: 0.35
+    foot_yaw_tolerance_rad: 0.12
+    foot_yaw_zero_rad: 0.35
+    root_roll_tolerance_rad: 0.10
+    root_roll_zero_rad: 0.30
+    root_pitch_tolerance_rad: 0.20
+    root_pitch_zero_rad: 0.45
+    root_yaw_tolerance_rad: 0.10
+    root_yaw_zero_rad: 0.30
+    maximum_lower_support_foot_speed_mps: 0.20
+    transition_dwell_s: 0.06
+    touchdown_dwell_s: 0.08
+    maximum_touchdown_vertical_speed_mps: 0.25
+    tread_margin_m: 0.015
+    foot_height_tolerance_m: 0.025
+    upper_support_force_bodyweight_fraction: 0.15
+    maximum_supported_foot_speed_mps: 0.15
+    minimum_upright_gravity_z: 0.80
+  swing_waypoint_guard:
+    swing_left: true
+    enforce_phase0_support: true
+    phase0_swing_load_free_bodyweight_fraction: 0.30
+    phase0_swing_load_zero_bodyweight_fraction: 0.50
+    phase0_swing_height_free_m: 0.012
+    phase0_swing_height_zero_m: 0.035
+    phase0_support_speed_free_mps: 0.15
+    phase0_support_speed_zero_mps: 0.50
+    lateral_free_m: 0.03
+    lateral_zero_m: 0.10
+    support_anchor_free_m: 0.02
+    support_anchor_zero_m: 0.08
+    maximum_height_above_riser_m: 0.07
+    overheight_zero_m: 0.18
+    backward_free_m: 0.02
+    backward_zero_m: 0.10
+    foot_roll_free_rad: 0.15
+    foot_roll_zero_rad: 0.45
+    foot_yaw_free_rad: 0.15
+    foot_yaw_zero_rad: 0.45
+    root_roll_free_rad: 0.12
+    root_roll_zero_rad: 0.35
+    root_pitch_free_rad: 0.25
+    root_pitch_zero_rad: 0.55
+    pelvis_support_free_m: 0.11
+    pelvis_support_zero_m: 0.24
+    support_force_bodyweight_fraction: 0.25
+    lower_floor_recontact_force_bodyweight_fraction: 0.12
+    maximum_swing_speed_mps: 1.20
+    swing_speed_zero_mps: 2.20
+    tread_margin_m: 0.015
+    foot_height_tolerance_m: 0.025
+    upper_support_force_bodyweight_fraction: 0.15
+    maximum_supported_foot_speed_mps: 0.15
+    minimum_upright_gravity_z: 0.80
+  posture_envelope_guard:
+    arms_free_rms_rad: 0.25
+    arms_zero_rms_rad: 0.70
+    waist_free_rms_rad: 0.15
+    waist_zero_rms_rad: 0.45
+    lateral_legs_free_rms_rad: 0.22
+    lateral_legs_zero_rms_rad: 0.55
+  body_heading_guard:
+    free_yaw_rad: 0.10
+    zero_at_yaw_rad: 0.35
+
+ppo:
+  learning_rate: 0.0001
+  learning_rate_schedule: adaptive
+  desired_kl: 0.01
+
+execution:
+  environments: 256
+  maximum_iterations: 150
+  training_seed: 42
+
+launch_gates:
+  allow_launch: true

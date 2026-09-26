@@ -58,6 +58,11 @@ STAIR_DIAGNOSTIC_NAMES = (
     "motion_phase_is_3",
     "motion_phase_is_4",
     "motion_phase_is_complete",
+    "phase0_support_quality",
+    "phase0_swing_unload_score",
+    "phase0_pelvis_score",
+    "phase0_ground_score",
+    "phase0_bottleneck_score",
     "swing_foot_center_x_m",
     "swing_foot_center_y_m",
     "support_foot_center_x_m",
@@ -572,6 +577,21 @@ class InstrumentedRslRlVecEnvWrapper:
         phase_progress = getattr(env, "_g1_stair_motion_phase_progress", None)
         if phase_progress is None:
             phase_progress = torch.zeros_like(local_x)
+        phase0_support_quality = getattr(env, "_g1_stair_phase0_support_quality", None)
+        if phase0_support_quality is None:
+            phase0_support_quality = torch.zeros_like(local_x)
+        phase0_swing_unload_score = getattr(env, "_g1_stair_phase0_swing_unload_score", None)
+        if phase0_swing_unload_score is None:
+            phase0_swing_unload_score = torch.zeros_like(local_x)
+        phase0_pelvis_score = getattr(env, "_g1_stair_phase0_pelvis_score", None)
+        if phase0_pelvis_score is None:
+            phase0_pelvis_score = torch.zeros_like(local_x)
+        phase0_ground_score = getattr(env, "_g1_stair_phase0_ground_score", None)
+        if phase0_ground_score is None:
+            phase0_ground_score = torch.zeros_like(local_x)
+        phase0_bottleneck_score = getattr(env, "_g1_stair_phase0_bottleneck_score", None)
+        if phase0_bottleneck_score is None:
+            phase0_bottleneck_score = torch.zeros_like(local_x)
         target_x = getattr(env, "_g1_stair_swing_target_x", None)
         if target_x is None:
             target_x = torch.full_like(local_x, first_riser + 0.5 * tread_depth)
@@ -633,6 +653,11 @@ class InstrumentedRslRlVecEnvWrapper:
                     (phase == 3.0).to(dtype=local_x.dtype),
                     (phase == 4.0).to(dtype=local_x.dtype),
                     (phase >= 5.0).to(dtype=local_x.dtype),
+                    phase0_support_quality,
+                    phase0_swing_unload_score,
+                    phase0_pelvis_score,
+                    phase0_ground_score,
+                    phase0_bottleneck_score,
                     sole_center[:, swing_index, 0],
                     sole_center[:, swing_index, 1],
                     sole_center[:, support_index, 0],
