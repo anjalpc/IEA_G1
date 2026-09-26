@@ -340,7 +340,12 @@ class approach_progress(_PotentialDifferenceTerm):
 
     def __init__(self, cfg, env: "ManagerBasedRLEnv"):
         super().__init__(cfg, env)
-        self._initial_distance = torch.zeros(
+        self._initial_foot_distance = torch.zeros(
+            env.num_envs,
+            dtype=torch.float32,
+            device=env.device,
+        )
+        self._initial_root_distance = torch.zeros(
             env.num_envs,
             dtype=torch.float32,
             device=env.device,
@@ -355,7 +360,8 @@ class approach_progress(_PotentialDifferenceTerm):
         super().reset(env_ids=env_ids)
         if env_ids is None:
             env_ids = slice(None)
-        self._initial_distance[env_ids] = 0.0
+        self._initial_foot_distance[env_ids] = 0.0
+        self._initial_root_distance[env_ids] = 0.0
         self._distance_initialized[env_ids] = False
 
     def __call__(
@@ -383,24 +389,32 @@ class approach_progress(_PotentialDifferenceTerm):
             maximum_supported_foot_speed_mps=maximum_supported_foot_speed_mps,
             minimum_upright_gravity_z=minimum_upright_gravity_z,
         )
-        # Use the mean front-sole position as the approach coordinate.  This
-        # makes pelvis-only forward lean worth zero approach progress and makes
-        # a single extended foot contribute only half of the two-foot advance.
-        distance = (
+        # Genuine locomotor approach must move both the support geometry and
+        # the body toward the riser. Root-only progress can be earned by
+        # leaning; foot-only progress can be earned by sliding the feet out
+        # from under the body. Couple both coordinates through the same
+        # physical advance target so neither proxy can earn the reward alone.
+        foot_distance = (
             float(m["riser_x"])
             - m["front_x"].mean(dim=1)
         )
+        root_distance = float(m["riser_x"]) - m["root_x"]
 
         new = ~self._distance_initialized
-        self._initial_distance[new] = distance[new].detach()
+        self._initial_foot_distance[new] = foot_distance[new].detach()
+        self._initial_root_distance[new] = root_distance[new].detach()
         self._distance_initialized[new] = True
 
-        span = (
-            self._initial_distance - float(preparation_distance_m)
+        advance_target = (
+            self._initial_foot_distance - float(preparation_distance_m)
         ).clamp_min(0.05)
-        potential = (
-            (self._initial_distance - distance) / span
+        foot_progress = (
+            (self._initial_foot_distance - foot_distance) / advance_target
         ).clamp(0.0, 1.0)
+        root_progress = (
+            (self._initial_root_distance - root_distance) / advance_target
+        ).clamp(0.0, 1.0)
+        potential = torch.minimum(foot_progress, root_progress)
 
         return self._potential_rate(
             potential,

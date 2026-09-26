@@ -38,6 +38,7 @@ STAIR_DIAGNOSTIC_NAMES = (
     "maximum_upper_containment",
     "maximum_vertical_foot_force_n",
     "minimum_foot_speed_mps",
+    "maximum_supported_horizontal_foot_speed_mps",
     "root_height_m",
     "upright_gravity_z",
     "native_failure_termination",
@@ -123,7 +124,7 @@ class InstrumentedRslRlVecEnvWrapper:
         self._maximum_x = -math.inf
         self._maximum_height = -math.inf
         self._maximum_step = 0
-        self._platform_reached = False
+        self._platform_reached_envs = None
         self._fall_count = 0
         self._forbidden_contact_count = 0
         self._finite_action_env_steps = 0
@@ -355,9 +356,16 @@ class InstrumentedRslRlVecEnvWrapper:
         )
         self._maximum_step = max(self._maximum_step, level)
         platform_start = first_riser + step_count * tread_depth
-        self._platform_reached = self._platform_reached or bool(
-            torch.any(local_x >= platform_start).item()
-        )
+        if (
+            self._platform_reached_envs is None
+            or self._platform_reached_envs.shape[0] != local_x.shape[0]
+        ):
+            self._platform_reached_envs = torch.zeros(
+                local_x.shape[0],
+                dtype=torch.bool,
+                device=local_x.device,
+            )
+        self._platform_reached_envs |= local_x >= platform_start
 
         # Reward-independent mechanics diagnostics. These signals never feed
         # PPO; they only make the current physical bottleneck observable.
@@ -413,7 +421,15 @@ class InstrumentedRslRlVecEnvWrapper:
             sole_local[..., 2] - G1_SOLE_SPHERE_RADIUS_M
         ).amin(dim=2)
         foot_speed = torch.linalg.vector_norm(foot_vel_w, dim=2)
+        horizontal_foot_speed = torch.linalg.vector_norm(
+            foot_vel_w[..., :2], dim=2
+        )
         vertical_force = sensor.data.net_forces_w[:, sensor_ids, 2].clamp_min(0.0)
+        supported_horizontal_speed = torch.where(
+            vertical_force >= 5.0,
+            horizontal_foot_speed,
+            torch.zeros_like(horizontal_foot_speed),
+        )
         riser_height = riser_height_per_env(env)
         containment = tread_containment_score(
             rear_x,
@@ -441,6 +457,7 @@ class InstrumentedRslRlVecEnvWrapper:
                     containment.amax(dim=1),
                     vertical_force.amax(dim=1),
                     foot_speed.amin(dim=1),
+                    supported_horizontal_speed.amax(dim=1),
                     local_z,
                     -data.projected_gravity_b[:, 2],
                     native_failure,
@@ -457,7 +474,13 @@ class InstrumentedRslRlVecEnvWrapper:
             "maximum_x_any_m": self._maximum_x,
             "maximum_base_height_any_m": self._maximum_height,
             "maximum_step_reached_any": self._maximum_step,
-            "platform_reached_rate": float(self._platform_reached),
+            "platform_reached_rate": (
+                float(
+                    self._platform_reached_envs.float().mean().item()
+                )
+                if self._platform_reached_envs is not None
+                else 0.0
+            ),
             "action_saturation_count": self._action_saturation_count,
             "joint_limit_violation_count": self._joint_limit_violation_count,
             "velocity_limit_violation_count": self._velocity_limit_violation_count,

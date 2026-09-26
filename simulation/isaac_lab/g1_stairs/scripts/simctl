@@ -531,7 +531,7 @@ if max_x:
 if step:
     print(f"Maximum step (any env): {step}")
 if platform:
-    print(f"Platform reached: {platform}")
+    print(f"Platform reached (env fraction): {platform}")
 if action_rate:
     print(f"Action rate: {action_rate}")
 if power:

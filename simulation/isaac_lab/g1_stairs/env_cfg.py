@@ -367,12 +367,19 @@ class StairRewardsCfg:
     )
 
     # Specialist foundation regularizers. The resolved YAML strict runtime set
-    # selects exactly which of these are manager-visible.
+    # selects exactly which of these are manager-visible. Keep the balance
+    # terms terrain-compatible: no absolute base-height or vertical-velocity
+    # target is used because those would fight the required body rise.
+    alive = copy.deepcopy(_UPSTREAM_CFG.rewards.alive)
     upright = RewTerm(
         func=mdp.flat_orientation_l2,
-        weight=-2.0,
+        weight=-5.0,
         params={"asset_cfg": SceneEntityCfg("robot")},
     )
+    base_angular_velocity = copy.deepcopy(
+        _UPSTREAM_CFG.rewards.base_angular_velocity
+    )
+    feet_slide = copy.deepcopy(_UPSTREAM_CFG.rewards.feet_slide)
     joint_acc = copy.deepcopy(_UPSTREAM_CFG.rewards.joint_acc)
     dof_pos_limits = copy.deepcopy(_UPSTREAM_CFG.rewards.dof_pos_limits)
     undesired_contacts = copy.deepcopy(_UPSTREAM_CFG.rewards.undesired_contacts)

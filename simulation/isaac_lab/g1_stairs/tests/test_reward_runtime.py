@@ -23,7 +23,10 @@ class RewardRuntimeTests(unittest.TestCase):
         self.assertEqual(
             active_reward_weights(resolved),
             {
-                "upright": -2.0,
+                "alive": 0.15,
+                "upright": -5.0,
+                "base_angular_velocity": -0.05,
+                "feet_slide": -0.2,
                 "action_rate": -0.01,
                 "joint_acc": -2.5e-7,
                 "dof_pos_limits": -5.0,
@@ -82,7 +85,10 @@ class RewardRuntimeTests(unittest.TestCase):
         self.assertEqual(
             active_reward_weights(resolved),
             {
-                "upright": -2.0,
+                "alive": 0.15,
+                "upright": -5.0,
+                "base_angular_velocity": -0.05,
+                "feet_slide": -0.2,
                 "action_rate": -0.01,
                 "joint_acc": -2.5e-7,
                 "dof_pos_limits": -5.0,
