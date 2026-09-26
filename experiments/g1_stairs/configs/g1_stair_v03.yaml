@@ -58,6 +58,9 @@ reward_experiment:
         single_step_success: 6.0
 
 reward_parameters:
+  # Explicitly delete the inherited parameter block for the retired term.
+  # reward_runtime treats YAML null as an intentional inheritance removal.
+  swing_clearance_progress: null
   swing_target_progress:
     swing_left: true
     support_force_bodyweight_fraction: 0.45

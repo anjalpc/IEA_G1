@@ -162,6 +162,9 @@ class RewardRuntimeTests(unittest.TestCase):
         self.assertEqual(weights["body_heading_guard"], -0.25)
         self.assertNotIn("swing_lift_progress", weights)
         self.assertNotIn("swing_clearance_progress", weights)
+        self.assertIsNone(
+            resolved["reward_parameters"]["swing_clearance_progress"]
+        )
         self.assertTrue(
             resolved["reward_parameters"]["swing_target_progress"]["swing_left"]
         )
@@ -220,6 +223,42 @@ class RewardRuntimeTests(unittest.TestCase):
             0.22,
         )
         self.assertIsNone(_EnvCfg.rewards.legacy_extra)
+
+    def test_reward_parameter_null_removes_inherited_inactive_override(self):
+        class _Term:
+            def __init__(self):
+                self.func = object()
+                self.weight = 1.0
+                self.params = {"x": 1.0}
+
+        class _Rewards:
+            upright = _Term()
+            approach_progress = _Term()
+
+        class _EnvCfg:
+            rewards = _Rewards()
+
+        resolved = {
+            "reward_experiment": {
+                "active_stage": "foundation",
+                "strict_runtime_set": True,
+            },
+            "rewards": {
+                "terms": {"upright_raw": {}},
+                "stage_plan": {
+                    "foundation": {
+                        "enabled_terms": {"upright_raw": -1.0}
+                    }
+                },
+            },
+            "reward_parameters": {
+                "approach_progress": None,
+            },
+        }
+
+        weights = apply_resolved_rewards(_EnvCfg(), resolved)
+        self.assertEqual(weights, {"upright": -1.0})
+        self.assertIsNone(_EnvCfg.rewards.approach_progress)
 
     def test_reward_parameter_override_rejects_inactive_term(self):
         class _Term:

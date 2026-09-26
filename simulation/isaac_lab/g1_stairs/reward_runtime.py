@@ -200,6 +200,15 @@ def _apply_reward_parameter_overrides(
     if not isinstance(overrides, dict):
         raise ValueError("reward_parameters must be a mapping")
 
+    # Child experiment configs may explicitly set an inherited reward-parameter
+    # block to YAML null to remove it when the corresponding reward is no longer
+    # active. Keep strict validation for every non-null inactive override.
+    overrides = {
+        reward_name: params
+        for reward_name, params in overrides.items()
+        if params is not None
+    }
+
     unknown_terms = sorted(set(overrides) - set(weights))
     if unknown_terms:
         raise ValueError(
