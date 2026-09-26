@@ -178,6 +178,34 @@ class RewardRuntimeTests(unittest.TestCase):
             )
         )
 
+    def test_v04_waypoint_arc_replaces_vertical_only_swing_phase(self):
+        root = Path(__file__).resolve().parents[4]
+        resolved, _ = resolve_config(
+            root / "experiments/g1_stairs/configs/g1_stair_v04.yaml"
+        )
+        materialize_legacy_reward_config(resolved)
+        weights = active_reward_weights(resolved)
+        self.assertEqual(weights["alive"], 0.0)
+        self.assertEqual(weights["approach_progress"], 0.05)
+        self.assertEqual(weights["swing_waypoint_progress"], 4.0)
+        self.assertEqual(weights["swing_waypoint_guard"], -1.5)
+        self.assertEqual(weights["posture_envelope_guard"], -0.25)
+        self.assertNotIn("swing_target_progress", weights)
+        self.assertNotIn("swing_motion_guard", weights)
+        self.assertNotIn("swing_lift_progress", weights)
+        self.assertNotIn("swing_clearance_progress", weights)
+        self.assertIsNone(resolved["reward_parameters"]["swing_clearance_progress"])
+        params = resolved["reward_parameters"]["swing_waypoint_progress"]
+        self.assertTrue(params["swing_left"])
+        self.assertEqual(params["early_x_fraction"], 0.35)
+        self.assertEqual(params["clearance_x_fraction"], 0.60)
+        self.assertEqual(params["maximum_touchdown_vertical_speed_mps"], 0.25)
+        self.assertTrue(
+            resolved["policy_initialization"]["source"]["path"].endswith(
+                "specialist_single_step_transfer3000_20260926_112515/model_1500.pt"
+            )
+        )
+
     def test_reward_parameter_overrides_are_active_term_scoped(self):
         class _Term:
             def __init__(self, weight, **params):

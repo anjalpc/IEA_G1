@@ -1,0 +1,19 @@
+schema_version: 1
+
+experiment:
+  id: g1_stair_v04_smoke
+  purpose: One-iteration wiring smoke for the v04 waypoint-arc specialist.
+  type: specialist_stair_waypoint_arc_smoke
+  meaningful_stair_training: false
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_stair_v04.yaml
+  resolved_config_required: true
+
+execution:
+  environments: 32
+  maximum_iterations: 1
+  training_seed: 42
+
+launch_gates:
+  allow_launch: true

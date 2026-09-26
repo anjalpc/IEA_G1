@@ -52,12 +52,24 @@ STAIR_DIAGNOSTIC_NAMES = (
     "native_failure_termination",
     "motion_phase_index",
     "motion_phase_progress",
+    "motion_phase_is_0",
+    "motion_phase_is_1",
+    "motion_phase_is_2",
+    "motion_phase_is_3",
+    "motion_phase_is_4",
+    "motion_phase_is_complete",
     "swing_foot_center_x_m",
     "swing_foot_center_y_m",
     "support_foot_center_x_m",
     "support_foot_center_y_m",
+    "swing_target_x_m",
+    "swing_target_z_m",
     "swing_target_x_error_m",
+    "swing_target_z_error_m",
     "swing_lateral_error_m",
+    "support_anchor_error_m",
+    "swing_foot_speed_mps",
+    "swing_lower_floor_recontact",
     "root_to_support_foot_y_m",
     "swing_foot_force_share",
     "support_foot_force_share",
@@ -563,6 +575,12 @@ class InstrumentedRslRlVecEnvWrapper:
         target_x = getattr(env, "_g1_stair_swing_target_x", None)
         if target_x is None:
             target_x = torch.full_like(local_x, first_riser + 0.5 * tread_depth)
+        target_z = getattr(env, "_g1_stair_swing_target_z", None)
+        if target_z is None:
+            target_z = riser_height
+        support_anchor_error = getattr(env, "_g1_stair_support_anchor_error", None)
+        if support_anchor_error is None:
+            support_anchor_error = torch.zeros_like(local_x)
         lane_y = getattr(env, "_g1_stair_swing_lane_y", None)
         if lane_y is None:
             lane_y = sole_center[:, swing_index, 1]
@@ -575,6 +593,12 @@ class InstrumentedRslRlVecEnvWrapper:
             & (vertical_force[:, 1] < 5.0)
             & (sole_bottom[:, 0] > 0.010)
             & (sole_bottom[:, 1] > 0.010)
+        ).to(dtype=local_x.dtype)
+        lower_floor_recontact = (
+            (phase >= 1.0)
+            & (phase <= 3.0)
+            & (sole_bottom[:, swing_index] <= 0.025)
+            & (vertical_force[:, swing_index] >= 5.0)
         ).to(dtype=local_x.dtype)
         swing_overheight = (
             sole_bottom[:, swing_index] - (riser_height + 0.070)
@@ -603,12 +627,24 @@ class InstrumentedRslRlVecEnvWrapper:
                     native_failure,
                     phase,
                     phase_progress,
+                    (phase == 0.0).to(dtype=local_x.dtype),
+                    (phase == 1.0).to(dtype=local_x.dtype),
+                    (phase == 2.0).to(dtype=local_x.dtype),
+                    (phase == 3.0).to(dtype=local_x.dtype),
+                    (phase == 4.0).to(dtype=local_x.dtype),
+                    (phase >= 5.0).to(dtype=local_x.dtype),
                     sole_center[:, swing_index, 0],
                     sole_center[:, swing_index, 1],
                     sole_center[:, support_index, 0],
                     sole_center[:, support_index, 1],
+                    target_x,
+                    target_z,
                     target_x - sole_center[:, swing_index, 0],
+                    target_z - sole_bottom[:, swing_index],
                     sole_center[:, swing_index, 1] - lane_y,
+                    support_anchor_error,
+                    foot_speed[:, swing_index],
+                    lower_floor_recontact,
                     local_x.new_tensor(0.0).expand_as(local_x) + (
                         data.root_pos_w[:, 1]
                         - foot_pos_w[:, support_index, 1]

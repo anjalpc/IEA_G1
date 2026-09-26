@@ -235,3 +235,47 @@ def coupled_swing_score(
     ).clamp(0.0, 1.0)
 
     return height_fraction * forward_fraction
+
+
+def swing_arc_waypoints(
+    *,
+    start_x_m: torch.Tensor,
+    riser_x_m: float,
+    tread_depth_m: float,
+    riser_height_m: torch.Tensor,
+    early_x_fraction: float,
+    clearance_x_fraction: float,
+    early_lift_riser_fraction: float,
+    clearance_margin_m: float,
+    hover_margin_m: float,
+) -> dict[str, torch.Tensor]:
+    """Return geometry-scaled waypoints for the v04 single-step swing arc."""
+
+    if start_x_m.ndim != 1:
+        raise ValueError("start_x_m must have shape [N]")
+    if riser_height_m.ndim != 1 or riser_height_m.shape != start_x_m.shape:
+        raise ValueError("riser_height_m must match start_x_m shape")
+    if tread_depth_m <= 0.0:
+        raise ValueError("tread_depth_m must be positive")
+    if not 0.0 < early_x_fraction < clearance_x_fraction < 1.0:
+        raise ValueError("waypoint x fractions must satisfy 0 < early < clearance < 1")
+    if not 0.0 < early_lift_riser_fraction < 1.0:
+        raise ValueError("early_lift_riser_fraction must be in (0, 1)")
+    if clearance_margin_m <= 0.0 or hover_margin_m <= 0.0:
+        raise ValueError("clearance margins must be positive")
+
+    landing_x = torch.full_like(
+        start_x_m,
+        float(riser_x_m) + 0.5 * float(tread_depth_m),
+    )
+    path = (landing_x - start_x_m).clamp_min(0.05)
+    return {
+        "landing_x": landing_x,
+        "early_x": start_x_m + float(early_x_fraction) * path,
+        "clearance_x": start_x_m + float(clearance_x_fraction) * path,
+        "hover_x": landing_x,
+        "early_z": riser_height_m * float(early_lift_riser_fraction),
+        "clearance_z": riser_height_m + float(clearance_margin_m),
+        "hover_z": riser_height_m + float(hover_margin_m),
+        "touchdown_z": riser_height_m,
+    }

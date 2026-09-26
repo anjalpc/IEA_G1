@@ -8,6 +8,7 @@ from simulation.isaac_lab.g1_stairs.reward_math import (
     deadzone_score,
     support_quality,
     supported_single_foot_lift_score,
+    swing_arc_waypoints,
     target_band_score,
     tread_containment_score,
 )
@@ -175,3 +176,41 @@ def test_target_band_score_rejects_underheight_and_overheight() -> None:
     assert score[2].item() == pytest.approx(1.0)
     assert 0.0 < score[3].item() < 1.0
     assert score[4].item() == pytest.approx(0.0)
+
+
+def test_swing_arc_waypoints_couple_forward_and_vertical_motion() -> None:
+    waypoints = swing_arc_waypoints(
+        start_x_m=torch.tensor([0.15]),
+        riser_x_m=0.425,
+        tread_depth_m=0.25,
+        riser_height_m=torch.tensor([0.06]),
+        early_x_fraction=0.35,
+        clearance_x_fraction=0.60,
+        early_lift_riser_fraction=0.55,
+        clearance_margin_m=0.025,
+        hover_margin_m=0.025,
+    )
+
+    assert waypoints["landing_x"].item() == pytest.approx(0.55)
+    assert waypoints["early_x"].item() == pytest.approx(0.29)
+    assert waypoints["clearance_x"].item() == pytest.approx(0.39)
+    assert waypoints["hover_x"].item() == pytest.approx(0.55)
+    assert waypoints["early_z"].item() == pytest.approx(0.033)
+    assert waypoints["clearance_z"].item() == pytest.approx(0.085)
+    assert waypoints["hover_z"].item() == pytest.approx(0.085)
+    assert waypoints["touchdown_z"].item() == pytest.approx(0.06)
+
+
+def test_swing_arc_waypoints_reject_invalid_phase_order() -> None:
+    with pytest.raises(ValueError, match="0 < early < clearance < 1"):
+        swing_arc_waypoints(
+            start_x_m=torch.tensor([0.15]),
+            riser_x_m=0.425,
+            tread_depth_m=0.25,
+            riser_height_m=torch.tensor([0.06]),
+            early_x_fraction=0.70,
+            clearance_x_fraction=0.60,
+            early_lift_riser_fraction=0.55,
+            clearance_margin_m=0.025,
+            hover_margin_m=0.025,
+        )
