@@ -1,0 +1,21 @@
+schema_version: 1
+
+experiment:
+  id: specialist_single_step_transfer_smoke
+  purpose: >
+    One-iteration integration qualification of model_950 actor/std transfer
+    with a fresh critic and optimizer before curriculum continuation training.
+  type: specialist_stair_curriculum_transfer_smoke
+  meaningful_stair_training: false
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/specialist_single_step_transfer3000.yaml
+  resolved_config_required: true
+
+execution:
+  environments: 32
+  maximum_iterations: 1
+  training_seed: 42
+
+launch_gates:
+  allow_launch: true
