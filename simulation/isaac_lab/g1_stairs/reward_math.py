@@ -90,6 +90,46 @@ def support_quality(
 
 
 
+
+def deadzone_score(
+    absolute_error: torch.Tensor,
+    *,
+    free_tolerance: float,
+    zero_at: float,
+) -> torch.Tensor:
+    """Return 1 inside a dead-zone and linearly fall to 0 at ``zero_at``."""
+
+    if free_tolerance < 0.0:
+        raise ValueError("free_tolerance cannot be negative")
+    if zero_at <= free_tolerance:
+        raise ValueError("zero_at must be greater than free_tolerance")
+    return (
+        1.0
+        - (absolute_error - float(free_tolerance))
+        / float(zero_at - free_tolerance)
+    ).clamp(0.0, 1.0)
+
+
+def target_band_score(
+    value: torch.Tensor,
+    *,
+    lower: torch.Tensor | float,
+    upper: torch.Tensor | float,
+    falloff: float,
+) -> torch.Tensor:
+    """Return 1 inside [lower, upper] with linear falloff outside the band."""
+
+    if falloff <= 0.0:
+        raise ValueError("falloff must be positive")
+    lower_t = torch.as_tensor(lower, dtype=value.dtype, device=value.device)
+    upper_t = torch.as_tensor(upper, dtype=value.dtype, device=value.device)
+    if bool((upper_t < lower_t).any()):
+        raise ValueError("upper must be >= lower")
+
+    below = (value - (lower_t - float(falloff))) / float(falloff)
+    above = ((upper_t + float(falloff)) - value) / float(falloff)
+    return torch.minimum(below, above).clamp(0.0, 1.0)
+
 def supported_single_foot_lift_score(
     *,
     sole_bottom_m: torch.Tensor,

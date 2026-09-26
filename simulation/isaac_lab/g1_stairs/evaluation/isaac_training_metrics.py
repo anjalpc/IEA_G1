@@ -50,6 +50,29 @@ STAIR_DIAGNOSTIC_NAMES = (
     "root_height_m",
     "upright_gravity_z",
     "native_failure_termination",
+    "motion_phase_index",
+    "motion_phase_progress",
+    "swing_foot_center_x_m",
+    "swing_foot_center_y_m",
+    "support_foot_center_x_m",
+    "support_foot_center_y_m",
+    "swing_target_x_error_m",
+    "swing_lateral_error_m",
+    "root_to_support_foot_y_m",
+    "swing_foot_force_share",
+    "support_foot_force_share",
+    "both_feet_airborne",
+    "swing_overheight_m",
+    "support_foot_lift_m",
+    "swing_backward_error_m",
+    "swing_forward_overshoot_m",
+    "swing_foot_vertical_speed_mps",
+    "swing_foot_roll_rad",
+    "swing_foot_pitch_rad",
+    "swing_foot_yaw_rad",
+    "support_foot_roll_rad",
+    "support_foot_pitch_rad",
+    "support_foot_yaw_rad",
 )
 
 
@@ -485,9 +508,21 @@ class InstrumentedRslRlVecEnvWrapper:
         )
         rear_x = sole_local[..., 0].amin(dim=2)
         front_x = sole_local[..., 0].amax(dim=2)
+        sole_center = sole_local.mean(dim=2)
         sole_bottom = (
             sole_local[..., 2] - G1_SOLE_SPHERE_RADIUS_M
         ).amin(dim=2)
+        foot_roll = []
+        foot_pitch = []
+        foot_yaw = []
+        for foot_index in range(2):
+            r, p, y = _quat_to_euler_wxyz(foot_quat_w[:, foot_index])
+            foot_roll.append(r)
+            foot_pitch.append(p)
+            foot_yaw.append(y)
+        foot_roll = torch.stack(foot_roll, dim=1)
+        foot_pitch = torch.stack(foot_pitch, dim=1)
+        foot_yaw = torch.stack(foot_yaw, dim=1)
         foot_speed = torch.linalg.vector_norm(foot_vel_w, dim=2)
         horizontal_foot_speed = torch.linalg.vector_norm(
             foot_vel_w[..., :2], dim=2
@@ -514,6 +549,37 @@ class InstrumentedRslRlVecEnvWrapper:
         )
         native_failure = env.reset_terminated.to(dtype=local_x.dtype)
 
+        swing_left = bool(getattr(env, "_g1_stair_swing_left", True))
+        swing_index = 0 if swing_left else 1
+        support_index = 1 - swing_index
+        phase = getattr(env, "_g1_stair_motion_phase", None)
+        if phase is None:
+            phase = torch.zeros_like(local_x)
+        else:
+            phase = phase.to(dtype=local_x.dtype)
+        phase_progress = getattr(env, "_g1_stair_motion_phase_progress", None)
+        if phase_progress is None:
+            phase_progress = torch.zeros_like(local_x)
+        target_x = getattr(env, "_g1_stair_swing_target_x", None)
+        if target_x is None:
+            target_x = torch.full_like(local_x, first_riser + 0.5 * tread_depth)
+        lane_y = getattr(env, "_g1_stair_swing_lane_y", None)
+        if lane_y is None:
+            lane_y = sole_center[:, swing_index, 1]
+
+        total_foot_force = vertical_force.sum(dim=1).clamp_min(1.0)
+        swing_force_share = vertical_force[:, swing_index] / total_foot_force
+        support_force_share = vertical_force[:, support_index] / total_foot_force
+        both_airborne = (
+            (vertical_force[:, 0] < 5.0)
+            & (vertical_force[:, 1] < 5.0)
+            & (sole_bottom[:, 0] > 0.010)
+            & (sole_bottom[:, 1] > 0.010)
+        ).to(dtype=local_x.dtype)
+        swing_overheight = (
+            sole_bottom[:, swing_index] - (riser_height + 0.070)
+        ).clamp_min(0.0)
+
         self._stair_distribution.update(
             torch.stack(
                 (
@@ -535,6 +601,35 @@ class InstrumentedRslRlVecEnvWrapper:
                     local_z,
                     -data.projected_gravity_b[:, 2],
                     native_failure,
+                    phase,
+                    phase_progress,
+                    sole_center[:, swing_index, 0],
+                    sole_center[:, swing_index, 1],
+                    sole_center[:, support_index, 0],
+                    sole_center[:, support_index, 1],
+                    target_x - sole_center[:, swing_index, 0],
+                    sole_center[:, swing_index, 1] - lane_y,
+                    local_x.new_tensor(0.0).expand_as(local_x) + (
+                        data.root_pos_w[:, 1]
+                        - foot_pos_w[:, support_index, 1]
+                    ),
+                    swing_force_share,
+                    support_force_share,
+                    both_airborne,
+                    swing_overheight,
+                    sole_bottom[:, support_index].clamp_min(0.0),
+                    (
+                        getattr(env, "_g1_stair_swing_start_x", sole_center[:, swing_index, 0])
+                        - sole_center[:, swing_index, 0]
+                    ).clamp_min(0.0),
+                    (sole_center[:, swing_index, 0] - (target_x + 0.050)).clamp_min(0.0),
+                    foot_vel_w[:, swing_index, 2],
+                    foot_roll[:, swing_index],
+                    foot_pitch[:, swing_index],
+                    foot_yaw[:, swing_index],
+                    foot_roll[:, support_index],
+                    foot_pitch[:, support_index],
+                    foot_yaw[:, support_index],
                 ),
                 dim=1,
             )

@@ -31,8 +31,10 @@ from .contracts import (
 )
 from .reward_math import (
     coupled_swing_score,
+    deadzone_score,
     support_quality,
     supported_single_foot_lift_score,
+    target_band_score,
     tread_containment_score,
 )
 from .terrain_state import riser_height_per_env, stair_cfg
@@ -69,6 +71,24 @@ def _quat_rotate_wxyz(quaternion: torch.Tensor, vector: torch.Tensor) -> torch.T
     uv = torch.cross(q_v, vector, dim=-1)
     uuv = torch.cross(q_v, uv, dim=-1)
     return vector + 2.0 * (q_w * uv + uuv)
+
+
+def _quat_to_euler_wxyz(quaternion: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Return roll, pitch, yaw for broadcast-compatible WXYZ quaternions."""
+
+    w, x, y, z = quaternion.unbind(dim=-1)
+    roll = torch.atan2(
+        2.0 * (w * x + y * z),
+        1.0 - 2.0 * (x * x + y * y),
+    )
+    pitch = torch.asin(
+        (2.0 * (w * y - z * x)).clamp(-1.0, 1.0)
+    )
+    yaw = torch.atan2(
+        2.0 * (w * z + x * y),
+        1.0 - 2.0 * (y * y + z * z),
+    )
+    return roll, pitch, yaw
 
 
 class _SingleStepRewardBase(ManagerTermBase):
@@ -155,9 +175,11 @@ class _SingleStepRewardBase(ManagerTermBase):
 
         rear_x = sole_centres_local[..., 0].amin(dim=2)
         front_x = sole_centres_local[..., 0].amax(dim=2)
+        sole_center = sole_centres_local.mean(dim=2)
         sole_bottom = (
             sole_centres_local[..., 2] - G1_SOLE_SPHERE_RADIUS_M
         ).amin(dim=2)
+        foot_roll, foot_pitch, foot_yaw = _quat_to_euler_wxyz(foot_quat_w)
 
         foot_speed = torch.linalg.vector_norm(
             foot_lin_vel_w,
@@ -216,6 +238,7 @@ class _SingleStepRewardBase(ManagerTermBase):
         upright = -data.projected_gravity_b[:, 2]
 
         local_root = data.root_pos_w - origins
+        root_roll, root_pitch, root_yaw = _quat_to_euler_wxyz(data.root_quat_w)
 
         forbidden_contact = torch.zeros(
             env.num_envs,
@@ -246,15 +269,25 @@ class _SingleStepRewardBase(ManagerTermBase):
         return {
             "rear_x": rear_x,
             "front_x": front_x,
+            "sole_center_x": sole_center[..., 0],
+            "sole_center_y": sole_center[..., 1],
             "sole_bottom": sole_bottom,
+            "foot_roll": foot_roll,
+            "foot_pitch": foot_pitch,
+            "foot_yaw": foot_yaw,
             "foot_speed": foot_speed,
+            "foot_vertical_velocity": foot_lin_vel_w[..., 2],
             "vertical_force": vertical_force,
             "bodyweight_n": self._bodyweight_n,
             "horizontal_force_x": horizontal_force_x,
             "support": support,
             "physical_support": physical_support,
             "root_x": local_root[:, 0],
+            "root_y": local_root[:, 1],
             "root_z": local_root[:, 2],
+            "root_roll": root_roll,
+            "root_pitch": root_pitch,
+            "root_yaw": root_yaw,
             "root_lin_speed": torch.linalg.vector_norm(
                 data.root_lin_vel_w,
                 dim=1,
@@ -422,6 +455,434 @@ class approach_progress(_PotentialDifferenceTerm):
             dt=float(env.step_dt),
             valid_mask=m["task_safe"],
         )
+
+
+class swing_target_progress(_PotentialDifferenceTerm):
+    """Four-phase left/right single-step swing target with explicit guard rails.
+
+    The term intentionally fixes one swing foot during acquisition.  It rewards
+    a physical sequence rather than an unconstrained lift:
+
+    0. unload swing foot while loading the opposite support foot;
+    1. lift inside the original lateral lane;
+    2. advance at controlled clearance toward the tread centre;
+    3. acquire stable upper-tread support.
+
+    Each phase contributes one quarter of a bounded [0, 1] potential, so a
+    completed swing can earn its configured weight only once per episode.
+    """
+
+    _PHASE_COUNT = 4
+
+    def __init__(self, cfg, env: "ManagerBasedRLEnv"):
+        super().__init__(cfg, env)
+        self._phase = torch.zeros(env.num_envs, dtype=torch.long, device=env.device)
+        self._dwell = torch.zeros(env.num_envs, dtype=torch.long, device=env.device)
+        self._lane_y = torch.zeros(env.num_envs, dtype=torch.float32, device=env.device)
+        self._start_x = torch.zeros(env.num_envs, dtype=torch.float32, device=env.device)
+        self._geometry_initialized = torch.zeros(
+            env.num_envs, dtype=torch.bool, device=env.device
+        )
+
+    def reset(self, env_ids=None) -> None:
+        super().reset(env_ids=env_ids)
+        if env_ids is None:
+            env_ids = slice(None)
+        self._phase[env_ids] = 0
+        self._dwell[env_ids] = 0
+        self._lane_y[env_ids] = 0.0
+        self._start_x[env_ids] = 0.0
+        self._geometry_initialized[env_ids] = False
+
+    def __call__(
+        self,
+        env: "ManagerBasedRLEnv",
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+        contact_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces"),
+        swing_left: bool = True,
+        support_force_bodyweight_fraction: float = 0.45,
+        swing_unload_bodyweight_fraction: float = 0.20,
+        pelvis_support_tolerance_m: float = 0.08,
+        pelvis_support_zero_m: float = 0.18,
+        lift_clearance_m: float = 0.030,
+        lateral_lane_tolerance_m: float = 0.030,
+        lateral_lane_zero_m: float = 0.080,
+        foot_roll_tolerance_rad: float = 0.12,
+        foot_roll_zero_rad: float = 0.35,
+        foot_yaw_tolerance_rad: float = 0.12,
+        foot_yaw_zero_rad: float = 0.35,
+        root_roll_tolerance_rad: float = 0.10,
+        root_roll_zero_rad: float = 0.30,
+        root_pitch_tolerance_rad: float = 0.20,
+        root_pitch_zero_rad: float = 0.45,
+        root_yaw_tolerance_rad: float = 0.10,
+        root_yaw_zero_rad: float = 0.30,
+        maximum_lower_support_foot_speed_mps: float = 0.20,
+        transition_dwell_s: float = 0.06,
+        tread_margin_m: float = 0.015,
+        foot_height_tolerance_m: float = 0.025,
+        upper_support_force_bodyweight_fraction: float = 0.15,
+        maximum_supported_foot_speed_mps: float = 0.15,
+        minimum_upright_gravity_z: float = 0.80,
+    ) -> torch.Tensor:
+        if not 0.0 < support_force_bodyweight_fraction <= 1.0:
+            raise ValueError("support_force_bodyweight_fraction must be in (0, 1]")
+        if not 0.0 <= swing_unload_bodyweight_fraction < support_force_bodyweight_fraction:
+            raise ValueError("swing_unload_bodyweight_fraction must be below support threshold")
+        if lift_clearance_m <= 0.0:
+            raise ValueError("lift_clearance_m must be positive")
+        if transition_dwell_s <= 0.0:
+            raise ValueError("transition_dwell_s must be positive")
+
+        m = self._measure(
+            env,
+            asset_cfg=asset_cfg,
+            contact_sensor_cfg=contact_sensor_cfg,
+            tread_margin_m=tread_margin_m,
+            foot_height_tolerance_m=foot_height_tolerance_m,
+            support_force_bodyweight_fraction=upper_support_force_bodyweight_fraction,
+            maximum_supported_foot_speed_mps=maximum_supported_foot_speed_mps,
+            minimum_upright_gravity_z=minimum_upright_gravity_z,
+        )
+
+        swing = 0 if bool(swing_left) else 1
+        support = 1 - swing
+        new = ~self._geometry_initialized
+        self._lane_y[new] = m["sole_center_y"][new, swing].detach()
+        self._start_x[new] = m["sole_center_x"][new, swing].detach()
+        self._geometry_initialized[new] = True
+
+        bodyweight = m["bodyweight_n"].clamp_min(1.0)
+        support_force_fraction = m["vertical_force"][:, support] / bodyweight
+        swing_force_fraction = m["vertical_force"][:, swing] / bodyweight
+
+        support_force_score = (
+            (support_force_fraction - 0.25)
+            / max(float(support_force_bodyweight_fraction) - 0.25, 1.0e-6)
+        ).clamp(0.0, 1.0)
+        swing_unload_score = (
+            (0.35 - swing_force_fraction)
+            / max(0.35 - float(swing_unload_bodyweight_fraction), 1.0e-6)
+        ).clamp(0.0, 1.0)
+        support_height_score = deadzone_score(
+            m["sole_bottom"][:, support].abs(),
+            free_tolerance=0.010,
+            zero_at=0.040,
+        )
+        support_speed_score = deadzone_score(
+            m["foot_speed"][:, support],
+            free_tolerance=maximum_lower_support_foot_speed_mps,
+            zero_at=max(0.50, maximum_lower_support_foot_speed_mps + 0.20),
+        )
+        support_quality_lower = torch.minimum(
+            torch.minimum(support_force_score, support_height_score),
+            support_speed_score,
+        )
+
+        pelvis_score = deadzone_score(
+            (m["root_y"] - m["sole_center_y"][:, support]).abs(),
+            free_tolerance=pelvis_support_tolerance_m,
+            zero_at=pelvis_support_zero_m,
+        )
+        lateral_score = deadzone_score(
+            (m["sole_center_y"][:, swing] - self._lane_y).abs(),
+            free_tolerance=lateral_lane_tolerance_m,
+            zero_at=lateral_lane_zero_m,
+        )
+        foot_orientation_score = torch.minimum(
+            deadzone_score(
+                m["foot_roll"][:, swing].abs(),
+                free_tolerance=foot_roll_tolerance_rad,
+                zero_at=foot_roll_zero_rad,
+            ),
+            deadzone_score(
+                m["foot_yaw"][:, swing].abs(),
+                free_tolerance=foot_yaw_tolerance_rad,
+                zero_at=foot_yaw_zero_rad,
+            ),
+        )
+        body_orientation_score = torch.minimum(
+            torch.minimum(
+                deadzone_score(
+                    m["root_roll"].abs(),
+                    free_tolerance=root_roll_tolerance_rad,
+                    zero_at=root_roll_zero_rad,
+                ),
+                deadzone_score(
+                    m["root_pitch"].abs(),
+                    free_tolerance=root_pitch_tolerance_rad,
+                    zero_at=root_pitch_zero_rad,
+                ),
+            ),
+            deadzone_score(
+                m["root_yaw"].abs(),
+                free_tolerance=root_yaw_tolerance_rad,
+                zero_at=root_yaw_zero_rad,
+            ),
+        )
+
+        lift_target = m["riser_height"] + float(lift_clearance_m)
+        lift_progress = (
+            m["sole_bottom"][:, swing] / lift_target.clamp_min(1.0e-4)
+        ).clamp(0.0, 1.0)
+        height_corridor = target_band_score(
+            m["sole_bottom"][:, swing],
+            lower=m["riser_height"] + 0.010,
+            upper=m["riser_height"] + float(lift_clearance_m) + 0.030,
+            falloff=0.040,
+        )
+
+        target_x = float(m["riser_x"]) + 0.5 * float(m["tread_depth"])
+        advance_denominator = (target_x - self._start_x).clamp_min(0.05)
+        forward_progress = (
+            (m["sole_center_x"][:, swing] - self._start_x) / advance_denominator
+        ).clamp(0.0, 1.0)
+
+        phase0 = (
+            support_quality_lower
+            + swing_unload_score
+            + pelvis_score
+            + body_orientation_score
+        ) / 4.0
+        phase1 = lift_progress * torch.minimum(
+            torch.minimum(lateral_score, foot_orientation_score),
+            torch.minimum(support_quality_lower, body_orientation_score),
+        )
+        phase2 = forward_progress * torch.minimum(
+            torch.minimum(height_corridor, lateral_score),
+            torch.minimum(
+                foot_orientation_score,
+                torch.minimum(support_quality_lower, body_orientation_score),
+            ),
+        )
+        phase3 = m["physical_support"][:, swing] * torch.minimum(
+            torch.minimum(lateral_score, foot_orientation_score),
+            body_orientation_score,
+        )
+        phase_scores = torch.stack((phase0, phase1, phase2, phase3), dim=1)
+        active_phase = self._phase.clamp(max=self._PHASE_COUNT - 1)
+        active_score = phase_scores.gather(1, active_phase.unsqueeze(1)).squeeze(1)
+        complete = self._phase >= self._PHASE_COUNT
+        active_score = torch.where(complete, torch.ones_like(active_score), active_score)
+
+        transition0 = (
+            (support_force_fraction >= float(support_force_bodyweight_fraction))
+            & (swing_force_fraction <= float(swing_unload_bodyweight_fraction))
+            & (pelvis_score >= 0.70)
+            & (body_orientation_score >= 0.75)
+        )
+        transition1 = (
+            (m["sole_bottom"][:, swing] >= m["riser_height"] + 0.010)
+            & (lateral_score >= 0.75)
+            & (foot_orientation_score >= 0.75)
+            & (support_quality_lower >= 0.70)
+            & (body_orientation_score >= 0.75)
+        )
+        transition2 = (
+            ((m["sole_center_x"][:, swing] - target_x).abs() <= 0.040)
+            & (height_corridor >= 0.70)
+            & (lateral_score >= 0.75)
+            & (foot_orientation_score >= 0.75)
+            & (support_quality_lower >= 0.65)
+        )
+        transition3 = (
+            (m["physical_support"][:, swing] >= 0.60)
+            & (lateral_score >= 0.75)
+            & (foot_orientation_score >= 0.75)
+            & (body_orientation_score >= 0.75)
+        )
+        transition_by_phase = torch.stack(
+            (transition0, transition1, transition2, transition3), dim=1
+        )
+        transition = transition_by_phase.gather(
+            1, active_phase.unsqueeze(1)
+        ).squeeze(1) & ~complete
+        # Compute the potential using the current phase before advancing the
+        # state machine. This keeps phase boundaries continuous: a completed
+        # phase ends near k/4 and the next step starts at exactly k/4 instead
+        # of creating a one-step reward spike from the previous phase score.
+        potential = (
+            self._phase.to(dtype=active_score.dtype).clamp(max=self._PHASE_COUNT)
+            + torch.where(self._phase < self._PHASE_COUNT, active_score, torch.zeros_like(active_score))
+        ) / float(self._PHASE_COUNT)
+        potential = potential.clamp(0.0, 1.0)
+
+        self._dwell = torch.where(transition, self._dwell + 1, torch.zeros_like(self._dwell))
+        dwell_steps = max(1, int(round(float(transition_dwell_s) / float(env.step_dt))))
+        advance_phase = (self._dwell >= dwell_steps) & ~complete
+        self._phase[advance_phase] += 1
+        self._dwell[advance_phase] = 0
+
+        # Expose exact phase/target state for read-only diagnostics.
+        env._g1_stair_motion_phase = self._phase.detach().clone()
+        env._g1_stair_motion_phase_progress = active_score.detach().clone()
+        env._g1_stair_swing_lane_y = self._lane_y.detach().clone()
+        env._g1_stair_swing_start_x = self._start_x.detach().clone()
+        env._g1_stair_swing_target_x = torch.full_like(self._start_x, target_x)
+        env._g1_stair_swing_left = bool(swing_left)
+
+        return self._potential_rate(
+            potential,
+            dt=float(env.step_dt),
+            valid_mask=m["task_safe"],
+        )
+
+
+class swing_motion_guard(_SingleStepRewardBase):
+    """Bounded penalty for sideways/high/unstable swing exploits."""
+
+    def __init__(self, cfg, env: "ManagerBasedRLEnv"):
+        super().__init__(cfg, env)
+        self._lane_y = torch.zeros(env.num_envs, dtype=torch.float32, device=env.device)
+        self._start_x = torch.zeros(env.num_envs, dtype=torch.float32, device=env.device)
+        self._initialized = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+
+    def reset(self, env_ids=None) -> None:
+        if env_ids is None:
+            env_ids = slice(None)
+        self._lane_y[env_ids] = 0.0
+        self._start_x[env_ids] = 0.0
+        self._initialized[env_ids] = False
+
+    def __call__(
+        self,
+        env: "ManagerBasedRLEnv",
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+        contact_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces"),
+        swing_left: bool = True,
+        lateral_free_m: float = 0.030,
+        lateral_zero_m: float = 0.100,
+        maximum_height_above_riser_m: float = 0.070,
+        overheight_zero_m: float = 0.180,
+        backward_free_m: float = 0.020,
+        backward_zero_m: float = 0.100,
+        foot_roll_free_rad: float = 0.15,
+        foot_roll_zero_rad: float = 0.45,
+        foot_yaw_free_rad: float = 0.15,
+        foot_yaw_zero_rad: float = 0.45,
+        pelvis_support_free_m: float = 0.10,
+        pelvis_support_zero_m: float = 0.22,
+        support_force_bodyweight_fraction: float = 0.25,
+        activation_height_m: float = 0.010,
+        tread_margin_m: float = 0.015,
+        foot_height_tolerance_m: float = 0.025,
+        upper_support_force_bodyweight_fraction: float = 0.15,
+        maximum_supported_foot_speed_mps: float = 0.15,
+        minimum_upright_gravity_z: float = 0.80,
+    ) -> torch.Tensor:
+        m = self._measure(
+            env,
+            asset_cfg=asset_cfg,
+            contact_sensor_cfg=contact_sensor_cfg,
+            tread_margin_m=tread_margin_m,
+            foot_height_tolerance_m=foot_height_tolerance_m,
+            support_force_bodyweight_fraction=upper_support_force_bodyweight_fraction,
+            maximum_supported_foot_speed_mps=maximum_supported_foot_speed_mps,
+            minimum_upright_gravity_z=minimum_upright_gravity_z,
+        )
+        swing = 0 if bool(swing_left) else 1
+        support = 1 - swing
+        new = ~self._initialized
+        self._lane_y[new] = m["sole_center_y"][new, swing].detach()
+        self._start_x[new] = m["sole_center_x"][new, swing].detach()
+        self._initialized[new] = True
+
+        bodyweight = m["bodyweight_n"].clamp_min(1.0)
+        support_force_fraction = m["vertical_force"][:, support] / bodyweight
+        target_x = float(m["riser_x"]) + 0.5 * float(m["tread_depth"])
+        support_lift_bad = (
+            (m["sole_bottom"][:, support] - 0.010).clamp_min(0.0) / 0.050
+        ).clamp(0.0, 1.0)
+        swing_active = (
+            (m["sole_bottom"][:, swing] >= float(activation_height_m))
+            | (m["vertical_force"][:, swing] / bodyweight <= 0.20)
+            | (support_lift_bad > 0.0)
+        )
+
+        lateral_bad = 1.0 - deadzone_score(
+            (m["sole_center_y"][:, swing] - self._lane_y).abs(),
+            free_tolerance=lateral_free_m,
+            zero_at=lateral_zero_m,
+        )
+        max_height = m["riser_height"] + float(maximum_height_above_riser_m)
+        overheight_bad = (
+            (m["sole_bottom"][:, swing] - max_height).clamp_min(0.0)
+            / max(float(overheight_zero_m) - float(maximum_height_above_riser_m), 1.0e-6)
+        ).clamp(0.0, 1.0)
+        backward_bad = (
+            (self._start_x - m["sole_center_x"][:, swing] - float(backward_free_m)).clamp_min(0.0)
+            / max(float(backward_zero_m) - float(backward_free_m), 1.0e-6)
+        ).clamp(0.0, 1.0)
+        forward_overshoot_bad = (
+            (m["sole_center_x"][:, swing] - (target_x + 0.050)).clamp_min(0.0)
+            / 0.150
+        ).clamp(0.0, 1.0)
+        near_landing = (
+            (m["sole_center_x"][:, swing] - target_x).abs() <= 0.050
+        ) & (
+            (m["sole_bottom"][:, swing] - m["riser_height"]).abs() <= 0.050
+        )
+        downward_speed = (-m["foot_vertical_velocity"][:, swing]).clamp_min(0.0)
+        touchdown_impact_bad = (
+            (downward_speed - 0.30).clamp_min(0.0) / 0.70
+        ).clamp(0.0, 1.0) * near_landing.to(dtype=downward_speed.dtype)
+        foot_roll_bad = 1.0 - deadzone_score(
+            m["foot_roll"][:, swing].abs(),
+            free_tolerance=foot_roll_free_rad,
+            zero_at=foot_roll_zero_rad,
+        )
+        foot_yaw_bad = 1.0 - deadzone_score(
+            m["foot_yaw"][:, swing].abs(),
+            free_tolerance=foot_yaw_free_rad,
+            zero_at=foot_yaw_zero_rad,
+        )
+        pelvis_bad = 1.0 - deadzone_score(
+            (m["root_y"] - m["sole_center_y"][:, support]).abs(),
+            free_tolerance=pelvis_support_free_m,
+            zero_at=pelvis_support_zero_m,
+        )
+        support_loss = (
+            1.0 - support_force_fraction / max(float(support_force_bodyweight_fraction), 1.0e-6)
+        ).clamp(0.0, 1.0)
+        both_airborne = (
+            (m["vertical_force"][:, 0] < 5.0)
+            & (m["vertical_force"][:, 1] < 5.0)
+            & (m["sole_bottom"][:, 0] > 0.010)
+            & (m["sole_bottom"][:, 1] > 0.010)
+        ).to(dtype=lateral_bad.dtype)
+
+        severity = torch.stack(
+            (
+                lateral_bad,
+                overheight_bad,
+                backward_bad,
+                forward_overshoot_bad,
+                touchdown_impact_bad,
+                support_lift_bad,
+                foot_roll_bad,
+                foot_yaw_bad,
+                pelvis_bad,
+                support_loss,
+                both_airborne,
+            ),
+            dim=1,
+        ).amax(dim=1)
+        return severity * swing_active.to(dtype=severity.dtype)
+
+
+def body_heading_guard(
+    env: "ManagerBasedRLEnv",
+    asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    free_yaw_rad: float = 0.10,
+    zero_at_yaw_rad: float = 0.35,
+) -> torch.Tensor:
+    """Penalty severity for turning away from the stair heading."""
+
+    robot = env.scene[asset_cfg.name]
+    _, _, yaw = _quat_to_euler_wxyz(robot.data.root_quat_w)
+    return 1.0 - deadzone_score(
+        yaw.abs(), free_tolerance=free_yaw_rad, zero_at=zero_at_yaw_rad
+    )
 
 
 class swing_lift_progress(_PotentialDifferenceTerm):

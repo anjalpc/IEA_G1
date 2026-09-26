@@ -1,0 +1,123 @@
+schema_version: 1
+
+experiment:
+  id: g1_stair_v03
+  purpose: >
+    Directional single-step curriculum from the last stable pre-lift actor.
+    Use a fixed left swing foot during acquisition and reward the complete
+    physical sequence: support shift, lane-constrained lift, controlled
+    forward swing, and stable upper-tread contact. Explicit guard rails reject
+    sideways kicks, excessive lift, backward swing, foot yaw/roll, support
+    loss, and pelvis escape.
+  type: specialist_stair_directional_swing
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/specialist_single_step_base.yaml
+  resolved_config_required: true
+
+policy_initialization:
+  type: rsl_rl_checkpoint_actor_transfer
+  source:
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/specialist_single_step_transfer3000_20260926_112515/model_1500.pt
+  critic_initialization: fresh
+  optimizer_initialization: fresh
+  transfer_action_std: true
+
+reward_experiment:
+  active_stage: directional_swing
+  strict_runtime_set: true
+  rule: >
+    The source actor already balances and positions itself near the riser.
+    Acquisition fixes the left foot as swing and the right foot as support to
+    remove foot-selection ambiguity. Positive swing progress is phase-gated
+    and only exists inside the desired lateral/orientation/support corridor.
+    Invalid sideways, over-high, backward, airborne, or unsupported motion is
+    separately penalized. Arms remain trainable and are observed in full but
+    are not forced to an unverified neutral reference.
+  rewards:
+    stage_plan:
+      directional_swing:
+        alive: 0.0
+        upright: -5.0
+        base_angular_velocity: -0.05
+        feet_slide: -0.2
+        action_rate: -0.01
+        joint_acc: -2.5e-7
+        dof_pos_limits: -5.0
+        undesired_contacts: -1.0
+        failure_termination_event: -4.0
+        approach_progress: 0.10
+        body_heading_guard: -0.25
+        swing_target_progress: 4.0
+        swing_motion_guard: -1.0
+        upper_foothold_progress: 2.5
+        body_transfer_progress: 3.0
+        trailing_foot_recovery: 2.0
+        riser_strike_event: -2.0
+        single_step_success: 6.0
+
+reward_parameters:
+  swing_target_progress:
+    swing_left: true
+    support_force_bodyweight_fraction: 0.45
+    swing_unload_bodyweight_fraction: 0.20
+    pelvis_support_tolerance_m: 0.08
+    pelvis_support_zero_m: 0.18
+    lift_clearance_m: 0.03
+    lateral_lane_tolerance_m: 0.03
+    lateral_lane_zero_m: 0.08
+    foot_roll_tolerance_rad: 0.12
+    foot_roll_zero_rad: 0.35
+    foot_yaw_tolerance_rad: 0.12
+    foot_yaw_zero_rad: 0.35
+    root_roll_tolerance_rad: 0.10
+    root_roll_zero_rad: 0.30
+    root_pitch_tolerance_rad: 0.20
+    root_pitch_zero_rad: 0.45
+    root_yaw_tolerance_rad: 0.10
+    root_yaw_zero_rad: 0.30
+    maximum_lower_support_foot_speed_mps: 0.20
+    transition_dwell_s: 0.06
+    tread_margin_m: 0.015
+    foot_height_tolerance_m: 0.025
+    upper_support_force_bodyweight_fraction: 0.15
+    maximum_supported_foot_speed_mps: 0.15
+    minimum_upright_gravity_z: 0.80
+  swing_motion_guard:
+    swing_left: true
+    lateral_free_m: 0.03
+    lateral_zero_m: 0.10
+    maximum_height_above_riser_m: 0.07
+    overheight_zero_m: 0.18
+    backward_free_m: 0.02
+    backward_zero_m: 0.10
+    foot_roll_free_rad: 0.15
+    foot_roll_zero_rad: 0.45
+    foot_yaw_free_rad: 0.15
+    foot_yaw_zero_rad: 0.45
+    pelvis_support_free_m: 0.10
+    pelvis_support_zero_m: 0.22
+    support_force_bodyweight_fraction: 0.25
+    activation_height_m: 0.01
+    tread_margin_m: 0.015
+    foot_height_tolerance_m: 0.025
+    upper_support_force_bodyweight_fraction: 0.15
+    maximum_supported_foot_speed_mps: 0.15
+    minimum_upright_gravity_z: 0.80
+  body_heading_guard:
+    free_yaw_rad: 0.10
+    zero_at_yaw_rad: 0.35
+
+ppo:
+  learning_rate: 0.0001
+  learning_rate_schedule: adaptive
+  desired_kl: 0.01
+
+execution:
+  environments: 256
+  maximum_iterations: 1000
+  training_seed: 42
+
+launch_gates:
+  allow_launch: true

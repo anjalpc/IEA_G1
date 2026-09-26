@@ -5,8 +5,10 @@ import torch
 
 from simulation.isaac_lab.g1_stairs.reward_math import (
     coupled_swing_score,
+    deadzone_score,
     support_quality,
     supported_single_foot_lift_score,
+    target_band_score,
     tread_containment_score,
 )
 
@@ -146,3 +148,30 @@ def test_support_quality_accepts_per_environment_force_scale() -> None:
     )
 
     assert torch.allclose(score, torch.ones_like(score))
+
+
+def test_deadzone_score_preserves_corridor_and_rejects_large_error() -> None:
+    score = deadzone_score(
+        torch.tensor([0.01, 0.03, 0.055, 0.08]),
+        free_tolerance=0.03,
+        zero_at=0.08,
+    )
+    assert score[0].item() == pytest.approx(1.0)
+    assert score[1].item() == pytest.approx(1.0)
+    assert 0.0 < score[2].item() < 1.0
+    assert score[3].item() == pytest.approx(0.0, abs=1e-6)
+
+
+def test_target_band_score_rejects_underheight_and_overheight() -> None:
+    values = torch.tensor([0.00, 0.07, 0.10, 0.15, 0.20])
+    score = target_band_score(
+        values,
+        lower=0.07,
+        upper=0.12,
+        falloff=0.04,
+    )
+    assert score[0].item() == pytest.approx(0.0)
+    assert score[1].item() == pytest.approx(1.0)
+    assert score[2].item() == pytest.approx(1.0)
+    assert 0.0 < score[3].item() < 1.0
+    assert score[4].item() == pytest.approx(0.0)

@@ -15,6 +15,7 @@ from simulation.isaac_lab.g1_stairs.contact_sensor_contract import (
 )
 from simulation.isaac_lab.g1_stairs.evaluation.isaac_training_metrics import (
     POSTURE_DIAGNOSTIC_NAMES,
+    STAIR_DIAGNOSTIC_NAMES,
     recover_raw_reward_step,
 )
 from simulation.isaac_lab.g1_stairs.evaluation.stair_diagnostics import (
@@ -71,6 +72,33 @@ class MetricsTest(unittest.TestCase):
         self.assertEqual(
             len(POSTURE_DIAGNOSTIC_NAMES),
             len(set(POSTURE_DIAGNOSTIC_NAMES)),
+        )
+
+    def test_directional_swing_diagnostics_cover_orientation_and_lane_failures(self):
+        expected = {
+            "motion_phase_index",
+            "motion_phase_progress",
+            "swing_target_x_error_m",
+            "swing_lateral_error_m",
+            "root_to_support_foot_y_m",
+            "swing_foot_force_share",
+            "support_foot_force_share",
+            "both_feet_airborne",
+            "swing_overheight_m",
+            "support_foot_lift_m",
+            "swing_backward_error_m",
+            "swing_forward_overshoot_m",
+            "swing_foot_vertical_speed_mps",
+            "swing_foot_roll_rad",
+            "swing_foot_pitch_rad",
+            "swing_foot_yaw_rad",
+            "support_foot_roll_rad",
+            "support_foot_pitch_rad",
+            "support_foot_yaw_rad",
+        }
+        self.assertTrue(expected.issubset(set(STAIR_DIAGNOSTIC_NAMES)))
+        self.assertEqual(
+            len(STAIR_DIAGNOSTIC_NAMES), len(set(STAIR_DIAGNOSTIC_NAMES))
         )
 
     def test_forbidden_contact_indices_follow_runtime_sensor_inventory(self):
