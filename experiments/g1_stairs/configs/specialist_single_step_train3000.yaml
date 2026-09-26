@@ -1,0 +1,23 @@
+schema_version: 1
+
+experiment:
+  id: specialist_single_step_train3000
+  purpose: >
+    Main post-audit PPO training run for the fixed 6 cm single-step specialist.
+    Uses the validated nominal 20 cm front-foot staging, coupled body-and-foot
+    approach progression, balance foundation rewards, fall consequence, and
+    live stair-mechanics diagnostics.
+  type: specialist_stair_training
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/specialist_single_step_base.yaml
+  resolved_config_required: true
+
+execution:
+  environments: 256
+  maximum_iterations: 3000
+  training_seed: 42
+
+launch_gates:
+  allow_launch: true
