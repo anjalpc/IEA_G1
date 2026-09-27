@@ -1,0 +1,21 @@
+schema_version: 1
+
+experiment:
+  id: g1_stair_v09_smoke
+  purpose: >
+    Ten-iteration runtime qualification of persistent v09 support-foot anchoring
+    on top of the validated v08 touchdown shaping.
+  type: specialist_stair_persistent_support_lock_smoke
+  meaningful_stair_training: false
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_stair_v09.yaml
+  resolved_config_required: true
+
+execution:
+  environments: 64
+  maximum_iterations: 10
+  training_seed: 42
+
+launch_gates:
+  allow_launch: true

@@ -1,0 +1,41 @@
+schema_version: 1
+
+experiment:
+  id: g1_stair_v09
+  purpose: >
+    Close the v08 support-lock gating loophole demonstrated by the completed
+    health report: physical support-foot anchor error worsened to 0.205 m while
+    the anchor-guard reward became less negative and lower-floor swing-foot
+    recontact reached 0.559. Preserve v08 touchdown shaping, robot, reset
+    geometry, observations, action contract, PPO, reward weights, and actor
+    initialization. Keep accumulated support-foot XY drift penalized throughout
+    swing phases even when the swing foot reloads the floor; apply planar-slip
+    severity whenever the designated support foot remains loaded.
+  type: specialist_stair_persistent_support_lock
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_stair_v08.yaml
+  resolved_config_required: true
+
+reward_experiment:
+  active_stage: support_locked_waypoint
+  strict_runtime_set: true
+  rule: >
+    Preserve all v08 weights. Change only the dedicated support-lock gating:
+    latch the right-foot anchor when the swing sequence first becomes active,
+    keep anchor displacement active for phases 1-4 regardless of swing-foot
+    recontact, and gate only instantaneous planar-slip speed by loaded support.
+
+reward_parameters:
+  support_foot_anchor_guard:
+    anchor_phase_gate_only: true
+    latch_anchor_on_active_phase: true
+
+execution:
+  environments: 2048
+  maximum_iterations: 300
+  training_seed: 42
+
+launch_gates:
+  allow_launch: true

@@ -330,6 +330,21 @@ def test_support_anchor_slip_penalty_detects_xy_drift_or_planar_slip() -> None:
     assert penalty.tolist() == pytest.approx([0.0, 1.0, 1.0, 0.0])
 
 
+def test_support_anchor_slip_penalty_split_gate_keeps_anchor_active_after_recontact() -> None:
+    penalty = support_anchor_slip_penalty(
+        anchor_error_m=torch.tensor([0.060, 0.010]),
+        planar_speed_mps=torch.tensor([0.010, 0.20]),
+        active_gate=torch.tensor([False, False]),
+        anchor_gate=torch.tensor([True, True]),
+        speed_gate=torch.tensor([False, True]),
+        anchor_free_m=0.015,
+        anchor_zero_m=0.060,
+        speed_free_mps=0.020,
+        speed_zero_mps=0.20,
+    )
+    assert penalty.tolist() == pytest.approx([1.0, 1.0])
+
+
 def test_continuous_touchdown_potential_preserves_entry_then_rewards_support() -> None:
     potential = continuous_touchdown_potential(
         entry_potential=torch.tensor([0.78, 0.78, 0.78]),

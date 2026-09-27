@@ -302,6 +302,8 @@ def support_anchor_slip_penalty(
     anchor_zero_m: float,
     speed_free_mps: float,
     speed_zero_mps: float,
+    anchor_gate: torch.Tensor | None = None,
+    speed_gate: torch.Tensor | None = None,
 ) -> torch.Tensor:
     """Return a bounded penalty severity for a loaded support foot that drifts or slips.
 
@@ -316,6 +318,10 @@ def support_anchor_slip_penalty(
         raise ValueError("anchor_error_m and planar_speed_mps must match")
     if active_gate.shape != anchor_error_m.shape:
         raise ValueError("active_gate must match anchor_error_m")
+    if anchor_gate is not None and anchor_gate.shape != anchor_error_m.shape:
+        raise ValueError("anchor_gate must match anchor_error_m")
+    if speed_gate is not None and speed_gate.shape != anchor_error_m.shape:
+        raise ValueError("speed_gate must match anchor_error_m")
     if anchor_free_m < 0.0 or anchor_zero_m <= anchor_free_m:
         raise ValueError("anchor_zero_m must exceed anchor_free_m >= 0")
     if speed_free_mps < 0.0 or speed_zero_mps <= speed_free_mps:
@@ -331,12 +337,12 @@ def support_anchor_slip_penalty(
         free_tolerance=speed_free_mps,
         zero_at=speed_zero_mps,
     )
-    severity = torch.maximum(anchor_bad, speed_bad)
-    return torch.where(
-        active_gate.to(dtype=torch.bool),
-        severity,
-        torch.zeros_like(severity),
-    )
+    legacy_gate = active_gate.to(dtype=torch.bool)
+    anchor_gate = legacy_gate if anchor_gate is None else anchor_gate.to(dtype=torch.bool)
+    speed_gate = legacy_gate if speed_gate is None else speed_gate.to(dtype=torch.bool)
+    anchor_term = torch.where(anchor_gate, anchor_bad, torch.zeros_like(anchor_bad))
+    speed_term = torch.where(speed_gate, speed_bad, torch.zeros_like(speed_bad))
+    return torch.maximum(anchor_term, speed_term)
 
 
 def continuous_touchdown_potential(

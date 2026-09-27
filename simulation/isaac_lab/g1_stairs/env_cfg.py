@@ -498,6 +498,8 @@ class StairRewardsCfg:
             "speed_zero_mps": 0.20,
             "active_phase_min": 1,
             "active_phase_max": 4,
+            "anchor_phase_gate_only": False,
+            "latch_anchor_on_active_phase": False,
             "tread_margin_m": 0.015,
             "foot_height_tolerance_m": 0.025,
             "upper_support_force_bodyweight_fraction": 0.15,

@@ -1148,6 +1148,8 @@ class support_foot_anchor_guard(_SingleStepRewardBase):
         speed_zero_mps: float = 0.20,
         active_phase_min: int = 1,
         active_phase_max: int = 4,
+        anchor_phase_gate_only: bool = False,
+        latch_anchor_on_active_phase: bool = False,
         tread_margin_m: float = 0.015,
         foot_height_tolerance_m: float = 0.025,
         upper_support_force_bodyweight_fraction: float = 0.15,
@@ -1174,27 +1176,38 @@ class support_foot_anchor_guard(_SingleStepRewardBase):
         swing = 0 if bool(swing_left) else 1
         support = 1 - swing
 
-        new = ~self._initialized
-        self._support_start_x[new] = m["sole_center_x"][new, support].detach()
-        self._support_start_y[new] = m["sole_center_y"][new, support].detach()
-        self._initialized[new] = True
-
         phase = getattr(env, "_g1_stair_motion_phase", None)
         if phase is None:
             phase = torch.zeros(
                 env.num_envs, dtype=torch.long, device=env.device
             )
 
+        phase_gate = (
+            (phase >= int(active_phase_min))
+            & (phase <= int(active_phase_max))
+            & m["task_safe"]
+        )
+        new = ~self._initialized
+        if bool(latch_anchor_on_active_phase):
+            new = new & phase_gate
+        self._support_start_x[new] = m["sole_center_x"][new, support].detach()
+        self._support_start_y[new] = m["sole_center_y"][new, support].detach()
+        self._initialized[new] = True
+
         bodyweight = m["bodyweight_n"].clamp_min(1.0)
         support_force_fraction = m["vertical_force"][:, support] / bodyweight
         swing_force_fraction = m["vertical_force"][:, swing] / bodyweight
-        active_gate = (
-            (phase >= int(active_phase_min))
-            & (phase <= int(active_phase_max))
+        loaded_support_gate = (
+            phase_gate
             & (support_force_fraction >= float(support_force_bodyweight_fraction))
-            & (swing_force_fraction <= float(swing_unload_bodyweight_fraction))
-            & m["task_safe"]
         )
+        legacy_gate = (
+            loaded_support_gate
+            & (swing_force_fraction <= float(swing_unload_bodyweight_fraction))
+        )
+        anchor_gate = phase_gate if bool(anchor_phase_gate_only) else legacy_gate
+        speed_gate = loaded_support_gate if bool(anchor_phase_gate_only) else legacy_gate
+        active_gate = anchor_gate
 
         anchor_error = torch.sqrt(
             (m["sole_center_x"][:, support] - self._support_start_x) ** 2
@@ -1203,7 +1216,9 @@ class support_foot_anchor_guard(_SingleStepRewardBase):
         penalty = support_anchor_slip_penalty(
             anchor_error_m=anchor_error,
             planar_speed_mps=m["foot_planar_speed"][:, support],
-            active_gate=active_gate,
+            active_gate=legacy_gate,
+            anchor_gate=anchor_gate,
+            speed_gate=speed_gate,
             anchor_free_m=float(anchor_free_m),
             anchor_zero_m=float(anchor_zero_m),
             speed_free_mps=float(speed_free_mps),

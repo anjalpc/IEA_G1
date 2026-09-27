@@ -329,6 +329,39 @@ class RewardRuntimeTests(unittest.TestCase):
             )
         )
 
+    def test_v09_closes_support_lock_recontact_gate_loophole(self):
+        root = Path(__file__).resolve().parents[4]
+        v08, _ = resolve_config(
+            root / "experiments/g1_stairs/configs/g1_stair_v08.yaml"
+        )
+        v09, _ = resolve_config(
+            root / "experiments/g1_stairs/configs/g1_stair_v09.yaml"
+        )
+        materialize_legacy_reward_config(v08)
+        materialize_legacy_reward_config(v09)
+
+        v08_support = v08["reward_parameters"]["support_foot_anchor_guard"]
+        v09_support = v09["reward_parameters"]["support_foot_anchor_guard"]
+        self.assertNotIn("anchor_phase_gate_only", v08_support)
+        self.assertNotIn("latch_anchor_on_active_phase", v08_support)
+        self.assertTrue(v09_support["anchor_phase_gate_only"])
+        self.assertTrue(v09_support["latch_anchor_on_active_phase"])
+
+        v09_weights = active_reward_weights(v09)
+        self.assertEqual(v09_weights["support_foot_anchor_guard"], -1.0)
+        self.assertEqual(v09_weights["swing_waypoint_progress"], 4.0)
+        self.assertEqual(v09_weights["swing_body_advance_progress"], 1.5)
+        self.assertEqual(
+            v09["specialist_stair"]["staging"]["distance_before_riser_m"],
+            [0.30, 0.30],
+        )
+        self.assertEqual(v09["execution"]["maximum_iterations"], 300)
+        self.assertTrue(
+            v09["policy_initialization"]["source"]["path"].endswith(
+                "g1_stair_v06_overnight1000_20260926_200718/model_999.pt"
+            )
+        )
+
     def test_reward_parameter_overrides_are_active_term_scoped(self):
         class _Term:
             def __init__(self, weight, **params):
