@@ -189,7 +189,7 @@ def capture_isaac_lab_state(
         if bool((torch.linalg.vector_norm(force) > contact_threshold_n).item()):
             contacts.append(label)
 
-    position_limits = data.soft_joint_pos_limits[env_index]
+    position_limits = data.joint_pos_limits[env_index]
     velocity_limits = data.soft_joint_vel_limits[env_index]
     effort_limits = data.joint_effort_limits[env_index]
     joint_violation = bool(
