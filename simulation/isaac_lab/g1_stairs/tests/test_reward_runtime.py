@@ -252,6 +252,43 @@ class RewardRuntimeTests(unittest.TestCase):
         self.assertEqual(params["clearance_x_fraction"], 0.60)
         self.assertEqual(params["support_anchor_limit_m"], 0.050)
 
+    def test_v07_closes_phase4_hover_loophole_without_changing_v06_defaults(self):
+        root = Path(__file__).resolve().parents[4]
+        v06, _ = resolve_config(
+            root / "experiments/g1_stairs/configs/g1_stair_v06.yaml"
+        )
+        v07, _ = resolve_config(
+            root / "experiments/g1_stairs/configs/g1_stair_v07.yaml"
+        )
+        materialize_legacy_reward_config(v06)
+        materialize_legacy_reward_config(v07)
+
+        v06_waypoint = v06["reward_parameters"]["swing_waypoint_progress"]
+        v06_body = v06["reward_parameters"]["swing_body_advance_progress"]
+        self.assertFalse(v06_waypoint.get("reversible_touchdown_credit", False))
+        self.assertFalse(
+            v06_body.get("require_live_touchdown_commitment", False)
+        )
+
+        v07_waypoint = v07["reward_parameters"]["swing_waypoint_progress"]
+        v07_body = v07["reward_parameters"]["swing_body_advance_progress"]
+        self.assertTrue(v07_waypoint["reversible_touchdown_credit"])
+        self.assertTrue(v07_body["require_live_touchdown_commitment"])
+        self.assertEqual(v07_body["touchdown_containment_minimum"], 0.75)
+        self.assertEqual(v07_body["upper_support_minimum"], 0.60)
+
+        weights = active_reward_weights(v07)
+        self.assertEqual(weights["swing_waypoint_progress"], 4.0)
+        self.assertEqual(weights["swing_body_advance_progress"], 1.5)
+        self.assertEqual(weights["body_transfer_progress"], 3.0)
+        self.assertEqual(v07["specialist_stair"]["staging"]["distance_before_riser_m"], [0.30, 0.30])
+        self.assertEqual(v07["execution"]["maximum_iterations"], 300)
+        self.assertTrue(
+            v07["policy_initialization"]["source"]["path"].endswith(
+                "g1_stair_v06_overnight1000_20260926_200718/model_999.pt"
+            )
+        )
+
     def test_reward_parameter_overrides_are_active_term_scoped(self):
         class _Term:
             def __init__(self, weight, **params):

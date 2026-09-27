@@ -1,0 +1,21 @@
+schema_version: 1
+
+experiment:
+  id: g1_stair_v07_smoke
+  purpose: >
+    Ten-iteration runtime qualification of the v07 reversible touchdown and
+    live body-commitment semantics transferred from v06 model_999.
+  type: specialist_stair_reversible_touchdown_commitment_smoke
+  meaningful_stair_training: false
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_stair_v07.yaml
+  resolved_config_required: true
+
+execution:
+  environments: 64
+  maximum_iterations: 10
+  training_seed: 42
+
+launch_gates:
+  allow_launch: true

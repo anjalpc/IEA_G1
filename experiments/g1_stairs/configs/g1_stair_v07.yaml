@@ -1,0 +1,52 @@
+schema_version: 1
+
+experiment:
+  id: g1_stair_v07
+  purpose: >
+    Continue from v06 model_999 while correcting only the demonstrated
+    support-locked hover loophole. Phase-4 waypoint credit remains reversible
+    until genuine touchdown completion, and body-advance potential remains
+    live after clearance only while the swing foot is still physically
+    committed over the tread or has acquired genuine upper support. Preserve
+    v06 geometry, reset staging, weights, observations, action contract,
+    support/posture guards, foothold, transfer, recovery, and success terms.
+  type: specialist_stair_reversible_touchdown_commitment
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_stair_v06.yaml
+  resolved_config_required: true
+
+policy_initialization:
+  type: rsl_rl_checkpoint_actor_transfer
+  source:
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/g1_stair_v06_overnight1000_20260926_200718/model_999.pt
+  critic_initialization: fresh
+  optimizer_initialization: fresh
+  transfer_action_std: true
+
+reward_experiment:
+  active_stage: support_locked_waypoint
+  strict_runtime_set: true
+  rule: >
+    Preserve all v06 reward weights. Correct only phase-4 semantics: entering
+    touchdown no longer banks 4/5 waypoint potential by phase index alone,
+    and phase-4 body commitment cannot remain active from phase memory alone.
+    Retraction before valid tread placement/support removes the corresponding
+    potential and therefore produces a negative potential difference.
+
+reward_parameters:
+  swing_waypoint_progress:
+    reversible_touchdown_credit: true
+  swing_body_advance_progress:
+    require_live_touchdown_commitment: true
+    touchdown_containment_minimum: 0.75
+    upper_support_minimum: 0.60
+
+execution:
+  environments: 2048
+  maximum_iterations: 300
+  training_seed: 42
+
+launch_gates:
+  allow_launch: true

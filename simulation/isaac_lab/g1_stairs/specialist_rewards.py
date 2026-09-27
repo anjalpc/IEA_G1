@@ -31,6 +31,7 @@ from .contracts import (
     G1_SOLE_SPHERE_RADIUS_M,
 )
 from .reward_math import (
+    body_advance_gate,
     bottleneck_score,
     coupled_swing_score,
     deadzone_score,
@@ -38,6 +39,7 @@ from .reward_math import (
     supported_single_foot_lift_score,
     swing_arc_waypoints,
     support_relative_forward_progress,
+    swing_phase_potential,
     target_band_score,
     tread_containment_score,
 )
@@ -544,6 +546,7 @@ class swing_waypoint_progress(_PotentialDifferenceTerm):
         transition_dwell_s: float = 0.06,
         touchdown_dwell_s: float = 0.08,
         maximum_touchdown_vertical_speed_mps: float = 0.25,
+        reversible_touchdown_credit: bool = False,
         tread_margin_m: float = 0.015,
         foot_height_tolerance_m: float = 0.025,
         upper_support_force_bodyweight_fraction: float = 0.15,
@@ -791,15 +794,12 @@ class swing_waypoint_progress(_PotentialDifferenceTerm):
             1, active_phase.unsqueeze(1)
         ).squeeze(1) & ~complete
 
-        potential = (
-            self._phase.to(dtype=active_score.dtype).clamp(max=self._PHASE_COUNT)
-            + torch.where(
-                self._phase < self._PHASE_COUNT,
-                active_score,
-                torch.zeros_like(active_score),
-            )
-        ) / float(self._PHASE_COUNT)
-        potential = potential.clamp(0.0, 1.0)
+        potential = swing_phase_potential(
+            phase=self._phase,
+            active_score=active_score,
+            phase_count=self._PHASE_COUNT,
+            reversible_touchdown_credit=bool(reversible_touchdown_credit),
+        )
 
         self._dwell = torch.where(transition, self._dwell + 1, torch.zeros_like(self._dwell))
         normal_steps = max(1, int(round(float(transition_dwell_s) / float(env.step_dt))))
@@ -888,6 +888,9 @@ class swing_body_advance_progress(_PotentialDifferenceTerm):
         support_anchor_limit_m: float = 0.050,
         support_force_bodyweight_fraction: float = 0.25,
         swing_unload_bodyweight_fraction: float = 0.25,
+        require_live_touchdown_commitment: bool = False,
+        touchdown_containment_minimum: float = 0.75,
+        upper_support_minimum: float = 0.60,
         tread_margin_m: float = 0.015,
         foot_height_tolerance_m: float = 0.025,
         upper_support_force_bodyweight_fraction: float = 0.15,
@@ -908,6 +911,10 @@ class swing_body_advance_progress(_PotentialDifferenceTerm):
             raise ValueError("support_force_bodyweight_fraction must be in (0, 1]")
         if not 0.0 <= swing_unload_bodyweight_fraction < 1.0:
             raise ValueError("swing_unload_bodyweight_fraction must be in [0, 1)")
+        if not 0.0 <= touchdown_containment_minimum <= 1.0:
+            raise ValueError("touchdown_containment_minimum must be in [0, 1]")
+        if not 0.0 <= upper_support_minimum <= 1.0:
+            raise ValueError("upper_support_minimum must be in [0, 1]")
 
         m = self._measure(
             env,
@@ -976,11 +983,41 @@ class swing_body_advance_progress(_PotentialDifferenceTerm):
             activation_root_x_m=self._activation_root_x,
             target_forward_from_support_m=target_forward_from_support_m,
         )
-        # Once touchdown phase is reached, keep body progress live without
-        # requiring the swing foot to remain airborne.  Before touchdown, a
-        # retraction out of the clearance state removes the potential and thus
-        # produces the intended negative difference.
-        physical_gate = live_gate | (phase >= 4)
+        touchdown_containment = tread_containment_score(
+            m["rear_x"][:, swing],
+            m["front_x"][:, swing],
+            riser_x_m=float(m["riser_x"]),
+            tread_depth_m=float(m["tread_depth"]),
+            margin_m=float(tread_margin_m),
+        )
+        touchdown_placement_now = (
+            (touchdown_containment >= float(touchdown_containment_minimum))
+            & (
+                m["sole_bottom"][:, swing]
+                >= m["riser_height"] - float(foot_height_tolerance_m)
+            )
+            & support_valid_now
+            & m["task_safe"]
+        )
+        upper_support_now = (
+            m["physical_support"][:, swing] >= float(upper_support_minimum)
+        ) & m["task_safe"]
+
+        # Historical v06 keeps body progress live solely because phase 4 was
+        # reached.  v07 opts into a stricter contract: phase 4 must still have
+        # a physically committed tread placement or genuine upper support.
+        # Swing retraction therefore removes the potential and yields the
+        # intended negative potential difference.
+        physical_gate = body_advance_gate(
+            phase=phase,
+            live_clearance_gate=live_gate,
+            touchdown_placement_gate=touchdown_placement_now,
+            upper_support_gate=upper_support_now,
+            require_live_touchdown_commitment=bool(
+                require_live_touchdown_commitment
+            ),
+            touchdown_phase_index=4,
+        )
         potential = torch.where(
             self._advance_initialized & physical_gate,
             progress,

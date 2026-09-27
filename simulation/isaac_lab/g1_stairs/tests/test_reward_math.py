@@ -4,12 +4,14 @@ import pytest
 import torch
 
 from simulation.isaac_lab.g1_stairs.reward_math import (
+    body_advance_gate,
     bottleneck_score,
     coupled_swing_score,
     deadzone_score,
     support_quality,
     support_relative_forward_progress,
     supported_single_foot_lift_score,
+    swing_phase_potential,
     swing_arc_waypoints,
     target_band_score,
     tread_containment_score,
@@ -260,3 +262,54 @@ def test_support_relative_forward_progress_requires_new_body_advance() -> None:
     assert halfway.item() == pytest.approx(0.5)
     assert reached.item() == pytest.approx(1.0)
     assert retreat.item() == pytest.approx(0.0)
+
+
+def test_swing_phase_potential_preserves_historical_touchdown_credit_by_default() -> None:
+    historical = swing_phase_potential(
+        phase=torch.tensor([4]),
+        active_score=torch.tensor([0.0]),
+        phase_count=5,
+        reversible_touchdown_credit=False,
+    )
+    assert historical.item() == pytest.approx(0.8)
+
+
+def test_swing_phase_potential_v07_does_not_bank_touchdown_entry() -> None:
+    touchdown = swing_phase_potential(
+        phase=torch.tensor([4, 4]),
+        active_score=torch.tensor([0.0, 1.0]),
+        phase_count=5,
+        reversible_touchdown_credit=True,
+    )
+    complete = swing_phase_potential(
+        phase=torch.tensor([5]),
+        active_score=torch.tensor([0.0]),
+        phase_count=5,
+        reversible_touchdown_credit=True,
+    )
+
+    assert touchdown.tolist() == pytest.approx([0.6, 0.8])
+    assert complete.item() == pytest.approx(1.0)
+
+
+def test_body_advance_gate_preserves_v06_phase4_latch() -> None:
+    gate = body_advance_gate(
+        phase=torch.tensor([4]),
+        live_clearance_gate=torch.tensor([False]),
+        touchdown_placement_gate=torch.tensor([False]),
+        upper_support_gate=torch.tensor([False]),
+        require_live_touchdown_commitment=False,
+    )
+    assert gate.item() is True
+
+
+def test_body_advance_gate_v07_requires_current_phase4_commitment() -> None:
+    phases = torch.tensor([3, 4, 4, 4])
+    gate = body_advance_gate(
+        phase=phases,
+        live_clearance_gate=torch.tensor([True, False, False, False]),
+        touchdown_placement_gate=torch.tensor([False, False, True, False]),
+        upper_support_gate=torch.tensor([False, False, False, True]),
+        require_live_touchdown_commitment=True,
+    )
+    assert gate.tolist() == [True, False, True, True]

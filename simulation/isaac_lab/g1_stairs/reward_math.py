@@ -291,6 +291,86 @@ def support_relative_forward_progress(
         (root_x_m - activation_root_x_m) / denominator
     ).clamp(0.0, 1.0)
 
+
+def swing_phase_potential(
+    *,
+    phase: torch.Tensor,
+    active_score: torch.Tensor,
+    phase_count: int,
+    reversible_touchdown_credit: bool,
+) -> torch.Tensor:
+    """Return bounded waypoint potential with optional reversible touchdown credit.
+
+    Historical v04-v06 semantics bank the integer phase index directly.  With
+    five phases this means merely entering phase 4 guarantees 4/5 potential,
+    even before a physical upper-tread foothold exists.  The opt-in v07 mode
+    intentionally holds phase-4 banked credit at the phase-3 baseline; current
+    touchdown quality can raise it, and only completion earns the final 1.0.
+    """
+
+    if phase.shape != active_score.shape:
+        raise ValueError("phase and active_score must have the same shape")
+    if phase_count < 2:
+        raise ValueError("phase_count must be at least 2")
+
+    phase_credit = phase.to(dtype=active_score.dtype).clamp(
+        min=0,
+        max=phase_count,
+    )
+    if bool(reversible_touchdown_credit):
+        touchdown_phase = phase_count - 1
+        phase_credit = torch.where(
+            phase == touchdown_phase,
+            torch.full_like(phase_credit, float(touchdown_phase - 1)),
+            phase_credit,
+        )
+
+    incomplete = phase < phase_count
+    score_credit = torch.where(
+        incomplete,
+        active_score.clamp(0.0, 1.0),
+        torch.zeros_like(active_score),
+    )
+    return (
+        (phase_credit + score_credit) / float(phase_count)
+    ).clamp(0.0, 1.0)
+
+
+def body_advance_gate(
+    *,
+    phase: torch.Tensor,
+    live_clearance_gate: torch.Tensor,
+    touchdown_placement_gate: torch.Tensor,
+    upper_support_gate: torch.Tensor,
+    require_live_touchdown_commitment: bool,
+    touchdown_phase_index: int = 4,
+) -> torch.Tensor:
+    """Gate body-advance potential using current physical commitment.
+
+    The historical v06 contract keeps the potential active for every state
+    with ``phase >= 4``.  The opt-in v07 contract instead requires either a
+    currently valid tread-placement state or genuine upper-foot support after
+    phase 4 is reached, so retracting the swing foot removes the potential.
+    """
+
+    if touchdown_phase_index < 0:
+        raise ValueError("touchdown_phase_index cannot be negative")
+    if phase.shape != live_clearance_gate.shape:
+        raise ValueError("phase and live_clearance_gate must have the same shape")
+    if touchdown_placement_gate.shape != phase.shape:
+        raise ValueError("touchdown_placement_gate must match phase shape")
+    if upper_support_gate.shape != phase.shape:
+        raise ValueError("upper_support_gate must match phase shape")
+
+    touchdown_or_later = phase >= int(touchdown_phase_index)
+    if not bool(require_live_touchdown_commitment):
+        return live_clearance_gate | touchdown_or_later
+
+    return live_clearance_gate | (
+        touchdown_or_later
+        & (touchdown_placement_gate | upper_support_gate)
+    )
+
 def swing_arc_waypoints(
     *,
     start_x_m: torch.Tensor,
