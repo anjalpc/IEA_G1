@@ -131,8 +131,13 @@ def build_health(run_dir: Path) -> dict:
     metric_rows = _read_csv(run_dir / "training_metrics.csv")
 
     latest_iteration = None
+    latest_extra = {}
     if metric_rows:
         latest_iteration = int(float(metric_rows[-1]["iteration"]))
+        try:
+            latest_extra = json.loads(metric_rows[-1].get("extra_json") or "{}")
+        except (TypeError, ValueError, json.JSONDecodeError):
+            latest_extra = {}
     elif reward_rows:
         latest_iteration = int(float(reward_rows[-1]["iteration"]))
 
@@ -284,6 +289,20 @@ def build_health(run_dir: Path) -> dict:
             "phase_4": phase.get(4),
             "complete": phase_complete,
         },
+        "residual_control": {
+            "active": (
+                latest_extra.get("balance_teacher_action_abs_mean") is not None
+            ),
+            "teacher_action_abs_mean": _finite_float(
+                latest_extra.get("balance_teacher_action_abs_mean")
+            ),
+            "residual_action_abs_mean": _finite_float(
+                latest_extra.get("balance_residual_action_abs_mean")
+            ),
+            "executed_action_abs_mean": _finite_float(
+                latest_extra.get("balance_executed_action_abs_mean")
+            ),
+        },
         "ppo": {
             "status": ppo_status,
             "mean_return": _latest(_metric(metric_rows, "episode_return_mean")),
@@ -363,6 +382,13 @@ def print_card(health: dict) -> None:
         f"{label}:{_fmt(value, 3)}" for label, value in zip(labels, values)
     )
     print(f"  {phase_text}")
+
+    r = health.get("residual_control", {})
+    if r.get("active"):
+        print("\nFROZEN BALANCE + RESIDUAL")
+        _print_line("teacher |action|", _fmt(r.get("teacher_action_abs_mean"), 3))
+        _print_line("residual |action|", _fmt(r.get("residual_action_abs_mean"), 3))
+        _print_line("executed |action|", _fmt(r.get("executed_action_abs_mean"), 3))
 
     p = health["ppo"]
     print("\nPPO / SAFETY")

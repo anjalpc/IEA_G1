@@ -1,0 +1,79 @@
+schema_version: 1
+
+experiment:
+  id: g1_stair_v10
+  purpose: >
+    Preserve the proven model_1500 near-riser balance policy as a frozen
+    feedback teacher while PPO learns only a bounded 29-DoF residual for
+    supported left-leg lift, clearance, upper foothold, and body transfer.
+    This experiment does not fine-tune or overwrite the balance actor.
+  type: specialist_frozen_balance_residual
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/specialist_single_step_lift_transfer1000.yaml
+  resolved_config_required: true
+
+policy_initialization:
+  type: zero_residual_actor
+  critic_initialization: fresh
+  optimizer_initialization: fresh
+
+balance_residual_control:
+  enabled: true
+  teacher_checkpoint: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/specialist_single_step_transfer3000_20260926_112515/model_1500.pt
+  residual_clip: 1.0
+  executed_clip: 5.0
+
+  # Values are residual authority in raw Unitree action units. The existing
+  # JointPositionAction subsequently applies its validated 0.25-rad scale.
+  # Swing-leg pitch/knee receive useful authority; support leg, waist, and
+  # arms remain deliberately close to the frozen balance policy.
+  scale_by_joint:
+    left_hip_pitch_joint: 1.00
+    right_hip_pitch_joint: 0.25
+    waist_yaw_joint: 0.10
+    left_hip_roll_joint: 0.40
+    right_hip_roll_joint: 0.25
+    waist_roll_joint: 0.15
+    left_hip_yaw_joint: 0.30
+    right_hip_yaw_joint: 0.20
+    waist_pitch_joint: 0.15
+    left_knee_joint: 1.50
+    right_knee_joint: 0.25
+    left_shoulder_pitch_joint: 0.10
+    right_shoulder_pitch_joint: 0.10
+    left_ankle_pitch_joint: 0.80
+    right_ankle_pitch_joint: 0.25
+    left_shoulder_roll_joint: 0.10
+    right_shoulder_roll_joint: 0.10
+    left_ankle_roll_joint: 0.35
+    right_ankle_roll_joint: 0.25
+    left_shoulder_yaw_joint: 0.10
+    right_shoulder_yaw_joint: 0.10
+    left_elbow_joint: 0.10
+    right_elbow_joint: 0.10
+    left_wrist_roll_joint: 0.05
+    right_wrist_roll_joint: 0.05
+    left_wrist_pitch_joint: 0.05
+    right_wrist_pitch_joint: 0.05
+    left_wrist_yaw_joint: 0.05
+    right_wrist_yaw_joint: 0.05
+
+ppo:
+  # Residual mean is exactly zero at initialization. Keep exploration small
+  # enough that the first rollout remains close to model_1500 balance.
+  initial_action_noise_std: 0.10
+  learning_rate: 0.00005
+  learning_rate_schedule: adaptive
+  desired_kl: 0.01
+  num_mini_batches: 16
+  action_clip: 5.0
+
+execution:
+  environments: 256
+  maximum_iterations: 300
+  training_seed: 42
+
+launch_gates:
+  allow_launch: true

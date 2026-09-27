@@ -213,6 +213,12 @@ def main() -> None:
         env = multi_agent_to_single_agent(env)
     env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
 
+    if resolved_config is not None:
+        from simulation.isaac_lab.g1_stairs.balance_residual import (
+            wrap_balance_residual_from_config,
+        )
+        env = wrap_balance_residual_from_config(env, resolved_config)
+
     runner = OnPolicyRunner(
         env,
         agent_cfg.to_dict(),

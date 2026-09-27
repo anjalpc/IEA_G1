@@ -56,7 +56,7 @@ def test_specialist_profile_rejects_other_initialization_modes() -> None:
 
     with pytest.raises(
         ValueError,
-        match="random or rsl_rl_checkpoint_actor_transfer",
+        match="random, rsl_rl_checkpoint_actor_transfer, or zero_residual_actor",
     ):
         parse_specialist_staging_config(config)
 
@@ -134,3 +134,31 @@ def test_apply_specialist_runtime_reports_checkpoint_initialization(monkeypatch)
 
     assert summary is not None
     assert summary["policy_initialization"] == "rsl_rl_checkpoint_actor_transfer"
+
+
+def test_specialist_profile_accepts_zero_residual_actor() -> None:
+    config = _config()
+    config["policy_initialization"] = {
+        "type": "zero_residual_actor",
+        "critic_initialization": "fresh",
+        "optimizer_initialization": "fresh",
+    }
+    config["balance_residual_control"] = {
+        "enabled": True,
+        "teacher_checkpoint": "/tmp/model_1500.pt",
+        "scale_by_joint": {"placeholder": 0.1},
+    }
+
+    parsed = parse_specialist_staging_config(config)
+    assert parsed is not None
+
+
+def test_zero_residual_actor_requires_balance_wrapper() -> None:
+    config = _config()
+    config["policy_initialization"] = {"type": "zero_residual_actor"}
+
+    with pytest.raises(
+        ValueError,
+        match="requires enabled balance_residual_control",
+    ):
+        parse_specialist_staging_config(config)

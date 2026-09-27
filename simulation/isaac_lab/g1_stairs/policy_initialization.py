@@ -343,3 +343,43 @@ def initialize_actor_from_unitree_onnx(
     print("[INFO] Policy initialization:", metadata, flush=True)
 
     return metadata
+
+
+def initialize_zero_residual_actor(runner) -> dict[str, object]:
+    """Start residual PPO at zero mean while keeping a fresh critic/optimizer.
+
+    Only the final actor linear layer is zeroed. Hidden layers remain normally
+    initialized so gradients can immediately learn a residual mapping, while
+    iteration zero executes the frozen balance teacher (apart from deliberately
+    small exploration noise configured by the experiment YAML).
+    """
+
+    policy = runner.alg.policy
+    actor = getattr(policy, "actor", None)
+    if actor is None:
+        raise RuntimeError("runtime policy has no actor module")
+
+    linear_layers = [module for module in actor.modules() if isinstance(module, torch.nn.Linear)]
+    if not linear_layers:
+        raise RuntimeError("runtime actor contains no Linear layers")
+
+    output_layer = linear_layers[-1]
+    if int(output_layer.out_features) != ACTION_DIM:
+        raise RuntimeError(
+            f"residual actor output must be {ACTION_DIM}, got {output_layer.out_features}"
+        )
+
+    with torch.no_grad():
+        output_layer.weight.zero_()
+        if output_layer.bias is not None:
+            output_layer.bias.zero_()
+
+    metadata = {
+        "type": "zero_residual_actor",
+        "actor_output_dim": int(output_layer.out_features),
+        "critic_initialization": "fresh",
+        "optimizer_initialization": "fresh",
+        "final_actor_layer_zeroed": True,
+    }
+    print("[INFO] Policy initialization:", metadata, flush=True)
+    return metadata

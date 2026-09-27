@@ -1,0 +1,21 @@
+schema_version: 1
+
+experiment:
+  id: g1_stair_v10_smoke
+  purpose: >
+    Ten-iteration integration/behavior smoke for frozen model_1500 balance
+    plus zero-initialized bounded residual PPO.
+  type: specialist_frozen_balance_residual_smoke
+  meaningful_stair_training: false
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_stair_v10.yaml
+  resolved_config_required: true
+
+execution:
+  environments: 64
+  maximum_iterations: 10
+  training_seed: 42
+
+launch_gates:
+  allow_launch: true

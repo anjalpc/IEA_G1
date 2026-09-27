@@ -53,6 +53,7 @@ def main() -> None:
     from simulation.isaac_lab.g1_stairs.policy_initialization import (
         initialize_actor_from_rsl_rl_checkpoint,
         initialize_actor_from_unitree_onnx,
+        initialize_zero_residual_actor,
     )
 
     metrics_dir_value = os.environ.get("IEA_G1_METRICS_DIR")
@@ -526,6 +527,16 @@ def main() -> None:
         )
 
     env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
+
+    from simulation.isaac_lab.g1_stairs.balance_residual import (
+        wrap_balance_residual_from_config,
+    )
+
+    env = wrap_balance_residual_from_config(
+        env,
+        resolved_config,
+    )
+
     env = InstrumentedRslRlVecEnvWrapper(env)
 
     class MetricsOnPolicyRunner(MetricsOnPolicyRunnerMixin, OnPolicyRunner):
@@ -582,6 +593,8 @@ def main() -> None:
                 initialization_cfg["source"]["path"]
             ),
         )
+    elif initialization_type == "zero_residual_actor":
+        initialize_zero_residual_actor(runner)
     elif initialization_type not in (None, "random"):
         raise RuntimeError(
             "Unsupported policy initialization: "

@@ -226,6 +226,9 @@ class InstrumentedRslRlVecEnvWrapper:
             "waist": 0.0,
         }
         self._executed_action_rate = 0.0
+        self._teacher_action_abs = 0.0
+        self._residual_action_abs = 0.0
+        self._executed_action_abs = 0.0
 
         self._joint_jerk = 0.0
         self._mechanical_power = 0.0
@@ -256,11 +259,27 @@ class InstrumentedRslRlVecEnvWrapper:
     def step(self, actions):
         import torch
 
-        executed_actions = actions
+        result = self._wrapped.step(actions)
 
-        result = self._wrapped.step(
-            executed_actions
+        executed_actions = getattr(
+            self._wrapped,
+            "last_executed_actions",
+            None,
         )
+        if executed_actions is None:
+            executed_actions = actions
+
+        teacher_actions = getattr(
+            self._wrapped,
+            "last_teacher_actions",
+            None,
+        )
+        residual_actions = getattr(
+            self._wrapped,
+            "last_residual_actions",
+            None,
+        )
+
         observations, rewards, dones, extras = result
         self._last_observations = observations
         env = self.unwrapped
@@ -364,6 +383,18 @@ class InstrumentedRslRlVecEnvWrapper:
             self._reward_distribution.update(
                 values
             )
+
+        if teacher_actions is not None:
+            self._teacher_action_abs += float(
+                teacher_actions.abs().mean().item()
+            )
+        if residual_actions is not None:
+            self._residual_action_abs += float(
+                residual_actions.abs().mean().item()
+            )
+        self._executed_action_abs += float(
+            executed_actions.abs().mean().item()
+        )
 
         group_action_abs = action_group_mean_abs(
             actions
@@ -804,9 +835,9 @@ class InstrumentedRslRlVecEnvWrapper:
                 _rms(joint_error, ACTION_GROUP_INDICES["legs"]),
                 _rms(joint_error, ACTION_GROUP_INDICES["arms"]),
                 _rms(joint_error, ACTION_GROUP_INDICES["waist"]),
-                _rms(actions, ACTION_GROUP_INDICES["legs"]),
-                _rms(actions, ACTION_GROUP_INDICES["arms"]),
-                _rms(actions, ACTION_GROUP_INDICES["waist"]),
+                _rms(executed_actions, ACTION_GROUP_INDICES["legs"]),
+                _rms(executed_actions, ACTION_GROUP_INDICES["arms"]),
+                _rms(executed_actions, ACTION_GROUP_INDICES["waist"]),
             ),
             dim=1,
         )
@@ -817,7 +848,7 @@ class InstrumentedRslRlVecEnvWrapper:
                 joint_default,
                 joint_error,
                 joint_vel,
-                actions,
+                executed_actions,
             ),
             dim=1,
         )
@@ -875,6 +906,15 @@ class InstrumentedRslRlVecEnvWrapper:
             ),
             "executed_action_rate_mean": (
                 self._executed_action_rate / steps
+            ),
+            "balance_teacher_action_abs_mean": (
+                self._teacher_action_abs / steps
+            ),
+            "balance_residual_action_abs_mean": (
+                self._residual_action_abs / steps
+            ),
+            "balance_executed_action_abs_mean": (
+                self._executed_action_abs / steps
             ),
             "joint_jerk_mean": self._joint_jerk / steps,
             "mechanical_power_mean": self._mechanical_power / steps,

@@ -230,5 +230,32 @@ class PolicyInitializationTest(unittest.TestCase):
         self.assertEqual(metadata["optimizer_initialization"], "fresh")
 
 
+class ZeroResidualActorTests(unittest.TestCase):
+    def test_zero_residual_initializer_zeros_only_actor_output_layer(self):
+        from types import SimpleNamespace
+        from simulation.isaac_lab.g1_stairs.policy_initialization import (
+            initialize_zero_residual_actor,
+        )
+
+        actor = torch.nn.Sequential(
+            torch.nn.Linear(98, 32),
+            torch.nn.ELU(),
+            torch.nn.Linear(32, 29),
+        )
+        critic = torch.nn.Sequential(torch.nn.Linear(288, 1))
+        hidden_before = actor[0].weight.detach().clone()
+        critic_before = critic[0].weight.detach().clone()
+        policy = SimpleNamespace(actor=actor, critic=critic)
+        runner = SimpleNamespace(alg=SimpleNamespace(policy=policy))
+
+        meta = initialize_zero_residual_actor(runner)
+
+        self.assertTrue(torch.equal(actor[0].weight, hidden_before))
+        self.assertTrue(torch.equal(critic[0].weight, critic_before))
+        self.assertTrue(torch.count_nonzero(actor[2].weight) == 0)
+        self.assertTrue(torch.count_nonzero(actor[2].bias) == 0)
+        self.assertEqual(meta["type"], "zero_residual_actor")
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -164,3 +164,36 @@ class RewardHealthTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_health_reads_balance_residual_telemetry(tmp_path):
+    import csv
+    import json
+    from simulation.isaac_lab.g1_stairs.scripts.diagnostics.reward_health import build_health
+
+    path = tmp_path / "training_metrics.csv"
+    with path.open("w", newline="", encoding="utf-8") as stream:
+        writer = csv.DictWriter(
+            stream,
+            fieldnames=["iteration", "extra_json"],
+        )
+        writer.writeheader()
+        writer.writerow(
+            {
+                "iteration": 3,
+                "extra_json": json.dumps(
+                    {
+                        "balance_teacher_action_abs_mean": 0.42,
+                        "balance_residual_action_abs_mean": 0.08,
+                        "balance_executed_action_abs_mean": 0.44,
+                    }
+                ),
+            }
+        )
+
+    health = build_health(tmp_path)
+    residual = health["residual_control"]
+    assert residual["active"] is True
+    assert residual["teacher_action_abs_mean"] == 0.42
+    assert residual["residual_action_abs_mean"] == 0.08
+    assert residual["executed_action_abs_mean"] == 0.44

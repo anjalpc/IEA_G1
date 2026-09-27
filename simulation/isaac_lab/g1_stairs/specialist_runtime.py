@@ -88,11 +88,12 @@ def parse_specialist_staging_config(
     allowed_initializations = {
         "random",
         "rsl_rl_checkpoint_actor_transfer",
+        "zero_residual_actor",
     }
     if initialization_type not in allowed_initializations:
         raise ValueError(
             "specialist_stair requires policy_initialization.type to be "
-            "random or rsl_rl_checkpoint_actor_transfer"
+            "random, rsl_rl_checkpoint_actor_transfer, or zero_residual_actor"
         )
 
     if initialization_type == "rsl_rl_checkpoint_actor_transfer":
@@ -110,6 +111,23 @@ def parse_specialist_staging_config(
         if initialization.get("critic_initialization", "fresh") != "fresh":
             raise ValueError(
                 "checkpoint actor transfer requires a fresh critic"
+            )
+
+    if initialization_type == "zero_residual_actor":
+        residual = resolved.get("balance_residual_control")
+        if not isinstance(residual, dict) or not residual.get("enabled", False):
+            raise ValueError(
+                "zero_residual_actor requires enabled balance_residual_control"
+            )
+        teacher = residual.get("teacher_checkpoint")
+        scales = residual.get("scale_by_joint")
+        if not isinstance(teacher, str) or not teacher.strip():
+            raise ValueError(
+                "balance_residual_control.teacher_checkpoint is required"
+            )
+        if not isinstance(scales, dict):
+            raise ValueError(
+                "balance_residual_control.scale_by_joint must be a mapping"
             )
 
     staging = specialist.get("staging")
