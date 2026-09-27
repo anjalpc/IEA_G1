@@ -29,6 +29,7 @@ Usage:
   simctl stop
   simctl status
   simctl diagnose
+  simctl health [--json]
   simctl info
   simctl runs
   simctl use <run_id>
@@ -430,6 +431,33 @@ cmd_diagnose() {
     echo "========================================"
     echo "$RUN_DIR/diagnostic_summary.json"
     echo "$RUN_DIR/diagnostic_report.md"
+}
+
+
+cmd_health() {
+    local RUN_ID
+    local RUN_DIR
+    local HEALTH_SCRIPT
+
+    RUN_ID="$(current_run)"
+    RUN_DIR="${RUN_ROOT}/${RUN_ID}"
+    HEALTH_SCRIPT="${REPO}/simulation/isaac_lab/g1_stairs/scripts/diagnostics/reward_health.py"
+
+    if [ ! -d "$RUN_DIR" ]; then
+        echo "Run directory not found:" >&2
+        echo "  $RUN_DIR" >&2
+        return 1
+    fi
+
+    if [ ! -f "$HEALTH_SCRIPT" ]; then
+        echo "Health script not found:" >&2
+        echo "  $HEALTH_SCRIPT" >&2
+        return 1
+    fi
+
+    # Host-side only: reading the append-only CSV evidence must never touch
+    # or pause the active Isaac/RSL-RL process.
+    python3 "$HEALTH_SCRIPT" "$RUN_DIR" "$@"
 }
 
 cmd_status() {
@@ -1011,6 +1039,10 @@ case "${1:-help}" in
         ;;
     diagnose)
         cmd_diagnose
+        ;;
+    health)
+        shift
+        cmd_health "$@"
         ;;
     runs)
         cmd_runs

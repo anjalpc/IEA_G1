@@ -72,7 +72,11 @@ STAIR_DIAGNOSTIC_NAMES = (
     "swing_target_x_error_m",
     "swing_target_z_error_m",
     "swing_lateral_error_m",
+    "swing_lateral_abs_error_m",
     "support_anchor_error_m",
+    "support_lock_anchor_error_m",
+    "support_lock_planar_speed_mps",
+    "support_lock_gate",
     "swing_foot_speed_mps",
     "swing_lower_floor_recontact",
     "root_to_support_foot_y_m",
@@ -605,6 +609,22 @@ class InstrumentedRslRlVecEnvWrapper:
         support_anchor_error = getattr(env, "_g1_stair_support_anchor_error", None)
         if support_anchor_error is None:
             support_anchor_error = torch.zeros_like(local_x)
+        support_lock_anchor_error = getattr(
+            env, "_g1_stair_support_lock_anchor_error_xy", None
+        )
+        if support_lock_anchor_error is None:
+            support_lock_anchor_error = support_anchor_error
+        support_lock_planar_speed = getattr(
+            env, "_g1_stair_support_lock_planar_speed", None
+        )
+        if support_lock_planar_speed is None:
+            support_lock_planar_speed = horizontal_foot_speed[:, support_index]
+        support_lock_gate = getattr(
+            env, "_g1_stair_support_lock_gate", None
+        )
+        if support_lock_gate is None:
+            support_lock_gate = torch.zeros_like(local_x, dtype=torch.bool)
+        support_lock_gate = support_lock_gate.to(dtype=local_x.dtype)
         lane_y = getattr(env, "_g1_stair_swing_lane_y", None)
         if lane_y is None:
             lane_y = sole_center[:, swing_index, 1]
@@ -687,7 +707,11 @@ class InstrumentedRslRlVecEnvWrapper:
                     target_x - sole_center[:, swing_index, 0],
                     target_z - sole_bottom[:, swing_index],
                     sole_center[:, swing_index, 1] - lane_y,
+                    torch.abs(sole_center[:, swing_index, 1] - lane_y),
                     support_anchor_error,
+                    support_lock_anchor_error,
+                    support_lock_planar_speed,
+                    support_lock_gate,
                     foot_speed[:, swing_index],
                     lower_floor_recontact,
                     local_x.new_tensor(0.0).expand_as(local_x) + (
