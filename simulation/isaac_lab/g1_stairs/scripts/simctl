@@ -36,7 +36,7 @@ Usage:
   simctl use <run_id>
   simctl tensorboard {start|status|stop}
   simctl video <checkpoint>
-  simctl baseline
+  simctl baseline [config.yaml]
   simctl evaluate <checkpoint>
   simctl help
 USAGE
@@ -938,17 +938,64 @@ PY
 
 
 cmd_baseline() {
-    if [ $# -ne 0 ]; then
-        echo "Usage: simctl baseline"
-        exit 1
+    if [ $# -gt 1 ]; then
+        echo "Usage: simctl baseline [config.yaml]"
+        return 1
     fi
 
     ensure_container_running
 
+    local CONFIG="${1:-}"
+    local STAMP
+    local BASELINE_ID
+    local OUTPUT_DIR
+    local HOST_OUTPUT
+    local RUN_DIR=""
+    local RESOLVED_CONFIG=""
+    local CONTAINER_RESOLVED_CONFIG=""
+    local T0_LOG
+    local VIDEO_FILE
+    local METADATA_FILE
+
     STAMP="$(date -u +%Y%m%d_%H%M%S)"
-    BASELINE_ID="t0_unitree_velocity_prior_${STAMP}"
+
+    if [ -n "$CONFIG" ]; then
+        if [ ! -f "$CONFIG" ]; then
+            echo "Config not found: $CONFIG" >&2
+            return 1
+        fi
+
+        BASELINE_ID="$(basename "$CONFIG" .yaml)_t0_${STAMP}"
+        RUN_DIR="${RUN_ROOT}/${BASELINE_ID}"
+
+        python3 \
+          simulation/isaac_lab/g1_stairs/scripts/training/prepare_experiment.py \
+          "$CONFIG" \
+          --output-root "$RUN_ROOT" \
+          --run-id "$BASELINE_ID"
+
+        RESOLVED_CONFIG="${RUN_DIR}/resolved_config.yaml"
+        if [ ! -f "$RESOLVED_CONFIG" ]; then
+            echo "Resolved config was not created:" >&2
+            echo "  $RESOLVED_CONFIG" >&2
+            return 1
+        fi
+
+        CONTAINER_RESOLVED_CONFIG="${RESOLVED_CONFIG/$REPO/\/workspace\/IEA_G1}"
+    else
+        BASELINE_ID="t0_unitree_velocity_prior_${STAMP}"
+    fi
 
     OUTPUT_DIR="/workspace/IEA_G1/experiments/g1_stairs/outputs/baselines/${BASELINE_ID}/side"
+    HOST_OUTPUT="${OUTPUT_DIR/\/workspace\/IEA_G1/$REPO}"
+
+    mkdir -p "$HOST_OUTPUT"
+
+    if [ -n "$RUN_DIR" ]; then
+        T0_LOG="${RUN_DIR}/t0_console.log"
+    else
+        T0_LOG="${HOST_OUTPUT}/t0_console.log"
+    fi
 
     PROJECT_COMMIT="$(git rev-parse HEAD)"
     ISAACLAB_COMMIT="3c6e67bb5c7ada942a6d1884ab69338f57596f77"
@@ -965,42 +1012,114 @@ cmd_baseline() {
     echo "PPO updates: 0"
     echo "Exploration: deterministic inference"
     echo "View:        side"
+    if [ -n "$CONFIG" ]; then
+        echo "Config:      $CONFIG"
+        echo "Resolved:    $RESOLVED_CONFIG"
+    fi
+    echo "Log:         $T0_LOG"
     echo
 
-    docker exec \
-      --env UNITREE_RL_LAB_ROOT=/workspace/unitree_rl_lab \
-      "$CONTAINER" \
-      bash -lc "
-cd /workspace/IEA_G1
+    local -a RECORD_CMD=(
+        docker exec
+        --env UNITREE_RL_LAB_ROOT=/workspace/unitree_rl_lab
+        --workdir /workspace/IEA_G1
+        "$CONTAINER"
+        /workspace/isaaclab/isaaclab.sh -p
+        simulation/isaac_lab/g1_stairs/scripts/visualization/record_view.py
+        --task Unitree-IEA-G1-29dof-Stairs-v0
+        --view side
+        --output_dir "$OUTPUT_DIR"
+        --video_length 600
+        --seed 42
+        --num_envs 1
+        --policy_onnx "$POLICY_ONNX"
+        --project_commit "$PROJECT_COMMIT"
+        --isaaclab_commit "$ISAACLAB_COMMIT"
+        --unitree_rl_commit "$UNITREE_RL_COMMIT"
+        --unitree_diff_sha256 "$UNITREE_DIFF_SHA256"
+        --headless
+        --device cuda:0
+    )
 
-/workspace/isaaclab/isaaclab.sh -p \
-  simulation/isaac_lab/g1_stairs/scripts/visualization/record_view.py \
-  --task Unitree-IEA-G1-29dof-Stairs-v0 \
-  --view side \
-  --output_dir '${OUTPUT_DIR}' \
-  --video_length 600 \
-  --seed 42 \
-  --num_envs 1 \
-  --policy_onnx '${POLICY_ONNX}' \
-  --project_commit '${PROJECT_COMMIT}' \
-  --isaaclab_commit '${ISAACLAB_COMMIT}' \
-  --unitree_rl_commit '${UNITREE_RL_COMMIT}' \
-  --unitree_diff_sha256 '${UNITREE_DIFF_SHA256}' \
-  --headless \
-  --device cuda:0
-"
+    if [ -n "$CONTAINER_RESOLVED_CONFIG" ]; then
+        RECORD_CMD+=(
+            --resolved_config "$CONTAINER_RESOLVED_CONFIG"
+        )
+    fi
 
-    HOST_OUTPUT="${OUTPUT_DIR/\/workspace\/IEA_G1/$REPO}"
+    "${RECORD_CMD[@]}" 2>&1 | tee "$T0_LOG"
+
+    VIDEO_FILE="$(
+        find "$HOST_OUTPUT" -type f -name '*.mp4' -print -quit 2>/dev/null || true
+    )"
+
+    if [ -z "$VIDEO_FILE" ]; then
+        echo "ERROR: baseline completed without producing an MP4:" >&2
+        echo "  $HOST_OUTPUT" >&2
+        return 1
+    fi
+
+    METADATA_FILE="${HOST_OUTPUT}/metadata.json"
+    if [ ! -f "$METADATA_FILE" ]; then
+        echo "ERROR: baseline metadata is missing:" >&2
+        echo "  $METADATA_FILE" >&2
+        return 1
+    fi
+
+    python3 - "$METADATA_FILE" "$RESOLVED_CONFIG" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+metadata_path = Path(sys.argv[1])
+resolved_value = sys.argv[2]
+metadata = json.loads(metadata_path.read_text(encoding="utf-8"))
+
+if metadata.get("completed") is not True:
+    raise SystemExit(f"baseline metadata is not complete: {metadata_path}")
+if int(metadata.get("completed_steps", 0)) <= 0:
+    raise SystemExit(f"baseline metadata has no completed steps: {metadata_path}")
+
+initialization = metadata.get("policy_initialization") or {}
+if initialization.get("new_columns_max_abs") != 0.0:
+    raise SystemExit(
+        "baseline policy transfer did not zero new observation columns: "
+        f"{initialization.get('new_columns_max_abs')}"
+    )
+
+if resolved_value:
+    import yaml
+
+    resolved_path = Path(resolved_value)
+    resolved = yaml.safe_load(resolved_path.read_text(encoding="utf-8"))
+    expected = resolved.get("policy_initialization", {})
+
+    for key in (
+        "locomotion_observations",
+        "actor_height_scan_observations",
+        "explicit_geometry_observations",
+        "stair_observations",
+        "actions",
+    ):
+        if key not in expected:
+            continue
+        if initialization.get(key) != expected[key]:
+            raise SystemExit(
+                f"baseline policy contract mismatch for {key}: "
+                f"expected {expected[key]!r}, "
+                f"got {initialization.get(key)!r}"
+            )
+PY
 
     echo
     echo "Baseline output:"
     echo "  $HOST_OUTPUT"
-    echo
     echo "Video:"
-    find "$HOST_OUTPUT" -type f -name '*.mp4' -print || true
-    echo
+    echo "  $VIDEO_FILE"
     echo "Metadata:"
-    find "$HOST_OUTPUT" -type f -name 'metadata.json' -print || true
+    echo "  $METADATA_FILE"
+    echo "Log:"
+    echo "  $T0_LOG"
 }
 
 cmd_evaluate() {

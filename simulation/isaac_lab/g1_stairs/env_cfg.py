@@ -366,6 +366,17 @@ class StairRewardsCfg:
         },
     )
 
+    # General locomotion terms used by the geometry-conditioned policy.
+    # These are copied directly from Unitree's pinned velocity environment so
+    # their functions/parameters remain identical to the pretrained policy's
+    # native objective. Strict experiment configs select their final weights.
+    track_lin_vel_xy = copy.deepcopy(
+        _UPSTREAM_CFG.rewards.track_lin_vel_xy
+    )
+    track_ang_vel_z = copy.deepcopy(
+        _UPSTREAM_CFG.rewards.track_ang_vel_z
+    )
+
     # Specialist foundation regularizers. The resolved YAML strict runtime set
     # selects exactly which of these are manager-visible. Keep the balance
     # terms terrain-compatible: no absolute base-height or vertical-velocity

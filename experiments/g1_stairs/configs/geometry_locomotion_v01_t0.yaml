@@ -17,6 +17,10 @@ code:
   project_branch: g1-geometry-locomotion
   require_clean_worktree: true
 
+robot:
+  asset: G1_GEOMETRY_LOCOMOTION_ROBOT_CFG
+  asset_revision: official_29dof_usd_with_deployment_pd_contract
+
 terrain:
   riser_height_m: 0.12
   riser_height_range_m:
@@ -32,6 +36,12 @@ observations:
   history_length: 5
   actor_height_scan: false
   critic_height_scan: true
+  terrain_scan_in_actor: false
+  terrain_scan_in_critic: true
+  additions:
+    local_terrain_height_scan:
+      actor_input: false
+      critic_input: true
   policy_order:
     - base_angular_velocity
     - projected_gravity
@@ -49,6 +59,7 @@ policy_initialization:
     path: /workspace/unitree_rl_lab/deploy/robots/g1_29dof/config/policy/velocity/v0/exported/policy.onnx
 
   locomotion_observations: 480
+  terrain_observations: 0
   actor_height_scan_observations: 0
   explicit_geometry_observations: 5
   stair_observations: 485

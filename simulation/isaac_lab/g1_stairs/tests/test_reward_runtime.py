@@ -1,5 +1,6 @@
 """Tests for configuration-driven reward-stage selection."""
 
+import ast
 import unittest
 from pathlib import Path
 
@@ -14,6 +15,108 @@ from simulation.isaac_lab.g1_stairs.scripts.training.prepare_experiment import r
 
 
 class RewardRuntimeTests(unittest.TestCase):
+    def test_geometry_locomotion_v01_resolves_exact_contract(self):
+        root = Path(__file__).resolve().parents[4]
+        resolved, _ = resolve_config(
+            root / (
+                "experiments/g1_stairs/configs/"
+                "geometry_locomotion_v01_t0.yaml"
+            )
+        )
+        materialize_legacy_reward_config(resolved)
+
+        self.assertEqual(
+            resolved["robot"]["asset"],
+            "G1_GEOMETRY_LOCOMOTION_ROBOT_CFG",
+        )
+        self.assertEqual(
+            resolved["command"]["forward_velocity_mps"],
+            0.35,
+        )
+        self.assertEqual(
+            resolved["terrain"]["riser_height_range_m"],
+            [0.12, 0.12],
+        )
+
+        observations = resolved["observations"]
+        self.assertIs(observations["actor_height_scan"], False)
+        self.assertIs(observations["critic_height_scan"], True)
+        self.assertIs(observations["terrain_scan_in_actor"], False)
+        self.assertIs(observations["terrain_scan_in_critic"], True)
+        self.assertIs(
+            observations["additions"]["local_terrain_height_scan"][
+                "actor_input"
+            ],
+            False,
+        )
+
+        initialization = resolved["policy_initialization"]
+        self.assertEqual(initialization["locomotion_observations"], 480)
+        self.assertEqual(initialization["terrain_observations"], 0)
+        self.assertEqual(initialization["actor_height_scan_observations"], 0)
+        self.assertEqual(initialization["explicit_geometry_observations"], 5)
+        self.assertEqual(initialization["stair_observations"], 485)
+        self.assertEqual(initialization["actions"], 29)
+
+        self.assertIs(
+            resolved["reward_experiment"]["strict_runtime_set"],
+            True,
+        )
+        self.assertEqual(
+            active_reward_weights(resolved),
+            {
+                "track_lin_vel_xy": 1.0,
+                "track_ang_vel_z": 0.5,
+                "alive": 0.15,
+                "upright": -5.0,
+                "base_angular_velocity": -0.05,
+                "joint_acc": -2.5e-7,
+                "action_rate": -0.05,
+                "dof_pos_limits": -5.0,
+                "feet_slide": -0.2,
+                "undesired_contacts": -5.0,
+            },
+        )
+
+        specialist = resolved.get("specialist_stair")
+        self.assertFalse(
+            isinstance(specialist, dict)
+            and specialist.get("enabled", False)
+        )
+
+    def test_geometry_locomotion_rewards_exist_in_runtime_catalog(self):
+        root = Path(__file__).resolve().parents[4]
+        resolved, _ = resolve_config(
+            root / (
+                "experiments/g1_stairs/configs/"
+                "geometry_locomotion_v01_t0.yaml"
+            )
+        )
+        materialize_legacy_reward_config(resolved)
+        active = set(active_reward_weights(resolved))
+
+        source = (
+            root / "simulation/isaac_lab/g1_stairs/env_cfg.py"
+        ).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        catalog = set()
+        for node in tree.body:
+            if not (
+                isinstance(node, ast.ClassDef)
+                and node.name == "StairRewardsCfg"
+            ):
+                continue
+            for statement in node.body:
+                if isinstance(statement, ast.Assign):
+                    for target in statement.targets:
+                        if isinstance(target, ast.Name):
+                            catalog.add(target.id)
+                elif isinstance(statement, ast.AnnAssign):
+                    if isinstance(statement.target, ast.Name):
+                        catalog.add(statement.target.id)
+
+        self.assertEqual(active - catalog, set())
+
     def test_specialist_smoke_resolves_exact_foundation_rewards(self):
         root = Path(__file__).resolve().parents[4]
         resolved, _ = resolve_config(
