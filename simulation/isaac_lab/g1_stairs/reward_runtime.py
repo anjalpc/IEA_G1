@@ -83,9 +83,29 @@ def active_reward_weights(resolved: dict[str, Any]) -> dict[str, float]:
             f"unknown active reward stage: {active_stage!r}"
         )
 
+    # Historical experiments accumulate reward stages in declaration order.
+    # A strict experiment instead declares one exact manager-visible reward
+    # set and must not inherit weights from earlier historical stages.
+    reward_experiment = resolved.get("reward_experiment", {})
+    strict_runtime_set = (
+        isinstance(reward_experiment, dict)
+        and bool(
+            reward_experiment.get(
+                "strict_runtime_set",
+                False,
+            )
+        )
+    )
+
+    stages_to_apply = (
+        [active_stage]
+        if strict_runtime_set
+        else stage_names
+    )
+
     weights: dict[str, float] = {}
 
-    for stage_name in stage_names:
+    for stage_name in stages_to_apply:
         stage = stage_plan[stage_name]
 
         if not isinstance(stage, dict):
