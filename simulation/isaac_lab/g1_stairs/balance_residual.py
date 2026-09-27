@@ -193,15 +193,35 @@ def compose_balance_residual_action(
 
 
 def _policy_observation(observations: Any) -> torch.Tensor:
+    """Resolve the actor observation from RSL-RL's observation container.
+
+    RSL-RL 2.3 uses ``TensorDict`` for grouped observations.  TensorDict is
+    intentionally handled by its mapping-like ``get`` API rather than by an
+    ``isinstance(..., dict)`` check.  The tuple/list fallback keeps this
+    wrapper compatible with older adapter layers that may return
+    ``(observations, extras)``.
+    """
+
     if isinstance(observations, torch.Tensor):
         return observations
-    if isinstance(observations, dict):
+
+    getter = getattr(observations, "get", None)
+    if callable(getter):
         for key in ("policy", "obs"):
-            value = observations.get(key)
+            value = getter(key, None)
             if isinstance(value, torch.Tensor):
                 return value
+
+    if isinstance(observations, (tuple, list)):
+        for value in observations:
+            try:
+                return _policy_observation(value)
+            except RuntimeError:
+                continue
+
     raise RuntimeError(
-        "frozen balance residual controller could not resolve policy observation tensor"
+        "frozen balance residual controller could not resolve policy observation tensor; "
+        f"container_type={type(observations).__module__}.{type(observations).__qualname__}"
     )
 
 

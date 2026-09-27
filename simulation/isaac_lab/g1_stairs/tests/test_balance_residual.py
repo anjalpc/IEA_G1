@@ -7,6 +7,7 @@ from pathlib import Path
 import torch
 
 from simulation.isaac_lab.g1_stairs.balance_residual import (
+    _policy_observation,
     compose_balance_residual_action,
     load_frozen_rsl_actor,
     residual_scale_vector,
@@ -14,7 +15,27 @@ from simulation.isaac_lab.g1_stairs.balance_residual import (
 from simulation.isaac_lab.g1_stairs.contracts import BODY_JOINTS
 
 
+class _TensorDictLike:
+    """Minimal non-dict stand-in for RSL-RL 2.3 TensorDict."""
+
+    def __init__(self, values):
+        self._values = dict(values)
+
+    def get(self, key, default=None):
+        return self._values.get(key, default)
+
+
 class BalanceResidualTests(unittest.TestCase):
+    def test_policy_observation_accepts_tensordict_like_container(self):
+        expected = torch.randn((4, 98))
+        observations = _TensorDictLike({"policy": expected})
+        self.assertIs(_policy_observation(observations), expected)
+
+    def test_policy_observation_accepts_legacy_tuple_container(self):
+        expected = torch.randn((2, 98))
+        observations = (_TensorDictLike({"policy": expected}), {"extras": 1})
+        self.assertIs(_policy_observation(observations), expected)
+
     def test_scale_map_requires_exact_joint_contract(self):
         mapping = {name: 0.1 for name in BODY_JOINTS}
         scale = residual_scale_vector(mapping, device="cpu")
