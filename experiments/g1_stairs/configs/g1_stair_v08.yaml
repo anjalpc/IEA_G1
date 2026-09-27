@@ -1,0 +1,60 @@
+schema_version: 1
+
+experiment:
+  id: g1_stair_v08
+  purpose: >
+    Continue from the same v06 model_999 actor used for v07 while correcting
+    two independently demonstrated failures: lateral migration of the loaded
+    right support foot during left-leg swing, and the v07 phase-3 to phase-4
+    touchdown reward cliff. Preserve robot, reset geometry, observations,
+    action contract, PPO architecture, legacy v05-v07 configs, and all other
+    reward weights.
+  type: specialist_stair_support_lock_continuous_touchdown
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_stair_v07.yaml
+  resolved_config_required: true
+
+reward_experiment:
+  active_stage: support_locked_waypoint
+  strict_runtime_set: true
+  rule: >
+    Add one dedicated single-support anchor/slip penalty. Body-advance support
+    anchoring becomes XY instead of X-only. Preserve reversible phase-4
+    semantics but carry the earned phase-3 potential continuously into valid
+    touchdown so entering phase 4 is no longer an immediate negative reward.
+  rewards:
+    stage_plan:
+      support_locked_waypoint:
+        support_foot_anchor_guard: -1.0
+
+reward_parameters:
+  swing_waypoint_progress:
+    reversible_touchdown_credit: true
+    continuous_touchdown_credit: true
+    touchdown_commitment_full_score: 0.75
+    touchdown_commitment_zero_score: 0.25
+  swing_body_advance_progress:
+    require_live_touchdown_commitment: true
+    touchdown_containment_minimum: 0.75
+    upper_support_minimum: 0.60
+    support_anchor_xy: true
+  support_foot_anchor_guard:
+    swing_left: true
+    support_force_bodyweight_fraction: 0.25
+    swing_unload_bodyweight_fraction: 0.30
+    anchor_free_m: 0.015
+    anchor_zero_m: 0.060
+    speed_free_mps: 0.020
+    speed_zero_mps: 0.20
+    active_phase_min: 1
+    active_phase_max: 4
+
+execution:
+  environments: 2048
+  maximum_iterations: 300
+  training_seed: 42
+
+launch_gates:
+  allow_launch: true

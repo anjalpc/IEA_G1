@@ -292,6 +292,88 @@ def support_relative_forward_progress(
     ).clamp(0.0, 1.0)
 
 
+
+def support_anchor_slip_penalty(
+    *,
+    anchor_error_m: torch.Tensor,
+    planar_speed_mps: torch.Tensor,
+    active_gate: torch.Tensor,
+    anchor_free_m: float,
+    anchor_zero_m: float,
+    speed_free_mps: float,
+    speed_zero_mps: float,
+) -> torch.Tensor:
+    """Return a bounded penalty severity for a loaded support foot that drifts or slips.
+
+    The anchor term measures accumulated XY displacement from the support-foot
+    location captured at reset.  The speed term measures current planar slip.
+    The larger violation wins, so either a slow accumulated shuffle or a fast
+    transient slip is visible to the policy.  The caller supplies the physical
+    single-support gate so ordinary two-foot stance is not penalized.
+    """
+
+    if anchor_error_m.shape != planar_speed_mps.shape:
+        raise ValueError("anchor_error_m and planar_speed_mps must match")
+    if active_gate.shape != anchor_error_m.shape:
+        raise ValueError("active_gate must match anchor_error_m")
+    if anchor_free_m < 0.0 or anchor_zero_m <= anchor_free_m:
+        raise ValueError("anchor_zero_m must exceed anchor_free_m >= 0")
+    if speed_free_mps < 0.0 or speed_zero_mps <= speed_free_mps:
+        raise ValueError("speed_zero_mps must exceed speed_free_mps >= 0")
+
+    anchor_bad = 1.0 - deadzone_score(
+        anchor_error_m,
+        free_tolerance=anchor_free_m,
+        zero_at=anchor_zero_m,
+    )
+    speed_bad = 1.0 - deadzone_score(
+        planar_speed_mps,
+        free_tolerance=speed_free_mps,
+        zero_at=speed_zero_mps,
+    )
+    severity = torch.maximum(anchor_bad, speed_bad)
+    return torch.where(
+        active_gate.to(dtype=torch.bool),
+        severity,
+        torch.zeros_like(severity),
+    )
+
+
+def continuous_touchdown_potential(
+    *,
+    entry_potential: torch.Tensor,
+    commitment_score: torch.Tensor,
+    upper_support_score: torch.Tensor,
+    commitment_full_at: float = 0.75,
+    commitment_zero_at: float = 0.25,
+) -> torch.Tensor:
+    """Continue phase-3 potential through touchdown without a reward cliff.
+
+    A valid phase-3 -> phase-4 transition records the potential that was already
+    earned.  While current placement remains committed, upper support can only
+    increase that potential toward 1.0.  If placement retracts or the support
+    geometry breaks, the commitment factor falls and the potential is removed
+    reversibly instead of remaining banked by phase memory.
+    """
+
+    if entry_potential.shape != commitment_score.shape:
+        raise ValueError("entry_potential and commitment_score must match")
+    if upper_support_score.shape != entry_potential.shape:
+        raise ValueError("upper_support_score must match entry_potential")
+    if not 0.0 <= commitment_zero_at < commitment_full_at <= 1.0:
+        raise ValueError(
+            "commitment thresholds must satisfy 0 <= zero < full <= 1"
+        )
+
+    commitment = (
+        (commitment_score - float(commitment_zero_at))
+        / float(commitment_full_at - commitment_zero_at)
+    ).clamp(0.0, 1.0)
+    entry = entry_potential.clamp(0.0, 1.0)
+    support = upper_support_score.clamp(0.0, 1.0)
+    supported_progress = entry + (1.0 - entry) * support
+    return commitment * supported_progress
+
 def swing_phase_potential(
     *,
     phase: torch.Tensor,

@@ -33,8 +33,10 @@ from .contracts import (
 from .reward_math import (
     body_advance_gate,
     bottleneck_score,
+    continuous_touchdown_potential,
     coupled_swing_score,
     deadzone_score,
+    support_anchor_slip_penalty,
     support_quality,
     supported_single_foot_lift_score,
     swing_arc_waypoints,
@@ -191,6 +193,10 @@ class _SingleStepRewardBase(ManagerTermBase):
             foot_lin_vel_w,
             dim=2,
         )
+        foot_planar_speed = torch.linalg.vector_norm(
+            foot_lin_vel_w[..., :2],
+            dim=2,
+        )
 
         forces = sensor.data.net_forces_w[:, sensor_ids]
         vertical_force = forces[..., 2].clamp_min(0.0)
@@ -282,6 +288,7 @@ class _SingleStepRewardBase(ManagerTermBase):
             "foot_pitch": foot_pitch,
             "foot_yaw": foot_yaw,
             "foot_speed": foot_speed,
+            "foot_planar_speed": foot_planar_speed,
             "foot_vertical_velocity": foot_lin_vel_w[..., 2],
             "vertical_force": vertical_force,
             "bodyweight_n": self._bodyweight_n,
@@ -491,6 +498,9 @@ class swing_waypoint_progress(_PotentialDifferenceTerm):
         self._start_x = torch.zeros(env.num_envs, dtype=torch.float32, device=env.device)
         self._support_start_x = torch.zeros(env.num_envs, dtype=torch.float32, device=env.device)
         self._support_start_y = torch.zeros(env.num_envs, dtype=torch.float32, device=env.device)
+        self._touchdown_entry_potential = torch.zeros(
+            env.num_envs, dtype=torch.float32, device=env.device
+        )
         self._initialized = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
 
     def reset(self, env_ids=None) -> None:
@@ -503,6 +513,7 @@ class swing_waypoint_progress(_PotentialDifferenceTerm):
         self._start_x[env_ids] = 0.0
         self._support_start_x[env_ids] = 0.0
         self._support_start_y[env_ids] = 0.0
+        self._touchdown_entry_potential[env_ids] = 0.0
         self._initialized[env_ids] = False
 
     def __call__(
@@ -547,6 +558,9 @@ class swing_waypoint_progress(_PotentialDifferenceTerm):
         touchdown_dwell_s: float = 0.08,
         maximum_touchdown_vertical_speed_mps: float = 0.25,
         reversible_touchdown_credit: bool = False,
+        continuous_touchdown_credit: bool = False,
+        touchdown_commitment_full_score: float = 0.75,
+        touchdown_commitment_zero_score: float = 0.25,
         tread_margin_m: float = 0.015,
         foot_height_tolerance_m: float = 0.025,
         upper_support_force_bodyweight_fraction: float = 0.15,
@@ -561,6 +575,10 @@ class swing_waypoint_progress(_PotentialDifferenceTerm):
             raise ValueError("waypoint x fractions must satisfy 0 < early < clearance < 1")
         if transition_dwell_s <= 0.0 or touchdown_dwell_s <= 0.0:
             raise ValueError("phase dwell times must be positive")
+        if not 0.0 <= touchdown_commitment_zero_score < touchdown_commitment_full_score <= 1.0:
+            raise ValueError(
+                "touchdown commitment thresholds must satisfy 0 <= zero < full <= 1"
+            )
         if phase0_swing_height_free_m < 0.0:
             raise ValueError("phase0_swing_height_free_m cannot be negative")
         if phase0_swing_height_zero_m <= phase0_swing_height_free_m:
@@ -800,6 +818,27 @@ class swing_waypoint_progress(_PotentialDifferenceTerm):
             phase_count=self._PHASE_COUNT,
             reversible_touchdown_credit=bool(reversible_touchdown_credit),
         )
+        if bool(continuous_touchdown_credit):
+            touchdown_phase = self._phase == (self._PHASE_COUNT - 1)
+            current_commitment_score = bottleneck_score(
+                x_score,
+                lateral_score,
+                foot_orientation_score,
+                support_anchor_score,
+                body_orientation_score,
+            )
+            touchdown_potential = continuous_touchdown_potential(
+                entry_potential=self._touchdown_entry_potential,
+                commitment_score=current_commitment_score,
+                upper_support_score=m["physical_support"][:, swing],
+                commitment_full_at=float(touchdown_commitment_full_score),
+                commitment_zero_at=float(touchdown_commitment_zero_score),
+            )
+            potential = torch.where(
+                touchdown_phase,
+                touchdown_potential,
+                potential,
+            )
 
         self._dwell = torch.where(transition, self._dwell + 1, torch.zeros_like(self._dwell))
         normal_steps = max(1, int(round(float(transition_dwell_s) / float(env.step_dt))))
@@ -810,6 +849,11 @@ class swing_waypoint_progress(_PotentialDifferenceTerm):
             torch.full_like(self._dwell, normal_steps),
         )
         advance_phase = (self._dwell >= required_steps) & ~complete
+        entering_touchdown = advance_phase & (active_phase == (self._PHASE_COUNT - 2))
+        if bool(continuous_touchdown_credit):
+            self._touchdown_entry_potential[entering_touchdown] = potential[
+                entering_touchdown
+            ].detach()
         self._phase[advance_phase] += 1
         self._dwell[advance_phase] = 0
 
@@ -855,6 +899,9 @@ class swing_body_advance_progress(_PotentialDifferenceTerm):
         self._support_anchor_x = torch.zeros(
             env.num_envs, dtype=torch.float32, device=env.device
         )
+        self._support_anchor_y = torch.zeros(
+            env.num_envs, dtype=torch.float32, device=env.device
+        )
         self._activation_root_x = torch.zeros(
             env.num_envs, dtype=torch.float32, device=env.device
         )
@@ -871,6 +918,7 @@ class swing_body_advance_progress(_PotentialDifferenceTerm):
             env_ids = slice(None)
         self._swing_start_x[env_ids] = 0.0
         self._support_anchor_x[env_ids] = 0.0
+        self._support_anchor_y[env_ids] = 0.0
         self._activation_root_x[env_ids] = 0.0
         self._geometry_initialized[env_ids] = False
         self._advance_initialized[env_ids] = False
@@ -886,6 +934,7 @@ class swing_body_advance_progress(_PotentialDifferenceTerm):
         clearance_x_tolerance_m: float = 0.040,
         minimum_clearance_above_riser_m: float = 0.010,
         support_anchor_limit_m: float = 0.050,
+        support_anchor_xy: bool = False,
         support_force_bodyweight_fraction: float = 0.25,
         swing_unload_bodyweight_fraction: float = 0.25,
         require_live_touchdown_commitment: bool = False,
@@ -936,6 +985,9 @@ class swing_body_advance_progress(_PotentialDifferenceTerm):
         self._support_anchor_x[new_geometry] = (
             m["sole_center_x"][new_geometry, support].detach()
         )
+        self._support_anchor_y[new_geometry] = (
+            m["sole_center_y"][new_geometry, support].detach()
+        )
         self._geometry_initialized[new_geometry] = True
 
         phase = getattr(env, "_g1_stair_motion_phase", None)
@@ -947,9 +999,20 @@ class swing_body_advance_progress(_PotentialDifferenceTerm):
         bodyweight = m["bodyweight_n"].clamp_min(1.0)
         support_force_fraction = m["vertical_force"][:, support] / bodyweight
         swing_force_fraction = m["vertical_force"][:, swing] / bodyweight
-        support_anchor_error = (
+        support_anchor_error_x = (
             m["sole_center_x"][:, support] - self._support_anchor_x
         ).abs()
+        support_anchor_error_xy = torch.sqrt(
+            (m["sole_center_x"][:, support] - self._support_anchor_x) ** 2
+            + (m["sole_center_y"][:, support] - self._support_anchor_y) ** 2
+        )
+        support_anchor_error = torch.where(
+            torch.full_like(
+                support_anchor_error_x, bool(support_anchor_xy), dtype=torch.bool
+            ),
+            support_anchor_error_xy,
+            support_anchor_error_x,
+        )
 
         landing_x = float(m["riser_x"]) + 0.5 * float(m["tread_depth"])
         path = (landing_x - self._swing_start_x).clamp_min(0.05)
@@ -1032,12 +1095,127 @@ class swing_body_advance_progress(_PotentialDifferenceTerm):
         ).detach().clone()
         env._g1_stair_body_advance_progress = progress.detach().clone()
         env._g1_stair_body_advance_gate = physical_gate.detach().clone()
+        env._g1_stair_body_support_anchor_error_xy = (
+            support_anchor_error_xy.detach().clone()
+        )
 
         return self._potential_rate(
             potential,
             dt=float(env.step_dt),
             valid_mask=m["task_safe"],
         )
+
+
+class support_foot_anchor_guard(_SingleStepRewardBase):
+    """Penalize XY drift and planar slip of the loaded lower support foot.
+
+    This term is deliberately independent of the broad swing-waypoint guard.
+    The latter uses a maximum over many failure modes and can saturate, making
+    additional support-foot sliding effectively free.  This guard remains
+    dedicated to the support contact during the airborne/touchdown phases.
+    """
+
+    def __init__(self, cfg, env: "ManagerBasedRLEnv"):
+        super().__init__(cfg, env)
+        self._support_start_x = torch.zeros(
+            env.num_envs, dtype=torch.float32, device=env.device
+        )
+        self._support_start_y = torch.zeros(
+            env.num_envs, dtype=torch.float32, device=env.device
+        )
+        self._initialized = torch.zeros(
+            env.num_envs, dtype=torch.bool, device=env.device
+        )
+
+    def reset(self, env_ids=None) -> None:
+        if env_ids is None:
+            env_ids = slice(None)
+        self._support_start_x[env_ids] = 0.0
+        self._support_start_y[env_ids] = 0.0
+        self._initialized[env_ids] = False
+
+    def __call__(
+        self,
+        env: "ManagerBasedRLEnv",
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+        contact_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces"),
+        swing_left: bool = True,
+        support_force_bodyweight_fraction: float = 0.25,
+        swing_unload_bodyweight_fraction: float = 0.30,
+        anchor_free_m: float = 0.015,
+        anchor_zero_m: float = 0.060,
+        speed_free_mps: float = 0.020,
+        speed_zero_mps: float = 0.20,
+        active_phase_min: int = 1,
+        active_phase_max: int = 4,
+        tread_margin_m: float = 0.015,
+        foot_height_tolerance_m: float = 0.025,
+        upper_support_force_bodyweight_fraction: float = 0.15,
+        maximum_supported_foot_speed_mps: float = 0.15,
+        minimum_upright_gravity_z: float = 0.80,
+    ) -> torch.Tensor:
+        if not 0.0 < support_force_bodyweight_fraction <= 1.0:
+            raise ValueError("support_force_bodyweight_fraction must be in (0, 1]")
+        if not 0.0 <= swing_unload_bodyweight_fraction < 1.0:
+            raise ValueError("swing_unload_bodyweight_fraction must be in [0, 1)")
+        if active_phase_min < 0 or active_phase_max < active_phase_min:
+            raise ValueError("invalid active phase range")
+
+        m = self._measure(
+            env,
+            asset_cfg=asset_cfg,
+            contact_sensor_cfg=contact_sensor_cfg,
+            tread_margin_m=tread_margin_m,
+            foot_height_tolerance_m=foot_height_tolerance_m,
+            support_force_bodyweight_fraction=upper_support_force_bodyweight_fraction,
+            maximum_supported_foot_speed_mps=maximum_supported_foot_speed_mps,
+            minimum_upright_gravity_z=minimum_upright_gravity_z,
+        )
+        swing = 0 if bool(swing_left) else 1
+        support = 1 - swing
+
+        new = ~self._initialized
+        self._support_start_x[new] = m["sole_center_x"][new, support].detach()
+        self._support_start_y[new] = m["sole_center_y"][new, support].detach()
+        self._initialized[new] = True
+
+        phase = getattr(env, "_g1_stair_motion_phase", None)
+        if phase is None:
+            phase = torch.zeros(
+                env.num_envs, dtype=torch.long, device=env.device
+            )
+
+        bodyweight = m["bodyweight_n"].clamp_min(1.0)
+        support_force_fraction = m["vertical_force"][:, support] / bodyweight
+        swing_force_fraction = m["vertical_force"][:, swing] / bodyweight
+        active_gate = (
+            (phase >= int(active_phase_min))
+            & (phase <= int(active_phase_max))
+            & (support_force_fraction >= float(support_force_bodyweight_fraction))
+            & (swing_force_fraction <= float(swing_unload_bodyweight_fraction))
+            & m["task_safe"]
+        )
+
+        anchor_error = torch.sqrt(
+            (m["sole_center_x"][:, support] - self._support_start_x) ** 2
+            + (m["sole_center_y"][:, support] - self._support_start_y) ** 2
+        )
+        penalty = support_anchor_slip_penalty(
+            anchor_error_m=anchor_error,
+            planar_speed_mps=m["foot_planar_speed"][:, support],
+            active_gate=active_gate,
+            anchor_free_m=float(anchor_free_m),
+            anchor_zero_m=float(anchor_zero_m),
+            speed_free_mps=float(speed_free_mps),
+            speed_zero_mps=float(speed_zero_mps),
+        )
+
+        env._g1_stair_support_lock_anchor_error_xy = anchor_error.detach().clone()
+        env._g1_stair_support_lock_planar_speed = (
+            m["foot_planar_speed"][:, support].detach().clone()
+        )
+        env._g1_stair_support_lock_gate = active_gate.detach().clone()
+        return penalty
 
 
 class swing_waypoint_guard(_SingleStepRewardBase):

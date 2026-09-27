@@ -1,0 +1,21 @@
+schema_version: 1
+
+experiment:
+  id: g1_stair_v08_smoke
+  purpose: >
+    Ten-iteration runtime qualification of v08 XY support locking and
+    continuous reversible touchdown shaping from the same v06 model_999 actor.
+  type: specialist_stair_support_lock_continuous_touchdown_smoke
+  meaningful_stair_training: false
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_stair_v08.yaml
+  resolved_config_required: true
+
+execution:
+  environments: 64
+  maximum_iterations: 10
+  training_seed: 42
+
+launch_gates:
+  allow_launch: true

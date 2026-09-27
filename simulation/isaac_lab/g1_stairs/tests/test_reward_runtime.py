@@ -289,6 +289,46 @@ class RewardRuntimeTests(unittest.TestCase):
             )
         )
 
+    def test_v08_adds_xy_support_lock_and_continuous_touchdown(self):
+        root = Path(__file__).resolve().parents[4]
+        v07, _ = resolve_config(
+            root / "experiments/g1_stairs/configs/g1_stair_v07.yaml"
+        )
+        v08, _ = resolve_config(
+            root / "experiments/g1_stairs/configs/g1_stair_v08.yaml"
+        )
+        materialize_legacy_reward_config(v07)
+        materialize_legacy_reward_config(v08)
+
+        v07_weights = active_reward_weights(v07)
+        v08_weights = active_reward_weights(v08)
+        self.assertNotIn("support_foot_anchor_guard", v07_weights)
+        self.assertEqual(v08_weights["support_foot_anchor_guard"], -1.0)
+        self.assertEqual(v08_weights["swing_waypoint_progress"], 4.0)
+        self.assertEqual(v08_weights["swing_body_advance_progress"], 1.5)
+
+        waypoint = v08["reward_parameters"]["swing_waypoint_progress"]
+        body = v08["reward_parameters"]["swing_body_advance_progress"]
+        support = v08["reward_parameters"]["support_foot_anchor_guard"]
+        self.assertTrue(waypoint["reversible_touchdown_credit"])
+        self.assertTrue(waypoint["continuous_touchdown_credit"])
+        self.assertTrue(body["support_anchor_xy"])
+        self.assertTrue(body["require_live_touchdown_commitment"])
+        self.assertEqual(support["anchor_free_m"], 0.015)
+        self.assertEqual(support["anchor_zero_m"], 0.060)
+        self.assertEqual(support["speed_zero_mps"], 0.20)
+
+        self.assertEqual(
+            v08["specialist_stair"]["staging"]["distance_before_riser_m"],
+            [0.30, 0.30],
+        )
+        self.assertEqual(v08["execution"]["maximum_iterations"], 300)
+        self.assertTrue(
+            v08["policy_initialization"]["source"]["path"].endswith(
+                "g1_stair_v06_overnight1000_20260926_200718/model_999.pt"
+            )
+        )
+
     def test_reward_parameter_overrides_are_active_term_scoped(self):
         class _Term:
             def __init__(self, weight, **params):

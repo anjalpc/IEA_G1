@@ -6,8 +6,10 @@ import torch
 from simulation.isaac_lab.g1_stairs.reward_math import (
     body_advance_gate,
     bottleneck_score,
+    continuous_touchdown_potential,
     coupled_swing_score,
     deadzone_score,
+    support_anchor_slip_penalty,
     support_quality,
     support_relative_forward_progress,
     supported_single_foot_lift_score,
@@ -313,3 +315,29 @@ def test_body_advance_gate_v07_requires_current_phase4_commitment() -> None:
         require_live_touchdown_commitment=True,
     )
     assert gate.tolist() == [True, False, True, True]
+
+
+def test_support_anchor_slip_penalty_detects_xy_drift_or_planar_slip() -> None:
+    penalty = support_anchor_slip_penalty(
+        anchor_error_m=torch.tensor([0.010, 0.060, 0.010, 0.060]),
+        planar_speed_mps=torch.tensor([0.010, 0.010, 0.20, 0.20]),
+        active_gate=torch.tensor([True, True, True, False]),
+        anchor_free_m=0.015,
+        anchor_zero_m=0.060,
+        speed_free_mps=0.020,
+        speed_zero_mps=0.20,
+    )
+    assert penalty.tolist() == pytest.approx([0.0, 1.0, 1.0, 0.0])
+
+
+def test_continuous_touchdown_potential_preserves_entry_then_rewards_support() -> None:
+    potential = continuous_touchdown_potential(
+        entry_potential=torch.tensor([0.78, 0.78, 0.78]),
+        commitment_score=torch.tensor([0.75, 0.75, 0.25]),
+        upper_support_score=torch.tensor([0.0, 0.5, 0.5]),
+        commitment_full_at=0.75,
+        commitment_zero_at=0.25,
+    )
+    assert potential[0].item() == pytest.approx(0.78)
+    assert potential[1].item() == pytest.approx(0.89)
+    assert potential[2].item() == pytest.approx(0.0)
