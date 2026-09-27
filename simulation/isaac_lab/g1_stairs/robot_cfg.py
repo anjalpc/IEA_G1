@@ -100,3 +100,29 @@ G1_SPECIALIST_ROBOT_CFG.actuators["N5020-16"].damping = {
 
 G1_SPECIALIST_ROBOT_CFG.actuators["W4010-25"].stiffness = 40.0
 G1_SPECIALIST_ROBOT_CFG.actuators["W4010-25"].damping = 10.0
+
+# Geometry-conditioned locomotion profile ---------------------------------
+#
+# The official Unitree velocity-policy deployment contract uses:
+#   hips       100 / 2
+#   knees      150 / 4
+#   ankles      40 / 2
+#   waist      200 / 5
+#   upper body  40 / 10
+#
+# UNITREE_G1_29DOF_CFG currently differs from that deployed controller
+# contract in the waist roll/pitch stiffness and upper-body damping.
+#
+# The specialist profile above already pins the complete deployment map.
+# New geometry-conditioned locomotion therefore uses that qualified plant
+# rather than the historical URDF/upstream-gain configuration.
+G1_GEOMETRY_LOCOMOTION_ROBOT_CFG = copy.deepcopy(
+    G1_SPECIALIST_ROBOT_CFG
+)
+
+# On this branch the normal stair environment is the geometry-locomotion
+# environment. Historical behavior remains preserved on the archived
+# g1-stair-rl / g1-stair-specialist branches and tags.
+G1_STAIRS_ROBOT_CFG = copy.deepcopy(
+    G1_GEOMETRY_LOCOMOTION_ROBOT_CFG
+)
