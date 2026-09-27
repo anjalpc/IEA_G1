@@ -1,0 +1,34 @@
+schema_version: 1
+
+experiment:
+  id: geometry_locomotion_v01_mixed100
+  purpose: >
+    First causal geometry-conditioned locomotion run.
+    Train from the official Unitree velocity actor on
+    exact flat, 12 cm, 14 cm, and 16 cm terrain rows.
+    Hold 20 cm out.
+  type: geometry_conditioned_locomotion
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/geometry_locomotion_v01_t0.yaml
+  resolved_config_required: true
+
+terrain:
+  # Used by deterministic evaluation/video tooling.
+  riser_height_m: 0.12
+
+  # Authoritative PPO training distribution.
+  riser_heights_m:
+    - 0.0
+    - 0.12
+    - 0.14
+    - 0.16
+
+  tread_depth_m: 0.25
+  step_count: 3
+
+execution:
+  environments: 2048
+  maximum_iterations: 100
+  training_seed: 42

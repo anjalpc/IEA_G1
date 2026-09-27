@@ -43,9 +43,16 @@ def stair_geometry(
         + step_count * tread_depth
     )
 
+    # Flat rows use a zero riser and must advertise no staircase. This
+    # makes the five explicit geometry features causally different from
+    # the stair rows instead of presenting a fictitious zero-height stair.
+    has_stairs = (
+        riser_height > 1.0e-8
+    ).to(root_x.dtype)
+
     active = (
         root_x < platform_start
-    ).to(root_x.dtype)
+    ).to(root_x.dtype) * has_stairs
 
     edges = (
         first_riser

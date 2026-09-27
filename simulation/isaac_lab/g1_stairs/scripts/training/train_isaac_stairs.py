@@ -119,7 +119,65 @@ def main() -> None:
         )
 
     terrain_cfg = resolved_config.get("terrain", {})
-    if "riser_height_range_m" in terrain_cfg:
+    if "riser_heights_m" in terrain_cfg:
+        values = terrain_cfg["riser_heights_m"]
+
+        if (
+            not isinstance(values, (list, tuple))
+            or len(values) < 2
+        ):
+            raise ValueError(
+                "terrain.riser_heights_m must contain at least two heights"
+            )
+
+        riser_heights_m = tuple(float(value) for value in values)
+        if any(
+            value < 0.0 or value > 0.20
+            for value in riser_heights_m
+        ):
+            raise ValueError(
+                "terrain.riser_heights_m values must be in [0.0, 0.20]"
+            )
+
+        if any(
+            right <= left
+            for left, right in zip(
+                riser_heights_m,
+                riser_heights_m[1:],
+            )
+        ):
+            raise ValueError(
+                "terrain.riser_heights_m must be strictly increasing"
+            )
+
+        terrain_generator = (
+            env_cfg.scene.terrain.terrain_generator
+        )
+        stair_cfg = (
+            terrain_generator
+            .sub_terrains["three_step_ascent"]
+        )
+
+        terrain_generator.num_rows = len(riser_heights_m)
+        stair_cfg.riser_heights = riser_heights_m
+        stair_cfg.difficulty_bins = len(riser_heights_m)
+        terrain_generator.curriculum = True
+        env_cfg.scene.terrain.max_init_terrain_level = (
+            len(riser_heights_m) - 1
+        )
+
+        print(
+            "[INFO] Exact training riser heights m:",
+            riser_heights_m,
+            flush=True,
+        )
+        print(
+            "[INFO] Stair difficulty_bins:",
+            stair_cfg.difficulty_bins,
+            flush=True,
+        )
+
+    elif "riser_height_range_m" in terrain_cfg:
         values = terrain_cfg[
             "riser_height_range_m"
         ]
@@ -156,6 +214,7 @@ def main() -> None:
             .sub_terrains["three_step_ascent"]
         )
 
+        stair_cfg.riser_heights = None
         stair_cfg.riser_height_range = (
             riser_min_m,
             riser_max_m,
@@ -195,6 +254,7 @@ def main() -> None:
             env_cfg.scene.terrain.terrain_generator
             .sub_terrains["three_step_ascent"]
         )
+        stair_cfg.riser_heights = None
         stair_cfg.riser_height_range = (
             riser_height_m,
             riser_height_m,
@@ -488,7 +548,10 @@ def main() -> None:
     if isinstance(env.unwrapped, DirectMARLEnv):
         env = multi_agent_to_single_agent(env)
 
-    if "riser_height_range_m" in terrain_cfg:
+    if (
+        "riser_heights_m" in terrain_cfg
+        or "riser_height_range_m" in terrain_cfg
+    ):
         from simulation.isaac_lab.g1_stairs.terrain_state import (
             riser_height_per_env,
         )

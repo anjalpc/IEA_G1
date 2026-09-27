@@ -15,45 +15,80 @@ from isaaclab.utils import configclass
 from .geometry import StaircaseSpec, effective_platform_length
 
 
-def three_step_stairs(
-    difficulty: float, cfg: "ThreeStepStairsCfg"
-) -> tuple[list[trimesh.Trimesh], np.ndarray]:
-    """Build an ascending staircase; difficulty controls the riser height."""
+def _difficulty_level(
+    difficulty: float,
+    bins: int,
+) -> int:
+    """Map Isaac Lab difficulty to one exact terrain row."""
     if not 0.0 <= difficulty <= 1.0:
         raise ValueError("difficulty must be in [0, 1]")
+    if bins < 1:
+        raise ValueError("bins must be >= 1")
+
+    return min(
+        int(np.floor(float(difficulty) * bins)),
+        bins - 1,
+    )
+
+
+def _riser_height(
+    difficulty: float,
+    cfg: "ThreeStepStairsCfg",
+) -> float:
+    """Resolve the exact riser represented by this terrain row."""
+    if cfg.riser_heights is not None:
+        heights = tuple(float(value) for value in cfg.riser_heights)
+        if not heights:
+            raise ValueError("riser_heights must not be empty")
+        if any(value < 0.0 or value > 0.20 for value in heights):
+            raise ValueError("riser_heights must be in [0.0, 0.20]")
+
+        level = _difficulty_level(difficulty, len(heights))
+        return heights[level]
+
     low, high = cfg.riser_height_range
 
     if abs(high - low) <= 1.0e-12:
-        riser = low
-    else:
-        bins = int(cfg.difficulty_bins)
+        return float(low)
 
-        if bins < 2:
-            raise ValueError(
-                "difficulty_bins must be >= 2 "
-                "for variable riser heights"
+    bins = int(cfg.difficulty_bins)
+    if bins < 2:
+        raise ValueError(
+            "difficulty_bins must be >= 2 for variable riser heights"
+        )
+
+    # Isaac Lab adds a small random difficulty offset inside each
+    # curriculum row. Quantize back to the row so the terrain level
+    # and physical height match exactly.
+    level = _difficulty_level(difficulty, bins)
+    alpha = level / float(bins - 1)
+    return float(low + alpha * (high - low))
+
+
+def three_step_stairs(
+    difficulty: float, cfg: "ThreeStepStairsCfg"
+) -> tuple[list[trimesh.Trimesh], np.ndarray]:
+    """Build an exact flat or ascending terrain row."""
+    riser = _riser_height(difficulty, cfg)
+
+    # A zero-riser row is an actual flat tile, not a degenerate staircase.
+    # Keep the same robot-relative start origin as the stair rows so the
+    # locomotion and geometry contracts remain directly comparable.
+    if abs(riser) <= 1.0e-12:
+        foundation_depth = 0.10
+        mesh = trimesh.creation.box(
+            extents=(cfg.size[0], cfg.size[1], foundation_depth)
+        )
+        mesh.apply_translation(
+            (
+                0.5 * cfg.size[0],
+                0.5 * cfg.size[1],
+                -0.5 * foundation_depth,
             )
-
-        # Isaac Lab adds a small random difficulty offset inside
-        # each curriculum row. Quantize back to the row so the
-        # terrain level and physical height match exactly.
-        level = min(
-            int(
-                np.floor(
-                    float(difficulty) * bins
-                )
-            ),
-            bins - 1,
         )
-
-        alpha = (
-            level / float(bins - 1)
-        )
-
-        riser = (
-            low
-            + alpha * (high - low)
-        )
+        start_x = cfg.approach_length - cfg.start_clearance
+        origin = np.asarray((start_x, 0.5 * cfg.size[1], 0.0))
+        return [mesh], origin
     # Isaac Lab places terrain tiles according to cfg.size, so every generated
     # sub-terrain must cover the full tile length.  The nominal three-step
     # course already does this exactly:
@@ -106,6 +141,9 @@ class ThreeStepStairsCfg(SubTerrainBaseCfg):
     function = three_step_stairs
     size: tuple[float, float] = MISSING
     riser_height_range: tuple[float, float] = (0.05, 0.20)
+    # Optional exact per-row heights. When set, this takes precedence over
+    # riser_height_range and may include 0.0 to represent a true flat tile.
+    riser_heights: tuple[float, ...] | None = None
     difficulty_bins: int = 8
     tread_depth: float = 0.25
     step_count: int = 3
