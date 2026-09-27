@@ -1,0 +1,18 @@
+schema_version: 1
+
+experiment:
+  id: geometry_locomotion_v01_smoke25
+  purpose: >
+    Twenty-five-iteration optimizer smoke for the geometry-conditioned
+    locomotion policy after successful deterministic T0 qualification.
+  type: geometry_conditioned_locomotion_smoke
+  meaningful_stair_training: false
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/geometry_locomotion_v01_t0.yaml
+  resolved_config_required: true
+
+execution:
+  environments: 128
+  maximum_iterations: 25
+  training_seed: 42
