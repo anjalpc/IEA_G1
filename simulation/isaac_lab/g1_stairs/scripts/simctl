@@ -29,6 +29,7 @@ Usage:
   simctl stop
   simctl status
   simctl diagnose
+  simctl mechanics
   simctl health [--json]
   simctl info
   simctl runs
@@ -431,6 +432,81 @@ cmd_diagnose() {
     echo "========================================"
     echo "$RUN_DIR/diagnostic_summary.json"
     echo "$RUN_DIR/diagnostic_report.md"
+}
+
+
+cmd_mechanics() {
+    local RUN_ID
+    local RUN_DIR
+    local RESOLVED
+    local OUTPUT_DIR
+    local CONTAINER_RESOLVED
+    local CONTAINER_OUTPUT
+    local SCRIPT
+    local ACTIVE
+
+    RUN_ID="$(current_run)"
+    RUN_DIR="${RUN_ROOT}/${RUN_ID}"
+    RESOLVED="${RUN_DIR}/resolved_config.yaml"
+    OUTPUT_DIR="${RUN_DIR}/mechanics_qualification"
+    CONTAINER_RESOLVED="/workspace/IEA_G1/experiments/g1_stairs/runs/${RUN_ID}/resolved_config.yaml"
+    CONTAINER_OUTPUT="/workspace/IEA_G1/experiments/g1_stairs/runs/${RUN_ID}/mechanics_qualification"
+    SCRIPT="/workspace/IEA_G1/simulation/isaac_lab/g1_stairs/scripts/diagnostics/qualify_single_support.py"
+
+    if [ ! -f "$RESOLVED" ]; then
+        echo "Resolved config not found:" >&2
+        echo "  $RESOLVED" >&2
+        return 1
+    fi
+
+    ensure_container_running
+
+    ACTIVE="$(
+        docker exec "$CONTAINER" bash -lc '
+            ps -eo pid,args \
+            | awk "/run_isaac_stairs.py train/ && !/awk/ {print \$1}"
+        ' || true
+    )"
+
+    if [ -n "$ACTIVE" ]; then
+        echo "Refusing mechanics qualification while training is active:" >&2
+        echo "  PID(s): $ACTIVE" >&2
+        echo "Stop the run first with: simctl stop" >&2
+        return 1
+    fi
+
+    rm -rf "$OUTPUT_DIR"
+
+    echo "========================================"
+    echo " G1 SINGLE-SUPPORT MECHANICS"
+    echo "========================================"
+    echo "Run: $RUN_ID"
+    echo "Policy: NONE"
+    echo "Rewards: DISABLED"
+    echo
+
+    docker exec \
+      --env UNITREE_RL_LAB_ROOT=/workspace/unitree_rl_lab \
+      --env UNITREE_MODEL_ROOT=/workspace/unitree_model \
+      --workdir /workspace/IEA_G1 \
+      "$CONTAINER" \
+      /workspace/isaaclab/isaaclab.sh -p \
+      "$SCRIPT" \
+      --task Unitree-IEA-G1-29dof-Stairs-v0 \
+      --resolved-config "$CONTAINER_RESOLVED" \
+      --output-dir "$CONTAINER_OUTPUT" \
+      --seed 42 \
+      --headless \
+      --device cuda:0
+
+    if [ ! -f "$OUTPUT_DIR/mechanics_report.txt" ]; then
+        echo "Mechanics report was not generated:" >&2
+        echo "  $OUTPUT_DIR/mechanics_report.txt" >&2
+        return 1
+    fi
+
+    echo
+    cat "$OUTPUT_DIR/mechanics_report.txt"
 }
 
 
@@ -1039,6 +1115,9 @@ case "${1:-help}" in
         ;;
     diagnose)
         cmd_diagnose
+        ;;
+    mechanics)
+        cmd_mechanics
         ;;
     health)
         shift
