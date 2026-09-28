@@ -720,12 +720,37 @@ class terrain_relative_clearance(ManagerTermBase):
         contact_sensor_cfg: SceneEntityCfg = SceneEntityCfg(
             "contact_forces"
         ),
-        **params,
+        activation_distance_m: float = 0.30,
+        clearance_margin_m: float = 0.015,
+        tread_margin_m: float = 0.015,
+        insertion_target_m: float = 0.040,
+        unload_full_force_n: float = 15.0,
+        unload_zero_force_n: float = 80.0,
+        opposite_support_start_n: float = 30.0,
+        opposite_support_full_n: float = 100.0,
+        insertion_clearance_fraction: float = 0.70,
+        touchdown_force_n: float = 30.0,
+        touchdown_speed_mps: float = 0.20,
+        touchdown_height_tolerance_m: float = 0.025,
+        diagnostic_contact_threshold_n: float = 1.0,
     ) -> torch.Tensor:
         del asset_cfg, contact_sensor_cfg
-        values = dict(_COMMON_DEFAULTS)
-        values.update(params)
-        self.runtime.update(env, **values)
+        self.runtime.update(
+            env,
+            activation_distance_m=activation_distance_m,
+            clearance_margin_m=clearance_margin_m,
+            tread_margin_m=tread_margin_m,
+            insertion_target_m=insertion_target_m,
+            unload_full_force_n=unload_full_force_n,
+            unload_zero_force_n=unload_zero_force_n,
+            opposite_support_start_n=opposite_support_start_n,
+            opposite_support_full_n=opposite_support_full_n,
+            insertion_clearance_fraction=insertion_clearance_fraction,
+            touchdown_force_n=touchdown_force_n,
+            touchdown_speed_mps=touchdown_speed_mps,
+            touchdown_height_tolerance_m=touchdown_height_tolerance_m,
+            diagnostic_contact_threshold_n=diagnostic_contact_threshold_n,
+        )
         return self.runtime.clearance_reward
 
 
@@ -749,10 +774,35 @@ class forward_insertion(ManagerTermBase):
         contact_sensor_cfg: SceneEntityCfg = SceneEntityCfg(
             "contact_forces"
         ),
-        **params,
+        activation_distance_m: float = 0.30,
+        clearance_margin_m: float = 0.015,
+        tread_margin_m: float = 0.015,
+        insertion_target_m: float = 0.040,
+        unload_full_force_n: float = 15.0,
+        unload_zero_force_n: float = 80.0,
+        opposite_support_start_n: float = 30.0,
+        opposite_support_full_n: float = 100.0,
+        insertion_clearance_fraction: float = 0.70,
+        touchdown_force_n: float = 30.0,
+        touchdown_speed_mps: float = 0.20,
+        touchdown_height_tolerance_m: float = 0.025,
+        diagnostic_contact_threshold_n: float = 1.0,
     ) -> torch.Tensor:
         del asset_cfg, contact_sensor_cfg
-        values = dict(_COMMON_DEFAULTS)
-        values.update(params)
-        self.runtime.update(env, **values)
+        self.runtime.update(
+            env,
+            activation_distance_m=activation_distance_m,
+            clearance_margin_m=clearance_margin_m,
+            tread_margin_m=tread_margin_m,
+            insertion_target_m=insertion_target_m,
+            unload_full_force_n=unload_full_force_n,
+            unload_zero_force_n=unload_zero_force_n,
+            opposite_support_start_n=opposite_support_start_n,
+            opposite_support_full_n=opposite_support_full_n,
+            insertion_clearance_fraction=insertion_clearance_fraction,
+            touchdown_force_n=touchdown_force_n,
+            touchdown_speed_mps=touchdown_speed_mps,
+            touchdown_height_tolerance_m=touchdown_height_tolerance_m,
+            diagnostic_contact_threshold_n=diagnostic_contact_threshold_n,
+        )
         return self.runtime.insertion_reward
