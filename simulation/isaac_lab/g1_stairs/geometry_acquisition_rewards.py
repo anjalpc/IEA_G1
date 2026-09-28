@@ -484,10 +484,10 @@ class GeometryAcquisitionRuntime:
         # of controller frequency.
         dt = float(env.step_dt)
 
-        self.clearance_reward = (
+        self.clearance_reward.copy_(
             clearance_delta.sum(dim=1) / dt
         )
-        self.insertion_reward = (
+        self.insertion_reward.copy_(
             insertion_delta.sum(dim=1) / dt
         )
 
@@ -523,22 +523,28 @@ class GeometryAcquisitionRuntime:
                     & (old_target == stair_index)
                 )
 
-            self.target_step = torch.where(
-                touchdown,
-                self.target_step + 1,
-                self.target_step,
+            self.target_step.copy_(
+                torch.where(
+                    touchdown,
+                    self.target_step + 1,
+                    self.target_step,
+                )
             )
 
             # New stair = new non-recyclable potential.
-            self.best_clearance = torch.where(
-                touchdown,
-                torch.zeros_like(self.best_clearance),
-                self.best_clearance,
+            self.best_clearance.copy_(
+                torch.where(
+                    touchdown,
+                    torch.zeros_like(self.best_clearance),
+                    self.best_clearance,
+                )
             )
-            self.best_insertion = torch.where(
-                touchdown,
-                torch.zeros_like(self.best_insertion),
-                self.best_insertion,
+            self.best_insertion.copy_(
+                torch.where(
+                    touchdown,
+                    torch.zeros_like(self.best_insertion),
+                    self.best_insertion,
+                )
             )
 
         # Activation / progress diagnostics.
@@ -568,9 +574,11 @@ class GeometryAcquisitionRuntime:
                 dim=-1,
             )
 
-            self.contact_max_force = torch.maximum(
-                self.contact_max_force,
-                magnitudes.amax(dim=0),
+            self.contact_max_force.copy_(
+                torch.maximum(
+                    self.contact_max_force,
+                    magnitudes.amax(dim=0),
+                )
             )
 
             over = (
@@ -588,17 +596,21 @@ class GeometryAcquisitionRuntime:
                 over.to(torch.float32).sum(dim=0) * dt
             )
 
-            self.contact_current_duration = torch.where(
-                over,
-                self.contact_current_duration + dt,
-                torch.zeros_like(
-                    self.contact_current_duration
-                ),
+            self.contact_current_duration.copy_(
+                torch.where(
+                    over,
+                    self.contact_current_duration + dt,
+                    torch.zeros_like(
+                        self.contact_current_duration
+                    ),
+                )
             )
 
-            self.contact_max_duration = torch.maximum(
-                self.contact_max_duration,
-                self.contact_current_duration.amax(dim=0),
+            self.contact_max_duration.copy_(
+                torch.maximum(
+                    self.contact_max_duration,
+                    self.contact_current_duration.amax(dim=0),
+                )
             )
 
             self.contact_previous_over.copy_(over)
