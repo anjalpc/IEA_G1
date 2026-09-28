@@ -74,13 +74,35 @@ class GeometryEpisodeRuntime:
                       data.applied_torque, forces, feet, fq):
             invalid |= ~torch.isfinite(value).flatten(1).all(-1)
         limits = data.joint_pos_limits
+
+        # Diagnostic only: physical joint limits and reward remain unchanged.
+        overshoot = torch.maximum(
+            limits[:, :, 0] - data.joint_pos,
+            data.joint_pos - limits[:, :, 1],
+        ).clamp_min(0)
+        overshoot = torch.where(
+            invalid[:, None], torch.zeros_like(overshoot), overshoot,
+        ).amax(dim=1)
+        if not hasattr(self, "_joint_limit_peak_rad"):
+            self._joint_limit_peak_rad = torch.zeros(
+                len(self.heights), device=env.device,
+            )
+        levels = (
+            env.scene.terrain.terrain_levels
+            if len(self.heights) > 1
+            else torch.zeros_like(env.episode_length_buf)
+        )
+        for level in range(len(self.heights)):
+            peak = torch.where(levels == level, overshoot, 0.0).amax()
+            self._joint_limit_peak_rad[level] = torch.maximum(
+                self._joint_limit_peak_rad[level], peak,
+            )
         reason = self.tracker.update(
             position=position, roll_pitch=torch.stack((roll, pitch), -1),
             riser_height=riser_height_per_env(env), foot_position=feet,
             foot_force_z=forces[:, self.sensor_feet, 2],
             forbidden_contact=forbidden, invalid_state=invalid,
-            joint_limit=((data.joint_pos < limits[:, :, 0] - 1.e-5)
-                         | (data.joint_pos > limits[:, :, 1] + 1.e-5)).any(-1),
+            joint_limit=torch.zeros_like(invalid),
             velocity_limit=(data.joint_vel.abs() > data.soft_joint_vel_limits + 1.e-5).any(-1),
             torque_limit=(data.applied_torque.abs() > data.joint_effort_limits + 1.e-3).any(-1),
             timed_out=env.episode_length_buf >= env.max_episode_length,
@@ -184,6 +206,13 @@ class GeometryEpisodeRuntime:
             flat_traversal_success_rate=flat_successes / flat_attempts if flat_attempts else None,
         )
         result.update(getattr(self, "_joint_limit_stats", {}))
+
+        peaks = getattr(self, "_joint_limit_peak_rad", None)
+        if peaks is not None:
+            for height, peak in zip(self.heights, peaks.detach().cpu().tolist()):
+                result[
+                    f"observed_joint_limit_h{round(height * 100):02d}cm_max_overshoot_rad"
+                ] = peak
         return result
 
 
