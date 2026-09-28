@@ -74,7 +74,7 @@ class GeometryEpisodeRuntime:
                       data.applied_torque, forces, feet, fq):
             invalid |= ~torch.isfinite(value).flatten(1).all(-1)
         limits = data.joint_pos_limits
-        return self.tracker.update(
+        reason = self.tracker.update(
             position=position, roll_pitch=torch.stack((roll, pitch), -1),
             riser_height=riser_height_per_env(env), foot_position=feet,
             foot_force_z=forces[:, self.sensor_feet, 2],
@@ -85,6 +85,70 @@ class GeometryEpisodeRuntime:
             torque_limit=(data.applied_torque.abs() > data.joint_effort_limits + 1.e-3).any(-1),
             timed_out=env.episode_length_buf >= env.max_episode_length,
         )
+        self._record_joint_limit_diagnostics(env, data, limits, reason)
+        return reason
+
+    def _record_joint_limit_diagnostics(self, env, data, limits, reason):
+        # Diagnostic only: capture the pre-reset state of episodes whose
+        # primary terminal reason is JOINT_LIMIT. No policy inputs change.
+        terminal = reason == Result.JOINT_LIMIT
+        if not bool(terminal.any().item()):
+            return
+
+        if not hasattr(self, "_joint_limit_stats"):
+            self._joint_limit_stats = {}
+
+        levels = (
+            env.scene.terrain.terrain_levels
+            if len(self.heights) > 1
+            else torch.zeros_like(reason)
+        )
+
+        for level, height in enumerate(self.heights):
+            selected = terminal & (levels == level)
+            if not bool(selected.any().item()):
+                continue
+
+            positions = data.joint_pos[selected]
+            bounds = limits[selected]
+            lower_hit = positions < bounds[:, :, 0] - 1.e-5
+            upper_hit = positions > bounds[:, :, 1] + 1.e-5
+
+            lower_excess = torch.where(
+                lower_hit,
+                (bounds[:, :, 0] - positions).clamp_min(0),
+                torch.zeros_like(positions),
+            )
+            upper_excess = torch.where(
+                upper_hit,
+                (positions - bounds[:, :, 1]).clamp_min(0),
+                torch.zeros_like(positions),
+            )
+
+            lower_counts = lower_hit.sum(0).detach().cpu().tolist()
+            upper_counts = upper_hit.sum(0).detach().cpu().tolist()
+            lower_max = lower_excess.max(0).values.detach().cpu().tolist()
+            upper_max = upper_excess.max(0).values.detach().cpu().tolist()
+
+            for joint, name in enumerate(self.robot.joint_names):
+                if lower_counts[joint] == 0 and upper_counts[joint] == 0:
+                    continue
+
+                prefix = f"joint_limit_h{round(height * 100):02d}cm_{name}"
+                for side, counts, maxima in (
+                    ("lower", lower_counts, lower_max),
+                    ("upper", upper_counts, upper_max),
+                ):
+                    count_key = f"{prefix}_{side}_count"
+                    max_key = f"{prefix}_{side}_max_overshoot_rad"
+                    self._joint_limit_stats[count_key] = (
+                        self._joint_limit_stats.get(count_key, 0)
+                        + int(counts[joint])
+                    )
+                    self._joint_limit_stats[max_key] = max(
+                        self._joint_limit_stats.get(max_key, 0.0),
+                        float(maxima[joint]),
+                    )
 
     def metrics(self):
         counts = self.counts.detach().cpu().tolist()
@@ -119,6 +183,7 @@ class GeometryEpisodeRuntime:
             flat_traversal_successes=flat_successes,
             flat_traversal_success_rate=flat_successes / flat_attempts if flat_attempts else None,
         )
+        result.update(getattr(self, "_joint_limit_stats", {}))
         return result
 
 
