@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import math
 import statistics
 from pathlib import Path
@@ -1103,11 +1104,200 @@ class InstrumentedRslRlVecEnvWrapper:
         )
 
 
+def geometry_acquisition_checkpoint_score(
+    snapshot: dict,
+    previous_counters: dict[str, float],
+    *,
+    height_cm: int = 4,
+):
+    """Return a lexicographic training-candidate score for stair acquisition.
+
+    Geometry outcome counters are cumulative across the run, so the function
+    converts them to per-iteration deltas before ranking checkpoints.  This is
+    deliberately a training-time candidate score, not independent validation.
+    """
+
+    prefix = f"outcome_h{int(height_cm):02d}cm"
+    key_map = {
+        "attempts": f"{prefix}_attempts",
+        "successes": f"{prefix}_successes",
+        "approach_failures": f"{prefix}_approach_failures",
+    }
+
+    current = {
+        name: float(snapshot.get(key, 0.0) or 0.0)
+        for name, key in key_map.items()
+    }
+    previous = {
+        name: float(previous_counters.get(name, 0.0))
+        for name in key_map
+    }
+    delta = {
+        name: current[name] - previous[name]
+        for name in key_map
+    }
+
+    if any(value < 0.0 for value in delta.values()):
+        raise RuntimeError(
+            "geometry acquisition counters decreased within one run"
+        )
+
+    attempts = delta["attempts"]
+    approach_failures = delta["approach_failures"]
+    if approach_failures > attempts:
+        raise RuntimeError(
+            "geometry approach failures exceed completed attempts"
+        )
+
+    entered = attempts - approach_failures
+    entry_rate = entered / attempts if attempts > 0.0 else 0.0
+
+    evidence = {
+        "attempts_delta": attempts,
+        "successes_delta": delta["successes"],
+        "approach_failures_delta": approach_failures,
+        "entered_stairs_delta": entered,
+        "entry_rate": entry_rate,
+        "supported_touchdowns": float(
+            snapshot.get("v04_supported_touchdowns_total", 0.0) or 0.0
+        ),
+        "insertion_progress_events": float(
+            snapshot.get("v04_insertion_progress_events", 0.0) or 0.0
+        ),
+        "clearance_progress_events": float(
+            snapshot.get("v04_clearance_progress_events", 0.0) or 0.0
+        ),
+    }
+
+    # Task hierarchy: success > supported touchdown > insertion > stair entry
+    # > entry rate > clearance exploration.  PPO return is intentionally absent.
+    score = (
+        evidence["successes_delta"],
+        evidence["supported_touchdowns"],
+        evidence["insertion_progress_events"],
+        evidence["entered_stairs_delta"],
+        evidence["entry_rate"],
+        evidence["clearance_progress_events"],
+    )
+    return score, evidence, current
+
+
 class MetricsOnPolicyRunnerMixin:
     """Persist one structured metrics row after every RSL-RL iteration."""
 
-    def configure_metrics(self, output_directory: Path, run_id: str) -> None:
+    def configure_metrics(
+        self,
+        output_directory: Path,
+        run_id: str,
+        checkpointing: dict | None = None,
+    ) -> None:
         self._metrics_writer = RunMetricsWriter(output_directory, run_id)
+        self._checkpointing_cfg = dict(checkpointing or {})
+        best_cfg = self._checkpointing_cfg.get(
+            "best_training_candidate",
+            {},
+        )
+        if best_cfg is None:
+            best_cfg = {}
+        if not isinstance(best_cfg, dict):
+            raise ValueError(
+                "checkpointing.best_training_candidate must be a mapping"
+            )
+        self._best_training_candidate_cfg = dict(best_cfg)
+        self._best_training_candidate_score = None
+        self._best_training_candidate_previous = {}
+        self._best_training_candidate_last_saved_iteration = None
+        self._best_training_candidate_pointer = (
+            Path(output_directory) / "best_training_candidate.json"
+        )
+        self._best_training_candidate_history = (
+            Path(output_directory) / "best_training_candidate_history.jsonl"
+        )
+
+    def _maybe_save_best_training_candidate(self, snapshot: dict) -> None:
+        cfg = self._best_training_candidate_cfg
+        if not cfg.get("enabled", False):
+            return
+
+        mode = str(cfg.get("mode", "geometry_acquisition"))
+        if mode != "geometry_acquisition":
+            raise ValueError(
+                "unsupported best_training_candidate mode: " + mode
+            )
+
+        interval = int(
+            cfg.get(
+                "evaluate_every_iterations",
+                self._checkpointing_cfg.get("interval_iterations", 1),
+            )
+        )
+        if interval <= 0:
+            raise ValueError(
+                "best_training_candidate.evaluate_every_iterations must be > 0"
+            )
+
+        iteration = int(snapshot["iteration"])
+        score, evidence, current = geometry_acquisition_checkpoint_score(
+            snapshot,
+            self._best_training_candidate_previous,
+            height_cm=int(cfg.get("height_cm", 4)),
+        )
+        self._best_training_candidate_previous = current
+
+        if iteration < int(cfg.get("minimum_iteration", 0)):
+            return
+        if iteration % interval != 0:
+            return
+        if evidence["attempts_delta"] < float(
+            cfg.get("minimum_attempts_per_iteration", 1)
+        ):
+            return
+        if (
+            self._best_training_candidate_score is not None
+            and score <= self._best_training_candidate_score
+        ):
+            return
+
+        log_dir = getattr(self, "log_dir", None)
+        if not log_dir:
+            raise RuntimeError(
+                "best training checkpoint requires runner.log_dir"
+            )
+
+        checkpoint_path = Path(log_dir) / (
+            f"best_training_candidate_it{iteration:04d}.pt"
+        )
+        if checkpoint_path.exists():
+            raise FileExistsError(checkpoint_path)
+
+        self._best_training_candidate_score = score
+        self._best_training_candidate_last_saved_iteration = iteration
+        record = {
+            "selection_type": (
+                "training_metric_candidate_not_independent_validation"
+            ),
+            "mode": mode,
+            "height_cm": int(cfg.get("height_cm", 4)),
+            "iteration": iteration,
+            "checkpoint": str(checkpoint_path),
+            "score": list(score),
+            "evidence": evidence,
+        }
+
+        print(
+            "[BEST_TRAINING_CANDIDATE] "
+            f"iteration={iteration} score={score} path={checkpoint_path}",
+            flush=True,
+        )
+        self.save(str(checkpoint_path))
+        self._best_training_candidate_pointer.write_text(
+            json.dumps(record, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        with self._best_training_candidate_history.open(
+            "a", encoding="utf-8"
+        ) as stream:
+            stream.write(json.dumps(record, sort_keys=True) + "\n")
 
     def log(self, locs: dict, width: int = 80, pad: int = 35):
         print("[POST_UPDATE] base_log ENTER", flush=True)
@@ -1192,5 +1382,7 @@ class MetricsOnPolicyRunnerMixin:
             total_simulated_steps=snapshot["total_simulated_steps"],
             counts=stair_episode_counts,
         )
+
+        self._maybe_save_best_training_candidate(snapshot)
 
         print("[POST_UPDATE] metrics_write EXIT", flush=True)

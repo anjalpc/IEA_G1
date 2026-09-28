@@ -170,6 +170,35 @@ class EpisodeAccountingTests(unittest.TestCase):
         self.assertEqual(env._g1_geometry_episode.last_completed["level"].tolist(), [1, 1, 2])
         self.assertEqual(env._g1_geometry_episode.tracker.reason.tolist(), [0, 0, 0])
 
+    def test_nonflat_population_floor_limits_level1_demotion(self):
+        env = self.fake_env(
+            [Result.FALL] * 8,
+            [1, 1, 1, 1, 0, 0, 0, 0],
+        )
+        finish_geometry_episodes(
+            env,
+            list(range(8)),
+            promote=True,
+            minimum_nonflat_env_fraction=0.25,
+        )
+        self.assertEqual(
+            sum(level > 0 for level in env.scene.terrain.terrain_levels.tolist()),
+            2,
+        )
+
+    def test_zero_nonflat_floor_preserves_existing_demotion(self):
+        env = self.fake_env([Result.FALL, Result.FALL], [1, 1])
+        finish_geometry_episodes(
+            env,
+            [0, 1],
+            promote=True,
+            minimum_nonflat_env_fraction=0.0,
+        )
+        self.assertEqual(
+            env.scene.terrain.terrain_levels.tolist(),
+            [0, 0],
+        )
+
     def test_fixed_distribution_counts_without_moving_terrain(self):
         env = self.fake_env([Result.SUCCESS, Result.FALL], [0, 1])
         finish_geometry_episodes(env, [0, 1], promote=False)

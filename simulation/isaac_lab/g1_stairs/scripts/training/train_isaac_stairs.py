@@ -630,6 +630,24 @@ def main() -> None:
 
     ppo_cfg = resolved_config.get("ppo", {})
 
+    checkpointing_cfg = resolved_config.get("checkpointing", {})
+    if checkpointing_cfg is None:
+        checkpointing_cfg = {}
+    if not isinstance(checkpointing_cfg, dict):
+        raise ValueError("checkpointing must be a mapping")
+
+    checkpoint_interval = int(
+        checkpointing_cfg.get(
+            "interval_iterations",
+            agent_cfg.save_interval,
+        )
+    )
+    if checkpoint_interval <= 0:
+        raise ValueError(
+            "checkpointing.interval_iterations must be > 0"
+        )
+    agent_cfg.save_interval = checkpoint_interval
+
     if "initial_action_noise_std" in ppo_cfg:
         agent_cfg.policy.init_noise_std = float(
             ppo_cfg["initial_action_noise_std"]
@@ -670,6 +688,11 @@ def main() -> None:
 
         agent_cfg.clip_actions = action_clip
 
+    print(
+        "[INFO] Checkpoint interval:",
+        agent_cfg.save_interval,
+        flush=True,
+    )
     print(
         "[INFO] PPO init_noise_std:",
         agent_cfg.policy.init_noise_std,
@@ -832,7 +855,11 @@ def main() -> None:
             f"{initialization_type}"
         )
 
-    runner.configure_metrics(Path(metrics_dir_value), run_id)
+    runner.configure_metrics(
+        Path(metrics_dir_value),
+        run_id,
+        checkpointing=checkpointing_cfg,
+    )
     runner.add_git_repo_to_log(__file__)
 
     params_dir = log_dir / "params"

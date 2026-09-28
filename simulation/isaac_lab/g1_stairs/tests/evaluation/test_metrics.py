@@ -16,6 +16,7 @@ from simulation.isaac_lab.g1_stairs.contact_sensor_contract import (
 from simulation.isaac_lab.g1_stairs.evaluation.isaac_training_metrics import (
     POSTURE_DIAGNOSTIC_NAMES,
     STAIR_DIAGNOSTIC_NAMES,
+    geometry_acquisition_checkpoint_score,
     recover_raw_reward_step,
 )
 from simulation.isaac_lab.g1_stairs.evaluation.stair_diagnostics import (
@@ -505,6 +506,30 @@ class MetricsTest(unittest.TestCase):
         )
 
         self.assertIsNone(raw_step)
+
+    def test_geometry_acquisition_checkpoint_score_uses_iteration_deltas(self):
+        previous = {
+            "attempts": 100.0,
+            "successes": 1.0,
+            "approach_failures": 20.0,
+        }
+        snapshot = {
+            "outcome_h04cm_attempts": 140,
+            "outcome_h04cm_successes": 3,
+            "outcome_h04cm_approach_failures": 25,
+            "v04_supported_touchdowns_total": 4,
+            "v04_insertion_progress_events": 7,
+            "v04_clearance_progress_events": 90,
+        }
+        score, evidence, current = geometry_acquisition_checkpoint_score(
+            snapshot, previous, height_cm=4
+        )
+        self.assertEqual(evidence["attempts_delta"], 40.0)
+        self.assertEqual(evidence["successes_delta"], 2.0)
+        self.assertEqual(evidence["entered_stairs_delta"], 35.0)
+        self.assertAlmostEqual(evidence["entry_rate"], 35.0 / 40.0)
+        self.assertEqual(score[:3], (2.0, 4.0, 7.0))
+        self.assertEqual(current["attempts"], 140.0)
 
     def test_wilson_interval_contains_observed_rate(self):
         lower, upper = wilson_interval(95, 100)

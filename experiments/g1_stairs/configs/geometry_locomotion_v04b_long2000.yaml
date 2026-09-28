@@ -1,0 +1,33 @@
+schema_version: 1
+
+experiment:
+  id: geometry_locomotion_v04b_long2000
+  purpose: >
+    Long V04-B acquisition run preserving the complete V04-A policy, reward,
+    PPO, plant, observation, reset and episode contracts while preventing
+    curriculum demotion from eliminating stair exposure. Retain periodic
+    checkpoints and training-metric acquisition candidates for later fixed
+    deterministic qualification.
+  type: geometry_conditioned_stair_acquisition_long
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/geometry_locomotion_v04a_acquisition100.yaml
+  resolved_config_required: true
+
+execution:
+  maximum_iterations: 2000
+
+terrain:
+  curriculum:
+    minimum_nonflat_env_fraction: 0.25
+
+checkpointing:
+  interval_iterations: 10
+  best_training_candidate:
+    enabled: true
+    mode: geometry_acquisition
+    height_cm: 4
+    evaluate_every_iterations: 10
+    minimum_iteration: 0
+    minimum_attempts_per_iteration: 1

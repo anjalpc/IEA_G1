@@ -1,6 +1,7 @@
 """Opt-in Isaac adapter for the shared V03 geometry episode contract."""
 
 from dataclasses import asdict
+import math
 import torch
 
 from .contact_sensor_contract import FOOT_BODY_NAMES, FORBIDDEN_CONTACT_BODY_NAMES
@@ -233,7 +234,12 @@ def geometry_timeout(env, contract):
     return _runtime(env, contract).update(env) == Result.TIMEOUT
 
 
-def finish_geometry_episodes(env, env_ids, promote=False):
+def finish_geometry_episodes(
+    env,
+    env_ids,
+    promote=False,
+    minimum_nonflat_env_fraction=0.0,
+):
     """Count the terminal snapshot before scene reset or terrain reassignment."""
     runtime = getattr(env, "_g1_geometry_episode", None)
     if runtime is None or len(env_ids) == 0:
@@ -269,9 +275,48 @@ def finish_geometry_episodes(env, env_ids, promote=False):
     env._g1_stair_curriculum_attempts = runtime.counts.sum(-1)
     env._g1_stair_curriculum_successes = runtime.counts[:, Result.SUCCESS].clone()
     if promote:
+        move_up = success & (levels < len(runtime.heights) - 1)
+        move_down = ~success & (levels > 0)
+
+        fraction = float(minimum_nonflat_env_fraction)
+        if not 0.0 <= fraction <= 1.0:
+            raise ValueError(
+                "minimum_nonflat_env_fraction must be in [0, 1]"
+            )
+
+        if fraction > 0.0:
+            all_levels = terrain.terrain_levels
+            minimum_nonflat = int(
+                math.ceil(all_levels.numel() * fraction)
+            )
+            current_nonflat = int(
+                torch.count_nonzero(all_levels > 0).item()
+            )
+            incoming_nonflat = int(
+                torch.count_nonzero(move_up & (levels == 0)).item()
+            )
+            allowed_level1_demotions = max(
+                current_nonflat + incoming_nonflat - minimum_nonflat,
+                0,
+            )
+            level1_candidates = torch.nonzero(
+                move_down & (levels == 1),
+                as_tuple=False,
+            ).flatten()
+
+            if level1_candidates.numel() > allowed_level1_demotions:
+                bounded_level1 = torch.zeros_like(
+                    move_down, dtype=torch.bool
+                )
+                if allowed_level1_demotions > 0:
+                    bounded_level1[
+                        level1_candidates[:allowed_level1_demotions]
+                    ] = True
+                # Higher levels may still demote because they remain non-flat.
+                move_down = (move_down & (levels > 1)) | bounded_level1
+
         terrain.update_env_origins(
-            ids, move_up=success & (levels < len(runtime.heights) - 1),
-            move_down=~success & (levels > 0),
+            ids, move_up=move_up, move_down=move_down
         )
     tracker.reset(ids)
     return float(success.float().mean().item())
@@ -285,6 +330,18 @@ def apply_geometry_episode_contract(env_cfg, resolved, *, promote=None):
     if not str(resolved["reward_experiment"]["active_stage"]).startswith("geometry_locomotion"):
         raise ValueError("geometry episode contract requires a geometry locomotion stage")
     contract = asdict(EpisodeContract(**{k: v for k, v in settings.items() if k != "enabled"}))
+    curriculum_cfg = resolved.get("terrain", {}).get("curriculum", {})
+    if curriculum_cfg is None:
+        curriculum_cfg = {}
+    if not isinstance(curriculum_cfg, dict):
+        raise ValueError("terrain.curriculum must be a mapping")
+    minimum_nonflat_env_fraction = float(
+        curriculum_cfg.get("minimum_nonflat_env_fraction", 0.0)
+    )
+    if not 0.0 <= minimum_nonflat_env_fraction <= 1.0:
+        raise ValueError(
+            "terrain.curriculum.minimum_nonflat_env_fraction must be in [0, 1]"
+        )
     from isaaclab.managers import TerminationTermCfg, CurriculumTermCfg
     from isaaclab.utils import configclass
 
@@ -297,8 +354,16 @@ def apply_geometry_episode_contract(env_cfg, resolved, *, promote=None):
     class GeometryCurriculum:
         episode_outcomes = CurriculumTermCfg(
             func=finish_geometry_episodes,
-            params={"promote": bool(resolved.get("terrain", {}).get("curriculum", {}).get("enabled", False)
-                                    if promote is None else promote)},
+            params={
+                "promote": bool(
+                    curriculum_cfg.get("enabled", False)
+                    if promote is None
+                    else promote
+                ),
+                "minimum_nonflat_env_fraction": (
+                    minimum_nonflat_env_fraction
+                ),
+            },
         )
 
     env_cfg.terminations = GeometryTerminations()
