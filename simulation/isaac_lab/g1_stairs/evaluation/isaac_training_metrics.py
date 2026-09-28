@@ -241,6 +241,9 @@ class InstrumentedRslRlVecEnvWrapper:
         self._maximum_height = -math.inf
         self._maximum_step = 0
         self._platform_reached_envs = None
+        self._stair_axis_velocity_sum = 0.0
+        self._lateral_offset_abs_sum = 0.0
+        self._heading_error_abs_sum = 0.0
         self._fall_count = 0
         self._forbidden_contact_count = 0
         self._finite_action_env_steps = 0
@@ -481,7 +484,23 @@ class InstrumentedRslRlVecEnvWrapper:
         )
 
         local_x = data.root_pos_w[:, 0] - env.scene.env_origins[:, 0]
+        local_y = data.root_pos_w[:, 1] - env.scene.env_origins[:, 1]
         local_z = data.root_pos_w[:, 2] - env.scene.env_origins[:, 2]
+
+        _, _, root_yaw = _quat_to_euler_wxyz(data.root_quat_w)
+        heading_error = torch.atan2(
+            torch.sin(root_yaw),
+            torch.cos(root_yaw),
+        )
+        self._stair_axis_velocity_sum += float(
+            data.root_lin_vel_w[:, 0].mean().item()
+        )
+        self._lateral_offset_abs_sum += float(
+            torch.abs(local_y).mean().item()
+        )
+        self._heading_error_abs_sum += float(
+            torch.abs(heading_error).mean().item()
+        )
         # Report the same local-X coordinate used by the stair detector.
         # The old +1.0 presentation offset made a robot at local x=0.30 look
         # as if it had already crossed the 1.0 m riser plane.
@@ -868,6 +887,15 @@ class InstrumentedRslRlVecEnvWrapper:
                 )
                 if self._platform_reached_envs is not None
                 else 0.0
+            ),
+            "stair_axis_velocity_mean_mps": (
+                self._stair_axis_velocity_sum / steps
+            ),
+            "lateral_offset_abs_mean_m": (
+                self._lateral_offset_abs_sum / steps
+            ),
+            "heading_error_abs_mean_rad": (
+                self._heading_error_abs_sum / steps
             ),
             "action_saturation_count": self._action_saturation_count,
             "joint_limit_violation_count": self._joint_limit_violation_count,

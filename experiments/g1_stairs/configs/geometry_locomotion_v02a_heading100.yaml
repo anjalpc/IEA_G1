@@ -1,0 +1,51 @@
+schema_version: 1
+
+experiment:
+  id: geometry_locomotion_v02a_heading100
+  purpose: >
+    Close the V01 off-axis avoidance loophole without changing terrain,
+    actor architecture, policy initialization, or stair curriculum.
+  type: geometry_conditioned_locomotion_heading_gate
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/geometry_locomotion_v01_mixed100.yaml
+  resolved_config_required: true
+
+command:
+  forward_velocity_mps: 0.35
+  stair_heading:
+    enabled: true
+    target_heading_rad: 0.0
+    control_stiffness: 1.0
+    max_yaw_rate_radps: 0.6
+
+reward_experiment:
+  active_stage: geometry_locomotion_v02a
+  strict_runtime_set: true
+  rewards:
+    stage_plan:
+      geometry_locomotion_v02a:
+        track_stair_axis_velocity: 1.0
+        track_ang_vel_z: 0.5
+        stair_centerline_error: -0.5
+        alive: 0.15
+        upright: -5.0
+        base_angular_velocity: -0.05
+        joint_acc: -2.5e-7
+        action_rate: -0.05
+        dof_pos_limits: -5.0
+        feet_slide: -0.2
+        undesired_contacts: -5.0
+
+reward_parameters:
+  track_stair_axis_velocity:
+    target_velocity_mps: 0.35
+    std_mps: 0.25
+  stair_centerline_error:
+    scale_m: 0.25
+
+execution:
+  environments: 2048
+  maximum_iterations: 100
+  training_seed: 42

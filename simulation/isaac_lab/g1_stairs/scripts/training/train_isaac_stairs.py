@@ -334,6 +334,21 @@ def main() -> None:
             flush=True,
         )
 
+    from simulation.isaac_lab.g1_stairs.command_runtime import (
+        apply_stair_heading_command,
+    )
+
+    heading_summary = apply_stair_heading_command(
+        env_cfg,
+        resolved_config,
+    )
+    if heading_summary is not None:
+        print(
+            "[INFO] Stair heading command:",
+            heading_summary,
+            flush=True,
+        )
+
 
     stair_schedule_cfg = command_cfg.get(
         "stair_velocity_schedule",

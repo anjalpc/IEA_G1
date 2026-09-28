@@ -163,6 +163,15 @@ def apply_resolved_replay_config(env_cfg, path: Path) -> AppliedReplayConfig:
         forward_velocity_mps,
     )
 
+    from simulation.isaac_lab.g1_stairs.command_runtime import (
+        apply_stair_heading_command,
+    )
+
+    apply_stair_heading_command(
+        env_cfg,
+        resolved,
+    )
+
     stair_schedule_cfg = command.get(
         "stair_velocity_schedule",
         {},

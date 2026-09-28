@@ -31,6 +31,7 @@ from .robot_cfg import G1_STAIRS_ROBOT_CFG
 from . import reference_tracking as reference_rewards
 from . import specialist_rewards as stair_rewards
 from . import terrain_observations
+from . import geometry_locomotion_rewards
 
 
 _UPSTREAM = importlib.import_module(
@@ -375,6 +376,23 @@ class StairRewardsCfg:
     )
     track_ang_vel_z = copy.deepcopy(
         _UPSTREAM_CFG.rewards.track_ang_vel_z
+    )
+    track_stair_axis_velocity = RewTerm(
+        func=geometry_locomotion_rewards.track_stair_axis_velocity,
+        weight=0.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "target_velocity_mps": FIXED_FORWARD_COMMAND_MPS,
+            "std_mps": 0.25,
+        },
+    )
+    stair_centerline_error = RewTerm(
+        func=geometry_locomotion_rewards.stair_centerline_error,
+        weight=0.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "scale_m": 0.25,
+        },
     )
 
     # Specialist foundation regularizers. The resolved YAML strict runtime set

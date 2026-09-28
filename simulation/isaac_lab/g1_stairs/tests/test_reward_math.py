@@ -7,6 +7,7 @@ from simulation.isaac_lab.g1_stairs.reward_math import (
     body_advance_gate,
     bottleneck_score,
     continuous_touchdown_potential,
+    exp_tracking_score,
     coupled_swing_score,
     deadzone_score,
     support_anchor_slip_penalty,
@@ -356,3 +357,23 @@ def test_continuous_touchdown_potential_preserves_entry_then_rewards_support() -
     assert potential[0].item() == pytest.approx(0.78)
     assert potential[1].item() == pytest.approx(0.89)
     assert potential[2].item() == pytest.approx(0.0)
+
+
+def test_stair_axis_tracking_prefers_forward_without_lateral_speed() -> None:
+    target = 0.35
+    std = 0.25
+    good_error = torch.tensor([0.0])
+    sideways_error = torch.tensor([
+        target * target + 0.35 * 0.35
+    ])
+    good = exp_tracking_score(
+        good_error,
+        std * std,
+        zero_centered=False,
+    )
+    sideways = exp_tracking_score(
+        sideways_error,
+        std * std,
+        zero_centered=False,
+    )
+    assert good.item() > sideways.item()
