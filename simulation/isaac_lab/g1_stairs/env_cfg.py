@@ -32,6 +32,7 @@ from . import reference_tracking as reference_rewards
 from . import specialist_rewards as stair_rewards
 from . import terrain_observations
 from . import geometry_locomotion_rewards
+from . import geometry_acquisition_rewards
 
 
 _UPSTREAM = importlib.import_module(
@@ -772,6 +773,53 @@ class StairRewardsCfg:
             "foot_height_tolerance_m": 0.025,
             "support_force_bodyweight_fraction": 0.15,
             "maximum_supported_foot_speed_mps": 0.15,
+        },
+    )
+
+
+    # V04 geometry-conditioned stair acquisition.
+    # These terms remain inactive unless selected by an experiment YAML.
+    terrain_relative_clearance = RewTerm(
+        func=geometry_acquisition_rewards.terrain_relative_clearance,
+        weight=1.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "contact_sensor_cfg": SceneEntityCfg("contact_forces"),
+            "activation_distance_m": 0.30,
+            "clearance_margin_m": 0.015,
+            "tread_margin_m": 0.015,
+            "insertion_target_m": 0.040,
+            "unload_full_force_n": 15.0,
+            "unload_zero_force_n": 80.0,
+            "opposite_support_start_n": 30.0,
+            "opposite_support_full_n": 100.0,
+            "insertion_clearance_fraction": 0.70,
+            "touchdown_force_n": 30.0,
+            "touchdown_speed_mps": 0.20,
+            "touchdown_height_tolerance_m": 0.025,
+            "diagnostic_contact_threshold_n": 1.0,
+        },
+    )
+
+    forward_insertion = RewTerm(
+        func=geometry_acquisition_rewards.forward_insertion,
+        weight=1.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "contact_sensor_cfg": SceneEntityCfg("contact_forces"),
+            "activation_distance_m": 0.30,
+            "clearance_margin_m": 0.015,
+            "tread_margin_m": 0.015,
+            "insertion_target_m": 0.040,
+            "unload_full_force_n": 15.0,
+            "unload_zero_force_n": 80.0,
+            "opposite_support_start_n": 30.0,
+            "opposite_support_full_n": 100.0,
+            "insertion_clearance_fraction": 0.70,
+            "touchdown_force_n": 30.0,
+            "touchdown_speed_mps": 0.20,
+            "touchdown_height_tolerance_m": 0.025,
+            "diagnostic_contact_threshold_n": 1.0,
         },
     )
 

@@ -1,0 +1,19 @@
+schema_version: 1
+
+experiment:
+  id: geometry_locomotion_v04a_smoke
+  purpose: >
+    One-iteration runtime qualification of the V04-A terrain-relative
+    clearance and forward-insertion rewards before the 100-iteration
+    acquisition experiment.
+  type: geometry_acquisition_runtime_smoke
+  meaningful_stair_training: false
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/geometry_locomotion_v04a_acquisition100.yaml
+  resolved_config_required: true
+
+execution:
+  environments: 32
+  maximum_iterations: 1
+  training_seed: 42

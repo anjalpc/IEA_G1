@@ -1,0 +1,77 @@
+schema_version: 1
+
+experiment:
+  id: geometry_locomotion_v04a_acquisition100
+  purpose: >
+    Test whether two bounded geometry-relative acquisition rewards can produce
+    real supported stair touchdowns from the Unitree walking prior while
+    preserving the V03 plant, curriculum, PPO, reset and episode contract.
+  type: geometry_conditioned_stair_acquisition_gate
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/geometry_locomotion_v03_curriculum.yaml
+  resolved_config_required: true
+
+execution:
+  maximum_iterations: 100
+
+reward_experiment:
+  active_stage: geometry_locomotion_v04a
+  strict_runtime_set: true
+
+  rewards:
+    stage_plan:
+      geometry_locomotion_v04a:
+        track_stair_axis_velocity: 1.0
+        track_ang_vel_z: 0.5
+        stair_centerline_error: -0.5
+        alive: 0.15
+        upright: -5.0
+        base_angular_velocity: -0.05
+        joint_acc: -2.5e-7
+        action_rate: -0.05
+        dof_pos_limits: -5.0
+        feet_slide: -0.2
+        undesired_contacts: -5.0
+
+        terrain_relative_clearance: 1.0
+        forward_insertion: 1.0
+
+reward_parameters:
+  track_stair_axis_velocity:
+    target_velocity_mps: 0.35
+    std_mps: 0.25
+
+  stair_centerline_error:
+    scale_m: 0.25
+
+  terrain_relative_clearance:
+    activation_distance_m: 0.30
+    clearance_margin_m: 0.015
+    tread_margin_m: 0.015
+    insertion_target_m: 0.040
+    unload_full_force_n: 15.0
+    unload_zero_force_n: 80.0
+    opposite_support_start_n: 30.0
+    opposite_support_full_n: 100.0
+    insertion_clearance_fraction: 0.70
+    touchdown_force_n: 30.0
+    touchdown_speed_mps: 0.20
+    touchdown_height_tolerance_m: 0.025
+    diagnostic_contact_threshold_n: 1.0
+
+  forward_insertion:
+    activation_distance_m: 0.30
+    clearance_margin_m: 0.015
+    tread_margin_m: 0.015
+    insertion_target_m: 0.040
+    unload_full_force_n: 15.0
+    unload_zero_force_n: 80.0
+    opposite_support_start_n: 30.0
+    opposite_support_full_n: 100.0
+    insertion_clearance_fraction: 0.70
+    touchdown_force_n: 30.0
+    touchdown_speed_mps: 0.20
+    touchdown_height_tolerance_m: 0.025
+    diagnostic_contact_threshold_n: 1.0

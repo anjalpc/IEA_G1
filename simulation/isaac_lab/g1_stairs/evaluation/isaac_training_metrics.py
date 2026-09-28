@@ -1002,6 +1002,16 @@ class InstrumentedRslRlVecEnvWrapper:
                             else 0.0
                         )
 
+        acquisition = getattr(
+            env,
+            "_g1_v04_acquisition",
+            None,
+        )
+        if acquisition is not None:
+            snapshot.update(
+                acquisition.consume_metrics()
+            )
+
         runtime = getattr(env, "_g1_geometry_episode", None)
         if runtime is not None:
             # Preserve X-only diagnostics under explicit names. They are not
