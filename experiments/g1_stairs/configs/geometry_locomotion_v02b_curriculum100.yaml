@@ -1,0 +1,55 @@
+schema_version: 1
+
+experiment:
+  id: geometry_locomotion_v02b_curriculum100
+  purpose: >
+    Introduce a genuine per-environment stair-height curriculum after V02-A
+    closed the off-axis avoidance loophole. Preserve the Unitree actor,
+    heading contract, reward set, and 29-DoF plant while starting from flat
+    and 4 cm terrain and promoting only after supported platform traversal.
+  type: geometry_conditioned_locomotion_curriculum_gate
+  meaningful_stair_training: true
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/geometry_locomotion_v02a_heading100.yaml
+  resolved_config_required: true
+
+terrain:
+  # Deterministic evaluation/video tooling remains on the thesis-facing
+  # 12 cm staircase while training uses the exact curriculum rows below.
+  riser_height_m: 0.12
+  riser_heights_m:
+    - 0.0
+    - 0.04
+    - 0.06
+    - 0.08
+    - 0.10
+    - 0.12
+    - 0.14
+    - 0.16
+  tread_depth_m: 0.25
+  step_count: 3
+
+  curriculum:
+    enabled: true
+    initial_max_level: 1
+    platform_margin_m: 0.10
+    minimum_upright_gravity_z: 0.75
+    minimum_base_clearance_m: 0.55
+
+reset_randomization:
+  enabled: true
+  distance_before_first_riser_m:
+    - 0.30
+    - 1.00
+  lateral_offset_m:
+    - -0.05
+    - 0.05
+  yaw_offset_rad:
+    - -0.0872664626
+    - 0.0872664626
+
+execution:
+  environments: 2048
+  maximum_iterations: 100
+  training_seed: 42

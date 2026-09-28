@@ -162,15 +162,73 @@ def main() -> None:
         stair_cfg.riser_heights = riser_heights_m
         stair_cfg.difficulty_bins = len(riser_heights_m)
         terrain_generator.curriculum = True
-        env_cfg.scene.terrain.max_init_terrain_level = (
-            len(riser_heights_m) - 1
+
+        curriculum_cfg = terrain_cfg.get("curriculum", {})
+        if curriculum_cfg is None:
+            curriculum_cfg = {}
+        if not isinstance(curriculum_cfg, dict):
+            raise ValueError("terrain.curriculum must be a mapping")
+
+        curriculum_enabled = bool(
+            curriculum_cfg.get("enabled", False)
         )
+        if curriculum_enabled:
+            initial_max_level = int(
+                curriculum_cfg.get("initial_max_level", 1)
+            )
+            if not 0 <= initial_max_level < len(riser_heights_m):
+                raise ValueError(
+                    "terrain.curriculum.initial_max_level must index "
+                    "terrain.riser_heights_m"
+                )
+            env_cfg.scene.terrain.max_init_terrain_level = (
+                initial_max_level
+            )
+
+            from isaaclab.managers import CurriculumTermCfg
+            from simulation.isaac_lab.g1_stairs import (
+                terrain_curriculum,
+            )
+
+            env_cfg.curriculum.terrain_levels = CurriculumTermCfg(
+                func=terrain_curriculum.stair_platform_levels,
+                params={
+                    "platform_margin_m": float(
+                        curriculum_cfg.get(
+                            "platform_margin_m", 0.10
+                        )
+                    ),
+                    "minimum_upright_gravity_z": float(
+                        curriculum_cfg.get(
+                            "minimum_upright_gravity_z", 0.75
+                        )
+                    ),
+                    "minimum_base_clearance_m": float(
+                        curriculum_cfg.get(
+                            "minimum_base_clearance_m", 0.55
+                        )
+                    ),
+                },
+            )
+        else:
+            env_cfg.scene.terrain.max_init_terrain_level = (
+                len(riser_heights_m) - 1
+            )
 
         print(
             "[INFO] Exact training riser heights m:",
             riser_heights_m,
             flush=True,
         )
+        if curriculum_enabled:
+            print(
+                "[INFO] Stair terrain curriculum:",
+                {
+                    "initial_max_level": initial_max_level,
+                    **env_cfg.curriculum.terrain_levels.params,
+                },
+                flush=True,
+            )
         print(
             "[INFO] Stair difficulty_bins:",
             stair_cfg.difficulty_bins,
@@ -309,6 +367,98 @@ def main() -> None:
         print(
             "[INFO] Stair tread_depth_m:",
             tread_depth_m,
+            flush=True,
+        )
+
+    reset_cfg = resolved_config.get("reset_randomization", {})
+    if reset_cfg is None:
+        reset_cfg = {}
+    if not isinstance(reset_cfg, dict):
+        raise ValueError("reset_randomization must be a mapping")
+
+    if bool(reset_cfg.get("enabled", False)):
+        distance_range = reset_cfg.get(
+            "distance_before_first_riser_m",
+            (0.30, 1.00),
+        )
+        lateral_range = reset_cfg.get(
+            "lateral_offset_m",
+            (-0.05, 0.05),
+        )
+        yaw_range = reset_cfg.get(
+            "yaw_offset_rad",
+            (-0.0872664626, 0.0872664626),
+        )
+
+        for label, values in (
+            ("distance_before_first_riser_m", distance_range),
+            ("lateral_offset_m", lateral_range),
+            ("yaw_offset_rad", yaw_range),
+        ):
+            if (
+                not isinstance(values, (list, tuple))
+                or len(values) != 2
+            ):
+                raise ValueError(
+                    f"reset_randomization.{label} must contain [min, max]"
+                )
+
+        distance_min, distance_max = (
+            float(distance_range[0]),
+            float(distance_range[1]),
+        )
+        lateral_min, lateral_max = (
+            float(lateral_range[0]),
+            float(lateral_range[1]),
+        )
+        yaw_min, yaw_max = (
+            float(yaw_range[0]),
+            float(yaw_range[1]),
+        )
+
+        stair_cfg = (
+            env_cfg.scene.terrain.terrain_generator
+            .sub_terrains["three_step_ascent"]
+        )
+        nominal_distance = float(stair_cfg.start_clearance)
+
+        if not (0.0 < distance_min <= distance_max <= nominal_distance):
+            raise ValueError(
+                "reset_randomization distance range must satisfy "
+                "0 < min <= max <= stair start_clearance"
+            )
+        if lateral_min > lateral_max:
+            raise ValueError(
+                "reset_randomization lateral range must be ordered"
+            )
+        if yaw_min > yaw_max:
+            raise ValueError(
+                "reset_randomization yaw range must be ordered"
+            )
+
+        # reset_root_state_uniform applies these as offsets from each terrain
+        # origin.  The origin is nominally start_clearance metres before the
+        # first riser, so positive X shortens that approach distance.
+        x_offset_min = nominal_distance - distance_max
+        x_offset_max = nominal_distance - distance_min
+
+        env_cfg.events.reset_base.params["pose_range"] = {
+            "x": (x_offset_min, x_offset_max),
+            "y": (lateral_min, lateral_max),
+            "yaw": (yaw_min, yaw_max),
+        }
+
+        print(
+            "[INFO] Stair reset randomization:",
+            {
+                "distance_before_first_riser_m": (
+                    distance_min,
+                    distance_max,
+                ),
+                "x_offset_m": (x_offset_min, x_offset_max),
+                "lateral_offset_m": (lateral_min, lateral_max),
+                "yaw_offset_rad": (yaw_min, yaw_max),
+            },
             flush=True,
         )
 

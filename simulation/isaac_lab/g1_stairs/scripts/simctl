@@ -560,6 +560,7 @@ cmd_status() {
     if [ -f "$METRICS" ]; then
         python3 - "$METRICS" "${RUN_DIR}/resolved_config.yaml" "$MANIFEST" <<'PY'
 import csv
+import json
 import re
 import sys
 from pathlib import Path
@@ -593,6 +594,12 @@ power = row.get("mechanical_power_mean", "")
 axis_velocity = row.get("stair_axis_velocity_mean_mps", "")
 lateral_offset = row.get("lateral_offset_abs_mean_m", "")
 heading_error = row.get("heading_error_abs_mean_rad", "")
+curriculum_level = row.get("curriculum_level_mean", "")
+extra = {}
+try:
+    extra = json.loads(row.get("extra_json") or "{}")
+except json.JSONDecodeError:
+    extra = {}
 
 # The run manifest is authoritative because it records the command
 # that was actually executed.
@@ -649,6 +656,28 @@ if lateral_offset:
     print(f"Mean |centerline offset|: {lateral_offset} m")
 if heading_error:
     print(f"Mean |heading error|: {heading_error} rad")
+if curriculum_level:
+    print(f"Curriculum level mean: {curriculum_level}")
+
+height_keys = []
+for key in extra:
+    match = re.fullmatch(r"curriculum_h(\d+)cm_success_rate", key)
+    if match:
+        height_keys.append((int(match.group(1)), key))
+
+if height_keys:
+    print("Per-height curriculum success:")
+    for height_cm, key in sorted(height_keys):
+        prefix = f"curriculum_h{height_cm:02d}cm"
+        attempts = extra.get(f"{prefix}_attempts", 0)
+        successes = extra.get(f"{prefix}_successes", 0)
+        rate = extra.get(key, 0.0)
+        fraction = extra.get(f"{prefix}_env_fraction", 0.0)
+        print(
+            f"  {height_cm:02d} cm: "
+            f"success={successes}/{attempts} ({rate:.3f}) "
+            f"current_env_fraction={fraction:.3f}"
+        )
 PY
     fi
 

@@ -955,6 +955,53 @@ class InstrumentedRslRlVecEnvWrapper:
                 self._finite_action_env_steps / (steps * self.num_envs)
             ),
         }
+        env = self.unwrapped
+        terrain = env.scene.terrain
+        terrain_levels = getattr(terrain, "terrain_levels", None)
+        if terrain_levels is not None:
+            snapshot["curriculum_level_mean"] = float(
+                terrain_levels.float().mean().item()
+            )
+            snapshot["curriculum_level_max"] = int(
+                terrain_levels.max().item()
+            )
+
+            cfg = stair_cfg(env)
+            heights = getattr(cfg, "riser_heights", None)
+            attempts = getattr(
+                env,
+                "_g1_stair_curriculum_attempts",
+                None,
+            )
+            successes = getattr(
+                env,
+                "_g1_stair_curriculum_successes",
+                None,
+            )
+
+            if heights is not None:
+                for level, height in enumerate(heights):
+                    height_cm = int(round(float(height) * 100.0))
+                    prefix = f"curriculum_h{height_cm:02d}cm"
+                    snapshot[f"{prefix}_env_fraction"] = float(
+                        (terrain_levels == level).float().mean().item()
+                    )
+
+                    if (
+                        attempts is not None
+                        and successes is not None
+                        and level < attempts.numel()
+                    ):
+                        attempt_count = int(attempts[level].item())
+                        success_count = int(successes[level].item())
+                        snapshot[f"{prefix}_attempts"] = attempt_count
+                        snapshot[f"{prefix}_successes"] = success_count
+                        snapshot[f"{prefix}_success_rate"] = (
+                            success_count / attempt_count
+                            if attempt_count > 0
+                            else 0.0
+                        )
+
         rewards = {}
         manager = self.unwrapped.reward_manager
         for name, raw in self._reward_components.items():
