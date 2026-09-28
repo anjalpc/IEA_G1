@@ -1,0 +1,12 @@
+schema_version: 1
+experiment:
+  id: geometry_locomotion_v03_flat4_smoke
+  purpose: Exercise terminal outcomes and automatic resets before a diagnostic run.
+  meaningful_stair_training: false
+inheritance:
+  base_config: experiments/g1_stairs/configs/geometry_locomotion_v03_flat4_diag100.yaml
+  resolved_config_required: true
+execution:
+  environments: 32
+  maximum_iterations: 40
+  training_seed: 42

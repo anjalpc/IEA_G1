@@ -241,6 +241,9 @@ def apply_resolved_replay_config(env_cfg, path: Path) -> AppliedReplayConfig:
         start_x_m = 1.0
         first_riser_x_m = start_x_m + float(stair_cfg.start_clearance)
 
+    from simulation.isaac_lab.g1_stairs.geometry_episode_runtime import apply_geometry_episode_contract
+    apply_geometry_episode_contract(env_cfg, resolved, promote=False)
+
     return AppliedReplayConfig(
         riser_height_m=riser_height_m,
         tread_depth_m=tread_depth_m,

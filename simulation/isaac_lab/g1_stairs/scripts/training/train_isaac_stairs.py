@@ -709,6 +709,9 @@ def main() -> None:
     log_dir = log_dir.resolve()
     print(f"[INFO] Logging experiment in directory: {log_dir}")
 
+    from simulation.isaac_lab.g1_stairs.geometry_episode_runtime import apply_geometry_episode_contract
+    apply_geometry_episode_contract(env_cfg, resolved_config)
+
     env = gym.make(args.task, cfg=env_cfg, render_mode=None)
     if isinstance(env.unwrapped, DirectMARLEnv):
         env = multi_agent_to_single_agent(env)

@@ -1,0 +1,16 @@
+schema_version: 1
+experiment:
+  id: geometry_locomotion_v03_curriculum
+  purpose: Optional height curriculum after the flat/4 cm diagnostic passes.
+  meaningful_stair_training: true
+inheritance:
+  base_config: experiments/g1_stairs/configs/geometry_locomotion_v03_flat4_diag100.yaml
+  resolved_config_required: true
+terrain:
+  riser_height_m: 0.12
+  riser_heights_m: [0.0, 0.04, 0.06, 0.08, 0.10, 0.12, 0.14, 0.16]
+  curriculum:
+    enabled: true
+    initial_max_level: 1
+execution:
+  maximum_iterations: 1000

@@ -1002,6 +1002,17 @@ class InstrumentedRslRlVecEnvWrapper:
                             else 0.0
                         )
 
+        runtime = getattr(env, "_g1_geometry_episode", None)
+        if runtime is not None:
+            # Preserve X-only diagnostics under explicit names. They are not
+            # stair successes and are not completed-episode denominators.
+            snapshot["x_only_platform_env_fraction"] = snapshot["platform_reached_rate"]
+            snapshot["x_only_step_planes_crossed"] = snapshot["maximum_step_reached_any"]
+            snapshot["platform_reached_rate"] = None
+            snapshot["maximum_step_reached_any"] = None
+            snapshot.update(runtime.metrics())
+            snapshot["success_rate"] = snapshot["verified_stair_success_rate"]
+
         rewards = {}
         manager = self.unwrapped.reward_manager
         for name, raw in self._reward_components.items():

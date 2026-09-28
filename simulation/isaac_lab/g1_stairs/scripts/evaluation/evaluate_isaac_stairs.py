@@ -168,6 +168,12 @@ def main() -> None:
             resolved_config_path
         )
 
+        if resolved_config.get("episode_contract", {}).get("enabled", False):
+            raise RuntimeError(
+                "V03 uses evaluate_geometry_batch.py (shared training outcomes); "
+                "the legacy single-episode evaluator is not valid for this config"
+            )
+
         reference_tracking_cfg = apply_reference_tracking_config(
             env_cfg,
             resolved_config,
