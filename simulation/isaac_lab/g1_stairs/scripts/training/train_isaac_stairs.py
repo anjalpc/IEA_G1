@@ -847,6 +847,15 @@ def main() -> None:
                 initialization_cfg["source"]["path"]
             ),
         )
+    elif initialization_type == "rsl_rl_training_resume":
+        if resolved_config.get("ppo", {}).get("observation_normalization", False):
+            raise ValueError("This resume path requires observation_normalization=false")
+        from simulation.isaac_lab.g1_stairs.training_resume import resume_training
+        resume_training(
+            runner,
+            initialization_cfg["source"]["path"],
+            initialization_cfg["source"]["sha256"],
+        )
     elif initialization_type == "zero_residual_actor":
         initialize_zero_residual_actor(runner)
     elif initialization_type not in (None, "random"):
