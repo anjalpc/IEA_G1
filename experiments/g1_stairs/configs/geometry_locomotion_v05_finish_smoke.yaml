@@ -1,0 +1,10 @@
+schema_version: 1
+inheritance:
+  base_config: experiments/g1_stairs/configs/geometry_locomotion_v05_finish_pilot.yaml
+  resolved_config_required: true
+experiment:
+  id: geometry_locomotion_v05_finish_smoke
+  purpose: Check V05 actor transfer, rewards and platform command before the pilot.
+execution:
+  environments: 32
+  maximum_iterations: 4

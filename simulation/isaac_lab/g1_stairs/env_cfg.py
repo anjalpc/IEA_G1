@@ -823,6 +823,11 @@ class StairRewardsCfg:
         },
     )
 
+    stable_platform_finish = RewTerm(
+        func=geometry_locomotion_rewards.stable_platform_finish,
+        weight=0.0,
+    )
+
 
 @configclass
 class StairEnvCfg(_UPSTREAM.RobotEnvCfg):

@@ -65,6 +65,23 @@ class GeometryEpisodeRuntime:
         qv = fq[:, :, None, 1:].expand_as(v)
         cross = 2 * torch.cross(qv, v, dim=-1)
         rotated = v + fq[:, :, None, :1] * cross + torch.cross(qv, cross, dim=-1)
+        finish_state = {}
+        if self.contract.stable_finish:
+            centres = feet[:, :, None, :] + rotated
+            radius = G1_SOLE_SPHERE_RADIUS_M
+            finish_state = {
+                "sole_bounds": torch.stack((
+                    centres[..., 0].amin(-1) - radius,
+                    centres[..., 0].amax(-1) + radius,
+                    centres[..., 1].amin(-1) - radius,
+                    centres[..., 1].amax(-1) + radius,
+                    centres[..., 2].amin(-1) - radius,
+                    centres[..., 2].amax(-1) - radius,
+                ), dim=-1),
+                "body_linear_velocity": data.root_lin_vel_w,
+                "body_angular_velocity": data.root_ang_vel_w,
+                "foot_linear_velocity": data.body_lin_vel_w[:, self.robot_feet],
+            }
         feet = feet.clone()
         feet[:, :, 2] += rotated[:, :, :, 2].min(-1).values - G1_SOLE_SPHERE_RADIUS_M
         forces = self.sensor.data.net_forces_w
@@ -107,6 +124,7 @@ class GeometryEpisodeRuntime:
             velocity_limit=(data.joint_vel.abs() > data.soft_joint_vel_limits + 1.e-5).any(-1),
             torque_limit=(data.applied_torque.abs() > data.joint_effort_limits + 1.e-3).any(-1),
             timed_out=env.episode_length_buf >= env.max_episode_length,
+            **finish_state,
         )
         self._record_joint_limit_diagnostics(env, data, limits, reason)
         return reason
@@ -365,6 +383,23 @@ def apply_geometry_episode_contract(env_cfg, resolved, *, promote=None):
                 ),
             },
         )
+
+    acquisition = resolved.get("acquisition_credit", {}) or {}
+    if acquisition.get("verified_insertion", False):
+        dwell = float(acquisition.get("support_dwell_s", 0.10))
+        if not math.isfinite(dwell) or dwell <= 0:
+            raise ValueError("support_dwell_s must be finite and positive")
+        env_cfg.verified_insertion_dwell_s = dwell
+
+    if contract["stable_finish"]:
+        from .platform_finish_command import apply_platform_finish_command
+        apply_platform_finish_command(env_cfg, resolved, contract)
+        heights = resolved.get("terrain", {}).get("riser_heights_m")
+        if heights and "initial_max_level" in curriculum_cfg:
+            initial = int(curriculum_cfg["initial_max_level"])
+            if not 0 <= initial < len(heights):
+                raise ValueError("initial_max_level outside configured heights")
+            env_cfg.scene.terrain.max_init_terrain_level = initial
 
     env_cfg.terminations = GeometryTerminations()
     env_cfg.curriculum = GeometryCurriculum()

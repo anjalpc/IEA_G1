@@ -40,12 +40,25 @@ class EpisodeContract:
     progress_epsilon_m: float = 0.02
     wrong_direction_tolerance_m: float = 0.25
 
+    stable_finish: bool = False
+    finish_sole_margin_m: float = 0.05
+    finish_max_linear_speed_mps: float = 0.15
+    finish_max_angular_speed_radps: float = 0.30
+    finish_max_foot_speed_mps: float = 0.10
+    finish_max_roll_pitch_rad: float = 0.20
+
     def __post_init__(self):
+        if not isinstance(self.stable_finish, bool):
+            raise ValueError("stable_finish must be a boolean")
         for name, value in vars(self).items():
+            if name == "stable_finish":
+                continue
             if not math.isfinite(value) or value <= 0:
                 raise ValueError(f"episode_contract.{name} must be finite and positive")
         if self.maximum_roll_pitch_rad >= math.pi / 2:
             raise ValueError("maximum_roll_pitch_rad must be below pi/2")
+        if self.finish_max_roll_pitch_rad > self.maximum_roll_pitch_rad:
+            raise ValueError("finish tilt limit must not exceed fall tilt limit")
 
 
 class EpisodeTracker:
@@ -86,7 +99,9 @@ class EpisodeTracker:
 
     def update(self, *, position, roll_pitch, riser_height, foot_position,
                foot_force_z, forbidden_contact, invalid_state, joint_limit,
-               velocity_limit, torque_limit, timed_out):
+               velocity_limit, torque_limit, timed_out,
+               sole_bounds=None, body_linear_velocity=None,
+               body_angular_velocity=None, foot_linear_velocity=None):
         active = self.reason == Result.RUNNING
         x, y, z = position.unbind(-1)
         new = active & ~self.started
@@ -122,6 +137,46 @@ class EpisodeTracker:
             & ((foot_position[:, :, 2] - platform_z[:, None]).abs()
                <= self.cfg.sole_height_tolerance_m)
         ).any(-1)
+        if self.cfg.stable_finish:
+            if any(v is None for v in (
+                sole_bounds, body_linear_velocity,
+                body_angular_velocity, foot_linear_velocity,
+            )):
+                raise ValueError("stable finish requires sole bounds and velocities")
+            # Bounds are [xmin, xmax, ymin, ymax, zmin, zmax] per foot.
+            margin = self.cfg.finish_sole_margin_m
+            finite_finish = torch.ones_like(active)
+            for value in (
+                sole_bounds, body_linear_velocity,
+                body_angular_velocity, foot_linear_velocity,
+            ):
+                finite_finish &= torch.isfinite(value).flatten(1).all(-1)
+            invalid_state = invalid_state | ~finite_finish
+            placement = (
+                (sole_bounds[:, :, 0] >= self.platform_start + margin)
+                & (sole_bounds[:, :, 1] <= self.course_end - self.cfg.boundary_margin_m)
+                & (sole_bounds[:, :, 2] >= -self.half_width + margin)
+                & (sole_bounds[:, :, 3] <= self.half_width - margin)
+                & ((sole_bounds[:, :, 4] - platform_z[:, None]).abs()
+                   <= self.cfg.sole_height_tolerance_m)
+                & ((sole_bounds[:, :, 5] - platform_z[:, None]).abs()
+                   <= self.cfg.sole_height_tolerance_m)
+            )
+            support = (
+                placement
+                & (foot_force_z >= self.cfg.support_force_n)
+                & (torch.linalg.vector_norm(foot_linear_velocity, dim=-1)
+                   <= self.cfg.finish_max_foot_speed_mps)
+            ).all(-1)
+            settled = (
+                (torch.linalg.vector_norm(body_linear_velocity, dim=-1)
+                 <= self.cfg.finish_max_linear_speed_mps)
+                & (torch.linalg.vector_norm(body_angular_velocity, dim=-1)
+                   <= self.cfg.finish_max_angular_speed_radps)
+                & (roll_pitch.abs() <= self.cfg.finish_max_roll_pitch_rad).all(-1)
+            )
+            support &= settled & finite_finish
+
         supported_platform = (x >= self.platform_start) & support & upright & clearance_ok
         valid = active & ~invalid_state & ~forbidden_contact & ~boundary
         self.platform_seen |= valid & supported_platform
@@ -130,6 +185,9 @@ class EpisodeTracker:
                                  torch.where(x >= self.first_riser, 1, 0))
         dwelling = valid & supported_platform & (x >= self.completion_x)
         self.dwell = torch.where(active, torch.where(dwelling, self.dwell + self.dt, 0.0), self.dwell)
+        if self.cfg.stable_finish:
+            # An intentionally stationary, valid finishing pose is not a stall.
+            self.stall_time = torch.where(dwelling, 0.0, self.stall_time)
         # Fixed failure priority. Success never overrides a failure at the same
         # control step; timeout is the only bootstrapped truncation.
         failures = (

@@ -137,7 +137,11 @@ class GeometryAcquisitionRuntime:
             device=env.device,
         )
 
+        self.support_credit_dwell = float(
+            getattr(env.cfg, "verified_insertion_dwell_s", 0.0)
+        )
         shape = (env.num_envs, 2)
+        self.support_elapsed = torch.zeros(shape, device=env.device)
 
         # Each foot independently tracks the next stair it still needs to
         # acquire. 0 -> first tread, 1 -> second, 2 -> third.
@@ -217,6 +221,7 @@ class GeometryAcquisitionRuntime:
             env_ids = slice(None)
 
         self.target_step[env_ids] = 0
+        self.support_elapsed[env_ids] = 0.0
         self.best_clearance[env_ids] = 0.0
         self.best_insertion[env_ids] = 0.0
 
@@ -513,6 +518,19 @@ class GeometryAcquisitionRuntime:
                 <= float(touchdown_speed_mps)
             )
         )
+
+        if self.support_credit_dwell > 0:
+            from .support_credit import sustained_support
+            elapsed, touchdown = sustained_support(
+                self.support_elapsed, touchdown, dt, self.support_credit_dwell,
+            )
+            self.support_elapsed.copy_(
+                torch.where(touchdown, torch.zeros_like(elapsed), elapsed)
+            )
+            # Replace airborne insertion credit with verified support credit.
+            # Existing target advancement makes each foot/tread payment one-shot.
+            insertion_delta = touchdown.to(self.insertion_reward.dtype)
+            self.insertion_reward.copy_(insertion_delta.sum(dim=1) / dt)
 
         if bool(touchdown.any()):
             old_target = self.target_step.clone()

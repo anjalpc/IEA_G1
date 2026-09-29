@@ -88,3 +88,27 @@ def apply_stair_heading_command(
         "control_stiffness": heading_control_stiffness,
         "max_yaw_rate_radps": max_yaw_rate_radps,
     }
+
+
+def platform_finish_speed(
+    local_x, stop_x, cruise_speed, feet_safe, settling, reset,
+    *, slowdown_distance=0.35, creep_speed=0.08, resume_x=None,
+):
+    """Pure tensor command logic; preserve settling until episode reset."""
+    import torch
+
+    if not (0 < creep_speed <= cruise_speed <= 0.50):
+        raise ValueError("require 0 < creep <= cruise <= 0.50")
+    if not math.isfinite(slowdown_distance) or slowdown_distance <= 0:
+        raise ValueError("slowdown_distance must be positive and finite")
+    if resume_x is None:
+        resume_x = stop_x - 0.10
+    if resume_x >= stop_x:
+        raise ValueError("resume_x must be below stop_x")
+    settling = (settling & ~reset & (local_x >= resume_x)) | (
+        ~reset & feet_safe & (local_x >= stop_x)
+    )
+    speed = (
+        cruise_speed * ((stop_x - local_x) / slowdown_distance).clamp(0.0, 1.0)
+    ).clamp_min(creep_speed)
+    return torch.where(settling, torch.zeros_like(speed), speed), settling

@@ -11,6 +11,7 @@ def track_stair_axis_velocity(
     target_velocity_mps: float = 0.35,
     std_mps: float = 0.25,
     asset_cfg=None,
+    command_name: str | None = None,
 ) -> torch.Tensor:
     """Reward world/stair-frame +X velocity while suppressing lateral speed."""
 
@@ -22,8 +23,12 @@ def track_stair_axis_velocity(
     asset_name = "robot" if asset_cfg is None else asset_cfg.name
     robot = env.scene[asset_name]
     velocity = robot.data.root_lin_vel_w[:, :2]
+    target = target_velocity_mps
+    if command_name is not None:
+        # Opt-in: use the forward command presented to the policy.
+        target = env.command_manager.get_command(command_name)[:, 0]
     squared_error = (
-        torch.square(velocity[:, 0] - target_velocity_mps)
+        torch.square(velocity[:, 0] - target)
         + torch.square(velocity[:, 1])
     )
     return exp_tracking_score(
@@ -50,3 +55,15 @@ def stair_centerline_error(
         - env.scene.env_origins[:, 1]
     )
     return torch.abs(local_y) / float(scale_m)
+
+
+def stable_platform_finish(env):
+    """Reward ongoing verified settling and a one-shot successful finish."""
+    from .geometry_episode import Result
+    runtime = getattr(env, "_g1_geometry_episode", None)
+    if runtime is None or not runtime.contract.stable_finish:
+        return torch.zeros(env.num_envs, device=env.device)
+    tracker = runtime.tracker
+    settling = (tracker.dwell > 0).to(torch.float32)
+    completed = (tracker.reason == Result.SUCCESS).to(torch.float32)
+    return settling + completed / env.step_dt
