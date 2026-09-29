@@ -630,3 +630,41 @@ class RewardRuntimeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+    def test_v06_knee_safe_smoke_preserves_architecture_and_adds_one_term(self):
+        root = Path(__file__).resolve().parents[4]
+        resolved, _ = resolve_config(
+            root / (
+                "experiments/g1_stairs/configs/"
+                "geometry_locomotion_v06_knee_safe_smoke.yaml"
+            )
+        )
+        materialize_legacy_reward_config(resolved)
+
+        self.assertEqual(
+            resolved["policy_initialization"]["source"]["path"],
+            "/workspace/IEA_G1/experiments/g1_stairs/checkpoints/"
+            "v05b_model130_high_stair_candidate.pt",
+        )
+        self.assertEqual(
+            resolved["policy_initialization"]["stair_observations"],
+            485,
+        )
+        self.assertEqual(
+            resolved["policy_initialization"]["actions"],
+            29,
+        )
+        weights = active_reward_weights(resolved)
+        self.assertEqual(weights["knee_forward_velocity_guard"], -0.25)
+        self.assertEqual(weights["terrain_relative_clearance"], 0.15)
+        self.assertEqual(weights["forward_insertion"], 1.0)
+        self.assertEqual(weights["stable_platform_finish"], 2.0)
+        self.assertEqual(weights["finish_planar_velocity_error"], -0.15)
+        self.assertEqual(weights["finish_centerline_error"], -0.05)
+        self.assertNotIn("riser_strike_event", weights)
+
+        params = resolved["reward_parameters"]["knee_forward_velocity_guard"]
+        self.assertEqual(params["high_riser_start_m"], 0.14)
+        self.assertEqual(params["high_riser_full_m"], 0.18)
+        self.assertEqual(params["free_forward_velocity_mps"], 0.20)
+        self.assertEqual(params["full_penalty_forward_velocity_mps"], 0.70)

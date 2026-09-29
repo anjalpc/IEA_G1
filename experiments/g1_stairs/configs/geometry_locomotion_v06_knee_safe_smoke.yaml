@@ -1,0 +1,53 @@
+schema_version: 1
+inheritance:
+  base_config: experiments/g1_stairs/configs/geometry_locomotion_v05_finish_pilot.yaml
+  resolved_config_required: true
+experiment:
+  id: geometry_locomotion_v06_knee_safe_smoke
+  purpose: Preserve model130 climbing/finish behavior while testing a local tall-riser knee forward-velocity guard.
+  type: geometry_conditioned_knee_safe_acquisition_smoke
+execution:
+  environments: 32
+  maximum_iterations: 12
+  training_seed: 42
+policy_initialization:
+  type: rsl_rl_checkpoint_actor_transfer
+  source:
+    task: geometry_locomotion_v05b_finish_stabilization_long2000
+    path: /workspace/IEA_G1/experiments/g1_stairs/checkpoints/v05b_model130_high_stair_candidate.pt
+  critic_initialization: fresh
+reward_experiment:
+  active_stage: geometry_locomotion_v06_knee_safe_acquisition
+  strict_runtime_set: true
+  rewards:
+    stage_plan:
+      geometry_locomotion_v06_knee_safe_acquisition:
+        track_stair_axis_velocity: 1.0
+        track_ang_vel_z: 0.5
+        stair_centerline_error: -0.5
+        alive: 0.15
+        upright: -5.0
+        base_angular_velocity: -0.05
+        joint_acc: -0.00000025
+        action_rate: -0.05
+        dof_pos_limits: -5.0
+        feet_slide: -0.2
+        undesired_contacts: -5.0
+        terrain_relative_clearance: 0.15
+        forward_insertion: 1.0
+        stable_platform_finish: 2.0
+        finish_planar_velocity_error: -0.15
+        finish_centerline_error: -0.05
+        knee_forward_velocity_guard: -0.25
+reward_parameters:
+  knee_forward_velocity_guard:
+    activation_distance_m: 0.30
+    post_riser_distance_m: 0.12
+    high_riser_start_m: 0.14
+    high_riser_full_m: 0.18
+    free_forward_velocity_mps: 0.20
+    full_penalty_forward_velocity_mps: 0.70
+checkpointing:
+  interval_iterations: 4
+  best_training_candidate:
+    enabled: false

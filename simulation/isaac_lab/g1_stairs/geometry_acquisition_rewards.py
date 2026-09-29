@@ -29,6 +29,7 @@ from .contracts import (
     G1_SOLE_SPHERE_CENTRES_M,
     G1_SOLE_SPHERE_RADIUS_M,
 )
+from .reward_math import normalized_excess_forward_velocity
 from .terrain_state import riser_height_per_env, stair_cfg
 
 if TYPE_CHECKING:
@@ -38,6 +39,11 @@ if TYPE_CHECKING:
 FOOT_BODY_NAMES = (
     "left_ankle_roll_link",
     "right_ankle_roll_link",
+)
+
+KNEE_BODY_NAMES = (
+    "left_knee_link",
+    "right_knee_link",
 )
 
 FORBIDDEN_CONTACT_BODY_NAMES = (
@@ -836,3 +842,195 @@ class forward_insertion(ManagerTermBase):
             diagnostic_contact_threshold_n=diagnostic_contact_threshold_n,
         )
         return self.runtime.insertion_reward
+
+class knee_forward_velocity_guard(ManagerTermBase):
+    """Penalize excessive forward knee speed during tall-riser acquisition.
+
+    The gate is geometry-relative and foot-specific. It uses the same per-foot
+    target_step state as the V04 acquisition rewards, but does not prescribe a
+    left/right gait sequence or a knee position trajectory. The term is zero
+    on low stairs, outside the local riser-passage window, and for a loaded
+    stance foot without opposite-foot support.
+    """
+
+    def __init__(self, cfg, env: "ManagerBasedRLEnv"):
+        super().__init__(cfg, env)
+        self.runtime = _runtime(env)
+        self.knee_ids = _required_indices(
+            self.runtime.robot.body_names,
+            KNEE_BODY_NAMES,
+        )
+
+    def reset(
+        self,
+        env_ids: Sequence[int] | None = None,
+    ) -> None:
+        self.runtime.reset(env_ids)
+
+    def __call__(
+        self,
+        env: "ManagerBasedRLEnv",
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+        contact_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces"),
+        activation_distance_m: float = 0.30,
+        clearance_margin_m: float = 0.015,
+        tread_margin_m: float = 0.015,
+        insertion_target_m: float = 0.040,
+        unload_full_force_n: float = 15.0,
+        unload_zero_force_n: float = 80.0,
+        opposite_support_start_n: float = 30.0,
+        opposite_support_full_n: float = 100.0,
+        insertion_clearance_fraction: float = 0.70,
+        touchdown_force_n: float = 30.0,
+        touchdown_speed_mps: float = 0.20,
+        touchdown_height_tolerance_m: float = 0.025,
+        diagnostic_contact_threshold_n: float = 1.0,
+        post_riser_distance_m: float = 0.12,
+        high_riser_start_m: float = 0.14,
+        high_riser_full_m: float = 0.18,
+        free_forward_velocity_mps: float = 0.20,
+        full_penalty_forward_velocity_mps: float = 0.70,
+    ) -> torch.Tensor:
+        del asset_cfg, contact_sensor_cfg
+
+        # Keep shared target-step state current even if manager term ordering
+        # changes. With the same acquisition parameters this is a no-op after
+        # terrain_relative_clearance/forward_insertion have updated the step.
+        self.runtime.update(
+            env,
+            activation_distance_m=activation_distance_m,
+            clearance_margin_m=clearance_margin_m,
+            tread_margin_m=tread_margin_m,
+            insertion_target_m=insertion_target_m,
+            unload_full_force_n=unload_full_force_n,
+            unload_zero_force_n=unload_zero_force_n,
+            opposite_support_start_n=opposite_support_start_n,
+            opposite_support_full_n=opposite_support_full_n,
+            insertion_clearance_fraction=insertion_clearance_fraction,
+            touchdown_force_n=touchdown_force_n,
+            touchdown_speed_mps=touchdown_speed_mps,
+            touchdown_height_tolerance_m=touchdown_height_tolerance_m,
+            diagnostic_contact_threshold_n=diagnostic_contact_threshold_n,
+        )
+
+        if activation_distance_m <= 0.0:
+            raise ValueError("activation_distance_m must be positive")
+        if post_riser_distance_m <= 0.0:
+            raise ValueError("post_riser_distance_m must be positive")
+        if high_riser_start_m < 0.0:
+            raise ValueError("high_riser_start_m cannot be negative")
+        if high_riser_full_m <= high_riser_start_m:
+            raise ValueError("high_riser_full_m must exceed high_riser_start_m")
+
+        cfg = stair_cfg(env)
+        riser_height = riser_height_per_env(env)
+        tread = float(cfg.tread_depth)
+        first_riser = float(cfg.start_clearance)
+        step_count = int(cfg.step_count)
+        data = self.runtime.robot.data
+
+        foot_pos = (
+            data.body_pos_w[:, self.runtime.robot_foot_ids]
+            - env.scene.env_origins[:, None, :]
+        )
+        foot_quat = data.body_quat_w[:, self.runtime.robot_foot_ids]
+        offsets = self.runtime.sole_centres.to(
+            dtype=foot_pos.dtype
+        )[None, None].expand(
+            env.num_envs,
+            2,
+            -1,
+            -1,
+        )
+        quaternions = foot_quat.unsqueeze(2).expand(
+            -1,
+            -1,
+            offsets.shape[2],
+            -1,
+        )
+        sole_points = (
+            foot_pos.unsqueeze(2)
+            + _quat_rotate_wxyz(quaternions, offsets)
+        )
+        front_x = (
+            sole_points[..., 0].amax(dim=2)
+            + float(G1_SOLE_SPHERE_RADIUS_M)
+        )
+
+        valid_target = (
+            (self.runtime.target_step < step_count)
+            & (riser_height[:, None] > 1.0e-8)
+        )
+        target_index = self.runtime.target_step.clamp(
+            min=0,
+            max=step_count - 1,
+        )
+        next_riser_x = (
+            first_riser
+            + target_index.to(foot_pos.dtype) * tread
+        )
+
+        distance_to_edge = next_riser_x - front_x
+        approach_gate = (
+            1.0
+            - distance_to_edge / float(activation_distance_m)
+        ).clamp(0.0, 1.0)
+        post_gate = (
+            (
+                next_riser_x
+                + float(post_riser_distance_m)
+                - front_x
+            )
+            / float(post_riser_distance_m)
+        ).clamp(0.0, 1.0)
+
+        vertical_force = (
+            self.runtime.sensor.data.net_forces_w[
+                :,
+                self.runtime.sensor_foot_ids,
+                2,
+            ].clamp_min(0.0)
+        )
+        own_unload = _smooth_falling(
+            vertical_force,
+            float(unload_full_force_n),
+            float(unload_zero_force_n),
+        )
+        opposite_force = torch.stack(
+            (vertical_force[:, 1], vertical_force[:, 0]),
+            dim=1,
+        )
+        opposite_support = _smooth_rising(
+            opposite_force,
+            float(opposite_support_start_n),
+            float(opposite_support_full_n),
+        )
+
+        height_gate = (
+            (riser_height - float(high_riser_start_m))
+            / float(high_riser_full_m - high_riser_start_m)
+        ).clamp(0.0, 1.0)[:, None]
+
+        knee_forward_velocity = data.body_lin_vel_w[
+            :,
+            self.knee_ids,
+            0,
+        ]
+        severity = normalized_excess_forward_velocity(
+            knee_forward_velocity,
+            free_velocity_mps=free_forward_velocity_mps,
+            full_penalty_velocity_mps=full_penalty_forward_velocity_mps,
+        )
+
+        passage_gate = (
+            approach_gate
+            * post_gate
+            * own_unload
+            * opposite_support
+            * height_gate
+            * valid_target.to(foot_pos.dtype)
+        )
+
+        # At most one bounded unit of severity per environment. This prevents
+        # accidental double-penalty if both legs momentarily satisfy the gate.
+        return (passage_gate * severity).amax(dim=1)

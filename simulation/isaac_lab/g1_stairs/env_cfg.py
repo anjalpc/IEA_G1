@@ -843,6 +843,33 @@ class StairRewardsCfg:
         },
     )
 
+    knee_forward_velocity_guard = RewTerm(
+        func=geometry_acquisition_rewards.knee_forward_velocity_guard,
+        weight=0.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "contact_sensor_cfg": SceneEntityCfg("contact_forces"),
+            "activation_distance_m": 0.30,
+            "clearance_margin_m": 0.015,
+            "tread_margin_m": 0.015,
+            "insertion_target_m": 0.040,
+            "unload_full_force_n": 15.0,
+            "unload_zero_force_n": 80.0,
+            "opposite_support_start_n": 30.0,
+            "opposite_support_full_n": 100.0,
+            "insertion_clearance_fraction": 0.70,
+            "touchdown_force_n": 30.0,
+            "touchdown_speed_mps": 0.20,
+            "touchdown_height_tolerance_m": 0.025,
+            "diagnostic_contact_threshold_n": 1.0,
+            "post_riser_distance_m": 0.12,
+            "high_riser_start_m": 0.14,
+            "high_riser_full_m": 0.18,
+            "free_forward_velocity_mps": 0.20,
+            "full_penalty_forward_velocity_mps": 0.70,
+        },
+    )
+
     stable_platform_finish = RewTerm(
         func=geometry_locomotion_rewards.stable_platform_finish,
         weight=0.0,

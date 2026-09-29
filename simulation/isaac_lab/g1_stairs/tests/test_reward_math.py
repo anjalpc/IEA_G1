@@ -10,6 +10,7 @@ from simulation.isaac_lab.g1_stairs.reward_math import (
     exp_tracking_score,
     finish_transition_gate,
     normalized_planar_velocity_error,
+    normalized_excess_forward_velocity,
     coupled_swing_score,
     deadzone_score,
     support_anchor_slip_penalty,
@@ -397,3 +398,24 @@ def test_finish_planar_error_exposes_model60_zero_command_momentum() -> None:
     )
     assert severity[0].item() == pytest.approx(1.61768, rel=1e-4)
     assert severity[1].item() == pytest.approx(0.0)
+
+
+def test_normalized_excess_forward_velocity_matches_knee_audit_envelope() -> None:
+    severity = normalized_excess_forward_velocity(
+        torch.tensor([0.098, 0.339, 0.573, 0.920, -0.4]),
+        free_velocity_mps=0.20,
+        full_penalty_velocity_mps=0.70,
+    )
+    assert severity.tolist() == pytest.approx(
+        [0.0, 0.278, 0.746, 1.0, 0.0],
+        abs=1e-3,
+    )
+
+
+def test_normalized_excess_forward_velocity_validates_envelope() -> None:
+    with pytest.raises(ValueError):
+        normalized_excess_forward_velocity(
+            torch.tensor([0.3]),
+            free_velocity_mps=0.4,
+            full_penalty_velocity_mps=0.4,
+        )

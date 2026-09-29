@@ -1,0 +1,15 @@
+schema_version: 1
+inheritance:
+  base_config: experiments/g1_stairs/configs/geometry_locomotion_v06_knee_safe_smoke.yaml
+  resolved_config_required: true
+experiment:
+  id: geometry_locomotion_v06_knee_safe_pilot
+  purpose: 100-iteration pilot for the evidence-driven tall-riser knee forward-velocity guard.
+  type: geometry_conditioned_knee_safe_acquisition_pilot
+execution:
+  environments: 512
+  maximum_iterations: 100
+checkpointing:
+  interval_iterations: 10
+  best_training_candidate:
+    enabled: false

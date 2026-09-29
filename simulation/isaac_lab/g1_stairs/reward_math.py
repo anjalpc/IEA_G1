@@ -65,6 +65,26 @@ def normalized_planar_velocity_error(
     ).clamp(0.0, float(maximum_severity))
 
 
+def normalized_excess_forward_velocity(
+    forward_velocity_mps: torch.Tensor,
+    *,
+    free_velocity_mps: float,
+    full_penalty_velocity_mps: float,
+) -> torch.Tensor:
+    """Return a bounded severity for excessive positive forward velocity."""
+
+    if free_velocity_mps < 0.0:
+        raise ValueError("free_velocity_mps cannot be negative")
+    if full_penalty_velocity_mps <= free_velocity_mps:
+        raise ValueError(
+            "full_penalty_velocity_mps must exceed free_velocity_mps"
+        )
+    return (
+        (forward_velocity_mps.clamp_min(0.0) - float(free_velocity_mps))
+        / float(full_penalty_velocity_mps - free_velocity_mps)
+    ).clamp(0.0, 1.0)
+
+
 def tread_containment_score(
     rear_x_m: torch.Tensor,
     front_x_m: torch.Tensor,
