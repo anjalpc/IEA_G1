@@ -19,6 +19,8 @@ class GeometryTrace:
         self.original_compute = self.manager.compute
         self.feet = ["left_ankle_roll_link", "right_ankle_roll_link"]
         self.foot_ids = [self.robot.body_names.index(n) for n in self.feet]
+        self.knees = ["left_knee_link", "right_knee_link"]
+        self.knee_ids = [self.robot.body_names.index(n) for n in self.knees]
         cfg = stair_cfg(env)
         metadata = {
             "schema_version": 1,
@@ -28,6 +30,7 @@ class GeometryTrace:
             "quaternion_order": "wxyz",
             "positions": "world coordinates; subtract env_origin_w for course coordinates",
             "foot_names": self.feet,
+            "knee_names": self.knees,
             "joint_names": list(self.robot.joint_names),
             "contact_body_names": list(self.sensor.body_names),
             "reward_names": list(self.manager.active_terms),
@@ -70,6 +73,8 @@ class GeometryTrace:
             "foot_quat_w": self.values(data.body_quat_w[0, self.foot_ids]),
             "foot_lin_vel_w": self.values(data.body_lin_vel_w[0, self.foot_ids]),
             "foot_ang_vel_w": self.values(data.body_ang_vel_w[0, self.foot_ids]),
+            "knee_pos_w": self.values(data.body_pos_w[0, self.knee_ids]),
+            "knee_lin_vel_w": self.values(data.body_lin_vel_w[0, self.knee_ids]),
             "contact_net_forces_w": self.values(self.sensor.data.net_forces_w[0]),
             "joint_pos_rad": self.values(data.joint_pos[0]),
             "joint_vel_rad_s": self.values(data.joint_vel[0]),
