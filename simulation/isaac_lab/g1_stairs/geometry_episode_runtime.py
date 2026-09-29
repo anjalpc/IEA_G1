@@ -39,6 +39,9 @@ class GeometryEpisodeRuntime:
         self.heights = tuple(cfg.riser_heights or (cfg.riser_height_range[0],))
         self.counts = torch.zeros((len(self.heights), len(Result)), dtype=torch.long, device=env.device)
         self.phase_failures = torch.zeros((len(self.heights), 3), dtype=torch.long, device=env.device)
+        self.platform_contact_counts = torch.zeros(
+            len(self.heights), dtype=torch.long, device=env.device
+        )
         self.platform_counts = torch.zeros(len(self.heights), dtype=torch.long, device=env.device)
         self.last_step = -1
         self.last_completed = None
@@ -194,6 +197,7 @@ class GeometryEpisodeRuntime:
     def metrics(self):
         counts = self.counts.detach().cpu().tolist()
         phases = self.phase_failures.detach().cpu().tolist()
+        platform_contacts = self.platform_contact_counts.detach().cpu().tolist()
         platforms = self.platform_counts.detach().cpu().tolist()
         result = {}
         stair_attempts = stair_successes = flat_attempts = flat_successes = 0
@@ -204,6 +208,7 @@ class GeometryEpisodeRuntime:
             result[f"{prefix}_attempts"] = attempts
             result[f"{prefix}_successes"] = successes
             result[f"{prefix}_success_rate"] = successes / attempts if attempts else None
+            result[f"{prefix}_upper_platform_contact_episodes"] = platform_contacts[level]
             result[f"{prefix}_supported_platform_episodes"] = platforms[level]
             for reason in Result:
                 if reason not in (Result.RUNNING, Result.SUCCESS):
@@ -278,12 +283,16 @@ def finish_geometry_episodes(
         "step": int(env.common_step_counter), "env_ids": ids.clone(),
         "level": levels.clone(), "reason": reason,
         "episode_steps": env.episode_length_buf[ids].clone(),
+        "upper_platform_contact": tracker.platform_contact_seen[ids].clone(),
         "supported_platform": tracker.platform_seen[ids].clone(),
         "entered_stairs": tracker.entered_stairs[ids].clone(),
         "phase": tracker.phase[ids].clone(),
     }
     flat_indices = levels * len(Result) + reason
     runtime.counts.view(-1).scatter_add_(0, flat_indices, torch.ones_like(ids))
+    runtime.platform_contact_counts.scatter_add_(
+        0, levels, tracker.platform_contact_seen[ids].long()
+    )
     runtime.platform_counts.scatter_add_(0, levels, tracker.platform_seen[ids].long())
     runtime.phase_failures.view(-1).scatter_add_(
         0, levels * 3 + tracker.phase[ids], (~success).long(),

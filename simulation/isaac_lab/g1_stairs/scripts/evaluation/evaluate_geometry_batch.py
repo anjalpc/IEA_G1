@@ -151,6 +151,14 @@ def dispatch_isolated_batches():
             "episodes": len(rows),
             "successes": outcomes["success"],
             "success_rate": outcomes["success"] / len(rows),
+            "upper_platform_contacts": sum(
+                str(r.get("upper_platform_contact", "")).lower() == "true"
+                for r in rows
+            ),
+            "supported_platforms": sum(
+                str(r.get("supported_platform", "")).lower() == "true"
+                for r in rows
+            ),
             "outcomes": {name: outcomes[name] for name in outcome_names},
         })
     with (output / "episodes.csv").open("x", newline="") as stream:
@@ -230,7 +238,8 @@ def main():
     output = Path(args.output_dir).resolve()
     output.mkdir(parents=True, exist_ok=True)
     fields = ["height_m", "seed", "env_id", "episode", "outcome", "success",
-              "duration_s", "supported_platform", "entered_stairs", "terminal_phase"]
+              "duration_s", "upper_platform_contact", "supported_platform",
+              "entered_stairs", "terminal_phase"]
     all_rows = []
     coverage = None
     def persist_completed_summary():
@@ -241,6 +250,8 @@ def main():
             summaries.append({
                 "height_m": height, "task": "flat_traversal" if height == 0 else "stair_traversal",
                 "episodes": len(rows), "successes": successes, "success_rate": successes / len(rows),
+                "upper_platform_contacts": sum(v["upper_platform_contact"] for v in rows),
+                "supported_platforms": sum(v["supported_platform"] for v in rows),
                 "outcomes": {r.name.lower(): sum(v["outcome"] == r.name.lower() for v in rows)
                              for r in Result if r != Result.RUNNING},
             })
@@ -325,6 +336,7 @@ def main():
                                     episode=quotas[env_id], outcome=reason.name.lower(),
                                     success=reason == Result.SUCCESS,
                                     duration_s=values["episode_steps"][index] * env.unwrapped.step_dt,
+                                    upper_platform_contact=values["upper_platform_contact"][index],
                                     supported_platform=values["supported_platform"][index],
                                     entered_stairs=values["entered_stairs"][index],
                                     terminal_phase=("approach", "ascent", "platform")[values["phase"][index]],

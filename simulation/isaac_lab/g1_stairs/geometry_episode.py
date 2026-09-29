@@ -87,14 +87,22 @@ class EpisodeTracker:
         self.best_x = torch.zeros(num_envs, device=device)
         self.stall_time = torch.zeros(num_envs, device=device)
         self.dwell = torch.zeros(num_envs, device=device)
-        self.platform_seen = torch.zeros(num_envs, device=device, dtype=torch.bool)
-        self.entered_stairs = torch.zeros_like(self.platform_seen)
+        # Diagnostic milestones are intentionally separate from the strict
+        # finish predicate. platform_contact_seen means at least one foot made
+        # valid load-bearing contact on the upper platform. platform_seen keeps
+        # its historical meaning: the episode satisfied the currently active
+        # supported-platform predicate (strict settling when stable_finish=True).
+        self.platform_contact_seen = torch.zeros(
+            num_envs, device=device, dtype=torch.bool
+        )
+        self.platform_seen = torch.zeros_like(self.platform_contact_seen)
+        self.entered_stairs = torch.zeros_like(self.platform_contact_seen)
         self.phase = torch.zeros_like(self.reason)
 
     def reset(self, ids):
         for value in (self.reason, self.started, self.start_x, self.best_x,
-                      self.stall_time, self.dwell, self.platform_seen,
-                      self.entered_stairs, self.phase):
+                      self.stall_time, self.dwell, self.platform_contact_seen,
+                      self.platform_seen, self.entered_stairs, self.phase):
             value[ids] = 0
 
     def update(self, *, position, roll_pitch, riser_height, foot_position,
@@ -137,6 +145,12 @@ class EpisodeTracker:
             & ((foot_position[:, :, 2] - platform_z[:, None]).abs()
                <= self.cfg.sole_height_tolerance_m)
         ).any(-1)
+        # Preserve a physically meaningful climbing milestone before the V05
+        # stable-finish branch tightens support to two feet + low velocities.
+        # This is diagnostic only and does not affect termination or reward.
+        upper_platform_contact = (
+            (x >= self.platform_start) & support & upright & clearance_ok
+        )
         if self.cfg.stable_finish:
             if any(v is None for v in (
                 sole_bounds, body_linear_velocity,
@@ -179,10 +193,16 @@ class EpisodeTracker:
 
         supported_platform = (x >= self.platform_start) & support & upright & clearance_ok
         valid = active & ~invalid_state & ~forbidden_contact & ~boundary
+        self.platform_contact_seen |= valid & upper_platform_contact
         self.platform_seen |= valid & supported_platform
         self.entered_stairs |= active & (x >= self.first_riser) & (riser_height > 0)
-        self.phase = torch.where(self.platform_seen, 2,
-                                 torch.where(x >= self.first_riser, 1, 0))
+        # Phase is diagnostic. Reaching a load-bearing upper-platform contact
+        # is enough to classify a later failure as a platform failure even if
+        # the strict V05 settling predicate was never satisfied.
+        self.phase = torch.where(
+            self.platform_contact_seen, 2,
+            torch.where(x >= self.first_riser, 1, 0),
+        )
         dwelling = valid & supported_platform & (x >= self.completion_x)
         self.dwell = torch.where(active, torch.where(dwelling, self.dwell + self.dt, 0.0), self.dwell)
         if self.cfg.stable_finish:

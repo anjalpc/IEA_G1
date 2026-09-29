@@ -53,6 +53,21 @@ class GeometryEpisodeTests(unittest.TestCase):
             self.assertFalse(t.platform_seen.item(), case)
             self.assertNotEqual(t.reason.item(), Result.SUCCESS, case)
 
+    def test_stable_finish_keeps_upper_platform_contact_separate_from_settling(self):
+        t = tracker(stable_finish=True)
+        s = sample(x=2.0)
+        s.update(
+            sole_bounds=torch.tensor([[[1.90, 2.10, -0.15, -0.05, .12, .12],
+                                       [1.80, 2.00,  0.05,  0.15, .12, .12]]]),
+            body_linear_velocity=torch.tensor([[0.40, 0.0, 0.0]]),
+            body_angular_velocity=torch.zeros(1, 3),
+            foot_linear_velocity=torch.zeros(1, 2, 3),
+        )
+        self.assertEqual(t.update(**s).item(), Result.RUNNING)
+        self.assertTrue(t.platform_contact_seen.item())
+        self.assertFalse(t.platform_seen.item())
+        self.assertEqual(t.phase.item(), 2)
+
     def test_interrupted_support_restarts_dwell(self):
         t, s = tracker(), sample()
         for _ in range(30):
@@ -141,6 +156,7 @@ class EpisodeAccountingTests(unittest.TestCase):
         n = len(levels)
         t = tracker(n)
         t.reason[:] = torch.tensor(reason)
+        t.platform_contact_seen[:] = torch.tensor([r == Result.SUCCESS for r in reason])
         t.platform_seen[:] = torch.tensor([r == Result.SUCCESS for r in reason])
         terrain = types.SimpleNamespace(terrain_levels=torch.tensor(levels), calls=0)
         def move(ids, move_up, move_down):
@@ -152,6 +168,7 @@ class EpisodeAccountingTests(unittest.TestCase):
         runtime.heights = (0., .04, .06)
         runtime.counts = torch.zeros(3, len(Result), dtype=torch.long)
         runtime.phase_failures = torch.zeros(3, 3, dtype=torch.long)
+        runtime.platform_contact_counts = torch.zeros(3, dtype=torch.long)
         runtime.platform_counts = torch.zeros(3, dtype=torch.long)
         runtime.last_completed = None
         env = types.SimpleNamespace(
@@ -168,6 +185,10 @@ class EpisodeAccountingTests(unittest.TestCase):
         self.assertEqual(env._g1_stair_curriculum_attempts.tolist(), [0, 2, 1])
         self.assertEqual(env._g1_stair_curriculum_successes.tolist(), [0, 1, 1])
         self.assertEqual(env._g1_geometry_episode.last_completed["level"].tolist(), [1, 1, 2])
+        self.assertEqual(
+            env._g1_geometry_episode.last_completed["upper_platform_contact"].tolist(),
+            [True, False, True],
+        )
         self.assertEqual(env._g1_geometry_episode.tracker.reason.tolist(), [0, 0, 0])
 
     def test_nonflat_population_floor_limits_level1_demotion(self):
@@ -206,6 +227,7 @@ class EpisodeAccountingTests(unittest.TestCase):
         metrics = env._g1_geometry_episode.metrics()
         self.assertEqual(metrics["flat_traversal_success_rate"], 1.)
         self.assertEqual(metrics["verified_stair_success_rate"], 0.)
+        self.assertEqual(metrics["outcome_h04cm_upper_platform_contact_episodes"], 0)
         self.assertIsNone(metrics["outcome_h06cm_success_rate"])
 
     def test_initial_reset_does_not_count(self):

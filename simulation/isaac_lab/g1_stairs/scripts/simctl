@@ -647,12 +647,39 @@ if step:
 if platform:
     print(f"X-only platform crossing (includes flat; not success): {platform}")
 if "verified_stair_attempts" in extra:
-    print(f"Verified stair completions: {extra['verified_stair_successes']} / {extra['verified_stair_attempts']}")
-    print(f"Flat traversals: {extra['flat_traversal_successes']} / {extra['flat_traversal_attempts']}")
+    stable_finish_enabled = False
+    if config.exists():
+        stable_finish_enabled = bool(
+            re.search(r"(?m)^\s*stable_finish:\s*true\s*$", config.read_text())
+        )
+    finish_label = "Strict stable stair finishes" if stable_finish_enabled else "Verified stair completions"
+    flat_label = "Strict stable flat finishes" if stable_finish_enabled else "Flat traversals"
+    print(f"{finish_label}: {extra['verified_stair_successes']} / {extra['verified_stair_attempts']}")
+    print(f"{flat_label}: {extra['flat_traversal_successes']} / {extra['flat_traversal_attempts']}")
+    print("Per-height episode outcomes:")
     for key, value in sorted(extra.items()):
         if key.startswith("outcome_h") and key.endswith("_attempts"):
             prefix = key[:-len("_attempts")]
-            print(f"  {prefix}: {extra.get(prefix + '_successes', 0)} / {value}")
+            success = extra.get(prefix + "_successes", 0)
+            contact = extra.get(prefix + "_upper_platform_contact_episodes")
+            supported = extra.get(prefix + "_supported_platform_episodes")
+            fields = [f"success={success}/{value}"]
+            if contact is not None:
+                fields.append(f"upper_platform_contact={contact}/{value}")
+            if supported is not None:
+                label = "stable_finish_pose_seen" if stable_finish_enabled else "supported_platform"
+                fields.append(f"{label}={supported}/{value}")
+            failures = []
+            for name in (
+                "fall", "forbidden_contact", "course_boundary",
+                "joint_limit", "velocity_limit", "torque_limit",
+                "wrong_direction", "stall", "timeout", "invalid_state",
+            ):
+                count = extra.get(prefix + "_" + name, 0)
+                if count:
+                    failures.append(f"{name}={count}")
+            suffix = f" failures[{', '.join(failures)}]" if failures else ""
+            print(f"  {prefix}: {' '.join(fields)}{suffix}")
 if action_rate:
     print(f"Action rate: {action_rate}")
 if power:
