@@ -43,5 +43,5 @@ reward_experiment:
         stable_platform_finish: 2.0
 
         # V05-B: active only when commanded speed drops below cruise.
-        finish_planar_velocity_error: -0.5
-        finish_centerline_error: -0.5
+        finish_planar_velocity_error: -0.15
+        finish_centerline_error: -0.05
