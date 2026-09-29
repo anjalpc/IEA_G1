@@ -181,6 +181,7 @@ parser.add_argument("--task", default="Unitree-IEA-G1-29dof-Stairs-v0")
 parser.add_argument("--resolved-config", required=True)
 parser.add_argument("--output-dir", required=True)
 parser.add_argument("--unitree-baseline", action="store_true")
+parser.add_argument("--trace", action="store_true", help="Record one environment and one episode before automatic reset")
 parser.add_argument("--heights", type=float, nargs="+", default=[0.0, 0.04])
 parser.add_argument("--seeds", type=int, nargs="+", default=[42, 43, 44])
 parser.add_argument("--num-envs", type=int, default=32)
@@ -188,6 +189,8 @@ parser.add_argument("--episodes-per-env", type=int, default=1)
 cli_args.add_rsl_rl_args(parser)
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
+if args.trace and (args.num_envs != 1 or args.episodes_per_env != 1):
+    parser.error("--trace requires --num-envs 1 --episodes-per-env 1")
 if bool(args.checkpoint) == args.unitree_baseline:
     parser.error("select exactly one of --checkpoint or --unitree-baseline")
 if args.num_envs < 1 or args.episodes_per_env < 1:
@@ -288,6 +291,7 @@ def main():
                 finally:
                     faulthandler.cancel_dump_traceback_later()
                 print("[INFO] Environment creation finished", flush=True)
+                tracer = None
                 try:
                     runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
                     if args.unitree_baseline:
@@ -296,6 +300,9 @@ def main():
                         runner.load(str(model), load_optimizer=False)
                     policy = runner.get_inference_policy(device=env.unwrapped.device)
                     obs = env.get_observations()
+                    if args.trace:
+                        from geometry_trace import GeometryTrace
+                        tracer = GeometryTrace(env.unwrapped, output)
                     quotas = [0] * args.num_envs
                     limit = (env.unwrapped.max_episode_length + 1) * args.episodes_per_env
                     with torch.inference_mode():
@@ -334,6 +341,8 @@ def main():
                     if height == args.heights[-1] and seed == args.seeds[-1]:
                         persist_completed_summary()
                 finally:
+                    if tracer is not None:
+                        tracer.close()
                     print("[INFO] Starting env.close()", flush=True)
                     faulthandler.dump_traceback_later(30, repeat=True)
                     try:
