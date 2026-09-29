@@ -1,0 +1,47 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/geometry_locomotion_v05_finish_pilot.yaml
+  resolved_config_required: true
+
+experiment:
+  id: geometry_locomotion_v05b_finish_stabilization_pilot
+  purpose: Preserve model_60 stair climbing while learning centered braking and stable platform stopping.
+  type: geometry_conditioned_finish_stabilization_pilot
+
+execution:
+  environments: 512
+  maximum_iterations: 100
+  training_seed: 42
+
+policy_initialization:
+  type: rsl_rl_checkpoint_actor_transfer
+  source:
+    task: geometry_locomotion_v05_finish
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/geometry_locomotion_v05_finish_pilot_20260929_081306/model_60.pt
+  critic_initialization: fresh
+
+reward_experiment:
+  active_stage: geometry_locomotion_v05b_finish_stabilization
+  strict_runtime_set: true
+  rewards:
+    stage_plan:
+      geometry_locomotion_v05b_finish_stabilization:
+        track_stair_axis_velocity: 1.0
+        track_ang_vel_z: 0.5
+        stair_centerline_error: -0.5
+        alive: 0.15
+        upright: -5.0
+        base_angular_velocity: -0.05
+        joint_acc: -0.00000025
+        action_rate: -0.05
+        dof_pos_limits: -5.0
+        feet_slide: -0.2
+        undesired_contacts: -5.0
+        terrain_relative_clearance: 0.15
+        forward_insertion: 1.0
+        stable_platform_finish: 2.0
+
+        # V05-B: active only when commanded speed drops below cruise.
+        finish_planar_velocity_error: -0.5
+        finish_centerline_error: -0.5

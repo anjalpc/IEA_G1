@@ -3,7 +3,11 @@
 from __future__ import annotations
 
 import torch
-from .reward_math import exp_tracking_score
+from .reward_math import (
+    exp_tracking_score,
+    finish_transition_gate,
+    normalized_planar_velocity_error,
+)
 
 
 def track_stair_axis_velocity(
@@ -56,6 +60,50 @@ def stair_centerline_error(
     )
     return torch.abs(local_y) / float(scale_m)
 
+
+
+def finish_planar_velocity_error(
+    env,
+    cruise_speed_mps: float = 0.35,
+    scale_mps: float = 0.25,
+    command_name: str = "base_velocity",
+    asset_cfg=None,
+) -> torch.Tensor:
+    """Penalize residual planar momentum only during the finish transition."""
+
+    asset_name = "robot" if asset_cfg is None else asset_cfg.name
+    robot = env.scene[asset_name]
+    command_x = env.command_manager.get_command(command_name)[:, 0]
+    gate = finish_transition_gate(
+        command_x, cruise_speed_mps=cruise_speed_mps,
+    )
+    severity = normalized_planar_velocity_error(
+        robot.data.root_lin_vel_w[:, :2],
+        command_x,
+        scale_mps=scale_mps,
+    )
+    return gate * severity
+
+
+def finish_centerline_error(
+    env,
+    cruise_speed_mps: float = 0.35,
+    scale_m: float = 0.25,
+    command_name: str = "base_velocity",
+    asset_cfg=None,
+) -> torch.Tensor:
+    """Increase centerline pressure only while slowing for the platform finish."""
+
+    if scale_m <= 0.0:
+        raise ValueError("scale_m must be positive")
+    asset_name = "robot" if asset_cfg is None else asset_cfg.name
+    robot = env.scene[asset_name]
+    command_x = env.command_manager.get_command(command_name)[:, 0]
+    gate = finish_transition_gate(
+        command_x, cruise_speed_mps=cruise_speed_mps,
+    )
+    local_y = robot.data.root_pos_w[:, 1] - env.scene.env_origins[:, 1]
+    return gate * (torch.abs(local_y) / float(scale_m)).clamp(0.0, 2.0)
 
 def stable_platform_finish(env):
     """Reward ongoing verified settling and a one-shot successful finish."""

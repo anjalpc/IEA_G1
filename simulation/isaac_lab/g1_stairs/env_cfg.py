@@ -395,6 +395,26 @@ class StairRewardsCfg:
             "scale_m": 0.25,
         },
     )
+    finish_planar_velocity_error = RewTerm(
+        func=geometry_locomotion_rewards.finish_planar_velocity_error,
+        weight=0.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "command_name": "base_velocity",
+            "cruise_speed_mps": FIXED_FORWARD_COMMAND_MPS,
+            "scale_mps": 0.25,
+        },
+    )
+    finish_centerline_error = RewTerm(
+        func=geometry_locomotion_rewards.finish_centerline_error,
+        weight=0.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "command_name": "base_velocity",
+            "cruise_speed_mps": FIXED_FORWARD_COMMAND_MPS,
+            "scale_m": 0.25,
+        },
+    )
 
     # Specialist foundation regularizers. The resolved YAML strict runtime set
     # selects exactly which of these are manager-visible. Keep the balance

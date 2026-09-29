@@ -8,6 +8,8 @@ from simulation.isaac_lab.g1_stairs.reward_math import (
     bottleneck_score,
     continuous_touchdown_potential,
     exp_tracking_score,
+    finish_transition_gate,
+    normalized_planar_velocity_error,
     coupled_swing_score,
     deadzone_score,
     support_anchor_slip_penalty,
@@ -377,3 +379,21 @@ def test_stair_axis_tracking_prefers_forward_without_lateral_speed() -> None:
         zero_centered=False,
     )
     assert good.item() > sideways.item()
+
+
+def test_finish_transition_gate_activates_only_as_command_slows() -> None:
+    gate = finish_transition_gate(
+        torch.tensor([0.35, 0.126, 0.08, 0.0]),
+        cruise_speed_mps=0.35,
+    )
+    assert gate.tolist() == pytest.approx([0.0, 0.64, 0.7714286, 1.0])
+
+
+def test_finish_planar_error_exposes_model60_zero_command_momentum() -> None:
+    severity = normalized_planar_velocity_error(
+        torch.tensor([[0.284, -0.143], [0.0, 0.0]]),
+        torch.tensor([0.0, 0.0]),
+        scale_mps=0.25,
+    )
+    assert severity[0].item() == pytest.approx(1.61768, rel=1e-4)
+    assert severity[1].item() == pytest.approx(0.0)

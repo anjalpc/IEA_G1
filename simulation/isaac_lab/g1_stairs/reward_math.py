@@ -24,6 +24,47 @@ def exp_tracking_score(
     return score - 1.0 if zero_centered else score
 
 
+def finish_transition_gate(
+    command_x_mps: torch.Tensor,
+    *,
+    cruise_speed_mps: float,
+) -> torch.Tensor:
+    """Smoothly activate finish shaping as the forward command slows."""
+
+    if cruise_speed_mps <= 0.0:
+        raise ValueError("cruise_speed_mps must be positive")
+    return (
+        (float(cruise_speed_mps) - command_x_mps)
+        / float(cruise_speed_mps)
+    ).clamp(0.0, 1.0)
+
+
+def normalized_planar_velocity_error(
+    velocity_xy_mps: torch.Tensor,
+    target_x_mps: torch.Tensor,
+    *,
+    scale_mps: float,
+    maximum_severity: float = 4.0,
+) -> torch.Tensor:
+    """Bounded planar tracking-error severity for dense finish braking credit."""
+
+    if velocity_xy_mps.ndim != 2 or velocity_xy_mps.shape[1] != 2:
+        raise ValueError("velocity_xy_mps must have shape [N, 2]")
+    if target_x_mps.ndim != 1 or target_x_mps.shape[0] != velocity_xy_mps.shape[0]:
+        raise ValueError("target_x_mps must have shape [N]")
+    if scale_mps <= 0.0:
+        raise ValueError("scale_mps must be positive")
+    if maximum_severity <= 0.0:
+        raise ValueError("maximum_severity must be positive")
+    squared_error = (
+        torch.square(velocity_xy_mps[:, 0] - target_x_mps)
+        + torch.square(velocity_xy_mps[:, 1])
+    )
+    return (
+        squared_error / float(scale_mps * scale_mps)
+    ).clamp(0.0, float(maximum_severity))
+
+
 def tread_containment_score(
     rear_x_m: torch.Tensor,
     front_x_m: torch.Tensor,
