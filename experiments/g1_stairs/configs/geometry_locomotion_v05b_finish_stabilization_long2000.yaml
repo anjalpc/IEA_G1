@@ -1,0 +1,15 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/geometry_locomotion_v05b_finish_stabilization_long1000.yaml
+  resolved_config_required: true
+
+experiment:
+  id: geometry_locomotion_v05b_finish_stabilization_long2000
+  purpose: Long-horizon V05-B stair climbing and finish stabilization training from the qualified model_99 actor.
+  type: geometry_conditioned_finish_stabilization_long
+
+execution:
+  environments: 512
+  maximum_iterations: 2000
+  training_seed: 42
