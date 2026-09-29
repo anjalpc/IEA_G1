@@ -623,11 +623,23 @@ if target is None and config.exists():
     if values:
         target = int(values[0])
 
+# Count updates recorded in this run, independently of checkpoint numbering.
+logged_iterations = set()
+with metrics.open(newline="") as progress_stream:
+    for sample in csv.DictReader(progress_stream):
+        try:
+            logged_iteration = int(sample.get("iteration", ""))
+        except (TypeError, ValueError):
+            continue
+        if 0 <= logged_iteration <= iteration:
+            logged_iterations.add(logged_iteration)
+
+completed = len(logged_iterations)
 print()
 if target:
-    completed = iteration + 1
     pct = 100.0 * completed / target
-    print(f"Iteration: {iteration}/{target - 1}  ({pct:.1f}%)")
+    print(f"Updates: {completed}/{target}  ({pct:.1f}%)")
+    print(f"Global iteration: {iteration}")
 
     if wall > 0 and completed > 0:
         eta = wall / completed * max(target - completed, 0)
