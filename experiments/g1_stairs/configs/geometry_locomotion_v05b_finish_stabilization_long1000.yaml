@@ -1,0 +1,22 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/geometry_locomotion_v05b_finish_stabilization_pilot.yaml
+  resolved_config_required: true
+
+experiment:
+  id: geometry_locomotion_v05b_finish_stabilization_long1000
+  purpose: Long-horizon V05-B finish stabilization probe from the qualified 100-iteration actor.
+  type: geometry_conditioned_finish_stabilization_long
+
+execution:
+  environments: 512
+  maximum_iterations: 1000
+  training_seed: 42
+
+policy_initialization:
+  type: rsl_rl_checkpoint_actor_transfer
+  source:
+    task: geometry_locomotion_v05b_finish_stabilization
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/geometry_locomotion_v05b_finish_stabilization_pilot_20260929_105943/model_99.pt
+  critic_initialization: fresh
