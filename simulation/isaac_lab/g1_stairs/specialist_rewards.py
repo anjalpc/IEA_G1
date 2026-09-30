@@ -1528,6 +1528,7 @@ class posture_envelope_guard(ManagerTermBase):
         lateral_legs_zero_rms_rad: float = 0.55,
         arms_only: bool = False,
         joint_specific_excess_squared: bool = False,
+        joint_specific_target_excess_squared: bool = False,
         shoulder_pitch_tolerance_rad: float = 0.45,
         shoulder_pitch_relative_weight: float = 0.25,
         shoulder_roll_tolerance_rad: float = 0.40,
@@ -1545,7 +1546,23 @@ class posture_envelope_guard(ManagerTermBase):
         def rms(ids):
             return torch.sqrt(torch.mean(error[:, list(ids)] ** 2, dim=1))
 
-        if joint_specific_excess_squared:
+        if joint_specific_excess_squared or joint_specific_target_excess_squared:
+            if joint_specific_excess_squared and joint_specific_target_excess_squared:
+                raise ValueError(
+                    "select only one joint-specific arm error source"
+                )
+
+            if joint_specific_target_excess_squared:
+                if data.joint_pos_target is None:
+                    raise RuntimeError(
+                        "joint-specific target shaping requires joint_pos_target"
+                    )
+                joint_specific_error = (
+                    data.joint_pos_target - data.default_joint_pos
+                )
+            else:
+                joint_specific_error = error
+
             groups = (
                 (
                     "shoulder_pitch",
@@ -1586,8 +1603,8 @@ class posture_envelope_guard(ManagerTermBase):
 
             numerator = torch.zeros(
                 env.num_envs,
-                device=error.device,
-                dtype=error.dtype,
+                device=joint_specific_error.device,
+                dtype=joint_specific_error.dtype,
             )
             denominator = 0.0
 
@@ -1607,7 +1624,8 @@ class posture_envelope_guard(ManagerTermBase):
                     )
 
                 excess = (
-                    error[:, list(ids)].abs() - float(tolerance)
+                    joint_specific_error[:, list(ids)].abs()
+                    - float(tolerance)
                 ).clamp_min(0.0)
 
                 numerator = numerator + float(relative_weight) * torch.sum(

@@ -1,0 +1,15 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/geometry_locomotion_v08a5_joint_target_excess010_100.yaml
+  resolved_config_required: true
+
+experiment:
+  id: geometry_locomotion_v08a5_joint_target_excess010_smoke4
+  purpose: >-
+    Four-update runtime qualification of V08-A5 processed arm-target
+    displacement shaping.
+
+execution:
+  environments: 32
+  maximum_iterations: 4

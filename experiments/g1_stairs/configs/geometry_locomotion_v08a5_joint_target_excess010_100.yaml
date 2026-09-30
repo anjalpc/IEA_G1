@@ -1,0 +1,17 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/geometry_locomotion_v08a4_joint_excess010_100.yaml
+  resolved_config_required: true
+
+experiment:
+  id: geometry_locomotion_v08a5_joint_target_excess010_100
+  purpose: >-
+    Restart protected model2130 with the A4 joint-specific arm envelope
+    applied to processed joint-position targets rather than realized joint
+    positions. All other A4 settings remain unchanged.
+
+reward_parameters:
+  posture_envelope_guard:
+    joint_specific_excess_squared: false
+    joint_specific_target_excess_squared: true

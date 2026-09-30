@@ -612,6 +612,7 @@ class StairRewardsCfg:
             # V08-A3 opt-in continuous nominal-relative arm shaping.
             # Defaults preserve all historical posture-envelope behavior.
             "joint_specific_excess_squared": False,
+            "joint_specific_target_excess_squared": False,
             "shoulder_pitch_tolerance_rad": 0.45,
             "shoulder_pitch_relative_weight": 0.25,
             "shoulder_roll_tolerance_rad": 0.40,
