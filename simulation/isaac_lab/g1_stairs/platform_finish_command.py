@@ -103,8 +103,14 @@ def apply_platform_finish_command(env_cfg, resolved, contract):
     if unknown:
         raise ValueError(f"Unknown platform_finish parameters: {sorted(unknown)}")
     options.update(overrides)
-    if any(not math.isfinite(v) or v <= 0 for v in options.values()):
-        raise ValueError("platform_finish parameters must be finite and positive")
+    for name, value in options.items():
+        if not math.isfinite(value) or (
+            value < 0 if name == "stop_buffer_m" else value <= 0
+        ):
+            raise ValueError(
+                "platform_finish parameters must be finite and positive; "
+                "stop_buffer_m may be zero"
+            )
     if not options["creep_speed_mps"] <= options["cruise_speed_mps"] <= 0.50:
         raise ValueError("require creep <= cruise <= 0.50")
 

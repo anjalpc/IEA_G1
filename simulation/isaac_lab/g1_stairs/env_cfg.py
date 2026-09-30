@@ -607,6 +607,7 @@ class StairRewardsCfg:
             "asset_cfg": SceneEntityCfg("robot"),
             "arms_free_rms_rad": 0.25,
             "arms_zero_rms_rad": 0.70,
+            "arms_only": False,
             "waist_free_rms_rad": 0.15,
             "waist_zero_rms_rad": 0.45,
             "lateral_legs_free_rms_rad": 0.22,

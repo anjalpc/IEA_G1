@@ -1497,6 +1497,7 @@ class posture_envelope_guard(ManagerTermBase):
         waist_zero_rms_rad: float = 0.45,
         lateral_legs_free_rms_rad: float = 0.22,
         lateral_legs_zero_rms_rad: float = 0.55,
+        arms_only: bool = False,
     ) -> torch.Tensor:
         data = env.scene[asset_cfg.name].data
         error = data.joint_pos - data.default_joint_pos
@@ -1507,6 +1508,8 @@ class posture_envelope_guard(ManagerTermBase):
         arm_bad = 1.0 - deadzone_score(
             rms(self._arm_ids), free_tolerance=arms_free_rms_rad, zero_at=arms_zero_rms_rad
         )
+        if arms_only:
+            return arm_bad
         waist_bad = 1.0 - deadzone_score(
             rms(self._waist_ids), free_tolerance=waist_free_rms_rad, zero_at=waist_zero_rms_rad
         )

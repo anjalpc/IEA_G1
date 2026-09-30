@@ -103,8 +103,10 @@ def platform_finish_speed(
         raise ValueError("slowdown_distance must be positive and finite")
     if resume_x is None:
         resume_x = stop_x - 0.10
-    if resume_x >= stop_x:
-        raise ValueError("resume_x must be below stop_x")
+    if not (math.isfinite(stop_x) and math.isfinite(resume_x)):
+        raise ValueError("stop_x and resume_x must be finite")
+    if resume_x > stop_x:
+        raise ValueError("resume_x must not exceed stop_x")
     settling = (settling & ~reset & (local_x >= resume_x)) | (
         ~reset & feet_safe & (local_x >= stop_x)
     )
