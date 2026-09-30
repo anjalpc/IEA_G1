@@ -1,0 +1,24 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/geometry_locomotion_v08a5_joint_target_excess010_100.yaml
+  resolved_config_required: true
+
+experiment:
+  id: posture500
+  purpose: Test longer adaptation to the existing A5 arm-target objective.
+
+execution:
+  environments: 2048
+  maximum_iterations: 500
+
+policy_initialization:
+  type: rsl_rl_training_resume
+  source:
+    path: /workspace/IEA_G1/experiments/g1_stairs/checkpoints/v07_model2130_high_stair_candidate.pt
+    sha256: 70f319de7e95ee3eaa68cd01e0dd57235efa6822aee4d1c51362d11137da5cee
+  critic_initialization: restored
+  optimizer_initialization: restored
+
+checkpointing:
+  interval_iterations: 10
