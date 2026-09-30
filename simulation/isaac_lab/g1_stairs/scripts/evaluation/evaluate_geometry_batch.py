@@ -123,6 +123,8 @@ def dispatch_isolated_batches():
                 summary["model_sha256"], summary["config_sha256"],
                 json.dumps(summary["episode_contract"], sort_keys=True),
                 summary["unitree_baseline"],
+                json.dumps(summary["action_sampling"], sort_keys=True),
+                summary["wrist_target_scale"],
                 tuple(sorted(summary["forbidden_contact_bodies_observed"])),
             )
             if first is None:
@@ -189,6 +191,9 @@ parser.add_argument("--task", default="Unitree-IEA-G1-29dof-Stairs-v0")
 parser.add_argument("--resolved-config", required=True)
 parser.add_argument("--output-dir", required=True)
 parser.add_argument("--unitree-baseline", action="store_true")
+parser.add_argument("--sample-actions", action="store_true")
+parser.add_argument("--arm-noise-scale", type=float, default=1.0)
+parser.add_argument("--wrist-target-scale", type=float, default=1.0)
 parser.add_argument("--trace", action="store_true", help="Record one environment and one episode before automatic reset")
 parser.add_argument("--heights", type=float, nargs="+", default=[0.0, 0.04])
 parser.add_argument("--seeds", type=int, nargs="+", default=[42, 43, 44])
@@ -197,6 +202,16 @@ parser.add_argument("--episodes-per-env", type=int, default=1)
 cli_args.add_rsl_rl_args(parser)
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
+if not 0.0 <= args.wrist_target_scale <= 1.0:
+    parser.error("--wrist-target-scale must be in [0, 1]")
+if args.wrist_target_scale != 1.0 and (args.sample_actions or args.unitree_baseline):
+    parser.error("Wrist intervention requires deterministic checkpoint evaluation")
+if not 0.0 < args.arm_noise_scale <= 1.0:
+    parser.error("--arm-noise-scale must be in (0, 1]")
+if args.arm_noise_scale != 1.0 and not args.sample_actions:
+    parser.error("--arm-noise-scale requires --sample-actions")
+if args.sample_actions and args.unitree_baseline:
+    parser.error("sampled evaluation requires an RSL-RL checkpoint")
 if args.trace and (args.num_envs != 1 or args.episodes_per_env != 1):
     parser.error("--trace requires --num-envs 1 --episodes-per-env 1")
 if bool(args.checkpoint) == args.unitree_baseline:
@@ -242,6 +257,7 @@ def main():
               "entered_stairs", "terminal_phase"]
     all_rows = []
     coverage = None
+    sampling = None
     def persist_completed_summary():
         summaries = []
         for height in args.heights:
@@ -257,6 +273,8 @@ def main():
             })
         summary = {
             "schema_version": 1, "episode_contract": resolved["episode_contract"],
+            "action_sampling": sampling,
+            "wrist_target_scale": args.wrist_target_scale,
             "config_sha256": hashlib.sha256(config_path.read_bytes()).hexdigest(),
             "model": str(model), "model_sha256": hashlib.sha256(model.read_bytes()).hexdigest(),
             "unitree_baseline": args.unitree_baseline, "seeds": args.seeds,
@@ -310,6 +328,99 @@ def main():
                     else:
                         runner.load(str(model), load_optimizer=False)
                     policy = runner.get_inference_policy(device=env.unwrapped.device)
+                    sampling = {
+                        "mode": "sampled" if args.sample_actions else "deterministic",
+                        "arm_noise_scale": args.arm_noise_scale,
+                    }
+                    if args.sample_actions:
+                        if resolved["ppo"].get("observation_normalization", False):
+                            raise ValueError("Sampling diagnostic requires unnormalized observations")
+                        actor = runner.alg.policy
+                        term = env.unwrapped.action_manager.get_term("JointPositionAction")
+                        names = list(term._joint_names)
+                        if names != list(resolved["actions"]["joint_order"]):
+                            raise ValueError("Runtime action order differs from recorded joint order")
+                        arm_ids = [
+                            i for i, name in enumerate(names)
+                            if any(token in name for token in ("_shoulder_", "_elbow_", "_wrist_"))
+                        ]
+                        if len(arm_ids) != 14 or actor.std.shape != (len(names),):
+                            raise ValueError("Unexpected arm selection or policy std shape")
+                        if not bool(torch.isfinite(actor.std).all() and (actor.std > 0).all()):
+                            raise ValueError("Policy std must be finite and positive")
+                        original_std = actor.std.detach().clone()
+                        expected_std = original_std.clone()
+                        expected_std[arm_ids] *= args.arm_noise_scale
+                        with torch.no_grad():
+                            actor.std.copy_(expected_std)
+                        sampling.update({
+                            "joint_names": names,
+                            "original_std": original_std.cpu().tolist(),
+                            "effective_std": actor.std.detach().cpu().tolist(),
+                        })
+
+                        # Check native distribution without consuming evaluation RNG.
+                        device = torch.device(env.unwrapped.device)
+                        devices = [device.index if device.index is not None
+                                   else torch.cuda.current_device()] if device.type == "cuda" else []
+                        check_obs = env.get_observations()
+                        with torch.random.fork_rng(devices=devices), torch.inference_mode():
+                            expected_mean = policy(check_obs).clone()
+                            actor.act(check_obs)
+                            torch.testing.assert_close(actor.action_mean, expected_mean)
+                            torch.testing.assert_close(
+                                actor.action_std,
+                                expected_std.expand_as(actor.action_std),
+                            )
+                        policy = actor.act
+                        print("[PASS] Native sampled mean/std and action ordering verified.", flush=True)
+                    if args.wrist_target_scale != 1.0:
+                        term = env.unwrapped.action_manager.get_term("JointPositionAction")
+                        names = list(term._joint_names)
+                        if names != list(resolved["actions"]["joint_order"]):
+                            raise ValueError("Runtime action ordering differs from config")
+                        wrists = [i for i, name in enumerate(names) if "_wrist_" in name]
+                        if len(wrists) != 6:
+                            raise ValueError("Expected exactly six wrist actions")
+                        if term.cfg.clip is not None or not term.cfg.use_default_offset:
+                            raise ValueError("Wrist diagnostic requires unclipped default-offset targets")
+
+                        robot = env.unwrapped.scene["robot"]
+                        nominal = robot.data.default_joint_pos[:, term._joint_ids]
+                        torch.testing.assert_close(term._offset, nominal)
+                        old_scale = torch.as_tensor(
+                            term._scale, device=term.raw_actions.device,
+                            dtype=term.raw_actions.dtype,
+                        ).expand_as(term.raw_actions).clone()
+                        new_scale = old_scale.clone()
+                        new_scale[:, wrists] *= args.wrist_target_scale
+                        others = [i for i in range(len(names)) if i not in wrists]
+
+                        # Exercise the actual controller, then restore its buffers.
+                        with torch.inference_mode():
+                            raw_before = term.raw_actions.clone()
+                            processed_before = term.processed_actions.clone()
+                            probe = torch.linspace(
+                                -0.8, 0.8, len(names), device=nominal.device,
+                                dtype=nominal.dtype,
+                            ).expand_as(term.raw_actions)
+                            term.process_actions(probe)
+                            original_targets = term.processed_actions.clone()
+                            term._scale = new_scale
+                            term.process_actions(probe)
+                            torch.testing.assert_close(
+                                term.processed_actions[:, wrists] - nominal[:, wrists],
+                                args.wrist_target_scale *
+                                (original_targets[:, wrists] - nominal[:, wrists]),
+                            )
+                            assert torch.equal(
+                                term.processed_actions[:, others],
+                                original_targets[:, others],
+                            ), "Non-wrist targets changed"
+                            term._raw_actions.copy_(raw_before)
+                            term._processed_actions.copy_(processed_before)
+                        print("[PASS] Wrist offsets scaled; non-wrist targets unchanged.", flush=True)
+
                     obs = env.get_observations()
                     if args.trace:
                         from geometry_trace import GeometryTrace
@@ -352,6 +463,11 @@ def main():
                     print(f"[INFO] evaluated height={height} seed={seed}: {sum(quotas)} episodes", flush=True)
                     if height == args.heights[-1] and seed == args.seeds[-1]:
                         persist_completed_summary()
+                except BaseException:
+                    import traceback
+                    traceback.print_exc()
+                    sys.stderr.flush()
+                    raise
                 finally:
                     if tracer is not None:
                         tracer.close()
@@ -368,6 +484,11 @@ def main():
 if __name__ == "__main__":
     try:
         main()
+    except BaseException:
+        import traceback
+        traceback.print_exc()
+        sys.stderr.flush()
+        raise
     finally:
         print("[INFO] Starting simulation_app.close()", flush=True)
         faulthandler.dump_traceback_later(30, repeat=True)

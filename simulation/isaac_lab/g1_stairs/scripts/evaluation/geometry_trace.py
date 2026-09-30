@@ -91,6 +91,11 @@ class GeometryTrace:
                     self.manager._step_reward[0] * env.step_dt
                 ),
             })
+        runtime = getattr(env, "_g1_geometry_episode", None)
+        row["finish_dwell_s"] = (
+            float(runtime.tracker.dwell[0].item())
+            if runtime is not None else None
+        )
         self.stream.write(json.dumps(row, allow_nan=False) + "\n")
 
     def compute(self, dt):
