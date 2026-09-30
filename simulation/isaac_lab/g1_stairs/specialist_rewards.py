@@ -1478,6 +1478,35 @@ class posture_envelope_guard(ManagerTermBase):
             for name in BODY_JOINTS
             if any(token in name for token in ("_shoulder_", "_elbow_", "_wrist_"))
         )
+
+        # Opt-in V08-A3 groups. Historical posture-envelope behavior below
+        # remains unchanged unless joint_specific_excess_squared=True.
+        self._shoulder_pitch_ids = tuple(
+            index_by_name[name]
+            for name in BODY_JOINTS
+            if "_shoulder_pitch_" in name
+        )
+        self._shoulder_roll_ids = tuple(
+            index_by_name[name]
+            for name in BODY_JOINTS
+            if "_shoulder_roll_" in name
+        )
+        self._shoulder_yaw_ids = tuple(
+            index_by_name[name]
+            for name in BODY_JOINTS
+            if "_shoulder_yaw_" in name
+        )
+        self._elbow_ids = tuple(
+            index_by_name[name]
+            for name in BODY_JOINTS
+            if "_elbow_" in name
+        )
+        self._wrist_ids = tuple(
+            index_by_name[name]
+            for name in BODY_JOINTS
+            if "_wrist_" in name
+        )
+
         self._waist_ids = tuple(
             index_by_name[name] for name in BODY_JOINTS if name.startswith("waist_")
         )
@@ -1498,12 +1527,101 @@ class posture_envelope_guard(ManagerTermBase):
         lateral_legs_free_rms_rad: float = 0.22,
         lateral_legs_zero_rms_rad: float = 0.55,
         arms_only: bool = False,
+        joint_specific_excess_squared: bool = False,
+        shoulder_pitch_tolerance_rad: float = 0.45,
+        shoulder_pitch_relative_weight: float = 0.25,
+        shoulder_roll_tolerance_rad: float = 0.40,
+        shoulder_roll_relative_weight: float = 0.50,
+        shoulder_yaw_tolerance_rad: float = 0.25,
+        shoulder_yaw_relative_weight: float = 1.50,
+        elbow_tolerance_rad: float = 0.45,
+        elbow_relative_weight: float = 0.25,
+        wrist_tolerance_rad: float = 0.25,
+        wrist_relative_weight: float = 2.00,
     ) -> torch.Tensor:
         data = env.scene[asset_cfg.name].data
         error = data.joint_pos - data.default_joint_pos
 
         def rms(ids):
             return torch.sqrt(torch.mean(error[:, list(ids)] ** 2, dim=1))
+
+        if joint_specific_excess_squared:
+            groups = (
+                (
+                    "shoulder_pitch",
+                    self._shoulder_pitch_ids,
+                    2,
+                    shoulder_pitch_tolerance_rad,
+                    shoulder_pitch_relative_weight,
+                ),
+                (
+                    "shoulder_roll",
+                    self._shoulder_roll_ids,
+                    2,
+                    shoulder_roll_tolerance_rad,
+                    shoulder_roll_relative_weight,
+                ),
+                (
+                    "shoulder_yaw",
+                    self._shoulder_yaw_ids,
+                    2,
+                    shoulder_yaw_tolerance_rad,
+                    shoulder_yaw_relative_weight,
+                ),
+                (
+                    "elbow",
+                    self._elbow_ids,
+                    2,
+                    elbow_tolerance_rad,
+                    elbow_relative_weight,
+                ),
+                (
+                    "wrist",
+                    self._wrist_ids,
+                    6,
+                    wrist_tolerance_rad,
+                    wrist_relative_weight,
+                ),
+            )
+
+            numerator = torch.zeros(
+                env.num_envs,
+                device=error.device,
+                dtype=error.dtype,
+            )
+            denominator = 0.0
+
+            for name, ids, expected_count, tolerance, relative_weight in groups:
+                if len(ids) != expected_count:
+                    raise RuntimeError(
+                        "unexpected G1 joint count for "
+                        f"{name}: {len(ids)} != {expected_count}"
+                    )
+                if tolerance < 0.0:
+                    raise ValueError(
+                        f"{name} tolerance must be non-negative"
+                    )
+                if relative_weight < 0.0:
+                    raise ValueError(
+                        f"{name} relative weight must be non-negative"
+                    )
+
+                excess = (
+                    error[:, list(ids)].abs() - float(tolerance)
+                ).clamp_min(0.0)
+
+                numerator = numerator + float(relative_weight) * torch.sum(
+                    excess.square(),
+                    dim=1,
+                )
+                denominator += float(relative_weight) * len(ids)
+
+            if denominator <= 0.0:
+                raise ValueError(
+                    "joint-specific arm relative weights must sum positive"
+                )
+
+            return numerator / denominator
 
         arm_bad = 1.0 - deadzone_score(
             rms(self._arm_ids), free_tolerance=arms_free_rms_rad, zero_at=arms_zero_rms_rad
