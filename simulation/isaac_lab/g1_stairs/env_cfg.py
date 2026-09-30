@@ -608,6 +608,20 @@ class StairRewardsCfg:
             "arms_free_rms_rad": 0.25,
             "arms_zero_rms_rad": 0.70,
             "arms_only": False,
+
+            # V08-A3 opt-in continuous nominal-relative arm shaping.
+            # Defaults preserve all historical posture-envelope behavior.
+            "joint_specific_excess_squared": False,
+            "shoulder_pitch_tolerance_rad": 0.45,
+            "shoulder_pitch_relative_weight": 0.25,
+            "shoulder_roll_tolerance_rad": 0.40,
+            "shoulder_roll_relative_weight": 0.50,
+            "shoulder_yaw_tolerance_rad": 0.25,
+            "shoulder_yaw_relative_weight": 1.50,
+            "elbow_tolerance_rad": 0.45,
+            "elbow_relative_weight": 0.25,
+            "wrist_tolerance_rad": 0.25,
+            "wrist_relative_weight": 2.00,
             "waist_free_rms_rad": 0.15,
             "waist_zero_rms_rad": 0.45,
             "lateral_legs_free_rms_rad": 0.22,
