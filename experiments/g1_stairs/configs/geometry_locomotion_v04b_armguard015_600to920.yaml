@@ -1,0 +1,26 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/geometry_locomotion_v04b_armguard015_from400_200.yaml
+  resolved_config_required: true
+
+experiment:
+  id: geometry_locomotion_v04b_armguard015_600to920
+  purpose: >-
+    Continue validated 0.15-rad wrist/yaw posture prevention from global
+    iteration 600 through the original V04-B arm-pathology region at 920.
+  meaningful_stair_training: true
+
+execution:
+  maximum_iterations: 320
+
+policy_initialization:
+  type: rsl_rl_training_resume
+  source:
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/geometry_locomotion_v04b_armguard015_from400_200_20261001_105125/model_600.pt
+    sha256: 3f3060bfd5056cb4b8c5aff820207fd5a57a25e036c4ba9cbf7eec15fa9b66e3
+  critic_initialization: restored
+  optimizer_initialization: restored
+
+checkpointing:
+  interval_iterations: 20
