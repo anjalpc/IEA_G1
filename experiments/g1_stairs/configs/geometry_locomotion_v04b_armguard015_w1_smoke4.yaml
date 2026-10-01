@@ -1,0 +1,13 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/geometry_locomotion_v04b_armguard015_w1_600to920.yaml
+  resolved_config_required: true
+
+experiment:
+  id: geometry_locomotion_v04b_armguard015_w1_smoke4
+  purpose: Runtime smoke for guard015 posture weight -1.0.
+  meaningful_stair_training: false
+
+execution:
+  maximum_iterations: 4
