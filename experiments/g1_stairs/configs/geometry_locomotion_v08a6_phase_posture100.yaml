@@ -1,0 +1,55 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/geometry_locomotion_v08a5_joint_target_excess010_100.yaml
+  resolved_config_required: true
+
+experiment:
+  id: geometry_locomotion_v08a6_phase_posture100
+  purpose: >-
+    Validate bounded phase-gated processed-target upper-body posture shaping
+    from protected model2130. Preserve stair/controller/observation/termination
+    contracts and existing posture diagnostics.
+
+execution:
+  environments: 2048
+  maximum_iterations: 100
+
+policy_initialization:
+  type: rsl_rl_training_resume
+  source:
+    path: /workspace/IEA_G1/experiments/g1_stairs/checkpoints/v07_model2130_high_stair_candidate.pt
+    sha256: 70f319de7e95ee3eaa68cd01e0dd57235efa6822aee4d1c51362d11137da5cee
+  critic_initialization: restored
+  optimizer_initialization: restored
+
+checkpointing:
+  interval_iterations: 10
+
+reward_parameters:
+  posture_envelope_guard:
+    joint_specific_excess_squared: false
+    joint_specific_target_excess_squared: false
+    a6_phase_gated_target_excess_squared: true
+
+    # Measure shoulder pitch, but do not directly penalize it in A6.
+    shoulder_pitch_relative_weight: 0.0
+
+    # Preserve A5 tolerances/relative weights for causal comparison.
+    shoulder_roll_tolerance_rad: 0.40
+    shoulder_roll_relative_weight: 0.50
+    shoulder_yaw_tolerance_rad: 0.25
+    shoulder_yaw_relative_weight: 1.50
+    elbow_tolerance_rad: 0.45
+    elbow_relative_weight: 0.25
+    wrist_tolerance_rad: 0.25
+    wrist_relative_weight: 2.00
+
+    # A6 phase schedule.
+    a6_platform_progress_distance_m: 2.0
+    a6_cruise_speed_mps: 0.35
+    a6_weak_scale: 0.25
+    a6_platform_gain: 0.75
+    a6_finish_gain: 1.0
+    a6_maximum_phase_scale: 2.0
+    a6_command_name: base_velocity

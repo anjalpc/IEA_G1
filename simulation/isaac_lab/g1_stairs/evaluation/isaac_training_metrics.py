@@ -120,6 +120,10 @@ POSTURE_BASE_DIAGNOSTIC_NAMES = (
     "posture_legs_action_rms",
     "posture_arms_action_rms",
     "posture_waist_action_rms",
+    "a6_posture_cost_raw",
+    "a6_phase_scale",
+    "a6_platform_progress",
+    "a6_finish_gate",
 )
 
 
@@ -858,6 +862,26 @@ class InstrumentedRslRlVecEnvWrapper:
                 _rms(executed_actions, ACTION_GROUP_INDICES["legs"]),
                 _rms(executed_actions, ACTION_GROUP_INDICES["arms"]),
                 _rms(executed_actions, ACTION_GROUP_INDICES["waist"]),
+                getattr(
+                    env,
+                    "_g1_a6_posture_cost_raw",
+                    torch.zeros_like(roll),
+                ),
+                getattr(
+                    env,
+                    "_g1_a6_phase_scale",
+                    torch.zeros_like(roll),
+                ),
+                getattr(
+                    env,
+                    "_g1_a6_platform_progress",
+                    torch.zeros_like(roll),
+                ),
+                getattr(
+                    env,
+                    "_g1_a6_finish_gate",
+                    torch.zeros_like(roll),
+                ),
             ),
             dim=1,
         )

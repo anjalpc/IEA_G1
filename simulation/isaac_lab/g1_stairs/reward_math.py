@@ -39,6 +39,47 @@ def finish_transition_gate(
     ).clamp(0.0, 1.0)
 
 
+def phase_gated_posture_scale(
+    platform_progress: torch.Tensor,
+    command_x_mps: torch.Tensor,
+    *,
+    cruise_speed_mps: float,
+    weak_scale: float = 0.25,
+    platform_gain: float = 0.75,
+    finish_gain: float = 1.0,
+    maximum_scale: float = 2.0,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Bound posture pressure by platform progress and the finish command.
+
+    Returns ``(phase_scale, finish_gate)``.  The finish gate is explicitly
+    multiplied by platform progress so a low command away from the platform
+    cannot activate finish posture pressure.
+    """
+    if weak_scale <= 0.0:
+        raise ValueError("weak_scale must be positive")
+    if platform_gain < 0.0:
+        raise ValueError("platform_gain must be non-negative")
+    if finish_gain < 0.0:
+        raise ValueError("finish_gain must be non-negative")
+    if maximum_scale < weak_scale:
+        raise ValueError("maximum_scale must be >= weak_scale")
+
+    progress = platform_progress.clamp(0.0, 1.0)
+    raw_finish_gate = finish_transition_gate(
+        command_x_mps,
+        cruise_speed_mps=cruise_speed_mps,
+    )
+    finish_gate = progress * raw_finish_gate
+
+    phase_scale = (
+        float(weak_scale)
+        + float(platform_gain) * progress
+        + float(finish_gain) * finish_gate
+    ).clamp(max=float(maximum_scale))
+
+    return phase_scale, finish_gate
+
+
 def normalized_planar_velocity_error(
     velocity_xy_mps: torch.Tensor,
     target_x_mps: torch.Tensor,

@@ -1,0 +1,15 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/geometry_locomotion_v08a6_phase_posture100.yaml
+  resolved_config_required: true
+
+experiment:
+  id: geometry_locomotion_v08a6_phase_posture_smoke4
+  purpose: >-
+    Four-update runtime qualification of A6 bounded phase-gated
+    processed-target upper-body posture shaping from protected model2130.
+
+execution:
+  environments: 32
+  maximum_iterations: 4

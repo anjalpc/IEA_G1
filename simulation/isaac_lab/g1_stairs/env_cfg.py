@@ -623,6 +623,16 @@ class StairRewardsCfg:
             "elbow_relative_weight": 0.25,
             "wrist_tolerance_rad": 0.25,
             "wrist_relative_weight": 2.00,
+
+            # A6 opt-in phase-gated processed-target posture shaping.
+            "a6_phase_gated_target_excess_squared": False,
+            "a6_platform_progress_distance_m": 2.0,
+            "a6_cruise_speed_mps": 0.35,
+            "a6_weak_scale": 0.25,
+            "a6_platform_gain": 0.75,
+            "a6_finish_gain": 1.0,
+            "a6_maximum_phase_scale": 2.0,
+            "a6_command_name": "base_velocity",
             "waist_free_rms_rad": 0.15,
             "waist_zero_rms_rad": 0.45,
             "lateral_legs_free_rms_rad": 0.22,

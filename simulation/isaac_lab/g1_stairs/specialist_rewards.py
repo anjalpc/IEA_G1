@@ -1539,6 +1539,14 @@ class posture_envelope_guard(ManagerTermBase):
         elbow_relative_weight: float = 0.25,
         wrist_tolerance_rad: float = 0.25,
         wrist_relative_weight: float = 2.00,
+        a6_phase_gated_target_excess_squared: bool = False,
+        a6_platform_progress_distance_m: float = 2.0,
+        a6_cruise_speed_mps: float = 0.35,
+        a6_weak_scale: float = 0.25,
+        a6_platform_gain: float = 0.75,
+        a6_finish_gain: float = 1.0,
+        a6_maximum_phase_scale: float = 2.0,
+        a6_command_name: str = "base_velocity",
     ) -> torch.Tensor:
         data = env.scene[asset_cfg.name].data
         error = data.joint_pos - data.default_joint_pos
@@ -1546,13 +1554,27 @@ class posture_envelope_guard(ManagerTermBase):
         def rms(ids):
             return torch.sqrt(torch.mean(error[:, list(ids)] ** 2, dim=1))
 
-        if joint_specific_excess_squared or joint_specific_target_excess_squared:
-            if joint_specific_excess_squared and joint_specific_target_excess_squared:
+        if (
+            joint_specific_excess_squared
+            or joint_specific_target_excess_squared
+            or a6_phase_gated_target_excess_squared
+        ):
+            selected_modes = sum(
+                (
+                    bool(joint_specific_excess_squared),
+                    bool(joint_specific_target_excess_squared),
+                    bool(a6_phase_gated_target_excess_squared),
+                )
+            )
+            if selected_modes != 1:
                 raise ValueError(
-                    "select only one joint-specific arm error source"
+                    "select exactly one joint-specific arm error source"
                 )
 
-            if joint_specific_target_excess_squared:
+            if (
+                joint_specific_target_excess_squared
+                or a6_phase_gated_target_excess_squared
+            ):
                 if data.joint_pos_target is None:
                     raise RuntimeError(
                         "joint-specific target shaping requires joint_pos_target"
@@ -1639,7 +1661,55 @@ class posture_envelope_guard(ManagerTermBase):
                     "joint-specific arm relative weights must sum positive"
                 )
 
-            return numerator / denominator
+            raw_cost = numerator / denominator
+
+            if not a6_phase_gated_target_excess_squared:
+                return raw_cost
+
+            if a6_platform_progress_distance_m <= 0.0:
+                raise ValueError(
+                    "a6_platform_progress_distance_m must be positive"
+                )
+
+            from .reward_math import phase_gated_posture_scale
+            from .terrain_state import stair_cfg
+
+            terrain = stair_cfg(env)
+            platform_start = (
+                terrain.start_clearance
+                + terrain.step_count * terrain.tread_depth
+            )
+            local_x = (
+                data.root_pos_w[:, 0]
+                - env.scene.env_origins[:, 0]
+            )
+
+            platform_progress = (
+                (local_x - platform_start)
+                / float(a6_platform_progress_distance_m)
+            ).clamp(0.0, 1.0)
+
+            command_x = env.command_manager.get_command(
+                a6_command_name
+            )[:, 0]
+
+            phase_scale, finish_gate = phase_gated_posture_scale(
+                platform_progress,
+                command_x,
+                cruise_speed_mps=a6_cruise_speed_mps,
+                weak_scale=a6_weak_scale,
+                platform_gain=a6_platform_gain,
+                finish_gain=a6_finish_gain,
+                maximum_scale=a6_maximum_phase_scale,
+            )
+
+            # Diagnostics only.  Detached tensors never feed back into PPO.
+            env._g1_a6_posture_cost_raw = raw_cost.detach()
+            env._g1_a6_phase_scale = phase_scale.detach()
+            env._g1_a6_platform_progress = platform_progress.detach()
+            env._g1_a6_finish_gate = finish_gate.detach()
+
+            return raw_cost * phase_scale
 
         arm_bad = 1.0 - deadzone_score(
             rms(self._arm_ids), free_tolerance=arms_free_rms_rad, zero_at=arms_zero_rms_rad
