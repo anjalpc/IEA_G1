@@ -1,0 +1,24 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/geometry_locomotion_v04b_wrist_target_from0_200.yaml
+  resolved_config_required: true
+
+experiment:
+  id: geometry_locomotion_v04b_wrist_target_fullresume0_200
+  purpose: >
+    Controlled V04-B model0 full-training-state resume with only the
+    wrist-target nominal-envelope prevention term changed.
+  type: geometry_conditioned_locomotion
+
+execution:
+  maximum_iterations: 200
+  training_seed: 42
+
+policy_initialization:
+  type: rsl_rl_training_resume
+  source:
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/geometry_locomotion_v04b_long2000_20260928_121802/model_0.pt
+    sha256: 12a74b63a05cce81385f44e3a34ed7ae9cff425996f59cf163b01b184bfa689f
+  critic_initialization: restored
+  optimizer_initialization: restored
