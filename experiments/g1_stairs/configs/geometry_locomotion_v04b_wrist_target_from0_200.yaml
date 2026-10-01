@@ -1,0 +1,76 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/geometry_locomotion_v04b_long2000.yaml
+  resolved_config_required: true
+
+experiment:
+  id: geometry_locomotion_v04b_wrist_target_from0_200
+  purpose: >
+    Clean V04-B prevention branch from model0 using only a wrist-target
+    nominal-envelope cost before the learned wrist/yaw pathology develops.
+  type: geometry_conditioned_locomotion
+
+execution:
+  maximum_iterations: 200
+  training_seed: 42
+
+policy_initialization:
+  type: rsl_rl_checkpoint_actor_transfer
+  source:
+    task: geometry_locomotion_v04b
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/geometry_locomotion_v04b_long2000_20260928_121802/model_0.pt
+  locomotion_observations: 480
+  terrain_observations: 0
+  stair_observations: 485
+  actions: 29
+  terrain_initialization: zero
+  critic_initialization: fresh
+  pretrained_actor_trainable: true
+  actor_height_scan_observations: 0
+
+reward_experiment:
+  active_stage: geometry_locomotion_v04b_wrist_target_guard
+  strict_runtime_set: true
+  rewards:
+    stage_plan:
+      geometry_locomotion_v04b_wrist_target_guard:
+        track_stair_axis_velocity: 1.0
+        track_ang_vel_z: 0.5
+        stair_centerline_error: -0.5
+        alive: 0.15
+        upright: -5.0
+        base_angular_velocity: -0.05
+        joint_acc: -0.00000025
+        action_rate: -0.05
+        dof_pos_limits: -5.0
+        feet_slide: -0.2
+        undesired_contacts: -5.0
+        terrain_relative_clearance: 1.0
+        forward_insertion: 1.0
+        posture_envelope_guard: -1.0
+
+reward_parameters:
+  posture_envelope_guard:
+    joint_specific_excess_squared: false
+    joint_specific_target_excess_squared: true
+
+    shoulder_pitch_tolerance_rad: 0.45
+    shoulder_pitch_relative_weight: 0.0
+
+    shoulder_roll_tolerance_rad: 0.40
+    shoulder_roll_relative_weight: 0.0
+
+    shoulder_yaw_tolerance_rad: 0.25
+    shoulder_yaw_relative_weight: 0.0
+
+    elbow_tolerance_rad: 0.45
+    elbow_relative_weight: 0.0
+
+    wrist_tolerance_rad: 0.15
+    wrist_relative_weight: 1.0
+
+checkpointing:
+  interval_iterations: 10
+  best_training_candidate:
+    enabled: false
