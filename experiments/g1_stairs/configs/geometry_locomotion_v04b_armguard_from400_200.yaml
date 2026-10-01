@@ -1,0 +1,53 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/geometry_locomotion_v04b_long2000.yaml
+  resolved_config_required: true
+
+experiment:
+  id: geometry_locomotion_v04b_armguard_from400_200
+  purpose: >-
+    Full-state resume from V04-B model400 with one causal change:
+    weak joint-specific arms-only nominal posture excess penalty.
+  type: geometry_locomotion_causal_ablation
+  meaningful_stair_training: true
+
+execution:
+  maximum_iterations: 200
+
+policy_initialization:
+  type: rsl_rl_training_resume
+  source:
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/geometry_locomotion_v04b_long2000_20260928_121802/model_400.pt
+    sha256: 2e9219d1a8003619b73146ee0381ee3574d94774f314879817c35254385ce005
+  critic_initialization: restored
+  optimizer_initialization: restored
+
+reward_experiment:
+  rewards:
+    stage_plan:
+      geometry_locomotion_v04a:
+        posture_envelope_guard: -0.05
+
+reward_parameters:
+  posture_envelope_guard:
+    joint_specific_excess_squared: true
+    joint_specific_target_excess_squared: false
+
+    shoulder_pitch_tolerance_rad: 0.45
+    shoulder_pitch_relative_weight: 0.25
+
+    shoulder_roll_tolerance_rad: 0.40
+    shoulder_roll_relative_weight: 0.50
+
+    shoulder_yaw_tolerance_rad: 0.25
+    shoulder_yaw_relative_weight: 1.50
+
+    elbow_tolerance_rad: 0.45
+    elbow_relative_weight: 0.25
+
+    wrist_tolerance_rad: 0.25
+    wrist_relative_weight: 2.00
+
+checkpointing:
+  interval_iterations: 10

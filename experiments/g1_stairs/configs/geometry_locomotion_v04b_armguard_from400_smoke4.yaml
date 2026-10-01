@@ -1,0 +1,13 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/geometry_locomotion_v04b_armguard_from400_200.yaml
+  resolved_config_required: true
+
+experiment:
+  id: geometry_locomotion_v04b_armguard_from400_smoke4
+  purpose: Runtime smoke for model400 arm-posture prevention causal fork.
+  meaningful_stair_training: false
+
+execution:
+  maximum_iterations: 4
