@@ -52,4 +52,3 @@ reward_parameters:
     a6_platform_gain: 0.75
     a6_finish_gain: 1.0
     a6_maximum_phase_scale: 2.0
-    a6_command_name: base_velocity
