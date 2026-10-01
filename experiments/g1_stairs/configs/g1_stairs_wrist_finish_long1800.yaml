@@ -1,22 +1,19 @@
 schema_version: 1
-
 inheritance:
   base_config: experiments/g1_stairs/configs/geometry_locomotion_v05b_finish_stabilization_long2000.yaml
   resolved_config_required: true
-
 experiment:
   id: g1_stairs_wrist_finish_long1800
-  purpose: >
-    Continue clean-wrist model200 with the validated V05-B stair finish
-    and stabilization task through approximately global iteration 2000.
+  purpose: 'Continue clean-wrist model200 with the validated V05-B stair finish and
+    stabilization task through approximately global iteration 2000.
+
+    '
   type: geometry_conditioned_finish_stabilization_long
   meaningful_stair_training: true
-
 execution:
   environments: 2048
   maximum_iterations: 1800
   training_seed: 42
-
 policy_initialization:
   type: rsl_rl_training_resume
   source:
@@ -24,7 +21,6 @@ policy_initialization:
     sha256: d2d3ea702945116269ceea74ad7ba054f0a620aaf5327d32762434468d4dce27
   critic_initialization: restored
   optimizer_initialization: restored
-
 reward_experiment:
   active_stage: geometry_locomotion_v05b_finish_stabilization
   strict_runtime_set: true
@@ -48,14 +44,13 @@ reward_experiment:
         finish_planar_velocity_error: -0.15
         finish_centerline_error: -0.05
         posture_envelope_guard: -1.0
-
 reward_parameters:
   posture_envelope_guard:
     joint_specific_excess_squared: false
     joint_specific_target_excess_squared: true
     shoulder_pitch_tolerance_rad: 0.45
     shoulder_pitch_relative_weight: 0.0
-    shoulder_roll_tolerance_rad: 0.40
+    shoulder_roll_tolerance_rad: 0.4
     shoulder_roll_relative_weight: 0.0
     shoulder_yaw_tolerance_rad: 0.25
     shoulder_yaw_relative_weight: 0.0
@@ -63,7 +58,8 @@ reward_parameters:
     elbow_relative_weight: 0.0
     wrist_tolerance_rad: 0.15
     wrist_relative_weight: 1.0
-
 checkpointing:
   interval_iterations: 10
   preserve_optimizer_state: true
+terrain:
+  required_platform_continuation_m: 0.2
