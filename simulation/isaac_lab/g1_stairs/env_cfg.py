@@ -877,6 +877,17 @@ class StairRewardsCfg:
         },
     )
 
+    riser_face_strike = RewTerm(
+        func=geometry_acquisition_rewards.riser_face_strike,
+        weight=0.0,
+        params={
+            "face_band_m": 0.025,
+            "below_top_margin_m": 0.005,
+            "minimum_horizontal_force_n": 30.0,
+            "minimum_previous_forward_speed_mps": 0.10,
+        },
+    )
+
     knee_forward_velocity_guard = RewTerm(
         func=geometry_acquisition_rewards.knee_forward_velocity_guard,
         weight=0.0,

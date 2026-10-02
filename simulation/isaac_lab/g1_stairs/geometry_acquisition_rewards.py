@@ -843,6 +843,190 @@ class forward_insertion(ManagerTermBase):
         )
         return self.runtime.insertion_reward
 
+class riser_face_strike(ManagerTermBase):
+    """Emit one event for a low forward impact on the current target riser."""
+
+    def __init__(self, cfg, env: "ManagerBasedRLEnv"):
+        super().__init__(cfg, env)
+        self.runtime = _runtime(env)
+
+        shape = (env.num_envs, 2)
+
+        self._active = torch.zeros(
+            shape,
+            dtype=torch.bool,
+            device=env.device,
+        )
+        self._previous_vx = torch.zeros(
+            shape,
+            dtype=torch.float32,
+            device=env.device,
+        )
+        self._initialized = torch.zeros(
+            env.num_envs,
+            dtype=torch.bool,
+            device=env.device,
+        )
+
+    def reset(
+        self,
+        env_ids: Sequence[int] | None = None,
+    ) -> None:
+        if env_ids is None:
+            env_ids = slice(None)
+
+        self._active[env_ids] = False
+        self._previous_vx[env_ids] = 0.0
+        self._initialized[env_ids] = False
+
+    def __call__(
+        self,
+        env: "ManagerBasedRLEnv",
+        face_band_m: float = 0.025,
+        below_top_margin_m: float = 0.005,
+        minimum_horizontal_force_n: float = 30.0,
+        minimum_previous_forward_speed_mps: float = 0.10,
+    ) -> torch.Tensor:
+        if face_band_m <= 0.0:
+            raise ValueError("face_band_m must be positive")
+        if below_top_margin_m < 0.0:
+            raise ValueError("below_top_margin_m cannot be negative")
+        if minimum_horizontal_force_n <= 0.0:
+            raise ValueError("minimum_horizontal_force_n must be positive")
+        if minimum_previous_forward_speed_mps < 0.0:
+            raise ValueError(
+                "minimum_previous_forward_speed_mps cannot be negative"
+            )
+
+        runtime = self.runtime
+        cfg = stair_cfg(env)
+
+        tread = float(cfg.tread_depth)
+        first_riser = float(cfg.start_clearance)
+        step_count = int(cfg.step_count)
+
+        riser_height = riser_height_per_env(env)
+
+        data = runtime.robot.data
+
+        foot_pos = (
+            data.body_pos_w[:, runtime.robot_foot_ids]
+            - env.scene.env_origins[:, None, :]
+        )
+        foot_quat = data.body_quat_w[:, runtime.robot_foot_ids]
+
+        offsets = runtime.sole_centres.to(
+            dtype=foot_pos.dtype
+        )[None, None].expand(
+            env.num_envs,
+            2,
+            -1,
+            -1,
+        )
+
+        quaternions = foot_quat.unsqueeze(2).expand(
+            -1,
+            -1,
+            offsets.shape[2],
+            -1,
+        )
+
+        sole_points = (
+            foot_pos.unsqueeze(2)
+            + _quat_rotate_wxyz(quaternions, offsets)
+        )
+
+        radius = float(G1_SOLE_SPHERE_RADIUS_M)
+
+        sole_bottom = (
+            sole_points[..., 2] - radius
+        ).amin(dim=2)
+
+        rear_x = (
+            sole_points[..., 0].amin(dim=2) - radius
+        )
+        front_x = (
+            sole_points[..., 0].amax(dim=2) + radius
+        )
+
+        target_index = runtime.target_step.clamp(
+            min=0,
+            max=step_count - 1,
+        )
+
+        valid_target = (
+            (runtime.target_step < step_count)
+            & (riser_height[:, None] > 1.0e-8)
+        )
+
+        target_riser_x = (
+            first_riser
+            + target_index.to(foot_pos.dtype) * tread
+        )
+
+        target_tread_height = (
+            (target_index + 1).to(foot_pos.dtype)
+            * riser_height[:, None]
+        )
+
+        force_x = runtime.sensor.data.net_forces_w[
+            :,
+            runtime.sensor_foot_ids,
+            0,
+        ]
+
+        current_vx = data.body_lin_vel_w[
+            :,
+            runtime.robot_foot_ids,
+            0,
+        ]
+
+        previous_vx = torch.where(
+            self._initialized[:, None],
+            self._previous_vx,
+            current_vx,
+        )
+
+        near_face = (
+            (front_x >= target_riser_x - float(face_band_m))
+            & (rear_x <= target_riser_x + float(face_band_m))
+        )
+
+        below_top = (
+            sole_bottom
+            <= target_tread_height - float(below_top_margin_m)
+        )
+
+        opposing_impact = (
+            force_x <= -float(minimum_horizontal_force_n)
+        )
+
+        moving_forward_before_impact = (
+            previous_vx
+            >= float(minimum_previous_forward_speed_mps)
+        )
+
+        strike = (
+            valid_target
+            & near_face
+            & below_top
+            & opposing_impact
+            & moving_forward_before_impact
+        )
+
+        event = strike & ~self._active
+
+        self._active.copy_(strike)
+        self._previous_vx.copy_(current_vx)
+        self._initialized[:] = True
+
+        # RewardManager multiplies by env.step_dt.
+        return (
+            event.to(dtype=foot_pos.dtype).sum(dim=1)
+            / float(env.step_dt)
+        )
+
+
 class knee_forward_velocity_guard(ManagerTermBase):
     """Penalize excessive forward knee speed during tall-riser acquisition.
 

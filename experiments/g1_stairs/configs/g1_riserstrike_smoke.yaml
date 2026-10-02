@@ -1,0 +1,38 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_stairs_phase_armguard_base.yaml
+  resolved_config_required: true
+
+experiment:
+  id: g1_riserstrike_smoke
+  purpose: Runtime smoke for target-relative riser-face strike penalty.
+
+execution:
+  environments: 32
+  maximum_iterations: 4
+  training_seed: 42
+
+checkpointing:
+  interval_iterations: 2
+
+policy_initialization:
+  type: rsl_rl_training_resume
+  source:
+    path: /workspace/IEA_G1/experiments/g1_stairs/checkpoints/phase_armguard_model599.pt
+    sha256: 4ec3d9c8804d78c190451e198c1e2659bf6bab4ac6b3f31c816d25d98f85186e
+  critic_initialization: restored
+  optimizer_initialization: restored
+
+reward_experiment:
+  rewards:
+    stage_plan:
+      geometry_locomotion_clean:
+        riser_face_strike: -0.5
+
+reward_parameters:
+  riser_face_strike:
+    face_band_m: 0.025
+    below_top_margin_m: 0.005
+    minimum_horizontal_force_n: 30.0
+    minimum_previous_forward_speed_mps: 0.10
