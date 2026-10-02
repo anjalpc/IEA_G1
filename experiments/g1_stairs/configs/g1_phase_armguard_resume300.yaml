@@ -1,0 +1,25 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_phase_armguard_diag.yaml
+  resolved_config_required: true
+
+experiment:
+  id: g1_phase_armguard_resume300
+  purpose: Continue phase-aware shoulder-envelope training from model299 for 300 additional PPO updates.
+
+execution:
+  environments: 2048
+  maximum_iterations: 300
+  training_seed: 42
+
+policy_initialization:
+  type: rsl_rl_training_resume
+  source:
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/g1_phase_armguard_diag_20261002_105240/model_299.pt
+    sha256: 504e0c06501cc11f702399f04ad0b7fd21b2ce5001f6276e9fa1be1686f138f5
+  critic_initialization: restored
+  optimizer_initialization: restored
+
+checkpointing:
+  interval_iterations: 100
