@@ -166,6 +166,15 @@ class GeometryAcquisitionRuntime:
         )
         self.best_insertion = torch.zeros_like(self.best_clearance)
 
+        # Previous forward foot velocity is used only to reject static/support
+        # contact when identifying a forward riser-face impact.
+        self.previous_foot_vx = torch.zeros_like(self.best_clearance)
+        self.previous_foot_vx_initialized = torch.zeros(
+            env.num_envs,
+            dtype=torch.bool,
+            device=env.device,
+        )
+
         self.clearance_reward = torch.zeros(
             env.num_envs,
             dtype=torch.float32,
@@ -230,6 +239,8 @@ class GeometryAcquisitionRuntime:
         self.support_elapsed[env_ids] = 0.0
         self.best_clearance[env_ids] = 0.0
         self.best_insertion[env_ids] = 0.0
+        self.previous_foot_vx[env_ids] = 0.0
+        self.previous_foot_vx_initialized[env_ids] = False
 
         if self.contact_current_duration.shape[1] > 0:
             self.contact_current_duration[env_ids] = 0.0
@@ -252,6 +263,11 @@ class GeometryAcquisitionRuntime:
         touchdown_speed_mps: float,
         touchdown_height_tolerance_m: float,
         diagnostic_contact_threshold_n: float,
+        suppress_riser_face_clearance_credit: bool = False,
+        riser_face_band_m: float = 0.025,
+        riser_below_top_margin_m: float = 0.005,
+        riser_minimum_horizontal_force_n: float = 30.0,
+        riser_minimum_previous_forward_speed_mps: float = 0.10,
     ) -> None:
         step = int(env.common_step_counter)
         if self.last_step == step:
@@ -269,6 +285,18 @@ class GeometryAcquisitionRuntime:
         if not 0.0 <= insertion_clearance_fraction < 1.0:
             raise ValueError(
                 "insertion_clearance_fraction must be in [0, 1)"
+            )
+        if riser_face_band_m <= 0.0:
+            raise ValueError("riser_face_band_m must be positive")
+        if riser_below_top_margin_m < 0.0:
+            raise ValueError("riser_below_top_margin_m cannot be negative")
+        if riser_minimum_horizontal_force_n <= 0.0:
+            raise ValueError(
+                "riser_minimum_horizontal_force_n must be positive"
+            )
+        if riser_minimum_previous_forward_speed_mps < 0.0:
+            raise ValueError(
+                "riser_minimum_previous_forward_speed_mps cannot be negative"
             )
 
         cfg = stair_cfg(env)
@@ -369,6 +397,54 @@ class GeometryAcquisitionRuntime:
             * riser_height[:, None]
         )
 
+        if hasattr(data, "body_lin_vel_w"):
+            current_vx = data.body_lin_vel_w[
+                :,
+                self.robot_foot_ids,
+                0,
+            ]
+        else:
+            current_vx = torch.zeros_like(sole_bottom)
+
+        previous_vx = torch.where(
+            self.previous_foot_vx_initialized[:, None],
+            self.previous_foot_vx,
+            current_vx,
+        )
+
+        force_x = self.sensor.data.net_forces_w[
+            :,
+            self.sensor_foot_ids,
+            0,
+        ]
+
+        near_riser_face = (
+            (front_x >= next_riser_x - float(riser_face_band_m))
+            & (rear_x <= next_riser_x + float(riser_face_band_m))
+        )
+
+        below_riser_top = (
+            sole_bottom
+            <= target_tread_height - float(riser_below_top_margin_m)
+        )
+
+        riser_face_strike_sample = (
+            valid_target
+            & near_riser_face
+            & below_riser_top
+            & (
+                force_x
+                <= -float(riser_minimum_horizontal_force_n)
+            )
+            & (
+                previous_vx
+                >= float(riser_minimum_previous_forward_speed_mps)
+            )
+        )
+
+        self.previous_foot_vx.copy_(current_vx)
+        self.previous_foot_vx_initialized[:] = True
+
         relative_height = (
             sole_bottom - support_height
         ).clamp_min(0.0)
@@ -431,6 +507,14 @@ class GeometryAcquisitionRuntime:
             new_clearance_peak - self.best_clearance
         ).clamp_min(0.0)
 
+        if suppress_riser_face_clearance_credit:
+            clearance_delta = torch.where(
+                riser_face_strike_sample,
+                torch.zeros_like(clearance_delta),
+                clearance_delta,
+            )
+
+        # Advance the potential even on a strike so credit cannot be paid later.
         self.best_clearance.copy_(new_clearance_peak)
 
         # Insertion begins only once substantial clearance has been achieved.
@@ -733,6 +817,11 @@ _COMMON_DEFAULTS = dict(
     touchdown_speed_mps=0.20,
     touchdown_height_tolerance_m=0.025,
     diagnostic_contact_threshold_n=1.0,
+    suppress_riser_face_clearance_credit=False,
+    riser_face_band_m=0.025,
+    riser_below_top_margin_m=0.005,
+    riser_minimum_horizontal_force_n=30.0,
+    riser_minimum_previous_forward_speed_mps=0.10,
 )
 
 
@@ -769,6 +858,11 @@ class terrain_relative_clearance(ManagerTermBase):
         touchdown_speed_mps: float = 0.20,
         touchdown_height_tolerance_m: float = 0.025,
         diagnostic_contact_threshold_n: float = 1.0,
+        suppress_riser_face_clearance_credit: bool = False,
+        riser_face_band_m: float = 0.025,
+        riser_below_top_margin_m: float = 0.005,
+        riser_minimum_horizontal_force_n: float = 30.0,
+        riser_minimum_previous_forward_speed_mps: float = 0.10,
     ) -> torch.Tensor:
         del asset_cfg, contact_sensor_cfg
         self.runtime.update(
@@ -786,6 +880,11 @@ class terrain_relative_clearance(ManagerTermBase):
             touchdown_speed_mps=touchdown_speed_mps,
             touchdown_height_tolerance_m=touchdown_height_tolerance_m,
             diagnostic_contact_threshold_n=diagnostic_contact_threshold_n,
+            suppress_riser_face_clearance_credit=suppress_riser_face_clearance_credit,
+            riser_face_band_m=riser_face_band_m,
+            riser_below_top_margin_m=riser_below_top_margin_m,
+            riser_minimum_horizontal_force_n=riser_minimum_horizontal_force_n,
+            riser_minimum_previous_forward_speed_mps=riser_minimum_previous_forward_speed_mps,
         )
         return self.runtime.clearance_reward
 
@@ -823,6 +922,11 @@ class forward_insertion(ManagerTermBase):
         touchdown_speed_mps: float = 0.20,
         touchdown_height_tolerance_m: float = 0.025,
         diagnostic_contact_threshold_n: float = 1.0,
+        suppress_riser_face_clearance_credit: bool = False,
+        riser_face_band_m: float = 0.025,
+        riser_below_top_margin_m: float = 0.005,
+        riser_minimum_horizontal_force_n: float = 30.0,
+        riser_minimum_previous_forward_speed_mps: float = 0.10,
     ) -> torch.Tensor:
         del asset_cfg, contact_sensor_cfg
         self.runtime.update(
@@ -840,6 +944,11 @@ class forward_insertion(ManagerTermBase):
             touchdown_speed_mps=touchdown_speed_mps,
             touchdown_height_tolerance_m=touchdown_height_tolerance_m,
             diagnostic_contact_threshold_n=diagnostic_contact_threshold_n,
+            suppress_riser_face_clearance_credit=suppress_riser_face_clearance_credit,
+            riser_face_band_m=riser_face_band_m,
+            riser_below_top_margin_m=riser_below_top_margin_m,
+            riser_minimum_horizontal_force_n=riser_minimum_horizontal_force_n,
+            riser_minimum_previous_forward_speed_mps=riser_minimum_previous_forward_speed_mps,
         )
         return self.runtime.insertion_reward
 

@@ -1,0 +1,43 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_stairs_phase_armguard_base.yaml
+  resolved_config_required: true
+
+experiment:
+  id: g1_clearance_nostrike_diag300
+  purpose: Suppress collision-assisted clearance credit without adding an explicit riser-impact penalty.
+
+execution:
+  environments: 2048
+  maximum_iterations: 300
+  training_seed: 42
+
+checkpointing:
+  interval_iterations: 100
+
+policy_initialization:
+  type: rsl_rl_training_resume
+  source:
+    path: /workspace/IEA_G1/experiments/g1_stairs/checkpoints/phase_armguard_model599.pt
+    sha256: 4ec3d9c8804d78c190451e198c1e2659bf6bab4ac6b3f31c816d25d98f85186e
+  critic_initialization: restored
+  optimizer_initialization: restored
+
+reward_parameters:
+  terrain_relative_clearance:
+    suppress_riser_face_clearance_credit: true
+    riser_face_band_m: 0.025
+    riser_below_top_margin_m: 0.005
+    riser_minimum_horizontal_force_n: 30.0
+    riser_minimum_previous_forward_speed_mps: 0.10
+
+  forward_insertion:
+    suppress_riser_face_clearance_credit: true
+    riser_face_band_m: 0.025
+    riser_below_top_margin_m: 0.005
+    riser_minimum_horizontal_force_n: 30.0
+    riser_minimum_previous_forward_speed_mps: 0.10
+
+# Deliberately no riser_face_strike stage weight:
+# this experiment changes clearance-credit semantics only.
