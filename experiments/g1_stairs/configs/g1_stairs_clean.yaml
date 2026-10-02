@@ -535,11 +535,11 @@ acquisition_credit:
   verified_insertion: true
   support_dwell_s: 0.1
 reward_experiment:
-  active_stage: clean_stairs
+  active_stage: geometry_locomotion_clean
   strict_runtime_set: true
   rewards:
     stage_plan:
-      clean_stairs:
+      geometry_locomotion_clean:
         track_stair_axis_velocity: 1.0
         track_ang_vel_z: 0.5
         stair_centerline_error: -0.5
