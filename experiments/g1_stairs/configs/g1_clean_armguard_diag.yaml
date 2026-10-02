@@ -1,0 +1,30 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_stairs_clean.yaml
+  resolved_config_required: true
+
+experiment:
+  id: g1_clean_armguard_diag
+  purpose: Same-contract 600-update qualification with prior-derived shoulder target envelope.
+
+execution:
+  environments: 2048
+  maximum_iterations: 600
+  training_seed: 42
+
+checkpointing:
+  interval_iterations: 100
+
+reward_experiment:
+  rewards:
+    stage_plan:
+      geometry_locomotion_clean:
+        posture_envelope_guard: -2.3333333333333335
+
+reward_parameters:
+  posture_envelope_guard:
+    shoulder_pitch_tolerance_rad: 0.22
+    shoulder_pitch_relative_weight: 1.0
+    shoulder_yaw_tolerance_rad: 0.10
+    shoulder_yaw_relative_weight: 1.0
