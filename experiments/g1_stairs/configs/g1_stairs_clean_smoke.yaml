@@ -1,0 +1,14 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_stairs_clean.yaml
+  resolved_config_required: true
+
+experiment:
+  id: g1_stairs_clean_smoke
+  purpose: Runtime qualification of the clean standalone stair contract.
+
+execution:
+  environments: 32
+  maximum_iterations: 4
+  training_seed: 42
