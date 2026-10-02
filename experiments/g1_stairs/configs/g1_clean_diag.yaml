@@ -1,0 +1,17 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_stairs_clean.yaml
+  resolved_config_required: true
+
+experiment:
+  id: g1_clean_diag
+  purpose: 600-update qualification of clean stair learning and arm behavior.
+
+execution:
+  environments: 2048
+  maximum_iterations: 600
+  training_seed: 42
+
+checkpointing:
+  interval_iterations: 100
