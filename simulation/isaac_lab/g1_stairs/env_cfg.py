@@ -852,6 +852,11 @@ class StairRewardsCfg:
             "touchdown_speed_mps": 0.20,
             "touchdown_height_tolerance_m": 0.025,
             "diagnostic_contact_threshold_n": 1.0,
+            "suppress_riser_face_clearance_credit": False,
+            "riser_face_band_m": 0.025,
+            "riser_below_top_margin_m": 0.005,
+            "riser_minimum_horizontal_force_n": 30.0,
+            "riser_minimum_previous_forward_speed_mps": 0.10,
         },
     )
 
@@ -874,6 +879,11 @@ class StairRewardsCfg:
             "touchdown_speed_mps": 0.20,
             "touchdown_height_tolerance_m": 0.025,
             "diagnostic_contact_threshold_n": 1.0,
+            "suppress_riser_face_clearance_credit": False,
+            "riser_face_band_m": 0.025,
+            "riser_below_top_margin_m": 0.005,
+            "riser_minimum_horizontal_force_n": 30.0,
+            "riser_minimum_previous_forward_speed_mps": 0.10,
         },
     )
 
