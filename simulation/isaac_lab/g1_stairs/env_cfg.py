@@ -614,6 +614,13 @@ class StairRewardsCfg:
             # Defaults preserve all historical posture-envelope behavior.
             "joint_specific_excess_squared": False,
             "joint_specific_target_excess_squared": False,
+            "phase_specific_target_excess_squared": False,
+            "phase_shoulder_pitch_approach_tolerance_rad": 0.20,
+            "phase_shoulder_pitch_ascent_tolerance_rad": 0.35,
+            "phase_shoulder_pitch_safe_platform_tolerance_rad": 0.20,
+            "phase_shoulder_yaw_approach_tolerance_rad": 0.10,
+            "phase_shoulder_yaw_ascent_tolerance_rad": 0.20,
+            "phase_shoulder_yaw_safe_platform_tolerance_rad": 0.10,
             "shoulder_pitch_tolerance_rad": 0.45,
             "shoulder_pitch_relative_weight": 0.25,
             "shoulder_roll_tolerance_rad": 0.40,

@@ -1,0 +1,17 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_phase_armguard_diag.yaml
+  resolved_config_required: true
+
+experiment:
+  id: g1_phase_armguard_smoke
+  purpose: Runtime smoke for phase-specific shoulder target-envelope qualification.
+
+execution:
+  environments: 32
+  maximum_iterations: 4
+  training_seed: 42
+
+checkpointing:
+  interval_iterations: 1

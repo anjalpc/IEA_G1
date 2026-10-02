@@ -1529,6 +1529,13 @@ class posture_envelope_guard(ManagerTermBase):
         arms_only: bool = False,
         joint_specific_excess_squared: bool = False,
         joint_specific_target_excess_squared: bool = False,
+        phase_specific_target_excess_squared: bool = False,
+        phase_shoulder_pitch_approach_tolerance_rad: float = 0.20,
+        phase_shoulder_pitch_ascent_tolerance_rad: float = 0.35,
+        phase_shoulder_pitch_safe_platform_tolerance_rad: float = 0.20,
+        phase_shoulder_yaw_approach_tolerance_rad: float = 0.10,
+        phase_shoulder_yaw_ascent_tolerance_rad: float = 0.20,
+        phase_shoulder_yaw_safe_platform_tolerance_rad: float = 0.10,
         shoulder_pitch_tolerance_rad: float = 0.45,
         shoulder_pitch_relative_weight: float = 0.25,
         shoulder_roll_tolerance_rad: float = 0.40,
@@ -1557,12 +1564,14 @@ class posture_envelope_guard(ManagerTermBase):
         if (
             joint_specific_excess_squared
             or joint_specific_target_excess_squared
+            or phase_specific_target_excess_squared
             or a6_phase_gated_target_excess_squared
         ):
             selected_modes = sum(
                 (
                     bool(joint_specific_excess_squared),
                     bool(joint_specific_target_excess_squared),
+                    bool(phase_specific_target_excess_squared),
                     bool(a6_phase_gated_target_excess_squared),
                 )
             )
@@ -1573,6 +1582,7 @@ class posture_envelope_guard(ManagerTermBase):
 
             if (
                 joint_specific_target_excess_squared
+                or phase_specific_target_excess_squared
                 or a6_phase_gated_target_excess_squared
             ):
                 if data.joint_pos_target is None:
@@ -1584,6 +1594,111 @@ class posture_envelope_guard(ManagerTermBase):
                 )
             else:
                 joint_specific_error = error
+
+            phase_pitch_tolerance = None
+            phase_yaw_tolerance = None
+
+            if phase_specific_target_excess_squared:
+                phase_values = (
+                    phase_shoulder_pitch_approach_tolerance_rad,
+                    phase_shoulder_pitch_ascent_tolerance_rad,
+                    phase_shoulder_pitch_safe_platform_tolerance_rad,
+                    phase_shoulder_yaw_approach_tolerance_rad,
+                    phase_shoulder_yaw_ascent_tolerance_rad,
+                    phase_shoulder_yaw_safe_platform_tolerance_rad,
+                )
+                if any(value < 0.0 for value in phase_values):
+                    raise ValueError(
+                        "phase-specific shoulder tolerances must be non-negative"
+                    )
+
+                if (
+                    phase_shoulder_pitch_approach_tolerance_rad
+                    > phase_shoulder_pitch_ascent_tolerance_rad
+                    or phase_shoulder_pitch_safe_platform_tolerance_rad
+                    > phase_shoulder_pitch_ascent_tolerance_rad
+                ):
+                    raise ValueError(
+                        "shoulder-pitch ascent tolerance must be at least as "
+                        "permissive as approach/safe-platform tolerance"
+                    )
+
+                if (
+                    phase_shoulder_yaw_approach_tolerance_rad
+                    > phase_shoulder_yaw_ascent_tolerance_rad
+                    or phase_shoulder_yaw_safe_platform_tolerance_rad
+                    > phase_shoulder_yaw_ascent_tolerance_rad
+                ):
+                    raise ValueError(
+                        "shoulder-yaw ascent tolerance must be at least as "
+                        "permissive as approach/safe-platform tolerance"
+                    )
+
+                runtime = getattr(env, "_g1_geometry_episode", None)
+
+                if runtime is not None:
+                    tracker = runtime.tracker
+
+                    if tracker.entered_stairs.shape != (env.num_envs,):
+                        raise RuntimeError(
+                            "entered_stairs must have shape [num_envs]"
+                        )
+                    if tracker.platform_seen.shape != (env.num_envs,):
+                        raise RuntimeError(
+                            "platform_seen must have shape [num_envs]"
+                        )
+
+                    entered_stairs = tracker.entered_stairs
+                    safe_platform = tracker.platform_seen
+
+                else:
+                    # Conservative startup fallback. Determine stair entry
+                    # geometrically; never claim safe-platform before the
+                    # strict episode tracker has verified it.
+                    from .terrain_state import riser_height_per_env, stair_cfg
+
+                    terrain = stair_cfg(env)
+                    robot = env.scene[asset_cfg.name]
+                    local_x = (
+                        robot.data.root_pos_w[:, 0]
+                        - env.scene.env_origins[:, 0]
+                    )
+
+                    entered_stairs = (
+                        (local_x >= float(terrain.start_clearance))
+                        & (riser_height_per_env(env) > 0.0)
+                    )
+                    safe_platform = torch.zeros_like(entered_stairs)
+
+                def phase_tolerance(approach, ascent, safe):
+                    value = torch.full(
+                        (env.num_envs,),
+                        float(approach),
+                        device=joint_specific_error.device,
+                        dtype=joint_specific_error.dtype,
+                    )
+                    value = torch.where(
+                        entered_stairs,
+                        torch.full_like(value, float(ascent)),
+                        value,
+                    )
+                    value = torch.where(
+                        safe_platform,
+                        torch.full_like(value, float(safe)),
+                        value,
+                    )
+                    return value
+
+                phase_pitch_tolerance = phase_tolerance(
+                    phase_shoulder_pitch_approach_tolerance_rad,
+                    phase_shoulder_pitch_ascent_tolerance_rad,
+                    phase_shoulder_pitch_safe_platform_tolerance_rad,
+                )
+                phase_yaw_tolerance = phase_tolerance(
+                    phase_shoulder_yaw_approach_tolerance_rad,
+                    phase_shoulder_yaw_ascent_tolerance_rad,
+                    phase_shoulder_yaw_safe_platform_tolerance_rad,
+                )
 
             groups = (
                 (
@@ -1645,9 +1760,22 @@ class posture_envelope_guard(ManagerTermBase):
                         f"{name} relative weight must be non-negative"
                     )
 
+                if (
+                    phase_specific_target_excess_squared
+                    and name == "shoulder_pitch"
+                ):
+                    effective_tolerance = phase_pitch_tolerance[:, None]
+                elif (
+                    phase_specific_target_excess_squared
+                    and name == "shoulder_yaw"
+                ):
+                    effective_tolerance = phase_yaw_tolerance[:, None]
+                else:
+                    effective_tolerance = float(tolerance)
+
                 excess = (
                     joint_specific_error[:, list(ids)].abs()
-                    - float(tolerance)
+                    - effective_tolerance
                 ).clamp_min(0.0)
 
                 numerator = numerator + float(relative_weight) * torch.sum(

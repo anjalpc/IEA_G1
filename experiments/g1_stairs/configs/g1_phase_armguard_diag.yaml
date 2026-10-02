@@ -1,0 +1,38 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_stairs_clean.yaml
+  resolved_config_required: true
+
+experiment:
+  id: g1_phase_armguard_diag
+  purpose: Same-curriculum qualification of phase-specific soft shoulder target envelopes.
+
+execution:
+  environments: 2048
+  maximum_iterations: 300
+  training_seed: 42
+
+checkpointing:
+  interval_iterations: 100
+
+reward_experiment:
+  rewards:
+    stage_plan:
+      geometry_locomotion_clean:
+        posture_envelope_guard: -2.1666666666666665
+
+reward_parameters:
+  posture_envelope_guard:
+    joint_specific_target_excess_squared: false
+    phase_specific_target_excess_squared: true
+
+    shoulder_pitch_relative_weight: 0.5
+
+    phase_shoulder_pitch_approach_tolerance_rad: 0.20
+    phase_shoulder_pitch_ascent_tolerance_rad: 0.35
+    phase_shoulder_pitch_safe_platform_tolerance_rad: 0.20
+
+    phase_shoulder_yaw_approach_tolerance_rad: 0.10
+    phase_shoulder_yaw_ascent_tolerance_rad: 0.20
+    phase_shoulder_yaw_safe_platform_tolerance_rad: 0.10
