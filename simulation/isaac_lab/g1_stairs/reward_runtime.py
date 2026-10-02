@@ -255,7 +255,7 @@ def _apply_reward_parameter_overrides(
             )
 
         for key, value in params.items():
-            if not isinstance(value, (int, float, bool)):
+            if not isinstance(value, (int, float, bool, str)):
                 raise ValueError(
                     f"reward_parameters.{reward_name}.{key} must be scalar"
                 )
