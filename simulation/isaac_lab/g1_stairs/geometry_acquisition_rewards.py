@@ -534,28 +534,10 @@ class GeometryAcquisitionRuntime:
                 )
             )
 
-            # Complete longitudinal sole crossing while still vertically
-            # clear of the target tread is the qualification event.
-            safe_riser_crossing = (
-                valid_target
-                & (rear_x >= next_riser_x)
-                & (sole_bottom >= target_tread_height)
-                & ~riser_face_strike_sample
-            )
-
-            clearance_delta = torch.where(
-                safe_riser_crossing,
-                self.pending_clearance,
-                torch.zeros_like(clearance_delta),
-            )
-
-            self.pending_clearance.copy_(
-                torch.where(
-                    safe_riser_crossing,
-                    torch.zeros_like(self.pending_clearance),
-                    self.pending_clearance,
-                )
-            )
+            # Keep provisional clearance credit withheld. It is released
+            # only after verified touchdown/support on the current target
+            # tread below.
+            clearance_delta = torch.zeros_like(clearance_delta)
 
         # Advance the potential even on a strike so credit cannot be paid later.
         self.best_clearance.copy_(new_clearance_peak)
@@ -622,9 +604,6 @@ class GeometryAcquisitionRuntime:
         # of controller frequency.
         dt = float(env.step_dt)
 
-        self.clearance_reward.copy_(
-            clearance_delta.sum(dim=1) / dt
-        )
         self.insertion_reward.copy_(
             insertion_delta.sum(dim=1) / dt
         )
@@ -664,6 +643,27 @@ class GeometryAcquisitionRuntime:
             # Existing target advancement makes each foot/tread payment one-shot.
             insertion_delta = touchdown.to(self.insertion_reward.dtype)
             self.insertion_reward.copy_(insertion_delta.sum(dim=1) / dt)
+
+        if escrow_clearance_until_riser_crossing:
+            # Verified touchdown is the acquisition event. A foot that only
+            # crosses the riser geometrically cannot cash provisional credit.
+            clearance_delta = torch.where(
+                touchdown,
+                self.pending_clearance,
+                torch.zeros_like(clearance_delta),
+            )
+
+            self.pending_clearance.copy_(
+                torch.where(
+                    touchdown,
+                    torch.zeros_like(self.pending_clearance),
+                    self.pending_clearance,
+                )
+            )
+
+        self.clearance_reward.copy_(
+            clearance_delta.sum(dim=1) / dt
+        )
 
         if bool(touchdown.any()):
             old_target = self.target_step.clone()

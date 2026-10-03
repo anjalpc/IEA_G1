@@ -6,7 +6,7 @@ inheritance:
 
 experiment:
   id: g1_clearance_escrow_diag300
-  purpose: Diagnose PPO continuation when clearance credit is released only after safe target-riser crossing.
+  purpose: Diagnose PPO continuation when clearance credit is released only after verified target-tread touchdown.
 
 execution:
   environments: 2048

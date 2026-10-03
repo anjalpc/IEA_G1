@@ -6,7 +6,7 @@ inheritance:
 
 experiment:
   id: g1_clearance_escrow_smoke
-  purpose: Hold clearance progress in escrow until the complete sole safely crosses the current target riser.
+  purpose: Hold clearance progress in escrow until verified touchdown on the current target tread.
 
 execution:
   environments: 32
