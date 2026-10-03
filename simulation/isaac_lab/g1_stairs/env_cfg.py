@@ -708,6 +708,19 @@ class StairRewardsCfg:
             "minimum_upright_gravity_z": 0.80,
         },
     )
+    foot_yaw_excess_guard = RewTerm(
+        func=stair_rewards.foot_yaw_excess_guard,
+        weight=0.0,
+        params={
+            "asset_cfg": SceneEntityCfg(
+                "robot",
+                body_names=".*ankle_roll.*",
+            ),
+            "free_yaw_rad": 0.2617993877991494,
+            "zero_at_yaw_rad": 0.4363323129985824,
+        },
+    )
+
     body_heading_guard = RewTerm(
         func=stair_rewards.body_heading_guard,
         weight=-0.25,

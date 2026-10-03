@@ -2268,6 +2268,62 @@ class swing_motion_guard(_SingleStepRewardBase):
         return severity * swing_active.to(dtype=severity.dtype)
 
 
+def relative_foot_yaw_excess_penalty(
+    foot_yaw: torch.Tensor,
+    root_yaw: torch.Tensor,
+    free_yaw_rad: float,
+    zero_at_yaw_rad: float,
+) -> torch.Tensor:
+    """Bounded mean squared foot-yaw severity relative to the robot root."""
+    if not 0.0 <= float(free_yaw_rad) < float(zero_at_yaw_rad):
+        raise ValueError(
+            "require 0 <= free_yaw_rad < zero_at_yaw_rad"
+        )
+
+    relative_yaw = torch.atan2(
+        torch.sin(foot_yaw - root_yaw.unsqueeze(1)),
+        torch.cos(foot_yaw - root_yaw.unsqueeze(1)),
+    )
+
+    severity = 1.0 - deadzone_score(
+        relative_yaw.abs(),
+        free_tolerance=float(free_yaw_rad),
+        zero_at=float(zero_at_yaw_rad),
+    )
+
+    return torch.square(severity).mean(dim=1)
+
+
+def foot_yaw_excess_guard(
+    env: "ManagerBasedRLEnv",
+    asset_cfg: SceneEntityCfg = SceneEntityCfg(
+        "robot",
+        body_names=".*ankle_roll.*",
+    ),
+    free_yaw_rad: float = 0.2617993877991494,
+    zero_at_yaw_rad: float = 0.4363323129985824,
+) -> torch.Tensor:
+    """Penalize excessive foot yaw relative to the root on non-flat stairs."""
+    robot = env.scene[asset_cfg.name]
+
+    foot_quat_w = robot.data.body_quat_w[:, asset_cfg.body_ids]
+    _, _, foot_yaw = _quat_to_euler_wxyz(foot_quat_w)
+    _, _, root_yaw = _quat_to_euler_wxyz(robot.data.root_quat_w)
+
+    penalty = relative_foot_yaw_excess_penalty(
+        foot_yaw,
+        root_yaw,
+        free_yaw_rad,
+        zero_at_yaw_rad,
+    )
+
+    stair_active = (
+        riser_height_per_env(env) > 1.0e-6
+    ).to(dtype=penalty.dtype)
+
+    return penalty * stair_active
+
+
 def body_heading_guard(
     env: "ManagerBasedRLEnv",
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),

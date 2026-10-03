@@ -1,0 +1,72 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_stairs_phase_armguard_base.yaml
+  resolved_config_required: true
+
+experiment:
+  id: g1_clearance_escrow_footyaw_smoke
+  purpose: >
+    Runtime smoke for touchdown-escrow clearance semantics plus a weak
+    deadbanded relative foot-yaw guard.
+
+execution:
+  environments: 32
+  maximum_iterations: 4
+  training_seed: 42
+
+checkpointing:
+  interval_iterations: 2
+
+policy_initialization:
+  type: rsl_rl_training_resume
+  source:
+    path: /workspace/IEA_G1/experiments/g1_stairs/checkpoints/phase_armguard_model599.pt
+    sha256: 4ec3d9c8804d78c190451e198c1e2659bf6bab4ac6b3f31c816d25d98f85186e
+  critic_initialization: restored
+  optimizer_initialization: restored
+
+reward_experiment:
+  active_stage: geometry_locomotion_clean
+  strict_runtime_set: true
+  rewards:
+    stage_plan:
+      geometry_locomotion_clean:
+        track_stair_axis_velocity: 1.0
+        track_ang_vel_z: 0.5
+        stair_centerline_error: -0.5
+        upright: -5.0
+        base_angular_velocity: -0.05
+        joint_acc: -2.5e-7
+        action_rate: -0.05
+        dof_pos_limits: -5.0
+        feet_slide: -0.2
+        undesired_contacts: -5.0
+        terrain_relative_clearance: 1.0
+        forward_insertion: 1.0
+        stable_platform_finish: 2.0
+        finish_planar_velocity_error: -0.15
+        finish_centerline_error: -0.05
+        posture_envelope_guard: -2.1666666666666665
+        foot_yaw_excess_guard: -0.5
+
+reward_parameters:
+  terrain_relative_clearance:
+    suppress_riser_face_clearance_credit: true
+    escrow_clearance_until_riser_crossing: true
+    riser_face_band_m: 0.025
+    riser_below_top_margin_m: 0.005
+    riser_minimum_horizontal_force_n: 30.0
+    riser_minimum_previous_forward_speed_mps: 0.10
+
+  forward_insertion:
+    suppress_riser_face_clearance_credit: true
+    escrow_clearance_until_riser_crossing: true
+    riser_face_band_m: 0.025
+    riser_below_top_margin_m: 0.005
+    riser_minimum_horizontal_force_n: 30.0
+    riser_minimum_previous_forward_speed_mps: 0.10
+
+  foot_yaw_excess_guard:
+    free_yaw_rad: 0.2617993877991494
+    zero_at_yaw_rad: 0.4363323129985824
