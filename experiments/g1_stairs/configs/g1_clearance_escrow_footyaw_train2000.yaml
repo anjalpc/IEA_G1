@@ -16,8 +16,7 @@ execution:
   training_seed: 42
 
 checkpointing:
-  interval_iterations: 100
-
+  interval_iterations: 10
 policy_initialization:
   type: rsl_rl_training_resume
   source:
