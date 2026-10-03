@@ -166,6 +166,10 @@ class GeometryAcquisitionRuntime:
         )
         self.best_insertion = torch.zeros_like(self.best_clearance)
 
+        # Clearance progress remains provisional until the complete sole
+        # has safely crossed the current target riser.
+        self.pending_clearance = torch.zeros_like(self.best_clearance)
+
         # Previous forward foot velocity is used only to reject static/support
         # contact when identifying a forward riser-face impact.
         self.previous_foot_vx = torch.zeros_like(self.best_clearance)
@@ -239,6 +243,7 @@ class GeometryAcquisitionRuntime:
         self.support_elapsed[env_ids] = 0.0
         self.best_clearance[env_ids] = 0.0
         self.best_insertion[env_ids] = 0.0
+        self.pending_clearance[env_ids] = 0.0
         self.previous_foot_vx[env_ids] = 0.0
         self.previous_foot_vx_initialized[env_ids] = False
 
@@ -264,6 +269,7 @@ class GeometryAcquisitionRuntime:
         touchdown_height_tolerance_m: float,
         diagnostic_contact_threshold_n: float,
         suppress_riser_face_clearance_credit: bool = False,
+        escrow_clearance_until_riser_crossing: bool = False,
         riser_face_band_m: float = 0.025,
         riser_below_top_margin_m: float = 0.005,
         riser_minimum_horizontal_force_n: float = 30.0,
@@ -514,6 +520,43 @@ class GeometryAcquisitionRuntime:
                 clearance_delta,
             )
 
+        if escrow_clearance_until_riser_crossing:
+            # Accumulate bounded monotonic progress without paying it yet.
+            self.pending_clearance.add_(clearance_delta)
+
+            # A target-riser strike invalidates all provisional clearance
+            # accumulated for this foot/current target.
+            self.pending_clearance.copy_(
+                torch.where(
+                    riser_face_strike_sample,
+                    torch.zeros_like(self.pending_clearance),
+                    self.pending_clearance,
+                )
+            )
+
+            # Complete longitudinal sole crossing while still vertically
+            # clear of the target tread is the qualification event.
+            safe_riser_crossing = (
+                valid_target
+                & (rear_x >= next_riser_x)
+                & (sole_bottom >= target_tread_height)
+                & ~riser_face_strike_sample
+            )
+
+            clearance_delta = torch.where(
+                safe_riser_crossing,
+                self.pending_clearance,
+                torch.zeros_like(clearance_delta),
+            )
+
+            self.pending_clearance.copy_(
+                torch.where(
+                    safe_riser_crossing,
+                    torch.zeros_like(self.pending_clearance),
+                    self.pending_clearance,
+                )
+            )
+
         # Advance the potential even on a strike so credit cannot be paid later.
         self.best_clearance.copy_(new_clearance_peak)
 
@@ -652,6 +695,13 @@ class GeometryAcquisitionRuntime:
                     touchdown,
                     torch.zeros_like(self.best_insertion),
                     self.best_insertion,
+                )
+            )
+            self.pending_clearance.copy_(
+                torch.where(
+                    touchdown,
+                    torch.zeros_like(self.pending_clearance),
+                    self.pending_clearance,
                 )
             )
 
@@ -818,6 +868,7 @@ _COMMON_DEFAULTS = dict(
     touchdown_height_tolerance_m=0.025,
     diagnostic_contact_threshold_n=1.0,
     suppress_riser_face_clearance_credit=False,
+    escrow_clearance_until_riser_crossing=False,
     riser_face_band_m=0.025,
     riser_below_top_margin_m=0.005,
     riser_minimum_horizontal_force_n=30.0,
@@ -859,6 +910,7 @@ class terrain_relative_clearance(ManagerTermBase):
         touchdown_height_tolerance_m: float = 0.025,
         diagnostic_contact_threshold_n: float = 1.0,
         suppress_riser_face_clearance_credit: bool = False,
+        escrow_clearance_until_riser_crossing: bool = False,
         riser_face_band_m: float = 0.025,
         riser_below_top_margin_m: float = 0.005,
         riser_minimum_horizontal_force_n: float = 30.0,
@@ -881,6 +933,7 @@ class terrain_relative_clearance(ManagerTermBase):
             touchdown_height_tolerance_m=touchdown_height_tolerance_m,
             diagnostic_contact_threshold_n=diagnostic_contact_threshold_n,
             suppress_riser_face_clearance_credit=suppress_riser_face_clearance_credit,
+            escrow_clearance_until_riser_crossing=escrow_clearance_until_riser_crossing,
             riser_face_band_m=riser_face_band_m,
             riser_below_top_margin_m=riser_below_top_margin_m,
             riser_minimum_horizontal_force_n=riser_minimum_horizontal_force_n,
@@ -923,6 +976,7 @@ class forward_insertion(ManagerTermBase):
         touchdown_height_tolerance_m: float = 0.025,
         diagnostic_contact_threshold_n: float = 1.0,
         suppress_riser_face_clearance_credit: bool = False,
+        escrow_clearance_until_riser_crossing: bool = False,
         riser_face_band_m: float = 0.025,
         riser_below_top_margin_m: float = 0.005,
         riser_minimum_horizontal_force_n: float = 30.0,
@@ -945,6 +999,7 @@ class forward_insertion(ManagerTermBase):
             touchdown_height_tolerance_m=touchdown_height_tolerance_m,
             diagnostic_contact_threshold_n=diagnostic_contact_threshold_n,
             suppress_riser_face_clearance_credit=suppress_riser_face_clearance_credit,
+            escrow_clearance_until_riser_crossing=escrow_clearance_until_riser_crossing,
             riser_face_band_m=riser_face_band_m,
             riser_below_top_margin_m=riser_below_top_margin_m,
             riser_minimum_horizontal_force_n=riser_minimum_horizontal_force_n,
