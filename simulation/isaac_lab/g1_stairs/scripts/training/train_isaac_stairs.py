@@ -124,10 +124,10 @@ def main() -> None:
 
         if (
             not isinstance(values, (list, tuple))
-            or len(values) < 2
+            or len(values) < 1
         ):
             raise ValueError(
-                "terrain.riser_heights_m must contain at least two heights"
+                "terrain.riser_heights_m must contain at least one height"
             )
 
         riser_heights_m = tuple(float(value) for value in values)
@@ -161,7 +161,6 @@ def main() -> None:
         terrain_generator.num_rows = len(riser_heights_m)
         stair_cfg.riser_heights = riser_heights_m
         stair_cfg.difficulty_bins = len(riser_heights_m)
-        terrain_generator.curriculum = True
 
         curriculum_cfg = terrain_cfg.get("curriculum", {})
         if curriculum_cfg is None:
@@ -173,6 +172,12 @@ def main() -> None:
             curriculum_cfg.get("enabled", False)
         )
         if curriculum_enabled:
+            if len(riser_heights_m) < 2:
+                raise ValueError(
+                    "terrain curriculum requires at least two riser heights"
+                )
+            terrain_generator.curriculum = True
+
             initial_max_level = int(
                 curriculum_cfg.get("initial_max_level", 1)
             )
@@ -211,6 +216,9 @@ def main() -> None:
                 },
             )
         else:
+            terrain_generator.curriculum = (
+                len(riser_heights_m) > 1
+            )
             env_cfg.scene.terrain.max_init_terrain_level = (
                 len(riser_heights_m) - 1
             )
