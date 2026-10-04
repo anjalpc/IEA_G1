@@ -1,0 +1,42 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_heading_guard010_fixed04_train600.yaml
+  resolved_config_required: true
+
+experiment:
+  id: g1_fixed20_naturalstop_smoke
+  purpose: Runtime qualification of fixed 0.20 m three-stair ascent with natural platform-step stop.
+
+execution:
+  environments: 32
+  maximum_iterations: 4
+  training_seed: 42
+
+checkpointing:
+  interval_iterations: 10
+
+terrain:
+  riser_height_m: 0.20
+  riser_height_range_m:
+    - 0.20
+    - 0.20
+  riser_heights_m:
+    - 0.20
+  curriculum_enabled: false
+  curriculum:
+    enabled: false
+    initial_max_level: 0
+
+policy_initialization:
+  type: rsl_rl_training_resume
+  source:
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/g1_heading_guard010_fixed04_train600_20261004_135410/model_1199.pt
+    sha256: adc074e29ba138bc8aed4aff1112cd145a0c1473e4898efe30a5dd908fea043d
+  critic_initialization: restored
+  optimizer_initialization: restored
+
+command:
+  platform_finish:
+    transition_duration_s: 0.40
+    minimum_step_advance_m: 0.15

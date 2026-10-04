@@ -1,0 +1,17 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_fixed20_naturalstop_smoke.yaml
+  resolved_config_required: true
+
+experiment:
+  id: g1_fixed20_naturalstop_train3000
+  purpose: Long fixed 0.20 m three-stair training from model1199 with natural platform-step stop.
+
+execution:
+  environments: 2048
+  maximum_iterations: 3000
+  training_seed: 42
+
+checkpointing:
+  interval_iterations: 10
