@@ -27,6 +27,21 @@ class PlatformFinishCommand(UniformVelocityCommand):
             self.settling = torch.zeros(
                 env.num_envs, dtype=torch.bool, device=env.device,
             )
+            self.platform_armed = torch.zeros(
+                env.num_envs, dtype=torch.bool, device=env.device,
+            )
+            self.post_platform_swing = torch.zeros(
+                (env.num_envs, 2), dtype=torch.bool, device=env.device,
+            )
+            self.previous_foot_safe = torch.zeros(
+                (env.num_envs, 2), dtype=torch.bool, device=env.device,
+            )
+            self.stopping = torch.zeros(
+                env.num_envs, dtype=torch.bool, device=env.device,
+            )
+            self.stop_elapsed_s = torch.zeros(
+                env.num_envs, dtype=torch.float32, device=env.device,
+            )
             self.sole_centres = torch.tensor(
                 G1_SOLE_SPHERE_CENTRES_M, device=env.device,
             )
@@ -55,7 +70,7 @@ class PlatformFinishCommand(UniformVelocityCommand):
         half_width = terrain.size[1] / 2
         platform_z = terrain.step_count * riser_height_per_env(env)
 
-        safe = (
+        foot_safe = (
             (points[..., 0].amin(-1) - radius >= platform_start + margin)
             & (points[..., 0].amax(-1) + radius
                <= course_end - self.finish.boundary_margin_m)
@@ -65,16 +80,71 @@ class PlatformFinishCommand(UniformVelocityCommand):
                <= self.finish.sole_height_tolerance_m)
             & (self.sensor.data.net_forces_w[:, self.sensor_ids, 2]
                >= self.finish.support_force_n)
-        ).all(-1)
-
-        speed, settling = platform_finish_speed(
-            local_x, stop_x, self.options["cruise_speed_mps"],
-            safe, self.settling, env.episode_length_buf == 0,
-            slowdown_distance=self.options["slowdown_distance_m"],
-            creep_speed=self.options["creep_speed_mps"],
-            resume_x=completion_x,
         )
-        self.settling.copy_(settling)
+        both_safe = foot_safe.all(-1)
+        reset = env.episode_length_buf == 0
+
+        # Episode reset clears all finish-phase state.
+        self.platform_armed[reset] = False
+        self.post_platform_swing[reset] = False
+        self.previous_foot_safe[reset] = False
+        self.stopping[reset] = False
+        self.settling[reset] = False
+        self.stop_elapsed_s[reset] = 0.0
+
+        # Arm only after both feet are genuinely supported on the platform.
+        self.platform_armed |= both_safe & ~reset
+
+        # A natural extra step requires a foot to leave safe support after arming.
+        self.post_platform_swing |= (
+            self.platform_armed[:, None]
+            & ~foot_safe
+            & ~reset[:, None]
+        )
+
+        # Start stopping on the next real safe-platform support onset.
+        platform_touchdown = (
+            self.platform_armed[:, None]
+            & self.post_platform_swing
+            & foot_safe
+            & ~self.previous_foot_safe
+            & ~reset[:, None]
+        )
+        start_stop = (
+            platform_touchdown.any(-1)
+            & (local_x >= platform_start + self.options["minimum_step_advance_m"])
+            & ~self.stopping
+            & ~self.settling
+        )
+        self.stopping |= start_stop
+
+        cruise = float(self.options["cruise_speed_mps"])
+        duration = float(self.options["transition_duration_s"])
+
+        alpha = (self.stop_elapsed_s / duration).clamp(0.0, 1.0)
+        speed = torch.full_like(self.stop_elapsed_s, cruise)
+        speed = torch.where(
+            self.stopping,
+            cruise * (1.0 - alpha),
+            speed,
+        )
+
+        self.stop_elapsed_s = torch.where(
+            self.stopping & ~self.settling,
+            self.stop_elapsed_s + float(env.step_dt),
+            self.stop_elapsed_s,
+        )
+
+        finished = self.stopping & (self.stop_elapsed_s >= duration)
+        self.settling |= finished
+        speed = torch.where(
+            self.settling,
+            torch.zeros_like(speed),
+            speed,
+        )
+
+        self.previous_foot_safe.copy_(foot_safe)
+
         self.vel_command_b[:, 0] = speed
         self.vel_command_b[:, 1] = 0.0
 
@@ -97,6 +167,8 @@ def apply_platform_finish_command(env_cfg, resolved, contract):
         "slowdown_distance_m": 0.35,
         "creep_speed_mps": 0.08,
         "stop_buffer_m": 0.10,
+        "transition_duration_s": 0.40,
+        "minimum_step_advance_m": 0.15,
     }
     overrides = command.get("platform_finish", {}) or {}
     unknown = set(overrides) - (set(options) - {"cruise_speed_mps"})
