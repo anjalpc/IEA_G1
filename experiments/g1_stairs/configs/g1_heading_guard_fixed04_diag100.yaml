@@ -1,0 +1,18 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_heading_guard_fixed04_smoke.yaml
+  resolved_config_required: true
+
+experiment:
+  id: g1_heading_guard_fixed04_diag100
+  purpose: >
+    Isolated 100-update body-heading diagnostic on fixed 0.04 m stairs.
+
+execution:
+  environments: 2048
+  maximum_iterations: 100
+  training_seed: 42
+
+checkpointing:
+  interval_iterations: 10

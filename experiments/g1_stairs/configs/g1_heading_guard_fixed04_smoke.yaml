@@ -1,0 +1,46 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_clearance_escrow_footyaw_train2000.yaml
+  resolved_config_required: true
+
+experiment:
+  id: g1_heading_guard_fixed04_smoke
+  purpose: >
+    Runtime smoke for isolated absolute body-heading guard on fixed 0.04 m
+    stairs. Preserve clearance escrow and disable the relative foot-yaw guard.
+
+execution:
+  environments: 32
+  maximum_iterations: 4
+  training_seed: 42
+
+checkpointing:
+  interval_iterations: 10
+
+terrain:
+  riser_height_m: 0.04
+  riser_height_range_m: [0.04, 0.04]
+  riser_heights_m: [0.04]
+  total_rise_m: 0.12
+  curriculum_enabled: false
+  curriculum:
+    enabled: false
+    initial_max_level: 0
+    minimum_nonflat_env_fraction: 1.0
+
+curriculum:
+  terrain_riser_height:
+    enabled: false
+
+reward_experiment:
+  rewards:
+    stage_plan:
+      geometry_locomotion_clean:
+        foot_yaw_excess_guard: 0.0
+        body_heading_guard: -0.25
+
+reward_parameters:
+  body_heading_guard:
+    free_yaw_rad: 0.10
+    zero_at_yaw_rad: 0.35
