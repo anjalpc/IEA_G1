@@ -1,0 +1,24 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_heading_guard_fixed04_smoke.yaml
+  resolved_config_required: true
+
+experiment:
+  id: g1_heading_guard010_fixed04_train600
+  purpose: Fixed 0.04 m stair training from protected model599 with isolated body heading guard weight -0.10.
+
+execution:
+  environments: 2048
+  maximum_iterations: 600
+  training_seed: 42
+
+checkpointing:
+  interval_iterations: 10
+
+reward_experiment:
+  rewards:
+    stage_plan:
+      geometry_locomotion_clean:
+        foot_yaw_excess_guard: 0.0
+        body_heading_guard: -0.10
