@@ -908,12 +908,30 @@ resolve_train_dir() {
 }
 
 cmd_video() {
-    if [ $# -ne 1 ]; then
-        echo "Usage: simctl video <checkpoint>"
+    if [ $# -ne 1 ] && [ $# -ne 3 ]; then
+        echo "Usage: simctl video <checkpoint> [--height <m>]"
         exit 1
     fi
 
     CHECKPOINT="$1"
+    HEIGHT=""
+
+    if [ $# -eq 3 ]; then
+        if [ "$2" != "--height" ]; then
+            echo "Usage: simctl video <checkpoint> [--height <m>]"
+            exit 1
+        fi
+
+        HEIGHT="$3"
+
+        if ! awk -v h="$HEIGHT" 'BEGIN {
+            exit !(h ~ /^([0-9]+([.][0-9]*)?|[.][0-9]+)$/ &&
+                   h >= 0.0 && h <= 0.20)
+        }'; then
+            echo "Height must be a number in [0.0, 0.20] metres"
+            exit 1
+        fi
+    fi
 
     if ! [[ "$CHECKPOINT" =~ ^[0-9]+$ ]]; then
         echo "Checkpoint must be an integer, for example: 800"
@@ -932,7 +950,18 @@ cmd_video() {
 
     ensure_container_running
 
-    OUTPUT_DIR="/workspace/IEA_G1/experiments/g1_stairs/outputs/videos/${RUN_ID}/model_${CHECKPOINT}_side"
+    HEIGHT_SUFFIX=""
+    HEIGHT_OPTION=""
+
+    if [ -n "$HEIGHT" ]; then
+        HEIGHT_CM="$(awk -v h="$HEIGHT" 'BEGIN {
+            printf "%02d", int(h * 100.0 + 0.5)
+        }')"
+        HEIGHT_SUFFIX="_h${HEIGHT_CM}cm"
+        HEIGHT_OPTION="--riser_height_override ${HEIGHT}"
+    fi
+
+    OUTPUT_DIR="/workspace/IEA_G1/experiments/g1_stairs/outputs/videos/${RUN_ID}/model_${CHECKPOINT}${HEIGHT_SUFFIX}_side"
 
     PROJECT_COMMIT="$(git rev-parse HEAD)"
     ISAACLAB_COMMIT="3c6e67bb5c7ada942a6d1884ab69338f57596f77"
@@ -957,6 +986,9 @@ cmd_video() {
     echo "Run:        $RUN_ID"
     echo "Checkpoint: model_${CHECKPOINT}.pt"
     echo "View:       side"
+    if [ -n "$HEIGHT" ]; then
+        echo "Height:     $HEIGHT m"
+    fi
     echo
 
     docker exec \
@@ -975,6 +1007,7 @@ cd /workspace/IEA_G1
   --num_envs 1 \
   --checkpoint '${CONTAINER_MODEL}' \
   --resolved_config '${CONTAINER_RESOLVED_CONFIG}' \
+  ${HEIGHT_OPTION} \
   --project_commit '${PROJECT_COMMIT}' \
   --isaaclab_commit '${ISAACLAB_COMMIT}' \
   --unitree_rl_commit '${UNITREE_RL_COMMIT}' \

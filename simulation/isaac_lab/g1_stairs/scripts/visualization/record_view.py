@@ -149,6 +149,13 @@ parser.add_argument(
 )
 
 parser.add_argument(
+    "--riser_height_override",
+    type=float,
+    default=None,
+    help="Optional fixed evaluation riser height in [0.0, 0.20] m.",
+)
+
+parser.add_argument(
     "--video_length",
     type=int,
     default=400,
@@ -286,6 +293,8 @@ def main() -> None:
 
     # Reproduce the exact terrain and command used by the training run.
     resolved_config = None
+    replay = None
+    applied_riser_height_m = None
 
     if args.resolved_config:
         resolved_config_path = Path(
@@ -313,9 +322,35 @@ def main() -> None:
             resolved_config_path,
         )
 
+        applied_riser_height_m = float(replay.riser_height_m)
+
+        if args.riser_height_override is not None:
+            height = float(args.riser_height_override)
+
+            if not 0.0 <= height <= 0.20:
+                raise ValueError(
+                    "--riser_height_override must be in [0.0, 0.20]"
+                )
+
+            # Match evaluate_geometry_batch.py fixed-height semantics:
+            # disable discrete/curriculum height selection and force one height.
+            stairs = terrain_generator.sub_terrains["three_step_ascent"]
+            stairs.riser_heights = None
+            stairs.riser_height_range = (height, height)
+            terrain_generator.curriculum = False
+            env_cfg.scene.terrain.max_init_terrain_level = 0
+
+            applied_riser_height_m = height
+
+            print(
+                "[INFO] Recording fixed riser override:",
+                height,
+                flush=True,
+            )
+
         print(
             "[INFO] Recording replay config:",
-            f"riser={replay.riser_height_m}",
+            f"riser={applied_riser_height_m}",
             f"tread={replay.tread_depth_m}",
             f"steps={replay.step_count}",
             f"command={replay.forward_velocity_mps}",
@@ -440,6 +475,17 @@ def main() -> None:
         "seed": args.seed,
         "num_envs": 1,
         "video_length_steps": args.video_length,
+        "riser_height_m": applied_riser_height_m,
+        "tread_depth_m": (
+            float(replay.tread_depth_m)
+            if replay is not None
+            else None
+        ),
+        "step_count": (
+            int(replay.step_count)
+            if replay is not None
+            else None
+        ),
         "checkpoint": (
             str(checkpoint)
             if checkpoint is not None
@@ -476,6 +522,7 @@ def main() -> None:
     print("origin_type=world")
     print("env_index=0")
     print(f"seed={args.seed}")
+    print(f"riser_height_m={metadata['riser_height_m']}")
     if checkpoint is not None:
         print(f"checkpoint={checkpoint}")
         print(
