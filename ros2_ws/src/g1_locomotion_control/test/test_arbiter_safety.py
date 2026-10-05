@@ -155,3 +155,61 @@ def test_shutdown_stops_revokes_and_deactivates_backend():
         ("stop",),
         ("deactivate",),
     ]
+
+
+class FailingStopBackend(RecordingBackend):
+    """Fail every requested backend stop."""
+
+    def stop(self):
+        self.stop_count += 1
+        raise RuntimeError("injected stop failure")
+
+
+def test_rejects_nonfinite_command_timeout():
+    for timeout in (float("nan"), float("inf")):
+        try:
+            LocomotionArbiter(
+                backend=RecordingBackend(),
+                velocity_limits=PlanarVelocityLimits(
+                    forward_mps=0.5,
+                    lateral_mps=0.25,
+                    yaw_rate_rps=0.4,
+                ),
+                command_timeout_seconds=timeout,
+                monotonic=FakeClock(),
+                lease_factory=LeaseFactory(),
+            )
+        except ValueError as exc:
+            assert "finite and positive" in str(exc)
+        else:
+            raise AssertionError(
+                "non-finite command timeout was accepted"
+            )
+
+
+def test_release_stop_failure_revokes_and_reports_backend_failure():
+    backend = FailingStopBackend()
+    clock = FakeClock()
+    instance = LocomotionArbiter(
+        backend=backend,
+        velocity_limits=PlanarVelocityLimits(
+            forward_mps=0.5,
+            lateral_mps=0.25,
+            yaw_rate_rps=0.4,
+        ),
+        command_timeout_seconds=0.250,
+        monotonic=clock,
+        lease_factory=LeaseFactory(),
+    )
+    lease = acquire(instance)
+
+    result = instance.release(OWNER_NAVIGATION, lease)
+    snapshot = instance.snapshot()
+
+    assert result.released is False
+    assert result.reason == "BACKEND_FAILURE"
+    assert snapshot.active_owner == OWNER_NONE
+    assert snapshot.ready is False
+    assert snapshot.stopped is True
+    assert snapshot.reason == "BACKEND_FAILURE"
+    assert backend.stop_count == 1

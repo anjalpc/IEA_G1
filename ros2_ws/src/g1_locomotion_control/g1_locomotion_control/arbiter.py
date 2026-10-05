@@ -1,6 +1,7 @@
 """Thread-safe, hardware-independent locomotion authority."""
 
 from dataclasses import dataclass
+import math
 import secrets
 import threading
 import time
@@ -66,9 +67,9 @@ class LocomotionArbiter:
         lease_factory=None,
     ):
         timeout = float(command_timeout_seconds)
-        if timeout <= 0.0:
+        if not math.isfinite(timeout) or timeout <= 0.0:
             raise ValueError(
-                "command_timeout_seconds must be positive"
+                "command_timeout_seconds must be finite and positive"
             )
 
         if not isinstance(
@@ -245,7 +246,17 @@ class LocomotionArbiter:
                     "LEASE_MISMATCH",
                 )
 
-            self._backend.stop()
+            try:
+                self._backend.stop()
+            except Exception:
+                self._ready = False
+                self._clear_lease("BACKEND_FAILURE")
+                return ReleaseResult(
+                    False,
+                    self._active_owner,
+                    self._reason,
+                )
+
             self._clear_lease("RELEASED")
             return ReleaseResult(
                 True,
