@@ -94,8 +94,6 @@ class CardHandoverDetector(Node):
             "required_hits": 2,
             "window_size": 4,
             "gate_memory_s": 0.5,
-            "waiting_hand_required_hits": 7,
-            "waiting_hand_window_size": 10,
             "rgb_roi_x": 0,
             "rgb_roi_y": 0,
             "rgb_roi_width": 1,
@@ -131,10 +129,6 @@ class CardHandoverDetector(Node):
         self.required_hits = int(value("required_hits"))
         self.window_size = int(value("window_size"))
         self.gate_memory_s = float(value("gate_memory_s"))
-        self.waiting_hand_required_hits = int(
-            value("waiting_hand_required_hits"))
-        self.waiting_hand_window_size = int(
-            value("waiting_hand_window_size"))
         self.rgb_pixel_delta = float(value("rgb_pixel_delta"))
         self.rgb_changed_ratio = float(value("rgb_changed_ratio"))
         self.depth_approach_mm = float(value("depth_approach_mm"))
@@ -157,13 +151,6 @@ class CardHandoverDetector(Node):
             raise ValueError("hand_stale_after_s must be positive")
         if self.hand_memory_s <= 0.0:
             raise ValueError("hand_memory_s must be positive")
-        if not (
-            1 <= self.waiting_hand_required_hits
-            <= self.waiting_hand_window_size
-        ):
-            raise ValueError(
-                "waiting_hand_required_hits must be between 1 and "
-                "waiting_hand_window_size")
         if min(
             self.rgb_roi[2:] + self.hand_roi[2:] + self.depth_roi[2:]
         ) < 1:
@@ -176,8 +163,6 @@ class CardHandoverDetector(Node):
         self.baseline_rgb = None
         self.baseline_depth_near25 = None
         self.hits = deque(maxlen=self.window_size)
-        self.waiting_hand_hits = deque(
-            maxlen=self.waiting_hand_window_size)
         self.rgb = None
         self.depth = None
         self.rgb_at = None
@@ -231,14 +216,12 @@ class CardHandoverDetector(Node):
             self.baseline_rgb = None
             self.baseline_depth_near25 = None
             self.hits.clear()
-            self.waiting_hand_hits.clear()
             self.last_rgb_hit_at = None
             self.last_depth_hit_at = None
             self.last_hand_hit_at = None
             self.get_logger().info("card handover detector armed")
         elif not armed and self.armed:
             self.hits.clear()
-            self.waiting_hand_hits.clear()
             self.last_rgb_hit_at = None
             self.last_depth_hit_at = None
             self.last_hand_hit_at = None
@@ -293,7 +276,22 @@ class CardHandoverDetector(Node):
             or now - self.hand_at > self.hand_stale_after_s
         ):
             self.hits.clear()
-            self.waiting_hand_hits.clear()
+            return
+
+        median, near25 = depth_statistics(self.depth, self.depth_roi)
+        if near25 is None:
+            self.hits.clear()
+            return
+        if now - self.armed_at < self.baseline_delay_s:
+            return
+
+        absolute_depth_hit = near25 <= self.depth_max_mm
+        if self.baseline_rgb is None:
+            self.baseline_rgb = self.rgb.copy()
+            self.baseline_depth_near25 = near25
+            self.get_logger().info(
+                "handover baseline: "
+                f"median={median:.0f}mm near25={near25:.0f}mm")
             return
 
         if hand_in_roi(self.hand, self.hand_roi):
@@ -304,30 +302,6 @@ class CardHandoverDetector(Node):
         )
         if not recent_hand:
             self.hits.clear()
-            self.waiting_hand_hits.clear()
-            return
-
-        median, near25 = depth_statistics(self.depth, self.depth_roi)
-        if near25 is None:
-            self.hits.clear()
-            self.waiting_hand_hits.clear()
-            return
-        if now - self.armed_at < self.baseline_delay_s:
-            return
-
-        absolute_depth_hit = near25 <= self.depth_max_mm
-        self.waiting_hand_hits.append(absolute_depth_hit)
-
-        if self.baseline_rgb is None:
-            if absolute_depth_hit:
-                self._log_waiting_hand(median, near25, now)
-                self._trigger_if_waiting_hand()
-                return
-            self.baseline_rgb = self.rgb.copy()
-            self.baseline_depth_near25 = near25
-            self.get_logger().info(
-                "handover baseline: "
-                f"median={median:.0f}mm near25={near25:.0f}mm")
             return
 
         # Recover when the first baseline was captured while a person or
@@ -365,9 +339,7 @@ class CardHandoverDetector(Node):
                 "handover metrics: "
                 f"rgb_change={changed:.3f} depth_median={median:.0f}mm "
                 f"depth_near25={near25:.0f}mm depth_delta={depth_delta:.0f}mm "
-                f"hits={sum(self.hits)}/{len(self.hits)} "
-                "waiting_hits="
-                f"{sum(self.waiting_hand_hits)}/{len(self.waiting_hand_hits)}")
+                f"hits={sum(self.hits)}/{len(self.hits)}")
 
         self._publish_debug(rgb_hit, depth_hit)
         if (
@@ -376,26 +348,6 @@ class CardHandoverDetector(Node):
         ):
             self._trigger()
             return
-        self._trigger_if_waiting_hand()
-
-    def _log_waiting_hand(self, median, near25, now):
-        if now - self.last_log_at < self.log_interval_s:
-            return
-        self.last_log_at = now
-        self.get_logger().info(
-            "handover metrics: rgb_change=unavailable "
-            f"depth_median={median:.0f}mm depth_near25={near25:.0f}mm "
-            "baseline=waiting-for-clear-region "
-            f"waiting_hits={sum(self.waiting_hand_hits)}/"
-            f"{len(self.waiting_hand_hits)}")
-
-    def _trigger_if_waiting_hand(self):
-        if (
-            len(self.waiting_hand_hits) >= self.waiting_hand_required_hits
-            and sum(self.waiting_hand_hits)
-            >= self.waiting_hand_required_hits
-        ):
-            self._trigger()
 
     def _trigger(self):
         if not self.enabled:
@@ -467,7 +419,6 @@ class CardHandoverDetector(Node):
                 self.baseline_rgb = None
                 self.baseline_depth_near25 = None
                 self.hits.clear()
-                self.waiting_hand_hits.clear()
                 self.last_rgb_hit_at = None
                 self.last_depth_hit_at = None
                 self.last_hand_hit_at = None

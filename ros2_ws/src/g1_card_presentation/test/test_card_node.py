@@ -1,11 +1,17 @@
 """Tests for the dashboard-facing card toggle callbacks."""
 
 from types import SimpleNamespace
+import time
 
+import numpy as np
 import pytest
 
 from g1_card_presentation.card_node import CardPresentationNode
-from g1_card_presentation.handover_detector import depth_statistics, hand_in_roi
+from g1_card_presentation.handover_detector import (
+    CardHandoverDetector,
+    depth_statistics,
+    hand_in_roi,
+)
 
 
 class Response:
@@ -37,6 +43,57 @@ def test_card_handover_requires_semantic_hand_inside_rgb_region():
         {"hands": [{"center_x": 250, "center_y": 300}]},
         roi,
     )
+
+
+def test_stationary_person_does_not_trigger_handover():
+    detector = CardHandoverDetector.__new__(CardHandoverDetector)
+    now = time.monotonic()
+    detector.show_windows = False
+    detector.armed = True
+    detector.fired = False
+    detector.pending = False
+    detector.rgb = np.zeros((20, 20, 3), dtype=np.uint8)
+    detector.depth = np.full((20, 20), 500.0, dtype=np.float32)
+    detector.rgb_at = now
+    detector.depth_at = now
+    detector.hand_at = now
+    detector.hand = {"hands": [{"center_x": 10, "center_y": 10}]}
+    detector.rgb_stale_after_s = 1.0
+    detector.depth_stale_after_s = 1.0
+    detector.hand_stale_after_s = 1.0
+    detector.hand_memory_s = 1.0
+    detector.baseline_delay_s = 0.0
+    detector.armed_at = now - 1.0
+    detector.baseline_rgb = None
+    detector.baseline_depth_near25 = None
+    detector.hits = []
+    detector.last_rgb_hit_at = None
+    detector.last_depth_hit_at = None
+    detector.last_hand_hit_at = None
+    detector.depth_roi = (0, 0, 20, 20)
+    detector.rgb_roi = (0, 0, 20, 20)
+    detector.hand_roi = (0, 0, 20, 20)
+    detector.depth_max_mm = 1000.0
+    detector.depth_approach_mm = 150.0
+    detector.rgb_pixel_delta = 25.0
+    detector.rgb_changed_ratio = 0.05
+    detector.gate_memory_s = 0.5
+    detector.required_hits = 2
+    detector.log_interval_s = 1000.0
+    detector.last_log_at = now
+    detector.publish_debug_image = False
+    detector.get_logger = lambda: SimpleNamespace(info=lambda _message: None)
+    detector.client = SimpleNamespace(
+        service_is_ready=lambda: True,
+        call_async=lambda _request: pytest.fail(
+            "stationary person triggered handover"),
+    )
+
+    for _ in range(5):
+        detector.poll()
+
+    assert detector.baseline_depth_near25 == 500.0
+    assert detector.pending is False
     assert not hand_in_roi({"hands": []}, roi)
     assert not hand_in_roi(
         {"hands": [{"center_x": 50, "center_y": 300}]},

@@ -40,8 +40,6 @@ card_handover_detector:
     required_hits: 2
     window_size: 4
     gate_memory_s: 0.5
-    waiting_hand_required_hits: 3
-    waiting_hand_window_size: 5
 
     # Set these by dragging boxes in the OpenCV calibration windows.
     rgb_roi_x: 595
