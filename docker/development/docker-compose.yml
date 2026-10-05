@@ -48,3 +48,27 @@ services:
 
     stdin_open: true
     tty: true
+
+  g1_dashboard_backend:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.dashboard-backend
+
+    image: iea_g1_dashboard_backend:python311
+    container_name: iea_g1_dashboard_backend
+
+    network_mode: host
+
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"
+
+    environment:
+      HOME: /tmp/g1-dashboard-backend-home
+      PYTHONPATH: /workspace/IEA_G1/dashboard/backend
+
+    volumes:
+      - ../:/workspace/IEA_G1
+
+    working_dir: /workspace/IEA_G1/dashboard/backend
+
+    stdin_open: true
+    tty: true

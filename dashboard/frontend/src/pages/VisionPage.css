@@ -1,0 +1,1059 @@
+.vision-page {
+  width: 100%;
+  max-width: 1500px;
+
+  margin: 0 auto;
+  padding: 30px 32px 48px;
+}
+
+
+.vision-heading {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+
+  margin-bottom: 22px;
+}
+
+.vision-eyebrow {
+  display: block;
+
+  margin-bottom: 7px;
+
+  color: #687485;
+
+  font-size: 10px;
+  font-weight: 760;
+  letter-spacing: 0.16em;
+}
+
+.vision-heading h1 {
+  margin: 0;
+
+  color: #141a22;
+
+  font-size: clamp(27px, 2.3vw, 38px);
+  font-weight: 720;
+  letter-spacing: -0.04em;
+}
+
+.vision-heading p {
+  margin: 7px 0 0;
+
+  color: #6d7785;
+
+  font-size: 13px;
+}
+
+
+.vision-link-state {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  padding: 10px 13px;
+
+  border: 1px solid #dfe4eb;
+  border-radius: 11px;
+
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.vision-link-state > span {
+  width: 8px;
+  height: 8px;
+
+  border-radius: 50%;
+
+  background: #aab1ba;
+}
+
+.vision-link-state > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.vision-link-state strong {
+  color: #525c68;
+
+  font-size: 9px;
+  letter-spacing: 0.075em;
+}
+
+.vision-link-state small {
+  margin-top: 2px;
+
+  color: #959da7;
+
+  font-size: 8px;
+}
+
+
+/* ==========================================================
+   MAIN VISION WORKSPACE
+   ========================================================== */
+
+.vision-workspace {
+  display: grid;
+  grid-template-columns:
+    minmax(0, 1fr)
+    270px;
+
+  min-height: 590px;
+
+  overflow: hidden;
+
+  border: 1px solid #dce1e8;
+  border-radius: 18px;
+
+  background: #fff;
+
+  box-shadow:
+    0 16px 40px rgba(20, 29, 45, 0.055);
+}
+
+
+.vision-main {
+  min-width: 0;
+
+  display: grid;
+  grid-template-rows: auto 1fr;
+
+  padding: 18px;
+
+  background:
+    linear-gradient(
+      145deg,
+      #141a22,
+      #0c1118
+    );
+}
+
+
+.vision-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  padding-bottom: 13px;
+}
+
+
+.vision-view-tabs {
+  display: flex;
+  gap: 4px;
+
+  padding: 3px;
+
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 9px;
+
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.vision-view-tabs button {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+
+  padding: 7px 11px;
+
+  border: 0;
+  border-radius: 7px;
+
+  background: transparent;
+
+  color: #6f7d8e;
+
+  font: inherit;
+  font-size: 8px;
+  font-weight: 720;
+  letter-spacing: 0.07em;
+
+  cursor: pointer;
+}
+
+.vision-view-tabs button.active {
+  background: rgba(255, 255, 255, 0.09);
+
+  color: #e1e6ec;
+}
+
+
+.vision-toolbar-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  color: #657386;
+
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+.vision-toolbar-actions button {
+  display: grid;
+  place-items: center;
+
+  width: 30px;
+  height: 30px;
+
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 7px;
+
+  background: rgba(255, 255, 255, 0.025);
+
+  color: #667587;
+}
+
+
+/* ==========================================================
+   STREAM VIEW
+   ========================================================== */
+
+.vision-stream {
+  position: relative;
+
+  min-height: 500px;
+
+  overflow: hidden;
+
+  border: 1px solid rgba(255, 255, 255, 0.065);
+  border-radius: 13px;
+
+  background:
+    radial-gradient(
+      circle at center,
+      rgba(57, 78, 108, 0.15),
+      transparent 37%
+    ),
+    #080c12;
+}
+
+
+.vision-grid-overlay {
+  position: absolute;
+  inset: 0;
+
+  background:
+    linear-gradient(
+      rgba(255, 255, 255, 0.018) 1px,
+      transparent 1px
+    ),
+    linear-gradient(
+      90deg,
+      rgba(255, 255, 255, 0.018) 1px,
+      transparent 1px
+    );
+
+  background-size: 40px 40px;
+
+  pointer-events: none;
+}
+
+
+.vision-stream-depth {
+  background:
+    radial-gradient(
+      circle at center,
+      rgba(79, 79, 128, 0.18),
+      transparent 40%
+    ),
+    #080b11;
+}
+
+
+.vision-stream-lidar {
+  background:
+    radial-gradient(
+      circle at center,
+      rgba(45, 85, 74, 0.14),
+      transparent 40%
+    ),
+    #080c11;
+}
+
+
+.vision-placeholder {
+  position: absolute;
+  inset: 0;
+
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+
+  color: #5d6b7b;
+}
+
+.vision-placeholder-icon {
+  display: grid;
+  place-items: center;
+
+  width: 72px;
+  height: 72px;
+
+  margin-bottom: 17px;
+
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  border-radius: 50%;
+
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.vision-placeholder strong {
+  color: #8995a3;
+
+  font-size: 12px;
+  font-weight: 620;
+}
+
+.vision-placeholder > span {
+  margin-top: 5px;
+
+  color: #536071;
+
+  font-size: 9px;
+}
+
+
+/* depth symbol */
+
+.vision-depth-symbol {
+  width: 86px;
+  height: 58px;
+
+  margin-bottom: 18px;
+
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 5px;
+}
+
+.vision-depth-symbol span {
+  width: 13px;
+
+  border-radius: 3px;
+
+  background:
+    linear-gradient(
+      to top,
+      #3d4858,
+      #69778a
+    );
+}
+
+.vision-depth-symbol span:nth-child(1) {
+  height: 26%;
+}
+
+.vision-depth-symbol span:nth-child(2) {
+  height: 58%;
+}
+
+.vision-depth-symbol span:nth-child(3) {
+  height: 90%;
+}
+
+.vision-depth-symbol span:nth-child(4) {
+  height: 43%;
+}
+
+
+/* lidar symbol */
+
+.vision-lidar-symbol {
+  position: relative;
+
+  display: grid;
+  place-items: center;
+
+  width: 90px;
+  height: 90px;
+
+  margin-bottom: 10px;
+
+  color: #647589;
+}
+
+.lidar-ray {
+  position: absolute;
+
+  width: 95px;
+  height: 1px;
+
+  background:
+    linear-gradient(
+      90deg,
+      transparent,
+      #56697d,
+      transparent
+    );
+}
+
+.lidar-ray-a {
+  transform: rotate(27deg);
+}
+
+.lidar-ray-b {
+  transform: rotate(-27deg);
+}
+
+
+/* stream HUD */
+
+.vision-stream-top {
+  position: absolute;
+
+  top: 15px;
+  left: 16px;
+  right: 16px;
+
+  display: flex;
+  justify-content: space-between;
+
+  color: #667486;
+
+  font-size: 7px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+}
+
+.vision-stream-top > div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.vision-stream-dot {
+  width: 6px;
+  height: 6px;
+
+  border-radius: 50%;
+
+  background: #666f7a;
+}
+
+
+.vision-stream-bottom {
+  position: absolute;
+
+  right: 15px;
+  bottom: 14px;
+  left: 15px;
+
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 6px;
+}
+
+.vision-stream-bottom > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+
+  padding: 8px 10px;
+
+  border: 1px solid rgba(255, 255, 255, 0.055);
+  border-radius: 7px;
+
+  background: rgba(6, 9, 14, 0.72);
+
+  backdrop-filter: blur(6px);
+}
+
+.vision-stream-bottom small {
+  color: #556273;
+
+  font-size: 6px;
+  letter-spacing: 0.1em;
+}
+
+.vision-stream-bottom strong {
+  color: #aeb8c4;
+
+  font-size: 9px;
+}
+
+
+/* ==========================================================
+   SIDEBAR
+   ========================================================== */
+
+.vision-sidebar {
+  padding: 20px;
+
+  border-left: 1px solid #e2e6eb;
+
+  background:
+    linear-gradient(
+      180deg,
+      #fafbfc,
+      #f5f7f9
+    );
+}
+
+
+.vision-info-card {
+  padding: 16px;
+
+  border: 1px solid #e0e5eb;
+  border-radius: 12px;
+
+  background: #fff;
+}
+
+.vision-info-card + .vision-info-card {
+  margin-top: 13px;
+}
+
+.vision-card-kicker {
+  display: block;
+
+  margin-bottom: 15px;
+
+  color: #939ba6;
+
+  font-size: 8px;
+  font-weight: 740;
+  letter-spacing: 0.13em;
+}
+
+
+.vision-sensor-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  padding-bottom: 15px;
+
+  border-bottom: 1px solid #e5e8ec;
+}
+
+.vision-sensor-title > div:first-child {
+  display: grid;
+  place-items: center;
+
+  width: 40px;
+  height: 40px;
+
+  border-radius: 10px;
+
+  background: #f0f3f6;
+
+  color: #53677e;
+}
+
+.vision-sensor-title > div:last-child {
+  display: flex;
+  flex-direction: column;
+}
+
+.vision-sensor-title strong {
+  color: #2b3540;
+
+  font-size: 11px;
+}
+
+.vision-sensor-title span {
+  margin-top: 3px;
+
+  color: #949ca6;
+
+  font-size: 8px;
+}
+
+
+.vision-property-list {
+  margin: 13px 0 0;
+}
+
+.vision-property-list > div {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  padding: 9px 0;
+
+  border-bottom: 1px solid #e7eaee;
+}
+
+.vision-property-list > div:last-child {
+  border-bottom: 0;
+}
+
+.vision-property-list dt {
+  color: #89929d;
+
+  font-size: 8px;
+}
+
+.vision-property-list dd {
+  max-width: 130px;
+
+  margin: 0;
+
+  overflow: hidden;
+
+  color: #4c5764;
+
+  font-size: 8px;
+  font-weight: 650;
+
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+
+.vision-info-card.compact {
+  padding-bottom: 7px;
+}
+
+.vision-device-row {
+  display: grid;
+  grid-template-columns: 34px 1fr auto;
+  gap: 9px;
+  align-items: center;
+
+  padding: 10px 0;
+
+  border-top: 1px solid #e8ebef;
+}
+
+.vision-device-icon {
+  display: grid;
+  place-items: center;
+
+  width: 34px;
+  height: 34px;
+
+  border-radius: 8px;
+
+  background: #f1f4f7;
+
+  color: #617386;
+}
+
+.vision-device-row > div:nth-child(2) {
+  min-width: 0;
+
+  display: flex;
+  flex-direction: column;
+}
+
+.vision-device-row strong {
+  color: #38434f;
+
+  font-size: 9px;
+}
+
+.vision-device-row span {
+  margin-top: 2px;
+
+  color: #9aa2ac;
+
+  font-size: 7px;
+}
+
+.vision-device-row small {
+  color: #9aa2ac;
+
+  font-size: 6px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+}
+
+
+/* ==========================================================
+   LOWER PANELS
+   ========================================================== */
+
+.vision-lower-grid {
+  display: grid;
+  grid-template-columns: 1.35fr 0.65fr;
+  gap: 15px;
+
+  margin-top: 17px;
+}
+
+.vision-analysis-card {
+  min-height: 145px;
+
+  padding: 17px;
+
+  border: 1px solid #e0e4e9;
+  border-radius: 13px;
+
+  background: #fff;
+}
+
+.vision-analysis-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.vision-analysis-heading > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.vision-analysis-heading span {
+  color: #989fa9;
+
+  font-size: 7px;
+  font-weight: 730;
+  letter-spacing: 0.12em;
+}
+
+.vision-analysis-heading strong {
+  margin-top: 3px;
+
+  color: #303944;
+
+  font-size: 11px;
+}
+
+.vision-analysis-heading small {
+  color: #a0a8b1;
+
+  font-size: 7px;
+  font-weight: 700;
+}
+
+
+.vision-analysis-empty {
+  min-height: 80px;
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 11px;
+
+  color: #99a1ab;
+}
+
+.vision-analysis-empty span {
+  max-width: 430px;
+
+  font-size: 8px;
+  line-height: 1.5;
+}
+
+.vision-analysis-empty.small {
+  min-height: 36px;
+
+  justify-content: flex-start;
+}
+
+
+.vision-depth-scale {
+  margin-top: 21px;
+}
+
+.vision-depth-bar {
+  height: 7px;
+
+  border-radius: 999px;
+
+  background:
+    linear-gradient(
+      90deg,
+      #2d3541,
+      #677588,
+      #d6dbe1
+    );
+}
+
+.vision-depth-scale > div:last-child {
+  display: flex;
+  justify-content: space-between;
+
+  margin-top: 5px;
+
+  color: #949ca7;
+
+  font-size: 6px;
+  letter-spacing: 0.08em;
+}
+
+
+@media (max-width: 1050px) {
+  .vision-workspace {
+    grid-template-columns:
+      minmax(0, 1fr)
+      230px;
+  }
+
+  .vision-lower-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+
+@media (pointer: coarse) {
+  .vision-page {
+    padding: 22px 22px 38px;
+  }
+
+  .vision-view-tabs button {
+    padding: 9px 13px;
+  }
+}
+
+/* ==========================================================
+   VISION CONSOLE REFINEMENT
+   ========================================================== */
+
+/*
+ * Vision is an operator workspace.
+ * Let it use substantially more of the available screen.
+ */
+.vision-page {
+  max-width: 1650px;
+
+  padding-top: 24px;
+}
+
+
+/* ----------------------------------------------------------
+   HEADING
+   ---------------------------------------------------------- */
+
+.vision-heading {
+  margin-bottom: 18px;
+}
+
+.vision-eyebrow {
+  font-size: 9px;
+}
+
+.vision-heading p {
+  font-size: 12px;
+}
+
+
+/* ----------------------------------------------------------
+   PRIMARY WORKSPACE
+   ---------------------------------------------------------- */
+
+.vision-workspace {
+  grid-template-columns:
+    minmax(0, 1fr)
+    290px;
+
+  min-height: 640px;
+}
+
+
+.vision-main {
+  padding: 16px;
+}
+
+
+.vision-toolbar {
+  min-height: 41px;
+
+  padding-bottom: 12px;
+}
+
+
+/*
+ * These are operating controls, not tiny metadata buttons.
+ */
+.vision-view-tabs button {
+  min-height: 34px;
+
+  padding: 8px 14px;
+
+  font-size: 9px;
+}
+
+
+.vision-toolbar-actions {
+  font-size: 8px;
+}
+
+
+.vision-toolbar-actions button {
+  width: 34px;
+  height: 34px;
+}
+
+
+/* ----------------------------------------------------------
+   CAMERA / POINT-CLOUD VIEW
+   ---------------------------------------------------------- */
+
+.vision-stream {
+  min-height: 555px;
+}
+
+
+.vision-placeholder-icon {
+  width: 82px;
+  height: 82px;
+}
+
+
+.vision-placeholder strong {
+  font-size: 13px;
+}
+
+
+.vision-placeholder > span {
+  margin-top: 6px;
+
+  font-size: 10px;
+}
+
+
+.vision-stream-top {
+  top: 17px;
+  left: 18px;
+  right: 18px;
+
+  font-size: 8px;
+}
+
+
+.vision-stream-bottom {
+  right: 17px;
+  bottom: 16px;
+  left: 17px;
+
+  gap: 8px;
+}
+
+
+.vision-stream-bottom > div {
+  min-height: 42px;
+
+  padding: 9px 11px;
+}
+
+
+.vision-stream-bottom small {
+  font-size: 7px;
+}
+
+
+.vision-stream-bottom strong {
+  font-size: 10px;
+}
+
+
+/* ----------------------------------------------------------
+   SENSOR SIDEBAR
+   ---------------------------------------------------------- */
+
+.vision-sidebar {
+  padding: 18px;
+}
+
+
+.vision-info-card {
+  padding: 17px;
+}
+
+
+.vision-card-kicker {
+  font-size: 8px;
+}
+
+
+.vision-sensor-title strong {
+  font-size: 11px;
+}
+
+
+.vision-sensor-title span {
+  font-size: 8px;
+}
+
+
+.vision-property-list dt,
+.vision-property-list dd {
+  font-size: 8px;
+}
+
+
+.vision-property-list > div {
+  min-height: 35px;
+}
+
+
+.vision-device-row {
+  min-height: 52px;
+}
+
+
+.vision-device-row strong {
+  font-size: 9px;
+}
+
+
+.vision-device-row span {
+  font-size: 7px;
+}
+
+
+/* ----------------------------------------------------------
+   SECONDARY PANELS
+   ---------------------------------------------------------- */
+
+.vision-lower-grid {
+  grid-template-columns:
+    1.45fr
+    0.55fr;
+
+  gap: 13px;
+
+  margin-top: 14px;
+}
+
+
+.vision-analysis-card {
+  min-height: 118px;
+
+  padding: 15px 16px;
+}
+
+
+.vision-analysis-empty {
+  min-height: 58px;
+}
+
+
+.vision-analysis-heading strong {
+  font-size: 11px;
+}
+
+
+/* ----------------------------------------------------------
+   TOUCH / TABLET
+   ---------------------------------------------------------- */
+
+@media (pointer: coarse) {
+  .vision-workspace {
+    grid-template-columns:
+      minmax(0, 1fr)
+      280px;
+  }
+
+  .vision-view-tabs button {
+    min-height: 40px;
+
+    padding:
+      9px 16px;
+  }
+
+  .vision-toolbar-actions button {
+    width: 40px;
+    height: 40px;
+  }
+}
+

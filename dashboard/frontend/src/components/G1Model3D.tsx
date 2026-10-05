@@ -16,6 +16,18 @@ type LoadState =
   | "error";
 
 
+type G1ModelView =
+  | "control"
+  | "overview"
+  | "overview-full";
+
+
+interface G1Model3DProps {
+  view?: G1ModelView;
+  showLabel?: boolean;
+}
+
+
 /*
  * Dashboard presentation pose only.
  *
@@ -264,7 +276,10 @@ function createMaterial(
 }
 
 
-export function G1Model3D() {
+export function G1Model3D({
+  view = "control",
+  showLabel = true,
+}: G1Model3DProps) {
   const mountRef =
     useRef<HTMLDivElement>(null);
 
@@ -845,6 +860,22 @@ export function G1Model3D() {
         }
 
 
+        /*
+         * Sanity-check critical visual links.
+         * This does not affect rendering.
+         */
+        const headVisual =
+          assembly.getObjectByName(
+            "head_link",
+          );
+
+        if (!headVisual) {
+          console.warn(
+            "G1 visual hierarchy loaded without head_link",
+          );
+        }
+
+
         // ----------------------------------------------------
         // FIT COMPLETE ROBOT INTO VIEW
         // ----------------------------------------------------
@@ -916,17 +947,18 @@ export function G1Model3D() {
 
 
         const scale =
-          3.15 /
-          maxDimension;
+          view === "control"
+            ? 3.15 / maxDimension
+            : 2.72 / maxDimension;
 
         presentation.scale.setScalar(
           scale,
         );
 
         /*
-         * Force matrix update after presentation rotation
-         * and scale, then calculate the actual DISPLAY-space
-         * bounds rather than relying on the source-model axes.
+         * Calculate bounds after the presentation rotation
+         * and scale. This lets each dashboard page frame the
+         * same real robot model differently.
          */
         presentation.updateMatrixWorld(
           true,
@@ -942,33 +974,92 @@ export function G1Model3D() {
             new THREE.Vector3(),
           );
 
-        /*
-         * Control-page composition:
-         *
-         * Aim the camera at the upper part of the humanoid,
-         * not the body midpoint. This intentionally crops
-         * much of the lower legs so the head and torso become
-         * the dominant visual element.
-         */
-        const focusY =
-          displayBounds.min.y +
-          displaySize.y * 0.84;
+        if (view === "control") {
+          /*
+           * Frozen Control framing.
+           */
+          const focusY =
+            displayBounds.min.y +
+            displaySize.y * 0.84;
 
-        /*
-         * Keep the current zoom, but bias the composition
-         * strongly toward the G1 head and shoulders.
-         */
-        controls.target.set(
-          0,
-          focusY,
-          0,
-        );
+          controls.target.set(
+            0,
+            focusY,
+            0,
+          );
 
-        camera.position.set(
-          0,
-          focusY + 0.06,
-          2.45,
-        );
+          camera.position.set(
+            0,
+            focusY + 0.06,
+            2.45,
+          );
+
+        } else if (view === "overview") {
+          /*
+           * Primary Overview framing:
+           * head / shoulders / torso dominant.
+           */
+          const focusY =
+            displayBounds.min.y +
+            displaySize.y * 0.84;
+
+          controls.target.set(
+            0,
+            focusY,
+            0,
+          );
+
+          camera.position.set(
+            0,
+            focusY + 0.06,
+            2.65,
+          );
+
+        } else {
+          /*
+           * Full-body Overview inspection mode.
+           *
+           * Keep the automatic fit distance, but bias the
+           * camera target slightly ABOVE the true model center.
+           * That moves the robot lower in the frame so it does
+           * not feel stuck to the top edge.
+           */
+          const displayCenter =
+            displayBounds.getCenter(
+              new THREE.Vector3(),
+            );
+
+          const verticalFov =
+            THREE.MathUtils.degToRad(
+              camera.fov,
+            );
+
+          const fitDistance =
+            (displaySize.y * 0.5) /
+            Math.tan(
+              verticalFov * 0.5,
+            );
+
+          const fullBodyDistance =
+            fitDistance * 1.12;
+
+          /*
+           * Full-body inspection should be geometrically
+           * centered in the viewport.
+           */
+          controls.target.set(
+            displayCenter.x,
+            displayCenter.y,
+            displayCenter.z,
+          );
+
+          camera.position.set(
+            displayCenter.x,
+            displayCenter.y,
+            displayCenter.z +
+              fullBodyDistance,
+          );
+        }
 
         camera.lookAt(
           controls.target,
@@ -1145,11 +1236,13 @@ export function G1Model3D() {
 
       renderer.domElement.remove();
     };
-  }, []);
+  }, [view]);
 
 
   return (
-    <div className="g1-head-3d g1-fullbody-3d">
+    <div
+      className={`g1-head-3d g1-fullbody-3d g1-model-${view}`}
+    >
       <div className="g1-model-backdrop">
         <span className="model-orbit orbit-1" />
         <span className="model-orbit orbit-2" />
@@ -1172,15 +1265,17 @@ export function G1Model3D() {
         </div>
       )}
 
-      <div className="g1-model-label">
-        <strong>G1 EDU U7</strong>
+      {showLabel && (
+        <div className="g1-model-label">
+          <strong>G1 EDU U7</strong>
 
-        <span>
-          {loadState === "ready"
-            ? "29 DOF HUMANOID"
-            : "UNITREE MODEL"}
-        </span>
-      </div>
+          <span>
+            {loadState === "ready"
+              ? "29 DOF HUMANOID"
+              : "UNITREE MODEL"}
+          </span>
+        </div>
+      )}
     </div>
   );
 }

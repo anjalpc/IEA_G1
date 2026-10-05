@@ -4,7 +4,6 @@ import {
   BatteryMedium,
   Camera,
   Cpu,
-  Footprints,
   LayoutDashboard,
   Map,
   Radio,
@@ -14,13 +13,16 @@ import {
 
 import { ActionDeck } from "./components/ActionDeck";
 import { ActionDrawer } from "./components/ActionDrawer";
-import { G1Model3D } from "./components/G1Model3D";
 import { VirtualJoystick } from "./components/VirtualJoystick";
 import type { StickValue } from "./components/VirtualJoystick";
 import type {
   ActionGroup,
   G1Action,
 } from "./data/g1Actions";
+
+import { OverviewPage } from "./pages/OverviewPage";
+import { VisionPage } from "./pages/VisionPage";
+import { NavigationPage } from "./pages/NavigationPage";
 
 import "./App.css";
 
@@ -29,7 +31,6 @@ type Page =
   | "control"
   | "vision"
   | "navigation"
-  | "stairs"
   | "analysis"
   | "system";
 
@@ -42,7 +43,6 @@ const pages: {
   { id: "control", label: "Control", icon: Radio },
   { id: "vision", label: "Vision", icon: Camera },
   { id: "navigation", label: "Navigation", icon: Map },
-  { id: "stairs", label: "Stairs", icon: Footprints },
   { id: "analysis", label: "Analysis", icon: Activity },
   { id: "system", label: "System", icon: Cpu },
 ];
@@ -138,7 +138,13 @@ function App() {
         </div>
       </header>
 
-      {page === "control" ? (
+      {page === "overview" ? (
+        <OverviewPage />
+      ) : page === "vision" ? (
+        <VisionPage />
+      ) : page === "navigation" ? (
+        <NavigationPage />
+      ) : page === "control" ? (
         <main className="control-page">
           <section className="control-statusbar">
             <div className="status-cluster">
@@ -214,13 +220,91 @@ function App() {
               </div>
             </div>
 
-            <div className="robot-stage">
-
-              <G1Model3D />
-
-              <div className="robot-stage-footer">
+            <div className="operator-hud">
+              <div className="operator-hud-top">
                 <div>
-                  <small>MODE</small>
+                  <span className="operator-hud-kicker">
+                    COMMAND HUD
+                  </span>
+
+                  <strong>MANUAL CONTROL</strong>
+                </div>
+
+                <div
+                  className={`operator-hud-state ${
+                    armed ? "armed" : ""
+                  }`}
+                >
+                  <span />
+
+                  {armed
+                    ? "CONTROL ARMED"
+                    : "CONTROL LOCKED"}
+                </div>
+              </div>
+
+
+              <div className="operator-hud-core">
+                <div className="command-reticle">
+                  <span className="reticle-ring reticle-ring-outer" />
+                  <span className="reticle-ring reticle-ring-inner" />
+                  <span className="reticle-axis reticle-axis-x" />
+                  <span className="reticle-axis reticle-axis-y" />
+
+                  <div className="command-speed">
+                    <small>COMMAND SPEED</small>
+
+                    <strong>
+                      {Math.hypot(
+                        command.vx,
+                        command.vy,
+                      ).toFixed(2)}
+                    </strong>
+
+                    <span>m/s</span>
+                  </div>
+                </div>
+
+                <div className="operator-command-grid">
+                  <div>
+                    <small>FORWARD</small>
+
+                    <strong>
+                      {command.vx >= 0 ? "+" : ""}
+                      {command.vx.toFixed(2)}
+                    </strong>
+
+                    <span>VX / m/s</span>
+                  </div>
+
+                  <div>
+                    <small>LATERAL</small>
+
+                    <strong>
+                      {command.vy >= 0 ? "+" : ""}
+                      {command.vy.toFixed(2)}
+                    </strong>
+
+                    <span>VY / m/s</span>
+                  </div>
+
+                  <div>
+                    <small>YAW</small>
+
+                    <strong>
+                      {command.yaw >= 0 ? "+" : ""}
+                      {command.yaw.toFixed(2)}
+                    </strong>
+
+                    <span>rad/s</span>
+                  </div>
+                </div>
+              </div>
+
+
+              <div className="operator-hud-footer">
+                <div>
+                  <small>ROBOT MODE</small>
                   <strong>--</strong>
                 </div>
 
@@ -233,6 +317,12 @@ function App() {
                   <small>COMMAND RATE</small>
                   <strong>0 Hz</strong>
                 </div>
+              </div>
+
+              <div className="operator-hud-offline">
+                <span />
+
+                LIVE ROBOT TELEMETRY UNAVAILABLE
               </div>
             </div>
 
