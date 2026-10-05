@@ -94,6 +94,7 @@ class LocomotionArbiter:
         self._last_valid_command_at = None
         self._reason = "STARTING"
         self._emergency_stop = False
+        self._shutdown = False
         self._stopped = True
 
         self._backend.activate()
@@ -103,6 +104,21 @@ class LocomotionArbiter:
     def acquire(self, owner, requester_id):
         """Grant one exclusive opaque locomotion lease."""
         with self._lock:
+            if self._emergency_stop:
+                return AcquireResult(
+                    False,
+                    "",
+                    self._active_owner,
+                    "EMERGENCY_STOP",
+                )
+            if self._shutdown:
+                return AcquireResult(
+                    False,
+                    "",
+                    self._active_owner,
+                    "SHUTDOWN",
+                )
+
             try:
                 owner = validate_locomotion_owner(owner)
             except ValueError:
@@ -236,6 +252,43 @@ class LocomotionArbiter:
                 self._active_owner,
                 self._reason,
             )
+
+    def check_watchdog(self):
+        """Stop and revoke an owner at the monotonic deadline."""
+        with self._lock:
+            if self._active_owner == OWNER_NONE:
+                return False
+            elapsed = (
+                self._monotonic()
+                - self._last_valid_command_at
+            )
+            if elapsed < self._command_timeout_seconds:
+                return False
+            self._stop_and_revoke("COMMAND_TIMEOUT")
+            return True
+
+    def set_emergency_stop(self):
+        """Latch emergency stop and revoke all locomotion."""
+        with self._lock:
+            if self._emergency_stop:
+                return False
+            self._emergency_stop = True
+            self._stop_and_revoke("EMERGENCY_STOP")
+            return True
+
+    def shutdown(self):
+        """Stop, revoke, and deactivate exactly once."""
+        with self._lock:
+            if self._shutdown:
+                return False
+            self._shutdown = True
+            self._stop_and_revoke("SHUTDOWN")
+            self._ready = False
+            try:
+                self._backend.deactivate()
+            except Exception:
+                pass
+            return True
 
     def snapshot(self):
         """Return public state without ownership secrets."""
