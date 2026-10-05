@@ -1,5 +1,6 @@
 """Hardware-free boundary for a future Unitree Sport adapter."""
 
+import math
 from typing import Protocol
 
 
@@ -35,16 +36,28 @@ class SportBackend:
         self.faulted = False
 
     def activate(self):
-        """Activate without commanding motion."""
-        if self.active:
+        """Activate or recover without commanding motion."""
+        if self.active and not self.faulted:
             return
-        if not self._client.healthy():
+
+        try:
+            client_healthy = bool(self._client.healthy())
+        except Exception as exc:
+            self.faulted = True
+            raise SportBackendError(
+                "SPORT_CLIENT_UNAVAILABLE"
+            ) from exc
+
+        if not client_healthy:
             self.faulted = True
             raise SportBackendError(
                 "SPORT_CLIENT_UNAVAILABLE"
             )
+
+        was_active = self.active
         self.active = True
-        self.stopped = True
+        if not was_active:
+            self.stopped = True
         self.faulted = False
 
     def command_velocity(
@@ -58,19 +71,52 @@ class SportBackend:
             raise SportBackendError(
                 "SPORT_BACKEND_INACTIVE"
             )
-        command = (
-            float(forward_mps),
-            float(lateral_mps),
-            float(yaw_rate_rps),
-        )
-        self._client.move(*command)
+        if self.faulted:
+            raise SportBackendError(
+                "SPORT_CLIENT_UNAVAILABLE"
+            )
+
+        try:
+            command = (
+                float(forward_mps),
+                float(lateral_mps),
+                float(yaw_rate_rps),
+            )
+        except (TypeError, ValueError) as exc:
+            raise SportBackendError(
+                "SPORT_MOVE_FAILED"
+            ) from exc
+
+        if not all(math.isfinite(value) for value in command):
+            raise SportBackendError(
+                "SPORT_MOVE_FAILED"
+            )
+
+        try:
+            self._client.move(*command)
+        except Exception as exc:
+            self.faulted = True
+            self.stopped = False
+            raise SportBackendError(
+                "SPORT_MOVE_FAILED"
+            ) from exc
+
         self.stopped = command == (0.0, 0.0, 0.0)
 
     def stop(self):
         """Request stop whenever the backend is active."""
         if not self.active:
             return
-        self._client.stop_move()
+
+        try:
+            self._client.stop_move()
+        except Exception as exc:
+            self.faulted = True
+            self.stopped = False
+            raise SportBackendError(
+                "SPORT_STOP_FAILED"
+            ) from exc
+
         self.stopped = True
 
     def healthy(self):
