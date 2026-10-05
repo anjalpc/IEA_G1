@@ -4,6 +4,7 @@ from g1_robot_interfaces.locomotion import (
     OWNER_MANUAL,
     OWNER_NAVIGATION,
     OWNER_NONE,
+    PlanarVelocityLimits,
 )
 
 from g1_locomotion_control.arbiter import LocomotionArbiter
@@ -35,6 +36,11 @@ def arbiter():
     clock = FakeClock()
     instance = LocomotionArbiter(
         backend=backend,
+        velocity_limits=PlanarVelocityLimits(
+            forward_mps=0.5,
+            lateral_mps=0.25,
+            yaw_rate_rps=0.4,
+        ),
         command_timeout_seconds=0.250,
         monotonic=clock,
         lease_factory=LeaseFactory(),

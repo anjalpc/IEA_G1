@@ -7,8 +7,10 @@ import time
 
 from g1_robot_interfaces.locomotion import (
     OWNER_NONE,
+    PlanarVelocityLimits,
     validate_lease_id,
     validate_locomotion_owner,
+    validate_planar_velocity,
 )
 
 
@@ -19,6 +21,14 @@ class AcquireResult:
     granted: bool
     lease_id: str
     active_owner: int
+    reason: str
+
+
+@dataclass(frozen=True)
+class CommandResult:
+    """Result of one locomotion velocity command."""
+
+    accepted: bool
     reason: str
 
 
@@ -50,6 +60,7 @@ class LocomotionArbiter:
         self,
         *,
         backend,
+        velocity_limits,
         command_timeout_seconds,
         monotonic=time.monotonic,
         lease_factory=None,
@@ -60,7 +71,15 @@ class LocomotionArbiter:
                 "command_timeout_seconds must be positive"
             )
 
+        if not isinstance(
+            velocity_limits, PlanarVelocityLimits
+        ):
+            raise ValueError(
+                "velocity_limits must be PlanarVelocityLimits"
+            )
+
         self._backend = backend
+        self._velocity_limits = velocity_limits
         self._command_timeout_seconds = timeout
         self._monotonic = monotonic
         self._lease_factory = (
@@ -137,6 +156,40 @@ class LocomotionArbiter:
                 self._active_owner,
                 self._reason,
             )
+
+    def command(
+        self,
+        *,
+        owner,
+        lease_id,
+        linear_x,
+        linear_y,
+        linear_z,
+        angular_x,
+        angular_y,
+        angular_z,
+    ):
+        """Validate ownership and dispatch one planar command."""
+        with self._lock:
+            if owner != self._active_owner:
+                return CommandResult(False, "OWNER_MISMATCH")
+            if lease_id != self._lease_id:
+                return CommandResult(False, "LEASE_MISMATCH")
+
+            velocity = validate_planar_velocity(
+                linear_x=linear_x,
+                linear_y=linear_y,
+                linear_z=linear_z,
+                angular_x=angular_x,
+                angular_y=angular_y,
+                angular_z=angular_z,
+                limits=self._velocity_limits,
+            )
+            self._backend.command_velocity(*velocity)
+            self._last_valid_command_at = self._monotonic()
+            self._reason = "COMMAND_ACCEPTED"
+            self._stopped = velocity == (0.0, 0.0, 0.0)
+            return CommandResult(True, self._reason)
 
     def release(self, owner, lease_id):
         """Stop and release only the exact active lease."""
