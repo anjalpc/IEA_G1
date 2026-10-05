@@ -1,0 +1,12 @@
+uint8 OWNER_NONE=0
+uint8 OWNER_MANUAL=1
+uint8 OWNER_NAVIGATION=2
+uint8 OWNER_STAIR_POLICY=3
+
+uint8 requested_owner
+string requester_id
+---
+bool granted
+string lease_id
+uint8 active_owner
+string reason

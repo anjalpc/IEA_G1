@@ -9,6 +9,8 @@ find_package(std_msgs REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/LocomotionCommand.msg"
   "msg/LocomotionState.msg"
+  "srv/AcquireLocomotion.srv"
+  "srv/ReleaseLocomotion.srv"
   DEPENDENCIES geometry_msgs std_msgs
 )
 

@@ -1,0 +1,6 @@
+uint8 owner
+string lease_id
+---
+bool released
+uint8 active_owner
+string reason
