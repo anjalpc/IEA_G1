@@ -26,14 +26,18 @@ The repository is mounted at `/workspace/IEA_G1`, so source edits on the host ar
 Run these commands inside the container:
 
 ```bash
-cd /workspace/IEA_G1
-cd ros2_ws
+cd /workspace/IEA_G1/ros2_ws
 colcon build --symlink-install
 source install/setup.bash
-cd ..
-pytest -q
+colcon test --event-handlers console_direct+
+colcon test-result --verbose
+cd /workspace/IEA_G1
 python3 simulation/mujoco/validate_config.py
 ```
+
+Use `colcon test` as the primary workstation gate. Repository-wide `pytest`
+collection includes Isaac Lab and archived experiment tests that require the
+separate AWS/Isaac environment.
 
 To build selected packages:
 

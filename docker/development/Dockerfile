@@ -27,6 +27,7 @@ RUN apt-get update && apt-get install -y \
     python3-venv \
     python3-rosdep \
     python3-colcon-common-extensions \
+    python3-pytest \
     python3-vcstool \
     iproute2 \
     iputils-ping \
