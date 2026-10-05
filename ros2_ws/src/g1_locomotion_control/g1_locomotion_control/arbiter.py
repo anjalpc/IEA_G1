@@ -151,6 +151,14 @@ class LocomotionArbiter:
                     self._active_owner,
                     "LEASE_ACTIVE",
                 )
+            if not self._backend_is_healthy():
+                self._ready = False
+                return AcquireResult(
+                    False,
+                    "",
+                    self._active_owner,
+                    "BACKEND_UNAVAILABLE",
+                )
 
             lease_id = self._lease_factory()
             try:
@@ -250,7 +258,10 @@ class LocomotionArbiter:
                 self._backend.stop()
             except Exception:
                 self._ready = False
-                self._clear_lease("BACKEND_FAILURE")
+                self._clear_lease(
+                    "BACKEND_FAILURE",
+                    stopped=False,
+                )
                 return ReleaseResult(
                     False,
                     self._active_owner,
@@ -334,18 +345,20 @@ class LocomotionArbiter:
 
     def _stop_and_revoke(self, reason):
         """Attempt a safe stop, then revoke ownership unconditionally."""
+        stopped = True
         try:
             self._backend.stop()
         except Exception:
             self._ready = False
+            stopped = False
         finally:
-            self._clear_lease(reason)
+            self._clear_lease(reason, stopped=stopped)
 
-    def _clear_lease(self, reason):
+    def _clear_lease(self, reason, stopped=True):
         """Clear private ownership state while holding the lock."""
         self._active_owner = OWNER_NONE
         self._lease_id = None
         self._lease_started_at = None
         self._last_valid_command_at = None
         self._reason = reason
-        self._stopped = True
+        self._stopped = bool(stopped)

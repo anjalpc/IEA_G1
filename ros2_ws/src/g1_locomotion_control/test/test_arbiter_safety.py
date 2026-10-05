@@ -210,6 +210,6 @@ def test_release_stop_failure_revokes_and_reports_backend_failure():
     assert result.reason == "BACKEND_FAILURE"
     assert snapshot.active_owner == OWNER_NONE
     assert snapshot.ready is False
-    assert snapshot.stopped is True
+    assert snapshot.stopped is False
     assert snapshot.reason == "BACKEND_FAILURE"
     assert backend.stop_count == 1

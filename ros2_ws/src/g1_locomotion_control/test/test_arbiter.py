@@ -139,3 +139,21 @@ def test_successful_release_stops_before_clearing_owner():
     assert snapshot.active_owner == OWNER_NONE
     assert snapshot.stopped is True
     assert snapshot.reason == "RELEASED"
+
+
+def test_unhealthy_backend_cannot_grant_a_lease():
+    instance, backend, _clock = arbiter()
+    backend.set_healthy(False)
+
+    result = instance.acquire(
+        OWNER_NAVIGATION, "nav2-adapter"
+    )
+    snapshot = instance.snapshot()
+
+    assert result.granted is False
+    assert result.lease_id == ""
+    assert result.active_owner == OWNER_NONE
+    assert result.reason == "BACKEND_UNAVAILABLE"
+    assert snapshot.active_owner == OWNER_NONE
+    assert snapshot.ready is False
+    assert backend.stop_count == 0
