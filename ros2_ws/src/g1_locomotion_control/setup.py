@@ -24,4 +24,12 @@ setup(
     ),
     license="Proprietary",
     extras_require={"test": ["pytest"]},
+    entry_points={
+        "console_scripts": [
+            (
+                "g1_locomotion_arbiter = "
+                "g1_locomotion_control.node:main"
+            ),
+        ],
+    },
 )
