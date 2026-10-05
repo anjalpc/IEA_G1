@@ -43,6 +43,21 @@ def test_card_handover_requires_semantic_hand_inside_rgb_region():
         {"hands": [{"center_x": 250, "center_y": 300}]},
         roi,
     )
+    assert not hand_in_roi({"hands": []}, roi)
+    assert not hand_in_roi(
+        {"hands": [{"center_x": 50, "center_y": 300}]},
+        roi,
+    )
+    assert hand_in_roi(
+        {
+            "hands": [{
+                "center_x": 250,
+                "center_y": 150,
+                "bbox": [200, 100, 300, 220],
+            }],
+        },
+        roi,
+    )
 
 
 def test_stationary_person_does_not_trigger_handover():
@@ -94,21 +109,6 @@ def test_stationary_person_does_not_trigger_handover():
 
     assert detector.baseline_depth_near25 == 500.0
     assert detector.pending is False
-    assert not hand_in_roi({"hands": []}, roi)
-    assert not hand_in_roi(
-        {"hands": [{"center_x": 50, "center_y": 300}]},
-        roi,
-    )
-    assert hand_in_roi(
-        {
-            "hands": [{
-                "center_x": 250,
-                "center_y": 150,
-                "bbox": [200, 100, 300, 220],
-            }],
-        },
-        roi,
-    )
 
 
 class Sequence:
