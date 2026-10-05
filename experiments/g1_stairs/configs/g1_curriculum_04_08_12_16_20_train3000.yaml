@@ -1,0 +1,17 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_curriculum_04_08_12_16_20_smoke.yaml
+  resolved_config_required: true
+
+experiment:
+  id: g1_curriculum_04_08_12_16_20_train3000
+  purpose: Long adaptive stair curriculum from qualified model1199 through 4, 8, 12, 16 and 20 cm.
+
+execution:
+  environments: 2048
+  maximum_iterations: 3000
+  training_seed: 42
+
+checkpointing:
+  interval_iterations: 10
