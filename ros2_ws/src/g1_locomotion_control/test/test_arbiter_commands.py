@@ -19,8 +19,21 @@ class FakeClock:
         return self.now
 
 
-def arbiter():
-    backend = RecordingBackend()
+class FailingCommandBackend(RecordingBackend):
+    """Raise while dispatching an otherwise valid command."""
+
+    def command_velocity(
+        self,
+        forward_mps,
+        lateral_mps,
+        yaw_rate_rps,
+    ):
+        del forward_mps, lateral_mps, yaw_rate_rps
+        raise RuntimeError("injected backend failure")
+
+
+def arbiter(backend=None):
+    backend = backend or RecordingBackend()
     clock = FakeClock()
     instance = LocomotionArbiter(
         backend=backend,
@@ -98,3 +111,79 @@ def test_wrong_lease_is_rejected_without_disrupting_active_owner():
     assert snapshot.reason == "LEASE_GRANTED"
     assert backend.commands == []
     assert backend.stop_count == 0
+
+
+def test_wrong_owner_is_rejected_without_disrupting_active_owner():
+    instance, backend, _clock, lease = arbiter()
+
+    result = instance.command(
+        owner=1,
+        lease_id=lease,
+        linear_x=0.1,
+        linear_y=0.0,
+        linear_z=0.0,
+        angular_x=0.0,
+        angular_y=0.0,
+        angular_z=0.0,
+    )
+
+    assert result.accepted is False
+    assert result.reason == "OWNER_MISMATCH"
+    assert instance.snapshot().active_owner == OWNER_NAVIGATION
+    assert backend.commands == []
+    assert backend.stop_count == 0
+
+
+def test_invalid_active_command_stops_and_revokes_owner():
+    instance, backend, _clock, lease = arbiter()
+
+    result = instance.command(
+        owner=OWNER_NAVIGATION,
+        lease_id=lease,
+        linear_x=float("nan"),
+        linear_y=0.0,
+        linear_z=0.0,
+        angular_x=0.0,
+        angular_y=0.0,
+        angular_z=0.0,
+    )
+    snapshot = instance.snapshot()
+
+    assert result.accepted is False
+    assert result.reason == "INVALID_COMMAND"
+    assert snapshot.active_owner == 0
+    assert snapshot.stopped is True
+    assert snapshot.reason == "INVALID_COMMAND"
+    assert backend.commands == []
+    assert backend.stop_count == 1
+
+
+def test_unhealthy_backend_stops_and_revokes_owner():
+    instance, backend, _clock, lease = arbiter()
+    backend.set_healthy(False)
+
+    result = valid_command(instance, lease)
+    snapshot = instance.snapshot()
+
+    assert result.accepted is False
+    assert result.reason == "BACKEND_UNAVAILABLE"
+    assert snapshot.active_owner == 0
+    assert snapshot.ready is False
+    assert snapshot.stopped is True
+    assert backend.commands == []
+    assert backend.stop_count == 1
+
+
+def test_backend_dispatch_failure_stops_and_revokes_owner():
+    backend = FailingCommandBackend()
+    instance, backend, _clock, lease = arbiter(backend)
+
+    result = valid_command(instance, lease)
+    snapshot = instance.snapshot()
+
+    assert result.accepted is False
+    assert result.reason == "BACKEND_FAILURE"
+    assert snapshot.active_owner == 0
+    assert snapshot.ready is False
+    assert snapshot.stopped is True
+    assert backend.stop_count == 1

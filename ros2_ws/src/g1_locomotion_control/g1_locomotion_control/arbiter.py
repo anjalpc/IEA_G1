@@ -97,6 +97,7 @@ class LocomotionArbiter:
         self._stopped = True
 
         self._backend.activate()
+        self._ready = True
         self._reason = "READY"
 
     def acquire(self, owner, requester_id):
@@ -176,16 +177,37 @@ class LocomotionArbiter:
             if lease_id != self._lease_id:
                 return CommandResult(False, "LEASE_MISMATCH")
 
-            velocity = validate_planar_velocity(
-                linear_x=linear_x,
-                linear_y=linear_y,
-                linear_z=linear_z,
-                angular_x=angular_x,
-                angular_y=angular_y,
-                angular_z=angular_z,
-                limits=self._velocity_limits,
-            )
-            self._backend.command_velocity(*velocity)
+            try:
+                velocity = validate_planar_velocity(
+                    linear_x=linear_x,
+                    linear_y=linear_y,
+                    linear_z=linear_z,
+                    angular_x=angular_x,
+                    angular_y=angular_y,
+                    angular_z=angular_z,
+                    limits=self._velocity_limits,
+                )
+            except ValueError:
+                self._stop_and_revoke("INVALID_COMMAND")
+                return CommandResult(False, self._reason)
+
+            try:
+                backend_healthy = bool(self._backend.healthy())
+            except Exception:
+                backend_healthy = False
+
+            if not backend_healthy:
+                self._ready = False
+                self._stop_and_revoke("BACKEND_UNAVAILABLE")
+                return CommandResult(False, self._reason)
+
+            try:
+                self._backend.command_velocity(*velocity)
+            except Exception:
+                self._ready = False
+                self._stop_and_revoke("BACKEND_FAILURE")
+                return CommandResult(False, self._reason)
+
             self._last_valid_command_at = self._monotonic()
             self._reason = "COMMAND_ACCEPTED"
             self._stopped = velocity == (0.0, 0.0, 0.0)
@@ -229,12 +251,31 @@ class LocomotionArbiter:
 
             return ArbiterSnapshot(
                 active_owner=self._active_owner,
-                ready=bool(self._backend.healthy()),
+                ready=(
+                    self._ready
+                    and self._backend_is_healthy()
+                ),
                 stopped=self._stopped,
                 emergency_stop=self._emergency_stop,
                 command_age_seconds=command_age,
                 reason=self._reason,
             )
+
+    def _backend_is_healthy(self):
+        """Return backend health without leaking backend exceptions."""
+        try:
+            return bool(self._backend.healthy())
+        except Exception:
+            return False
+
+    def _stop_and_revoke(self, reason):
+        """Attempt a safe stop, then revoke ownership unconditionally."""
+        try:
+            self._backend.stop()
+        except Exception:
+            self._ready = False
+        finally:
+            self._clear_lease(reason)
 
     def _clear_lease(self, reason):
         """Clear private ownership state while holding the lock."""
