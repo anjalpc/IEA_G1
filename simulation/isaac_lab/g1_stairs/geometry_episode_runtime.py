@@ -279,6 +279,11 @@ def finish_geometry_episodes(
     levels = (terrain.terrain_levels[ids].clone() if len(runtime.heights) > 1
               else torch.zeros_like(ids))
     success = reason == Result.SUCCESS
+    # Curriculum progression is intentionally independent of the final
+    # one-second finish dwell. A physically valid supported platform pose
+    # qualifies the stair height for promotion.
+    curriculum_success = tracker.platform_seen[ids].clone()
+
     runtime.last_completed = {
         "step": int(env.common_step_counter), "env_ids": ids.clone(),
         "level": levels.clone(), "reason": reason,
@@ -300,10 +305,10 @@ def finish_geometry_episodes(
     # Preserve the existing dashboard's curriculum counter keys, but source
     # them from completed episodes with the shared physical outcome contract.
     env._g1_stair_curriculum_attempts = runtime.counts.sum(-1)
-    env._g1_stair_curriculum_successes = runtime.counts[:, Result.SUCCESS].clone()
+    env._g1_stair_curriculum_successes = runtime.platform_counts.clone()
     if promote:
-        move_up = success & (levels < len(runtime.heights) - 1)
-        move_down = ~success & (levels > 0)
+        move_up = curriculum_success & (levels < len(runtime.heights) - 1)
+        move_down = ~curriculum_success & (levels > 0)
 
         fraction = float(minimum_nonflat_env_fraction)
         if not 0.0 <= fraction <= 1.0:

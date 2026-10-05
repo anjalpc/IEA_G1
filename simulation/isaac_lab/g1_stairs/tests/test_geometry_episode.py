@@ -191,6 +191,26 @@ class EpisodeAccountingTests(unittest.TestCase):
         )
         self.assertEqual(env._g1_geometry_episode.tracker.reason.tolist(), [0, 0, 0])
 
+    def test_supported_platform_promotes_without_final_dwell(self):
+        env = self.fake_env(
+            [Result.TIMEOUT, Result.FALL],
+            [1, 1],
+        )
+        env._g1_geometry_episode.tracker.platform_seen[:] = torch.tensor(
+            [True, False]
+        )
+
+        finish_geometry_episodes(env, [0, 1], promote=True)
+
+        self.assertEqual(
+            env.scene.terrain.terrain_levels.tolist(),
+            [2, 0],
+        )
+        self.assertEqual(
+            env._g1_stair_curriculum_successes.tolist(),
+            [0, 1, 0],
+        )
+
     def test_nonflat_population_floor_limits_level1_demotion(self):
         env = self.fake_env(
             [Result.FALL] * 8,
