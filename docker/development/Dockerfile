@@ -21,6 +21,7 @@ ENV no_proxy=${no_proxy}
 
 RUN apt-get update && apt-get install -y \
     git \
+    ripgrep \
     cmake \
     build-essential \
     python3-pip \
