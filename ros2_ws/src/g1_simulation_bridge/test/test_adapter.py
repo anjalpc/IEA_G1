@@ -35,8 +35,11 @@ def adapter():
 
 
 def test_resolves_explicit_simulation_root():
-    expected = Path(__file__).resolve().parents[4] / "simulation"
-    assert resolve_simulation_root(expected) == expected
+    simulation_root = Path(__file__).resolve().parents[4] / "simulation"
+    backend_root = simulation_root / "mujoco"
+
+    assert resolve_simulation_root(simulation_root) == backend_root
+    assert resolve_simulation_root(backend_root) == backend_root
 
 
 def test_dispatches_reviewed_commands():

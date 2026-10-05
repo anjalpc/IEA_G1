@@ -24,14 +24,24 @@ from g1_robot_interfaces.validation import (
 def resolve_simulation_root(explicit_path=None):
     """Find the checkout's simulation directory or validate an override."""
     candidates = []
+
+    def add_candidate(path):
+        candidate = Path(path)
+        candidates.append(candidate)
+        candidates.append(candidate / "mujoco")
+
     if explicit_path:
-        candidates.append(Path(explicit_path))
+        add_candidate(explicit_path)
     if os.environ.get("IEA_G1_SIMULATION_ROOT"):
-        candidates.append(Path(os.environ["IEA_G1_SIMULATION_ROOT"]))
-    candidates.extend(parent / "simulation" for parent in [
-        Path.cwd(), *Path.cwd().parents,
-    ])
-    candidates.extend(parent / "simulation" for parent in Path(__file__).parents)
+        add_candidate(os.environ["IEA_G1_SIMULATION_ROOT"])
+    candidates.extend(
+        parent / "simulation" / "mujoco"
+        for parent in [Path.cwd(), *Path.cwd().parents]
+    )
+    candidates.extend(
+        parent / "simulation" / "mujoco"
+        for parent in Path(__file__).parents
+    )
     for candidate in candidates:
         resolved = candidate.expanduser().resolve()
         if (resolved / "run_handshake_demo.py").is_file():
