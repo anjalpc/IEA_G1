@@ -4,6 +4,15 @@ import math
 
 import pytest
 
+from g1_locomotion_interfaces.msg import (
+    LocomotionCommand,
+    LocomotionState,
+)
+from g1_locomotion_interfaces.srv import (
+    AcquireLocomotion,
+    ReleaseLocomotion,
+)
+
 from g1_robot_interfaces.locomotion import (
     OWNER_MANUAL,
     OWNER_NAVIGATION,
@@ -156,3 +165,32 @@ def test_rejects_invalid_velocity_limits(field, value):
 
     with pytest.raises(ValueError, match="finite and positive"):
         PlanarVelocityLimits(**values)
+
+
+def test_generated_owner_constants_match_shared_contract():
+    expected = {
+        "OWNER_NONE": OWNER_NONE,
+        "OWNER_MANUAL": OWNER_MANUAL,
+        "OWNER_NAVIGATION": OWNER_NAVIGATION,
+        "OWNER_STAIR_POLICY": OWNER_STAIR_POLICY,
+    }
+
+    for name, value in expected.items():
+        assert getattr(LocomotionCommand, name) == value
+        assert getattr(LocomotionState, name) == value
+        assert getattr(AcquireLocomotion.Request, name) == value
+
+
+def test_public_state_does_not_expose_lease_identifier():
+    fields = LocomotionState.get_fields_and_field_types()
+    assert "lease_id" not in fields
+
+
+def test_release_contract_requires_owner_and_lease():
+    request_fields = (
+        ReleaseLocomotion.Request.get_fields_and_field_types()
+    )
+    assert request_fields == {
+        "owner": "uint8",
+        "lease_id": "string",
+    }
