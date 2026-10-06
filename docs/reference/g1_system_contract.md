@@ -80,6 +80,22 @@ This source publishes neither TF nor fused state. The
 `g1_state_estimation` package remains the validation and health
 boundary before future fusion and Nav2 consumption.
 
+### Validated navigation-state boundary
+
+`g1_state_estimation` subscribes to `/g1/state/imu_raw` and
+`/g1/state/odometry_raw`. It publishes the unchanged validated
+odometry on `/g1/state/odometry` only while both streams are valid
+and fresh.
+
+The default stale timeout is `0.1 s`, equal to five expected samples
+at 50 Hz, and is configured in
+`ros2_ws/src/navigation/g1_state_estimation/config/state_estimation.yaml`.
+Invalid, missing, or stale input suppresses navigation-facing output.
+
+This boundary performs validation and health gating only. It does
+not fuse sensors, generate odometry, publish TF, run SLAM, or command
+the robot.
+
 ## Body joint order
 
 `Policy` is the neural-network action index. `SDK` is the index in Unitree

@@ -93,6 +93,13 @@ Implements the handshake state machine and hand-presence detector. It exposes st
 
 Implements the left-arm card workflow: hold, present, detect a handover, release, and return safely. It exposes hold, present, and cancel services and publishes card/arm state.
 
+### `g1_state_estimation`
+
+Validates raw IMU and odometry inputs, evaluates freshness and
+health, and publishes `/g1/state/odometry` only while both streams
+are navigation-ready. It does not perform sensor fusion or publish
+TF.
+
 ### `g1_simulation_bridge`
 
 Connects the same application-level command contract to simulation. It also

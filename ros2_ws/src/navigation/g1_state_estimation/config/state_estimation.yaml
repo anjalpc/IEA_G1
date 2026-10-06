@@ -1,0 +1,4 @@
+g1_state_estimation:
+  ros__parameters:
+    # Five expected 50 Hz samples before state becomes stale.
+    stale_after_seconds: 0.1
