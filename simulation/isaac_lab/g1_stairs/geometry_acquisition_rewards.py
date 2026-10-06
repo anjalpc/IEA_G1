@@ -648,9 +648,15 @@ class GeometryAcquisitionRuntime:
         self.first_touchdown_placement_reward.zero_()
 
         # Current complete-sole placement inside the safe tread.
+        # The final tread transitions directly onto the platform, so its
+        # forward edge does not need clearance from another riser.
+        final_target = target_index == (step_count - 1)
         placement_good = (
             (rear_x >= safe_start)
-            & (front_x <= safe_end)
+            & (
+                (front_x <= safe_end)
+                | final_target
+            )
         )
 
         if self.require_first_touchdown_placement:
