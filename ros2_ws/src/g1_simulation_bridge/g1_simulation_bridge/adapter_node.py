@@ -19,6 +19,15 @@ from g1_robot_interfaces.validation import (
     validate_hand_ramp_seconds,
     validate_hand_target,
 )
+from g1_simulation_bridge.simulation_state import (
+    SimulationStateReader,
+)
+from g1_simulation_bridge.simulation_timing import (
+    SimulationPublicationSchedule,
+)
+from g1_simulation_bridge.state_publisher import (
+    SimulationStatePublisher,
+)
 
 
 def resolve_simulation_root(explicit_path=None):
@@ -156,6 +165,31 @@ class G1SimulationAdapter(Node):
         self.controls.set_arm(99, "bridge:shutdown:arm_release")
 
 
+def advance_simulation(
+    *,
+    backend,
+    state_publisher,
+    substeps,
+):
+    """Advance physics and publish after every completed step."""
+
+    if (
+        isinstance(substeps, bool)
+        or not isinstance(substeps, int)
+        or substeps <= 0
+    ):
+        raise ValueError(
+            "substeps must be a positive integer"
+        )
+
+    for _ in range(substeps):
+        backend.step()
+        state_publisher.after_step(
+            data=backend.data,
+            simulation_time=float(backend.data.time),
+        )
+
+
 def parse_args(args=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--headless", action="store_true")
@@ -178,8 +212,24 @@ def main(args=None):
         print("VALID: backend-neutral arm and hand operations")
         return 0
 
+    import mujoco
+
     rclpy.init(args=ros_args)
     node = G1SimulationAdapter(controls)
+    state_publisher = SimulationStatePublisher(
+        node=node,
+        state_reader=SimulationStateReader(
+            mujoco=mujoco,
+            model=backend.model,
+        ),
+        schedule=SimulationPublicationSchedule(
+            state_period_seconds=0.02,
+        ),
+        imu_frame_id="pelvis",
+        odom_frame_id="odom",
+        child_frame_id="pelvis",
+        covariance_variance=1e-6,
+    )
     interrupted = False
 
     def stop(_signum, _frame):
@@ -193,8 +243,11 @@ def main(args=None):
     def frame():
         if rclpy.ok():
             rclpy.spin_once(node, timeout_sec=0.0)
-        for _ in range(substeps):
-            backend.step()
+        advance_simulation(
+            backend=backend,
+            state_publisher=state_publisher,
+            substeps=substeps,
+        )
 
     try:
         if parsed.headless:
