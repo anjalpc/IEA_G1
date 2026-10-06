@@ -31,6 +31,7 @@ from .contracts import (
 )
 from .reward_math import normalized_excess_forward_velocity
 from .terrain_state import riser_height_per_env, stair_cfg
+from .reward_math import first_touchdown_placement_score
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -155,10 +156,20 @@ class GeometryAcquisitionRuntime:
         self.require_first_touchdown_placement = bool(
             getattr(env.cfg, "require_first_touchdown_placement", False)
         )
+        self.first_touchdown_shaping_start_margin_m = float(
+            getattr(
+                env.cfg,
+                "first_touchdown_shaping_start_margin_m",
+                -0.150,
+            )
+        )
         self.touchdown_attempt_active = torch.zeros(
             shape, dtype=torch.bool, device=env.device
         )
         self.touchdown_attempt_good = torch.zeros(
+            shape, dtype=torch.bool, device=env.device
+        )
+        self.touchdown_placement_scored = torch.zeros(
             shape, dtype=torch.bool, device=env.device
         )
 
@@ -198,6 +209,9 @@ class GeometryAcquisitionRuntime:
             device=env.device,
         )
         self.insertion_reward = torch.zeros_like(self.clearance_reward)
+        self.first_touchdown_placement_reward = torch.zeros_like(
+            self.clearance_reward
+        )
 
         self.last_step = -1
 
@@ -256,11 +270,13 @@ class GeometryAcquisitionRuntime:
         self.support_elapsed[env_ids] = 0.0
         self.touchdown_attempt_active[env_ids] = False
         self.touchdown_attempt_good[env_ids] = False
+        self.touchdown_placement_scored[env_ids] = False
         self.best_clearance[env_ids] = 0.0
         self.best_insertion[env_ids] = 0.0
         self.pending_clearance[env_ids] = 0.0
         self.previous_foot_vx[env_ids] = 0.0
         self.previous_foot_vx_initialized[env_ids] = False
+        self.first_touchdown_placement_reward[env_ids] = 0.0
 
         if self.contact_current_duration.shape[1] > 0:
             self.contact_current_duration[env_ids] = 0.0
@@ -623,6 +639,8 @@ class GeometryAcquisitionRuntime:
             insertion_delta.sum(dim=1) / dt
         )
 
+        self.first_touchdown_placement_reward.zero_()
+
         # Current complete-sole placement inside the safe tread.
         placement_good = (
             (rear_x >= safe_start)
@@ -679,6 +697,42 @@ class GeometryAcquisitionRuntime:
                 & ~self.touchdown_attempt_active
             )
 
+            rear_margin = rear_x - next_riser_x
+            front_margin = next_riser_x + tread - front_x
+
+            placement_score = first_touchdown_placement_score(
+                rear_margin,
+                front_margin,
+                shaping_start_margin_m=(
+                    self.first_touchdown_shaping_start_margin_m
+                ),
+                full_rear_margin_m=(
+                    float(tread_margin_m)
+                    + float(insertion_target_m)
+                ),
+                front_safe_margin_m=float(tread_margin_m),
+            )
+
+            placement_reward_event = (
+                new_attempt
+                & ~self.touchdown_placement_scored
+            )
+
+            self.first_touchdown_placement_reward.copy_(
+                (
+                    placement_score
+                    * placement_reward_event.to(
+                        placement_score.dtype
+                    )
+                ).sum(dim=1)
+                / dt
+            )
+
+            self.touchdown_placement_scored.copy_(
+                self.touchdown_placement_scored
+                | placement_reward_event
+            )
+
             self.touchdown_attempt_good.copy_(
                 torch.where(
                     new_attempt,
@@ -697,12 +751,11 @@ class GeometryAcquisitionRuntime:
         else:
             first_placement_gate = torch.ones_like(valid_target)
 
-        # Verified physical touchdown. This advances only the corresponding
-        # foot's target; there is no prescribed gait order.
-        touchdown = (
+        # Physical touchdown controls stair-target progression.
+        # First-placement quality controls reward eligibility separately.
+        physical_touchdown = (
             valid_target
             & placement_good
-            & first_placement_gate
             & (
                 (
                     sole_bottom_points
@@ -722,29 +775,45 @@ class GeometryAcquisitionRuntime:
 
         if self.support_credit_dwell > 0:
             from .support_credit import sustained_support
-            elapsed, touchdown = sustained_support(
-                self.support_elapsed, touchdown, dt, self.support_credit_dwell,
+            elapsed, physical_touchdown = sustained_support(
+                self.support_elapsed,
+                physical_touchdown,
+                dt,
+                self.support_credit_dwell,
             )
             self.support_elapsed.copy_(
-                torch.where(touchdown, torch.zeros_like(elapsed), elapsed)
+                torch.where(
+                    physical_touchdown,
+                    torch.zeros_like(elapsed),
+                    elapsed,
+                )
             )
-            # Replace airborne insertion credit with verified support credit.
-            # Existing target advancement makes each foot/tread payment one-shot.
-            insertion_delta = touchdown.to(self.insertion_reward.dtype)
-            self.insertion_reward.copy_(insertion_delta.sum(dim=1) / dt)
+
+        rewarded_touchdown = (
+            physical_touchdown
+            & first_placement_gate
+        )
+
+        if self.support_credit_dwell > 0:
+            insertion_delta = rewarded_touchdown.to(
+                self.insertion_reward.dtype
+            )
+            self.insertion_reward.copy_(
+                insertion_delta.sum(dim=1) / dt
+            )
 
         if escrow_clearance_until_riser_crossing:
             # Verified touchdown is the acquisition event. A foot that only
             # crosses the riser geometrically cannot cash provisional credit.
             clearance_delta = torch.where(
-                touchdown,
+                rewarded_touchdown,
                 self.pending_clearance,
                 torch.zeros_like(clearance_delta),
             )
 
             self.pending_clearance.copy_(
                 torch.where(
-                    touchdown,
+                    physical_touchdown,
                     torch.zeros_like(self.pending_clearance),
                     self.pending_clearance,
                 )
@@ -754,18 +823,18 @@ class GeometryAcquisitionRuntime:
             clearance_delta.sum(dim=1) / dt
         )
 
-        if bool(touchdown.any()):
+        if bool(physical_touchdown.any()):
             old_target = self.target_step.clone()
 
             for stair_index in range(step_count):
                 self.touchdowns[stair_index] += torch.count_nonzero(
-                    touchdown
+                    physical_touchdown
                     & (old_target == stair_index)
                 )
 
             self.target_step.copy_(
                 torch.where(
-                    touchdown,
+                    physical_touchdown,
                     self.target_step + 1,
                     self.target_step,
                 )
@@ -773,37 +842,47 @@ class GeometryAcquisitionRuntime:
 
             self.touchdown_attempt_active.copy_(
                 torch.where(
-                    touchdown,
+                    physical_touchdown,
                     torch.zeros_like(self.touchdown_attempt_active),
                     self.touchdown_attempt_active,
                 )
             )
             self.touchdown_attempt_good.copy_(
                 torch.where(
-                    touchdown,
+                    physical_touchdown,
                     torch.zeros_like(self.touchdown_attempt_good),
                     self.touchdown_attempt_good,
+                )
+            )
+
+            self.touchdown_placement_scored.copy_(
+                torch.where(
+                    physical_touchdown,
+                    torch.zeros_like(
+                        self.touchdown_placement_scored
+                    ),
+                    self.touchdown_placement_scored,
                 )
             )
 
             # New stair = new non-recyclable potential.
             self.best_clearance.copy_(
                 torch.where(
-                    touchdown,
+                    physical_touchdown,
                     torch.zeros_like(self.best_clearance),
                     self.best_clearance,
                 )
             )
             self.best_insertion.copy_(
                 torch.where(
-                    touchdown,
+                    physical_touchdown,
                     torch.zeros_like(self.best_insertion),
                     self.best_insertion,
                 )
             )
             self.pending_clearance.copy_(
                 torch.where(
-                    touchdown,
+                    physical_touchdown,
                     torch.zeros_like(self.pending_clearance),
                     self.pending_clearance,
                 )
@@ -1110,6 +1189,32 @@ class forward_insertion(ManagerTermBase):
             riser_minimum_previous_forward_speed_mps=riser_minimum_previous_forward_speed_mps,
         )
         return self.runtime.insertion_reward
+
+
+class first_touchdown_placement(ManagerTermBase):
+    """One-shot graded reward at first loaded top-surface contact."""
+
+    def __init__(self, cfg, env: "ManagerBasedRLEnv"):
+        super().__init__(cfg, env)
+        self.runtime = _runtime(env)
+
+    def reset(
+        self,
+        env_ids: Sequence[int] | None = None,
+    ) -> None:
+        self.runtime.reset(env_ids)
+
+    def __call__(
+        self,
+        env: "ManagerBasedRLEnv",
+    ) -> torch.Tensor:
+        if self.runtime.last_step != int(env.common_step_counter):
+            raise RuntimeError(
+                "first_touchdown_placement must run after "
+                "terrain_relative_clearance/forward_insertion"
+            )
+        return self.runtime.first_touchdown_placement_reward
+
 
 class riser_face_strike(ManagerTermBase):
     """Emit one event for a low forward impact on the current target riser."""

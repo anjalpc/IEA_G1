@@ -408,6 +408,19 @@ def apply_geometry_episode_contract(env_cfg, resolved, *, promote=None):
             acquisition.get("require_first_touchdown_placement", False)
         )
 
+        shaping_start = float(
+            acquisition.get(
+                "first_touchdown_shaping_start_margin_m",
+                -0.150,
+            )
+        )
+        if not math.isfinite(shaping_start):
+            raise ValueError(
+                "first_touchdown_shaping_start_margin_m "
+                "must be finite"
+            )
+        env_cfg.first_touchdown_shaping_start_margin_m = shaping_start
+
     if contract["stable_finish"]:
         from .platform_finish_command import apply_platform_finish_command
         apply_platform_finish_command(env_cfg, resolved, contract)

@@ -671,6 +671,38 @@ def phase_arm_tolerance(
     return tolerance + finish_gate * (finish_value - tolerance)
 
 
+
+def first_touchdown_placement_score(
+    rear_margin_m: torch.Tensor,
+    front_margin_m: torch.Tensor,
+    *,
+    shaping_start_margin_m: float,
+    full_rear_margin_m: float,
+    front_safe_margin_m: float,
+) -> torch.Tensor:
+    """Smooth [0, 1] score for first loaded tread placement."""
+
+    if full_rear_margin_m <= shaping_start_margin_m:
+        raise ValueError(
+            "full_rear_margin_m must exceed shaping_start_margin_m"
+        )
+    if front_safe_margin_m <= 0.0:
+        raise ValueError("front_safe_margin_m must be positive")
+
+    rear_score = (
+        (
+            rear_margin_m - float(shaping_start_margin_m)
+        )
+        / float(full_rear_margin_m - shaping_start_margin_m)
+    ).clamp(0.0, 1.0)
+
+    front_score = (
+        front_margin_m / float(front_safe_margin_m)
+    ).clamp(0.0, 1.0)
+
+    return rear_score * front_score
+
+
 def weighted_arm_family_excess_cost(
     family_errors: tuple[torch.Tensor, ...],
     family_tolerances: tuple[torch.Tensor, ...],

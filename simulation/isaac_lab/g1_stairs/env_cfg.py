@@ -937,6 +937,12 @@ class StairRewardsCfg:
         },
     )
 
+    first_touchdown_placement = RewTerm(
+        func=geometry_acquisition_rewards.first_touchdown_placement,
+        weight=0.0,
+        params={},
+    )
+
     riser_face_strike = RewTerm(
         func=geometry_acquisition_rewards.riser_face_strike,
         weight=0.0,

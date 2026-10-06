@@ -485,3 +485,55 @@ def test_arm_family_cost_has_zero_cost_inside_envelope():
     )
 
     assert cost.tolist() == pytest.approx([0.0, 0.0])
+
+
+def test_first_touchdown_placement_score_grades_rear_margin():
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        first_touchdown_placement_score,
+    )
+
+    rear = torch.tensor([
+        -0.150,
+        -0.120,
+        -0.080,
+         0.000,
+         0.015,
+         0.055,
+    ])
+    front = torch.full_like(rear, 0.020)
+
+    score = first_touchdown_placement_score(
+        rear,
+        front,
+        shaping_start_margin_m=-0.150,
+        full_rear_margin_m=0.055,
+        front_safe_margin_m=0.015,
+    )
+
+    assert score.tolist() == pytest.approx([
+        0.0,
+        0.14634146,
+        0.34146341,
+        0.73170732,
+        0.80487805,
+        1.0,
+    ])
+
+
+def test_first_touchdown_placement_score_penalizes_front_overshoot():
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        first_touchdown_placement_score,
+    )
+
+    rear = torch.full((3,), 0.055)
+    front = torch.tensor([0.015, 0.0075, 0.0])
+
+    score = first_touchdown_placement_score(
+        rear,
+        front,
+        shaping_start_margin_m=-0.150,
+        full_rear_margin_m=0.055,
+        front_safe_margin_m=0.015,
+    )
+
+    assert score.tolist() == pytest.approx([1.0, 0.5, 0.0])
