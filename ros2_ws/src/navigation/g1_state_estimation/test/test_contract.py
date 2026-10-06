@@ -13,6 +13,8 @@ PUBLIC_API = {
     "HealthState",
     "ObservationQuality",
     "StateHealthMonitor",
+    "StateValidationGateway",
+    "ValidatedOdometryUpdate",
     "ValidationResult",
     "validate_imu",
     "validate_odometry",

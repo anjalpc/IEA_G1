@@ -1,5 +1,9 @@
 """Public contracts for G1 state-estimation readiness."""
 
+from .gateway import (
+    StateValidationGateway,
+    ValidatedOdometryUpdate,
+)
 from .health import (
     HealthSnapshot,
     HealthState,
@@ -18,6 +22,8 @@ __all__ = (
     "HealthState",
     "ObservationQuality",
     "StateHealthMonitor",
+    "StateValidationGateway",
+    "ValidatedOdometryUpdate",
     "ValidationResult",
     "validate_imu",
     "validate_odometry",
