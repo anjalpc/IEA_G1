@@ -35,7 +35,10 @@ class TransformRecorder:
         self.transforms = []
 
     def sendTransform(self, transform):
-        self.transforms.append(transform)
+        if isinstance(transform, list):
+            self.transforms.extend(transform)
+        else:
+            self.transforms.append(transform)
 
 
 def populated_covariance(size):
@@ -203,12 +206,26 @@ def test_broadcasts_planar_tf_only_for_released_odometry(node):
     instance.odometry_callback(released_odometry)
 
     assert odometry_recorder.messages == [released_odometry]
-    assert len(transform_recorder.transforms) == 1
+    assert len(transform_recorder.transforms) == 2
 
-    transform = transform_recorder.transforms[0]
-    assert transform.header.stamp == released_odometry.header.stamp
-    assert transform.header.frame_id == "odom"
-    assert transform.child_frame_id == "base_footprint"
-    assert transform.transform.translation.x == 1.25
-    assert transform.transform.translation.y == -0.75
-    assert transform.transform.translation.z == 0.0
+    base_transform = transform_recorder.transforms[0]
+    assert (
+        base_transform.header.stamp
+        == released_odometry.header.stamp
+    )
+    assert base_transform.header.frame_id == "odom"
+    assert base_transform.child_frame_id == "base_footprint"
+    assert base_transform.transform.translation.x == 1.25
+    assert base_transform.transform.translation.y == -0.75
+    assert base_transform.transform.translation.z == 0.0
+
+    pelvis_transform = transform_recorder.transforms[1]
+    assert (
+        pelvis_transform.header.stamp
+        == released_odometry.header.stamp
+    )
+    assert pelvis_transform.header.frame_id == "base_footprint"
+    assert pelvis_transform.child_frame_id == "pelvis"
+    assert pelvis_transform.transform.translation.x == 0.0
+    assert pelvis_transform.transform.translation.y == 0.0
+    assert pelvis_transform.transform.translation.z == 1.24

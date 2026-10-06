@@ -89,7 +89,7 @@ it publishes:
 | Output | Contract |
 |---|---|
 | `/g1/state/odometry` | Unchanged validated `odom` to `pelvis` odometry |
-| `/tf` | Planar `odom` to `base_footprint` transform |
+| `/tf` | `odom` to `base_footprint` and dynamic `base_footprint` to `pelvis` transforms |
 
 The planar transform preserves the validated pelvis `x`, `y`, yaw,
 and source timestamp. It sets translation `z` to zero and removes
@@ -101,10 +101,16 @@ The default stale timeout is `0.1 s`, equal to five expected samples
 at 50 Hz, and is configured in
 `ros2_ws/src/navigation/g1_state_estimation/config/state_estimation.yaml`.
 
+The two TF edges come from the same validated odometry sample and use
+the same timestamp. `g1_state_estimation` owns both edges because the
+pelvis height, roll, and pitch change while walking. A future robot
+description and state publisher must begin at `pelvis` and own only
+the downstream body, joint, and sensor frames; it must not republish
+either navigation-state edge.
+
 This boundary does not fuse sensors, generate odometry, run SLAM, or
 command the robot. `base_footprint` is the authoritative planar robot
-frame for Nav2; the robot model must provide the remaining transform
-chain between `base_footprint`, `pelvis`, and sensor frames.
+frame for Nav2.
 
 ## Body joint order
 

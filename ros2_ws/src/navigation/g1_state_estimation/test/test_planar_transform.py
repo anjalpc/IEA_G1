@@ -7,6 +7,7 @@ from nav_msgs.msg import Odometry
 
 from g1_state_estimation.planar_transform import (
     odometry_to_base_footprint_transform,
+    odometry_to_pelvis_transform,
 )
 
 
@@ -115,3 +116,54 @@ def test_projection_does_not_mutate_validated_odometry():
         message.pose.pose.orientation.x
         == original_orientation_x
     )
+
+
+def test_pelvis_transform_preserves_vertical_body_motion():
+    message = odometry_with_pose(
+        roll=0.25,
+        pitch=-0.35,
+        yaw=0.0,
+    )
+
+    transform = odometry_to_pelvis_transform(message)
+
+    assert transform.header.stamp == message.header.stamp
+    assert transform.header.frame_id == "base_footprint"
+    assert transform.child_frame_id == "pelvis"
+    assert transform.transform.translation.x == 0.0
+    assert transform.transform.translation.y == 0.0
+    assert transform.transform.translation.z == pytest.approx(
+        1.24
+    )
+
+    source_rotation = message.pose.pose.orientation
+    result_rotation = transform.transform.rotation
+    assert result_rotation.x == pytest.approx(
+        source_rotation.x
+    )
+    assert result_rotation.y == pytest.approx(
+        source_rotation.y
+    )
+    assert result_rotation.z == pytest.approx(
+        source_rotation.z
+    )
+    assert result_rotation.w == pytest.approx(
+        source_rotation.w
+    )
+
+
+def test_pelvis_transform_removes_navigation_yaw():
+    yaw = 0.7
+    message = odometry_with_pose(
+        roll=0.0,
+        pitch=0.0,
+        yaw=yaw,
+    )
+
+    transform = odometry_to_pelvis_transform(message)
+    rotation = transform.transform.rotation
+
+    assert rotation.x == pytest.approx(0.0, abs=1e-12)
+    assert rotation.y == pytest.approx(0.0, abs=1e-12)
+    assert rotation.z == pytest.approx(0.0, abs=1e-12)
+    assert rotation.w == pytest.approx(1.0, abs=1e-12)

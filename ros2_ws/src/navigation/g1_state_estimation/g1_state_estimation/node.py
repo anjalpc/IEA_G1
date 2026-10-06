@@ -18,6 +18,7 @@ from tf2_ros import TransformBroadcaster
 from .gateway import StateValidationGateway
 from .planar_transform import (
     odometry_to_base_footprint_transform,
+    odometry_to_pelvis_transform,
 )
 
 
@@ -100,11 +101,14 @@ class StateEstimationNode(Node):
             self.odometry_publisher.publish(
                 update.odometry
             )
-            self.transform_broadcaster.sendTransform(
+            self.transform_broadcaster.sendTransform([
                 odometry_to_base_footprint_transform(
                     update.odometry
-                )
-            )
+                ),
+                odometry_to_pelvis_transform(
+                    update.odometry
+                ),
+            ])
 
 
 def main(args=None):
