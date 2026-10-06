@@ -603,3 +603,122 @@ def swing_arc_waypoints(
         "hover_z": riser_height_m + float(hover_margin_m),
         "touchdown_z": riser_height_m,
     }
+
+
+def phase_arm_tolerance(
+    entered_stairs: torch.Tensor,
+    safe_platform: torch.Tensor,
+    command_x_mps: torch.Tensor,
+    *,
+    approach_tolerance_rad: float,
+    ascent_tolerance_rad: float,
+    finish_tolerance_rad: float,
+    cruise_speed_mps: float,
+) -> torch.Tensor:
+    """Phase-aware arm tolerance with smooth tightening during final stop."""
+
+    if (
+        entered_stairs.ndim != 1
+        or safe_platform.ndim != 1
+        or command_x_mps.ndim != 1
+    ):
+        raise ValueError("phase-arm inputs must have shape [N]")
+    if not (
+        entered_stairs.shape
+        == safe_platform.shape
+        == command_x_mps.shape
+    ):
+        raise ValueError("phase-arm inputs must have matching shapes")
+
+    values = (
+        approach_tolerance_rad,
+        ascent_tolerance_rad,
+        finish_tolerance_rad,
+    )
+    if any(value < 0.0 for value in values):
+        raise ValueError("arm tolerances must be non-negative")
+    if (
+        ascent_tolerance_rad < approach_tolerance_rad
+        or ascent_tolerance_rad < finish_tolerance_rad
+    ):
+        raise ValueError(
+            "ascent tolerance must be at least as permissive "
+            "as approach and finish"
+        )
+
+    tolerance = torch.full_like(
+        command_x_mps,
+        float(approach_tolerance_rad),
+    )
+
+    tolerance = torch.where(
+        entered_stairs,
+        torch.full_like(tolerance, float(ascent_tolerance_rad)),
+        tolerance,
+    )
+
+    finish_gate = finish_transition_gate(
+        command_x_mps,
+        cruise_speed_mps=cruise_speed_mps,
+    )
+    finish_gate = finish_gate * safe_platform.to(tolerance.dtype)
+
+    finish_value = torch.full_like(
+        tolerance,
+        float(finish_tolerance_rad),
+    )
+
+    return tolerance + finish_gate * (finish_value - tolerance)
+
+
+def weighted_arm_family_excess_cost(
+    family_errors: tuple[torch.Tensor, ...],
+    family_tolerances: tuple[torch.Tensor, ...],
+    family_weights: tuple[float, ...],
+) -> torch.Tensor:
+    """Mean excess cost per arm family, independent of family joint count."""
+
+    if not (
+        len(family_errors)
+        == len(family_tolerances)
+        == len(family_weights)
+    ):
+        raise ValueError("arm family inputs must have matching lengths")
+    if not family_errors:
+        raise ValueError("at least one arm family is required")
+
+    num_envs = family_errors[0].shape[0]
+    cost = torch.zeros(
+        num_envs,
+        device=family_errors[0].device,
+        dtype=family_errors[0].dtype,
+    )
+    denominator = 0.0
+
+    for error, tolerance, weight in zip(
+        family_errors,
+        family_tolerances,
+        family_weights,
+        strict=True,
+    ):
+        if error.ndim != 2 or error.shape[0] != num_envs:
+            raise ValueError("family error must have shape [N, J]")
+        if tolerance.shape != (num_envs,):
+            raise ValueError("family tolerance must have shape [N]")
+        if weight < 0.0:
+            raise ValueError("family weights must be non-negative")
+
+        excess = (
+            error.abs() - tolerance[:, None]
+        ).clamp_min(0.0)
+
+        cost = cost + float(weight) * torch.mean(
+            excess.square(),
+            dim=1,
+        )
+        denominator += float(weight)
+
+    if denominator <= 0.0:
+        raise ValueError("arm family weights must sum positive")
+
+    return cost / denominator

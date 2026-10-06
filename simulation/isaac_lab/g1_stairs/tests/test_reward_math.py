@@ -419,3 +419,69 @@ def test_normalized_excess_forward_velocity_validates_envelope() -> None:
             free_velocity_mps=0.4,
             full_penalty_velocity_mps=0.4,
         )
+
+
+def test_phase_arm_tolerance_is_loose_on_ascent_and_tightens_during_finish():
+    from simulation.isaac_lab.g1_stairs.reward_math import phase_arm_tolerance
+
+    tolerance = phase_arm_tolerance(
+        entered_stairs=torch.tensor([False, True, True, True]),
+        safe_platform=torch.tensor([False, False, True, True]),
+        command_x_mps=torch.tensor([0.35, 0.35, 0.175, 0.0]),
+        approach_tolerance_rad=0.20,
+        ascent_tolerance_rad=0.35,
+        finish_tolerance_rad=0.20,
+        cruise_speed_mps=0.35,
+    )
+
+    assert tolerance.tolist() == pytest.approx([
+        0.20,   # approach
+        0.35,   # ascent
+        0.275,  # halfway through finish ramp
+        0.20,   # fully stopped
+    ])
+
+
+def test_arm_family_cost_is_independent_of_joint_count():
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        weighted_arm_family_excess_cost,
+    )
+
+    shoulder = torch.zeros((2, 2))
+    wrist = torch.zeros((2, 6))
+
+    # Same 0.20-rad error:
+    # env0 -> 2 shoulder joints
+    # env1 -> 6 wrist joints
+    shoulder[0, :] = 0.20
+    wrist[1, :] = 0.20
+
+    zero = torch.zeros(2)
+
+    cost = weighted_arm_family_excess_cost(
+        family_errors=(shoulder, wrist),
+        family_tolerances=(zero, zero),
+        family_weights=(1.0, 1.0),
+    )
+
+    assert cost[0].item() == pytest.approx(cost[1].item())
+
+
+def test_arm_family_cost_has_zero_cost_inside_envelope():
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        weighted_arm_family_excess_cost,
+    )
+
+    error = torch.tensor([
+        [0.10, -0.10],
+        [0.19, -0.19],
+    ])
+    tolerance = torch.tensor([0.20, 0.20])
+
+    cost = weighted_arm_family_excess_cost(
+        family_errors=(error,),
+        family_tolerances=(tolerance,),
+        family_weights=(1.0,),
+    )
+
+    assert cost.tolist() == pytest.approx([0.0, 0.0])

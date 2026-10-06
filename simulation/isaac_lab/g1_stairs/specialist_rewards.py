@@ -36,6 +36,7 @@ from .reward_math import (
     continuous_touchdown_potential,
     coupled_swing_score,
     deadzone_score,
+    phase_arm_tolerance,
     support_anchor_slip_penalty,
     support_quality,
     supported_single_foot_lift_score,
@@ -44,6 +45,7 @@ from .reward_math import (
     swing_phase_potential,
     target_band_score,
     tread_containment_score,
+    weighted_arm_family_excess_cost,
 )
 from .terrain_state import riser_height_per_env, stair_cfg
 
@@ -1530,12 +1532,24 @@ class posture_envelope_guard(ManagerTermBase):
         joint_specific_excess_squared: bool = False,
         joint_specific_target_excess_squared: bool = False,
         phase_specific_target_excess_squared: bool = False,
+        phase_specific_family_target_excess_squared: bool = False,
         phase_shoulder_pitch_approach_tolerance_rad: float = 0.20,
         phase_shoulder_pitch_ascent_tolerance_rad: float = 0.35,
         phase_shoulder_pitch_safe_platform_tolerance_rad: float = 0.20,
+        phase_shoulder_roll_approach_tolerance_rad: float = 0.30,
+        phase_shoulder_roll_ascent_tolerance_rad: float = 0.40,
+        phase_shoulder_roll_safe_platform_tolerance_rad: float = 0.25,
         phase_shoulder_yaw_approach_tolerance_rad: float = 0.10,
         phase_shoulder_yaw_ascent_tolerance_rad: float = 0.20,
         phase_shoulder_yaw_safe_platform_tolerance_rad: float = 0.10,
+        phase_elbow_approach_tolerance_rad: float = 0.35,
+        phase_elbow_ascent_tolerance_rad: float = 0.45,
+        phase_elbow_safe_platform_tolerance_rad: float = 0.25,
+        phase_wrist_approach_tolerance_rad: float = 0.15,
+        phase_wrist_ascent_tolerance_rad: float = 0.15,
+        phase_wrist_safe_platform_tolerance_rad: float = 0.15,
+        phase_command_name: str = "base_velocity",
+        phase_cruise_speed_mps: float = 0.35,
         shoulder_pitch_tolerance_rad: float = 0.45,
         shoulder_pitch_relative_weight: float = 0.25,
         shoulder_roll_tolerance_rad: float = 0.40,
@@ -1565,6 +1579,7 @@ class posture_envelope_guard(ManagerTermBase):
             joint_specific_excess_squared
             or joint_specific_target_excess_squared
             or phase_specific_target_excess_squared
+            or phase_specific_family_target_excess_squared
             or a6_phase_gated_target_excess_squared
         ):
             selected_modes = sum(
@@ -1572,6 +1587,7 @@ class posture_envelope_guard(ManagerTermBase):
                     bool(joint_specific_excess_squared),
                     bool(joint_specific_target_excess_squared),
                     bool(phase_specific_target_excess_squared),
+                    bool(phase_specific_family_target_excess_squared),
                     bool(a6_phase_gated_target_excess_squared),
                 )
             )
@@ -1583,6 +1599,7 @@ class posture_envelope_guard(ManagerTermBase):
             if (
                 joint_specific_target_excess_squared
                 or phase_specific_target_excess_squared
+                or phase_specific_family_target_excess_squared
                 or a6_phase_gated_target_excess_squared
             ):
                 if data.joint_pos_target is None:
@@ -1596,9 +1613,15 @@ class posture_envelope_guard(ManagerTermBase):
                 joint_specific_error = error
 
             phase_pitch_tolerance = None
+            phase_roll_tolerance = None
             phase_yaw_tolerance = None
+            phase_elbow_tolerance = None
+            phase_wrist_tolerance = None
 
-            if phase_specific_target_excess_squared:
+            if (
+                phase_specific_target_excess_squared
+                or phase_specific_family_target_excess_squared
+            ):
                 phase_values = (
                     phase_shoulder_pitch_approach_tolerance_rad,
                     phase_shoulder_pitch_ascent_tolerance_rad,
@@ -1607,9 +1630,22 @@ class posture_envelope_guard(ManagerTermBase):
                     phase_shoulder_yaw_ascent_tolerance_rad,
                     phase_shoulder_yaw_safe_platform_tolerance_rad,
                 )
+                if phase_specific_family_target_excess_squared:
+                    phase_values = phase_values + (
+                        phase_shoulder_roll_approach_tolerance_rad,
+                        phase_shoulder_roll_ascent_tolerance_rad,
+                        phase_shoulder_roll_safe_platform_tolerance_rad,
+                        phase_elbow_approach_tolerance_rad,
+                        phase_elbow_ascent_tolerance_rad,
+                        phase_elbow_safe_platform_tolerance_rad,
+                        phase_wrist_approach_tolerance_rad,
+                        phase_wrist_ascent_tolerance_rad,
+                        phase_wrist_safe_platform_tolerance_rad,
+                    )
+
                 if any(value < 0.0 for value in phase_values):
                     raise ValueError(
-                        "phase-specific shoulder tolerances must be non-negative"
+                        "phase-specific arm tolerances must be non-negative"
                     )
 
                 if (
@@ -1633,6 +1669,39 @@ class posture_envelope_guard(ManagerTermBase):
                         "shoulder-yaw ascent tolerance must be at least as "
                         "permissive as approach/safe-platform tolerance"
                     )
+
+                if phase_specific_family_target_excess_squared:
+                    family_phase_values = (
+                        (
+                            "shoulder_roll",
+                            phase_shoulder_roll_approach_tolerance_rad,
+                            phase_shoulder_roll_ascent_tolerance_rad,
+                            phase_shoulder_roll_safe_platform_tolerance_rad,
+                        ),
+                        (
+                            "elbow",
+                            phase_elbow_approach_tolerance_rad,
+                            phase_elbow_ascent_tolerance_rad,
+                            phase_elbow_safe_platform_tolerance_rad,
+                        ),
+                        (
+                            "wrist",
+                            phase_wrist_approach_tolerance_rad,
+                            phase_wrist_ascent_tolerance_rad,
+                            phase_wrist_safe_platform_tolerance_rad,
+                        ),
+                    )
+                    for name, approach, ascent, safe in family_phase_values:
+                        if approach > ascent or safe > ascent:
+                            raise ValueError(
+                                f"{name} ascent tolerance must be at least as "
+                                "permissive as approach/safe-platform tolerance"
+                            )
+
+                    if phase_cruise_speed_mps <= 0.0:
+                        raise ValueError(
+                            "phase_cruise_speed_mps must be positive"
+                        )
 
                 runtime = getattr(env, "_g1_geometry_episode", None)
 
@@ -1670,7 +1739,24 @@ class posture_envelope_guard(ManagerTermBase):
                     )
                     safe_platform = torch.zeros_like(entered_stairs)
 
+                phase_command_x = None
+                if phase_specific_family_target_excess_squared:
+                    phase_command_x = env.command_manager.get_command(
+                        phase_command_name
+                    )[:, 0]
+
                 def phase_tolerance(approach, ascent, safe):
+                    if phase_specific_family_target_excess_squared:
+                        return phase_arm_tolerance(
+                            entered_stairs,
+                            safe_platform,
+                            phase_command_x,
+                            approach_tolerance_rad=float(approach),
+                            ascent_tolerance_rad=float(ascent),
+                            finish_tolerance_rad=float(safe),
+                            cruise_speed_mps=phase_cruise_speed_mps,
+                        )
+
                     value = torch.full(
                         (env.num_envs,),
                         float(approach),
@@ -1699,6 +1785,23 @@ class posture_envelope_guard(ManagerTermBase):
                     phase_shoulder_yaw_ascent_tolerance_rad,
                     phase_shoulder_yaw_safe_platform_tolerance_rad,
                 )
+
+                if phase_specific_family_target_excess_squared:
+                    phase_roll_tolerance = phase_tolerance(
+                        phase_shoulder_roll_approach_tolerance_rad,
+                        phase_shoulder_roll_ascent_tolerance_rad,
+                        phase_shoulder_roll_safe_platform_tolerance_rad,
+                    )
+                    phase_elbow_tolerance = phase_tolerance(
+                        phase_elbow_approach_tolerance_rad,
+                        phase_elbow_ascent_tolerance_rad,
+                        phase_elbow_safe_platform_tolerance_rad,
+                    )
+                    phase_wrist_tolerance = phase_tolerance(
+                        phase_wrist_approach_tolerance_rad,
+                        phase_wrist_ascent_tolerance_rad,
+                        phase_wrist_safe_platform_tolerance_rad,
+                    )
 
             groups = (
                 (
@@ -1738,6 +1841,44 @@ class posture_envelope_guard(ManagerTermBase):
                 ),
             )
 
+            phase_family_tolerances = {
+                "shoulder_pitch": phase_pitch_tolerance,
+                "shoulder_roll": phase_roll_tolerance,
+                "shoulder_yaw": phase_yaw_tolerance,
+                "elbow": phase_elbow_tolerance,
+                "wrist": phase_wrist_tolerance,
+            }
+
+            if phase_specific_family_target_excess_squared:
+                family_errors = []
+                family_tolerances = []
+                family_weights = []
+
+                for name, ids, expected_count, _, relative_weight in groups:
+                    if len(ids) != expected_count:
+                        raise RuntimeError(
+                            "unexpected G1 joint count for "
+                            f"{name}: {len(ids)} != {expected_count}"
+                        )
+                    if relative_weight < 0.0:
+                        raise ValueError(
+                            f"{name} relative weight must be non-negative"
+                        )
+
+                    family_errors.append(
+                        joint_specific_error[:, list(ids)]
+                    )
+                    family_tolerances.append(
+                        phase_family_tolerances[name]
+                    )
+                    family_weights.append(float(relative_weight))
+
+                return weighted_arm_family_excess_cost(
+                    tuple(family_errors),
+                    tuple(family_tolerances),
+                    tuple(family_weights),
+                )
+
             numerator = torch.zeros(
                 env.num_envs,
                 device=joint_specific_error.device,
@@ -1760,7 +1901,9 @@ class posture_envelope_guard(ManagerTermBase):
                         f"{name} relative weight must be non-negative"
                     )
 
-                if (
+                if phase_specific_family_target_excess_squared:
+                    effective_tolerance = phase_family_tolerances[name][:, None]
+                elif (
                     phase_specific_target_excess_squared
                     and name == "shoulder_pitch"
                 ):
@@ -1778,11 +1921,20 @@ class posture_envelope_guard(ManagerTermBase):
                     - effective_tolerance
                 ).clamp_min(0.0)
 
-                numerator = numerator + float(relative_weight) * torch.sum(
-                    excess.square(),
-                    dim=1,
-                )
-                denominator += float(relative_weight) * len(ids)
+                if phase_specific_family_target_excess_squared:
+                    # Every arm family contributes one mean cost regardless
+                    # of how many joints it contains.
+                    numerator = numerator + float(relative_weight) * torch.mean(
+                        excess.square(),
+                        dim=1,
+                    )
+                    denominator += float(relative_weight)
+                else:
+                    numerator = numerator + float(relative_weight) * torch.sum(
+                        excess.square(),
+                        dim=1,
+                    )
+                    denominator += float(relative_weight) * len(ids)
 
             if denominator <= 0.0:
                 raise ValueError(
