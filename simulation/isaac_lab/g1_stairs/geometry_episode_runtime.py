@@ -404,6 +404,9 @@ def apply_geometry_episode_contract(env_cfg, resolved, *, promote=None):
         if not math.isfinite(dwell) or dwell <= 0:
             raise ValueError("support_dwell_s must be finite and positive")
         env_cfg.verified_insertion_dwell_s = dwell
+        env_cfg.require_first_touchdown_placement = bool(
+            acquisition.get("require_first_touchdown_placement", False)
+        )
 
     if contract["stable_finish"]:
         from .platform_finish_command import apply_platform_finish_command

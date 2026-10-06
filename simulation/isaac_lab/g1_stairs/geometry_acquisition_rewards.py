@@ -149,6 +149,19 @@ class GeometryAcquisitionRuntime:
         shape = (env.num_envs, 2)
         self.support_elapsed = torch.zeros(shape, device=env.device)
 
+        # Optional first-loaded-contact placement latch. When enabled, a poor
+        # initial tread landing cannot become a valid touchdown merely by
+        # shuffling forward while continuously supported.
+        self.require_first_touchdown_placement = bool(
+            getattr(env.cfg, "require_first_touchdown_placement", False)
+        )
+        self.touchdown_attempt_active = torch.zeros(
+            shape, dtype=torch.bool, device=env.device
+        )
+        self.touchdown_attempt_good = torch.zeros(
+            shape, dtype=torch.bool, device=env.device
+        )
+
         # Each foot independently tracks the next stair it still needs to
         # acquire. 0 -> first tread, 1 -> second, 2 -> third.
         self.target_step = torch.zeros(
@@ -241,6 +254,8 @@ class GeometryAcquisitionRuntime:
 
         self.target_step[env_ids] = 0
         self.support_elapsed[env_ids] = 0.0
+        self.touchdown_attempt_active[env_ids] = False
+        self.touchdown_attempt_good[env_ids] = False
         self.best_clearance[env_ids] = 0.0
         self.best_insertion[env_ids] = 0.0
         self.pending_clearance[env_ids] = 0.0
@@ -608,12 +623,86 @@ class GeometryAcquisitionRuntime:
             insertion_delta.sum(dim=1) / dt
         )
 
+        # Current complete-sole placement inside the safe tread.
+        placement_good = (
+            (rear_x >= safe_start)
+            & (front_x <= safe_end)
+        )
+
+        if self.require_first_touchdown_placement:
+            # A landing attempt begins at the first loaded top-surface contact,
+            # before the speed gate can delay recognition until after a shuffle.
+            # Broad tread overlap intentionally includes poor rear-edge landings.
+            top_surface_contact = (
+                valid_target
+                & (front_x >= next_riser_x)
+                & (rear_x <= next_riser_x + tread)
+                & (
+                    (
+                        sole_bottom_points
+                        - target_tread_height.unsqueeze(2)
+                    ).abs().amax(dim=2)
+                    <= float(touchdown_height_tolerance_m)
+                )
+                & (
+                    vertical_force
+                    >= float(touchdown_force_n)
+                )
+            )
+
+            # Do not allow a brief unloading during a shuffle to create a new
+            # attempt. A new attempt requires clear physical lift from the tread.
+            lifted_off = (
+                self.touchdown_attempt_active
+                & (
+                    vertical_force
+                    <= float(unload_full_force_n)
+                )
+                & (
+                    sole_bottom
+                    > (
+                        target_tread_height
+                        + float(touchdown_height_tolerance_m)
+                    )
+                )
+            )
+
+            self.touchdown_attempt_active.copy_(
+                self.touchdown_attempt_active & ~lifted_off
+            )
+            self.touchdown_attempt_good.copy_(
+                self.touchdown_attempt_good & ~lifted_off
+            )
+
+            new_attempt = (
+                top_surface_contact
+                & ~self.touchdown_attempt_active
+            )
+
+            self.touchdown_attempt_good.copy_(
+                torch.where(
+                    new_attempt,
+                    placement_good,
+                    self.touchdown_attempt_good,
+                )
+            )
+            self.touchdown_attempt_active.copy_(
+                self.touchdown_attempt_active | new_attempt
+            )
+
+            first_placement_gate = (
+                self.touchdown_attempt_active
+                & self.touchdown_attempt_good
+            )
+        else:
+            first_placement_gate = torch.ones_like(valid_target)
+
         # Verified physical touchdown. This advances only the corresponding
         # foot's target; there is no prescribed gait order.
         touchdown = (
             valid_target
-            & (rear_x >= safe_start)
-            & (front_x <= safe_end)
+            & placement_good
+            & first_placement_gate
             & (
                 (
                     sole_bottom_points
@@ -679,6 +768,21 @@ class GeometryAcquisitionRuntime:
                     touchdown,
                     self.target_step + 1,
                     self.target_step,
+                )
+            )
+
+            self.touchdown_attempt_active.copy_(
+                torch.where(
+                    touchdown,
+                    torch.zeros_like(self.touchdown_attempt_active),
+                    self.touchdown_attempt_active,
+                )
+            )
+            self.touchdown_attempt_good.copy_(
+                torch.where(
+                    touchdown,
+                    torch.zeros_like(self.touchdown_attempt_good),
+                    self.touchdown_attempt_good,
                 )
             )
 
