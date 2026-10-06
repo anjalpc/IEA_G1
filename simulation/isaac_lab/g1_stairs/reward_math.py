@@ -676,7 +676,12 @@ def weighted_arm_family_excess_cost(
     family_tolerances: tuple[torch.Tensor, ...],
     family_weights: tuple[float, ...],
 ) -> torch.Tensor:
-    """Mean excess cost per arm family, independent of family joint count."""
+    """Mean tolerance-normalized excess cost per arm family.
+
+    Each family is normalized by its active tolerance before weighting,
+    so family costs represent relative envelope violation rather than
+    absolute radians. Family joint count does not affect weighting.
+    """
 
     if not (
         len(family_errors)
@@ -708,12 +713,16 @@ def weighted_arm_family_excess_cost(
         if weight < 0.0:
             raise ValueError("family weights must be non-negative")
 
+        if torch.any(tolerance <= 0.0):
+            raise ValueError("family tolerances must be positive")
+
         excess = (
             error.abs() - tolerance[:, None]
         ).clamp_min(0.0)
+        normalized_excess = excess / tolerance[:, None]
 
         cost = cost + float(weight) * torch.mean(
-            excess.square(),
+            normalized_excess.square(),
             dim=1,
         )
         denominator += float(weight)

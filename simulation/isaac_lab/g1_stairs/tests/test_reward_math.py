@@ -442,7 +442,7 @@ def test_phase_arm_tolerance_is_loose_on_ascent_and_tightens_during_finish():
     ])
 
 
-def test_arm_family_cost_is_independent_of_joint_count():
+def test_arm_family_cost_is_independent_of_joint_count_and_tolerance_scale():
     from simulation.isaac_lab.g1_stairs.reward_math import (
         weighted_arm_family_excess_cost,
     )
@@ -450,22 +450,22 @@ def test_arm_family_cost_is_independent_of_joint_count():
     shoulder = torch.zeros((2, 2))
     wrist = torch.zeros((2, 6))
 
-    # Same 0.20-rad error:
-    # env0 -> 2 shoulder joints
-    # env1 -> 6 wrist joints
-    shoulder[0, :] = 0.20
+    # Same relative violation in different families:
+    # shoulder: error 0.40, tolerance 0.20 -> normalized excess 1.0
+    # wrist:    error 0.20, tolerance 0.10 -> normalized excess 1.0
+    shoulder[0, :] = 0.40
     wrist[1, :] = 0.20
 
-    zero = torch.zeros(2)
+    shoulder_tolerance = torch.full((2,), 0.20)
+    wrist_tolerance = torch.full((2,), 0.10)
 
     cost = weighted_arm_family_excess_cost(
         family_errors=(shoulder, wrist),
-        family_tolerances=(zero, zero),
+        family_tolerances=(shoulder_tolerance, wrist_tolerance),
         family_weights=(1.0, 1.0),
     )
 
     assert cost[0].item() == pytest.approx(cost[1].item())
-
 
 def test_arm_family_cost_has_zero_cost_inside_envelope():
     from simulation.isaac_lab.g1_stairs.reward_math import (
