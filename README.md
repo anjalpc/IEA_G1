@@ -95,7 +95,10 @@ Implements the left-arm card workflow: hold, present, detect a handover, release
 
 ### `g1_simulation_bridge`
 
-Connects the same application-level command contract to simulation. It is a development package and is not required on PC2.
+Connects the same application-level command contract to simulation. It also
+publishes simulation `/clock`, raw IMU, and raw odometry for the workstation
+state-estimation and navigation stack. It is a development package and is not
+required on PC2.
 
 ### `g1_bringup`
 

@@ -272,6 +272,32 @@ For an integration run without the viewer:
 ./scripts/run_ros_handshake_sim.sh --headless
 ```
 
+### Verify raw navigation state
+
+The bridge publishes `/clock` after every completed 200 Hz physics
+step. It publishes `/g1/state/imu_raw` and
+`/g1/state/odometry_raw` at 50 Hz of simulation time.
+
+From another sourced development-container shell:
+
+```bash
+cd /workspace/IEA_G1/ros2_ws
+source install/setup.bash
+
+ros2 topic list | rg '^/(clock|g1/state/(imu_raw|odometry_raw))$'
+ros2 topic echo --once /clock
+ros2 topic echo --once /g1/state/imu_raw
+ros2 topic echo --once /g1/state/odometry_raw
+```
+
+Frames, cadence, and covariance are configured in
+`ros2_ws/src/g1_simulation_bridge/config/simulation.yaml`.
+Downstream simulation nodes must enable `use_sim_time`.
+
+These are raw measurements. The bridge publishes neither TF nor
+fused odometry, and navigation must consume them through the
+`g1_state_estimation` validation boundary.
+
 The runner starts the backend-neutral application with the simulation bridge,
 enables it through
 `/event/handshake/start`, then triggers `/event/handshake/grip`, and

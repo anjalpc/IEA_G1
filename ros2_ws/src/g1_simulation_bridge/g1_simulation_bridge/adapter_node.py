@@ -22,6 +22,9 @@ from g1_robot_interfaces.validation import (
 from g1_simulation_bridge.simulation_state import (
     SimulationStateReader,
 )
+from g1_simulation_bridge.state_config import (
+    load_state_publisher_config,
+)
 from g1_simulation_bridge.simulation_timing import (
     SimulationPublicationSchedule,
 )
@@ -216,6 +219,7 @@ def main(args=None):
 
     rclpy.init(args=ros_args)
     node = G1SimulationAdapter(controls)
+    state_config = load_state_publisher_config(node)
     state_publisher = SimulationStatePublisher(
         node=node,
         state_reader=SimulationStateReader(
@@ -223,12 +227,16 @@ def main(args=None):
             model=backend.model,
         ),
         schedule=SimulationPublicationSchedule(
-            state_period_seconds=0.02,
+            state_period_seconds=(
+                state_config.state_period_seconds
+            ),
         ),
-        imu_frame_id="pelvis",
-        odom_frame_id="odom",
-        child_frame_id="pelvis",
-        covariance_variance=1e-6,
+        imu_frame_id=state_config.imu_frame_id,
+        odom_frame_id=state_config.odom_frame_id,
+        child_frame_id=state_config.child_frame_id,
+        covariance_variance=(
+            state_config.covariance_variance
+        ),
     )
     interrupted = False
 

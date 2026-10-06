@@ -54,6 +54,32 @@ Authoritative local configuration:
 The trained stair policy must retain the 29-output action order below and must
 export to ONNX before MuJoCo sim-to-sim evaluation.
 
+### MuJoCo navigation-state source
+
+`g1_simulation_bridge` publishes measured MuJoCo state for the
+workstation navigation stack:
+
+| Topic | Type | Cadence | Frames |
+|---|---|---:|---|
+| `/clock` | `rosgraph_msgs/msg/Clock` | 200 Hz | Simulation time |
+| `/g1/state/imu_raw` | `sensor_msgs/msg/Imu` | 50 Hz | `pelvis` |
+| `/g1/state/odometry_raw` | `nav_msgs/msg/Odometry` | 50 Hz | `odom` to `pelvis` |
+
+The source resolves `floating_base_joint`, `imu_quat`, `imu_gyro`,
+and `imu_acc` by MuJoCo name rather than fixed array offsets.
+MuJoCo `wxyz` quaternions are converted to ROS `xyzw`. Global
+free-joint linear velocity is rotated into the pelvis frame, while
+body angular velocity remains in the pelvis frame.
+
+The streams use volatile, best-effort, depth-one QoS. Timestamps
+come from simulation time, not wall time or render cadence. Period,
+frames, and the nonzero covariance floor are configured in
+`ros2_ws/src/g1_simulation_bridge/config/simulation.yaml`.
+
+This source publishes neither TF nor fused state. The
+`g1_state_estimation` package remains the validation and health
+boundary before future fusion and Nav2 consumption.
+
 ## Body joint order
 
 `Policy` is the neural-network action index. `SDK` is the index in Unitree
