@@ -13,8 +13,12 @@ from rclpy.qos import (
     ReliabilityPolicy,
 )
 from sensor_msgs.msg import Imu
+from tf2_ros import TransformBroadcaster
 
 from .gateway import StateValidationGateway
+from .planar_transform import (
+    odometry_to_base_footprint_transform,
+)
 
 
 IMU_RAW_TOPIC = "/g1/state/imu_raw"
@@ -67,6 +71,9 @@ class StateEstimationNode(Node):
             ODOMETRY_TOPIC,
             self.output_qos,
         )
+        self.transform_broadcaster = TransformBroadcaster(
+            self
+        )
         self.imu_subscription = self.create_subscription(
             Imu,
             IMU_RAW_TOPIC,
@@ -92,6 +99,11 @@ class StateEstimationNode(Node):
         if update.odometry is not None:
             self.odometry_publisher.publish(
                 update.odometry
+            )
+            self.transform_broadcaster.sendTransform(
+                odometry_to_base_footprint_transform(
+                    update.odometry
+                )
             )
 
 

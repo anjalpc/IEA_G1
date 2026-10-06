@@ -83,18 +83,28 @@ boundary before future fusion and Nav2 consumption.
 ### Validated navigation-state boundary
 
 `g1_state_estimation` subscribes to `/g1/state/imu_raw` and
-`/g1/state/odometry_raw`. It publishes the unchanged validated
-odometry on `/g1/state/odometry` only while both streams are valid
-and fresh.
+`/g1/state/odometry_raw`. Only while both streams are valid and fresh,
+it publishes:
+
+| Output | Contract |
+|---|---|
+| `/g1/state/odometry` | Unchanged validated `odom` to `pelvis` odometry |
+| `/tf` | Planar `odom` to `base_footprint` transform |
+
+The planar transform preserves the validated pelvis `x`, `y`, yaw,
+and source timestamp. It sets translation `z` to zero and removes
+roll and pitch so walking-body oscillation does not become Nav2's
+robot-base pose. Invalid, missing, or stale input suppresses both
+navigation-facing odometry and TF.
 
 The default stale timeout is `0.1 s`, equal to five expected samples
 at 50 Hz, and is configured in
 `ros2_ws/src/navigation/g1_state_estimation/config/state_estimation.yaml`.
-Invalid, missing, or stale input suppresses navigation-facing output.
 
-This boundary performs validation and health gating only. It does
-not fuse sensors, generate odometry, publish TF, run SLAM, or command
-the robot.
+This boundary does not fuse sensors, generate odometry, run SLAM, or
+command the robot. `base_footprint` is the authoritative planar robot
+frame for Nav2; the robot model must provide the remaining transform
+chain between `base_footprint`, `pelvis`, and sensor frames.
 
 ## Body joint order
 

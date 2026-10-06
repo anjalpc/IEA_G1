@@ -30,6 +30,14 @@ class PublisherRecorder:
         self.messages.append(message)
 
 
+class TransformRecorder:
+    def __init__(self):
+        self.transforms = []
+
+    def sendTransform(self, transform):
+        self.transforms.append(transform)
+
+
 def populated_covariance(size):
     covariance = [0.0] * size
     width = 3 if size == 9 else 6
@@ -98,6 +106,7 @@ def test_creates_raw_inputs_and_validated_output(node):
     assert "/g1/state/imu_raw" in topics
     assert "/g1/state/odometry_raw" in topics
     assert "/g1/state/odometry" in topics
+    assert "/tf" in topics
 
 
 def test_uses_bounded_volatile_state_stream_qos(node):
@@ -141,10 +150,12 @@ def test_publishes_only_after_both_streams_are_valid(node):
     assert recorder.messages == [released_odometry]
 
 
-def test_invalid_imu_blocks_odometry_publication(node):
+def test_invalid_imu_blocks_odometry_and_tf_publication(node):
     instance, _clock = node
-    recorder = PublisherRecorder()
-    instance.odometry_publisher = recorder
+    odometry_recorder = PublisherRecorder()
+    transform_recorder = TransformRecorder()
+    instance.odometry_publisher = odometry_recorder
+    instance.transform_broadcaster = transform_recorder
 
     imu = valid_imu()
     imu.orientation.w = 2.0
@@ -152,16 +163,52 @@ def test_invalid_imu_blocks_odometry_publication(node):
     instance.imu_callback(imu)
     instance.odometry_callback(valid_odometry())
 
-    assert recorder.messages == []
+    assert odometry_recorder.messages == []
+    assert transform_recorder.transforms == []
 
 
-def test_stale_imu_blocks_fresh_odometry(node):
+def test_stale_imu_blocks_fresh_odometry_and_tf(node):
     instance, clock = node
-    recorder = PublisherRecorder()
-    instance.odometry_publisher = recorder
+    odometry_recorder = PublisherRecorder()
+    transform_recorder = TransformRecorder()
+    instance.odometry_publisher = odometry_recorder
+    instance.transform_broadcaster = transform_recorder
 
     instance.imu_callback(valid_imu())
     clock.now += 0.501
     instance.odometry_callback(valid_odometry())
 
-    assert recorder.messages == []
+    assert odometry_recorder.messages == []
+    assert transform_recorder.transforms == []
+
+
+def test_broadcasts_planar_tf_only_for_released_odometry(node):
+    instance, _clock = node
+    odometry_recorder = PublisherRecorder()
+    transform_recorder = TransformRecorder()
+    instance.odometry_publisher = odometry_recorder
+    instance.transform_broadcaster = transform_recorder
+
+    blocked_odometry = valid_odometry()
+    instance.odometry_callback(blocked_odometry)
+
+    assert odometry_recorder.messages == []
+    assert transform_recorder.transforms == []
+
+    instance.imu_callback(valid_imu())
+    released_odometry = valid_odometry()
+    released_odometry.pose.pose.position.x = 1.25
+    released_odometry.pose.pose.position.y = -0.75
+    released_odometry.pose.pose.position.z = 1.24
+    instance.odometry_callback(released_odometry)
+
+    assert odometry_recorder.messages == [released_odometry]
+    assert len(transform_recorder.transforms) == 1
+
+    transform = transform_recorder.transforms[0]
+    assert transform.header.stamp == released_odometry.header.stamp
+    assert transform.header.frame_id == "odom"
+    assert transform.child_frame_id == "base_footprint"
+    assert transform.transform.translation.x == 1.25
+    assert transform.transform.translation.y == -0.75
+    assert transform.transform.translation.z == 0.0
