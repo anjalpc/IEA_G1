@@ -24,4 +24,10 @@ setup(
     ),
     license="Proprietary",
     extras_require={"test": ["pytest"]},
+    entry_points={
+        "console_scripts": [
+            "state_estimation_node = "
+            "g1_state_estimation.node:main",
+        ],
+    },
 )
