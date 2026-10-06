@@ -407,6 +407,9 @@ def apply_geometry_episode_contract(env_cfg, resolved, *, promote=None):
         env_cfg.require_first_touchdown_placement = bool(
             acquisition.get("require_first_touchdown_placement", False)
         )
+        env_cfg.global_stair_acquisition = bool(
+            acquisition.get("global_stair_acquisition", False)
+        )
 
         shaping_start = float(
             acquisition.get(
