@@ -133,29 +133,25 @@ terrain:
   - 5.75
   - 1.2
   approach_length_m: 2.0
-  riser_height_m: 0.04
+  riser_height_m: 0.2
   tread_depth_m: 0.25
   step_count: 3
   stair_run_m: 0.75
-  total_rise_m: 0.12
+  total_rise_m: 0.6
   platform_length_m: 3.0
   required_platform_continuation_m: 0.2
   platform_starts_immediately_after_third_tread: true
   collision_representation: non_overlapping_trimesh_boxes
   horizontal_resolution_m: 0.05
   vertical_resolution_m: 0.005
-  curriculum_enabled: true
+  curriculum_enabled: false
   riser_height_range_m:
-  - 0.04
+  - 0.2
   - 0.2
   riser_heights_m:
-  - 0.04
-  - 0.08
-  - 0.12
-  - 0.16
   - 0.2
   curriculum:
-    enabled: true
+    enabled: false
     initial_max_level: 0
     platform_margin_m: 0.1
     minimum_upright_gravity_z: 0.75
