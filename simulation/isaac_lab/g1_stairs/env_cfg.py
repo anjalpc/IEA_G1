@@ -416,6 +416,29 @@ class StairRewardsCfg:
             "scale_m": 0.25,
         },
     )
+    finish_arm_target_return = RewTerm(
+        func=geometry_locomotion_rewards.finish_arm_target_return,
+        weight=0.0,
+        params={
+            "asset_cfg": SceneEntityCfg(
+                "robot",
+                joint_names=[
+                    name
+                    for name in BODY_JOINTS
+                    if any(
+                        token in name
+                        for token in (
+                            "_shoulder_",
+                            "_elbow_",
+                            "_wrist_",
+                        )
+                    )
+                ],
+            ),
+            "command_name": "base_velocity",
+            "cruise_speed_mps": FIXED_FORWARD_COMMAND_MPS,
+        },
+    )
 
     # Specialist foundation regularizers. The resolved YAML strict runtime set
     # selects exactly which of these are manager-visible. Keep the balance

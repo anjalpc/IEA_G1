@@ -1,0 +1,35 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_model4199_base.yaml
+  resolved_config_required: true
+
+experiment:
+  id: g1_finish_arm_return
+  purpose: Weak finish-only arm-target return from protected model4199.
+
+execution:
+  environments: 2048
+  maximum_iterations: 100
+  training_seed: 42
+
+policy_initialization:
+  type: rsl_rl_training_resume
+  source:
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/g1_curriculum_04_08_12_16_20_train3000_20261005_081035/model_4199.pt
+    sha256: acca92c8d084750b9430830707106335accbef113c52faec2a48426043ba067b
+  critic_initialization: restored
+  optimizer_initialization: restored
+
+reward_experiment:
+  active_stage: geometry_locomotion_clean
+  strict_runtime_set: true
+  rewards:
+    stage_plan:
+      geometry_locomotion_clean:
+        finish_arm_target_return: -0.10
+
+reward_parameters:
+  finish_arm_target_return:
+    command_name: base_velocity
+    cruise_speed_mps: 0.35

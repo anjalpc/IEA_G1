@@ -105,6 +105,39 @@ def finish_centerline_error(
     local_y = robot.data.root_pos_w[:, 1] - env.scene.env_origins[:, 1]
     return gate * (torch.abs(local_y) / float(scale_m)).clamp(0.0, 2.0)
 
+
+def finish_arm_target_return(
+    env,
+    cruise_speed_mps: float = 0.35,
+    command_name: str = "base_velocity",
+    asset_cfg=None,
+) -> torch.Tensor:
+    """Gently return arm position targets to defaults only during finish."""
+
+    asset_name = "robot" if asset_cfg is None else asset_cfg.name
+    robot = env.scene[asset_name]
+    target = robot.data.joint_pos_target
+    if target is None:
+        raise RuntimeError(
+            "finish arm target return requires joint_pos_target"
+        )
+
+    joint_ids = slice(None)
+    if asset_cfg is not None and asset_cfg.joint_ids is not None:
+        joint_ids = asset_cfg.joint_ids
+
+    target_error = (
+        target[:, joint_ids]
+        - robot.data.default_joint_pos[:, joint_ids]
+    )
+    command_x = env.command_manager.get_command(command_name)[:, 0]
+    gate = finish_transition_gate(
+        command_x,
+        cruise_speed_mps=cruise_speed_mps,
+    )
+    return gate * torch.mean(target_error.square(), dim=1)
+
+
 def stable_platform_finish(env):
     """Reward ongoing verified settling and a one-shot successful finish."""
     from .geometry_episode import Result
