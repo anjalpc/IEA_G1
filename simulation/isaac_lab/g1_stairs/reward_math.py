@@ -672,6 +672,32 @@ def phase_arm_tolerance(
 
 
 
+def global_stair_target_update(
+    target_step: torch.Tensor,
+    physical_touchdown: torch.Tensor,
+    step_count: int,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Advance one shared stair target when either foot acquires it."""
+    if target_step.shape != physical_touchdown.shape:
+        raise ValueError(
+            "target_step and physical_touchdown must have matching shapes"
+        )
+    if target_step.ndim != 2:
+        raise ValueError(
+            "target_step must have shape [num_envs, num_feet]"
+        )
+
+    acquired = physical_touchdown.any(dim=1)
+    old_target = target_step[:, 0].clone()
+
+    next_target = (
+        old_target + acquired.to(dtype=old_target.dtype)
+    ).clamp(max=int(step_count))
+
+    synchronized = next_target[:, None].expand_as(target_step)
+    return old_target, acquired, synchronized
+
+
 def first_touchdown_placement_score(
     rear_margin_m: torch.Tensor,
     front_margin_m: torch.Tensor,

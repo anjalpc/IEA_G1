@@ -31,7 +31,10 @@ from .contracts import (
 )
 from .reward_math import normalized_excess_forward_velocity
 from .terrain_state import riser_height_per_env, stair_cfg
-from .reward_math import first_touchdown_placement_score
+from .reward_math import (
+    first_touchdown_placement_score,
+    global_stair_target_update,
+)
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -163,6 +166,9 @@ class GeometryAcquisitionRuntime:
                 -0.150,
             )
         )
+        self.global_stair_acquisition = bool(
+            getattr(env.cfg, "global_stair_acquisition", False)
+        )
         self.touchdown_attempt_active = torch.zeros(
             shape, dtype=torch.bool, device=env.device
         )
@@ -173,8 +179,8 @@ class GeometryAcquisitionRuntime:
             shape, dtype=torch.bool, device=env.device
         )
 
-        # Each foot independently tracks the next stair it still needs to
-        # acquire. 0 -> first tread, 1 -> second, 2 -> third.
+        # Stair target state. In historical mode each foot advances
+        # independently. In global mode both columns remain synchronized.
         self.target_step = torch.zeros(
             shape,
             dtype=torch.long,
@@ -824,65 +830,98 @@ class GeometryAcquisitionRuntime:
         )
 
         if bool(physical_touchdown.any()):
-            old_target = self.target_step.clone()
-
-            for stair_index in range(step_count):
-                self.touchdowns[stair_index] += torch.count_nonzero(
-                    physical_touchdown
-                    & (old_target == stair_index)
-                )
-
-            self.target_step.copy_(
-                torch.where(
-                    physical_touchdown,
-                    self.target_step + 1,
+            if self.global_stair_acquisition:
+                (
+                    old_target,
+                    step_acquired,
+                    next_target,
+                ) = global_stair_target_update(
                     self.target_step,
+                    physical_touchdown,
+                    step_count,
                 )
-            )
+
+                # One stair acquisition per environment, even if both feet
+                # satisfy touchdown on the same simulation step.
+                for stair_index in range(step_count):
+                    self.touchdowns[stair_index] += torch.count_nonzero(
+                        step_acquired
+                        & (old_target == stair_index)
+                    )
+
+                self.target_step.copy_(next_target)
+
+                # A new stair becomes the target for BOTH feet.
+                reset_mask = step_acquired[:, None].expand_as(
+                    self.target_step
+                )
+            else:
+                # Historical per-foot progression retained for reproducibility.
+                old_target = self.target_step.clone()
+
+                for stair_index in range(step_count):
+                    self.touchdowns[stair_index] += torch.count_nonzero(
+                        physical_touchdown
+                        & (old_target == stair_index)
+                    )
+
+                self.target_step.copy_(
+                    torch.where(
+                        physical_touchdown,
+                        self.target_step + 1,
+                        self.target_step,
+                    )
+                )
+
+                reset_mask = physical_touchdown
 
             self.touchdown_attempt_active.copy_(
                 torch.where(
-                    physical_touchdown,
+                    reset_mask,
                     torch.zeros_like(self.touchdown_attempt_active),
                     self.touchdown_attempt_active,
                 )
             )
             self.touchdown_attempt_good.copy_(
                 torch.where(
-                    physical_touchdown,
+                    reset_mask,
                     torch.zeros_like(self.touchdown_attempt_good),
                     self.touchdown_attempt_good,
                 )
             )
-
             self.touchdown_placement_scored.copy_(
                 torch.where(
-                    physical_touchdown,
-                    torch.zeros_like(
-                        self.touchdown_placement_scored
-                    ),
+                    reset_mask,
+                    torch.zeros_like(self.touchdown_placement_scored),
                     self.touchdown_placement_scored,
+                )
+            )
+            self.support_elapsed.copy_(
+                torch.where(
+                    reset_mask,
+                    torch.zeros_like(self.support_elapsed),
+                    self.support_elapsed,
                 )
             )
 
             # New stair = new non-recyclable potential.
             self.best_clearance.copy_(
                 torch.where(
-                    physical_touchdown,
+                    reset_mask,
                     torch.zeros_like(self.best_clearance),
                     self.best_clearance,
                 )
             )
             self.best_insertion.copy_(
                 torch.where(
-                    physical_touchdown,
+                    reset_mask,
                     torch.zeros_like(self.best_insertion),
                     self.best_insertion,
                 )
             )
             self.pending_clearance.copy_(
                 torch.where(
-                    physical_touchdown,
+                    reset_mask,
                     torch.zeros_like(self.pending_clearance),
                     self.pending_clearance,
                 )

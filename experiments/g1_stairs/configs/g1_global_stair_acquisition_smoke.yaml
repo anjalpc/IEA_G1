@@ -1,0 +1,79 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_model4199_base.yaml
+  resolved_config_required: true
+
+experiment:
+  id: g1_global_stair_acquisition_smoke
+  purpose: Weak finish-only arm-target return from protected model4199.
+
+execution:
+  environments: 2048
+  maximum_iterations: 2
+  training_seed: 42
+
+policy_initialization:
+  type: rsl_rl_training_resume
+  source:
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/g1_first_touchdown_shaping_continue500_20261006_113702/model_4850.pt
+    sha256: 32fe428a1abc05e25c647693285edbd5b0df620ec87f5d9c07828b816d54fc1a
+  critic_initialization: restored
+  optimizer_initialization: restored
+
+reward_experiment:
+  active_stage: geometry_locomotion_clean
+  strict_runtime_set: true
+  rewards:
+    stage_plan:
+      geometry_locomotion_clean:
+        posture_envelope_guard: -0.124863414
+        finish_arm_target_return: 0.0
+        first_touchdown_placement: 0.5
+
+reward_parameters:
+  posture_envelope_guard:
+    joint_specific_excess_squared: false
+    joint_specific_target_excess_squared: false
+    phase_specific_target_excess_squared: false
+    phase_specific_family_target_excess_squared: true
+
+    phase_shoulder_pitch_approach_tolerance_rad: 0.20
+    phase_shoulder_pitch_ascent_tolerance_rad: 0.35
+    phase_shoulder_pitch_safe_platform_tolerance_rad: 0.20
+
+    phase_shoulder_roll_approach_tolerance_rad: 0.30
+    phase_shoulder_roll_ascent_tolerance_rad: 0.40
+    phase_shoulder_roll_safe_platform_tolerance_rad: 0.25
+
+    phase_shoulder_yaw_approach_tolerance_rad: 0.10
+    phase_shoulder_yaw_ascent_tolerance_rad: 0.20
+    phase_shoulder_yaw_safe_platform_tolerance_rad: 0.10
+
+    phase_elbow_approach_tolerance_rad: 0.35
+    phase_elbow_ascent_tolerance_rad: 0.45
+    phase_elbow_safe_platform_tolerance_rad: 0.25
+
+    phase_wrist_approach_tolerance_rad: 0.15
+    phase_wrist_ascent_tolerance_rad: 0.15
+    phase_wrist_safe_platform_tolerance_rad: 0.15
+
+    phase_command_name: base_velocity
+    phase_cruise_speed_mps: 0.35
+
+    shoulder_pitch_relative_weight: 1.0
+    shoulder_roll_relative_weight: 1.0
+    shoulder_yaw_relative_weight: 1.0
+    elbow_relative_weight: 1.0
+    wrist_relative_weight: 1.0
+
+  finish_arm_target_return:
+    command_name: base_velocity
+    cruise_speed_mps: 0.35
+
+acquisition_credit:
+  verified_insertion: true
+  support_dwell_s: 0.1
+  require_first_touchdown_placement: true
+  global_stair_acquisition: true
+  first_touchdown_shaping_start_margin_m: -0.15

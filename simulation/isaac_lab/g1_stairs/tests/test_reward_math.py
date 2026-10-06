@@ -537,3 +537,54 @@ def test_first_touchdown_placement_score_penalizes_front_overshoot():
     )
 
     assert score.tolist() == pytest.approx([1.0, 0.5, 0.0])
+
+def test_global_stair_target_update_advances_both_feet():
+    import torch
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        global_stair_target_update,
+    )
+
+    target = torch.tensor([
+        [0, 0],
+        [1, 1],
+        [2, 2],
+    ])
+    touchdown = torch.tensor([
+        [False, True],
+        [True, False],
+        [False, False],
+    ])
+
+    old, acquired, updated = global_stair_target_update(
+        target,
+        touchdown,
+        step_count=3,
+    )
+
+    assert old.tolist() == [0, 1, 2]
+    assert acquired.tolist() == [True, True, False]
+    assert updated.tolist() == [
+        [1, 1],
+        [2, 2],
+        [2, 2],
+    ]
+
+
+def test_global_stair_target_update_counts_two_feet_once():
+    import torch
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        global_stair_target_update,
+    )
+
+    target = torch.tensor([[2, 2]])
+    touchdown = torch.tensor([[True, True]])
+
+    old, acquired, updated = global_stair_target_update(
+        target,
+        touchdown,
+        step_count=3,
+    )
+
+    assert old.tolist() == [2]
+    assert acquired.tolist() == [True]
+    assert updated.tolist() == [[3, 3]]
