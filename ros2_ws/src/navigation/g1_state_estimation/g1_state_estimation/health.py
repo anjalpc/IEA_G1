@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from enum import Enum
 import math
 
+from .validation import ValidationResult
+
 
 class HealthState(Enum):
     """Navigation-facing state-estimation health."""
@@ -70,6 +72,12 @@ class StateHealthMonitor:
         if not isinstance(quality, ObservationQuality):
             raise ValueError("unsupported observation quality")
 
+    def _validate_result(self, validation):
+        if not isinstance(validation, ValidationResult):
+            raise ValueError(
+                "observation must contain a validation result"
+            )
+
     def observe_imu(
         self,
         validation,
@@ -78,6 +86,7 @@ class StateHealthMonitor:
     ):
         """Record the latest IMU validation result."""
 
+        self._validate_result(validation)
         self._validate_quality(quality)
         self._imu = _Observation(
             validation=validation,
@@ -93,6 +102,7 @@ class StateHealthMonitor:
     ):
         """Record the latest odometry validation result."""
 
+        self._validate_result(validation)
         self._validate_quality(quality)
         self._odometry = _Observation(
             validation=validation,
