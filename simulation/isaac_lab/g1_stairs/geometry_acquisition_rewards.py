@@ -32,8 +32,10 @@ from .contracts import (
 from .reward_math import normalized_excess_forward_velocity
 from .terrain_state import riser_height_per_env, stair_cfg
 from .reward_math import (
+    alternating_foot_gate,
     first_touchdown_placement_score,
     global_stair_target_update,
+    update_alternating_preferred_foot,
 )
 
 if TYPE_CHECKING:
@@ -169,6 +171,23 @@ class GeometryAcquisitionRuntime:
         self.global_stair_acquisition = bool(
             getattr(env.cfg, "global_stair_acquisition", False)
         )
+        self.dynamic_alternating_rewards = bool(
+            getattr(env.cfg, "dynamic_alternating_rewards", False)
+        )
+        if (
+            self.dynamic_alternating_rewards
+            and not self.global_stair_acquisition
+        ):
+            raise ValueError(
+                "dynamic_alternating_rewards requires "
+                "global_stair_acquisition"
+            )
+        self.preferred_foot = torch.full(
+            (env.num_envs,),
+            -1,
+            dtype=torch.long,
+            device=env.device,
+        )
         self.touchdown_attempt_active = torch.zeros(
             shape, dtype=torch.bool, device=env.device
         )
@@ -273,6 +292,7 @@ class GeometryAcquisitionRuntime:
             env_ids = slice(None)
 
         self.target_step[env_ids] = 0
+        self.preferred_foot[env_ids] = -1
         self.support_elapsed[env_ids] = 0.0
         self.touchdown_attempt_active[env_ids] = False
         self.touchdown_attempt_good[env_ids] = False
@@ -537,6 +557,20 @@ class GeometryAcquisitionRuntime:
             * valid_target.to(foot_pos.dtype)
         )
 
+        if self.dynamic_alternating_rewards:
+            preferred_gate = alternating_foot_gate(
+                self.preferred_foot
+            )
+            swing_gate = (
+                swing_gate
+                * preferred_gate.to(swing_gate.dtype)
+            )
+        else:
+            preferred_gate = torch.ones_like(
+                valid_target,
+                dtype=torch.bool,
+            )
+
         clearance_score = (
             clearance_fraction * swing_gate
         ).clamp(0.0, 1.0)
@@ -728,6 +762,7 @@ class GeometryAcquisitionRuntime:
             placement_reward_event = (
                 new_attempt
                 & ~self.touchdown_placement_scored
+                & preferred_gate
             )
 
             self.first_touchdown_placement_reward.copy_(
@@ -804,6 +839,7 @@ class GeometryAcquisitionRuntime:
         rewarded_touchdown = (
             physical_touchdown
             & first_placement_gate
+            & preferred_gate
         )
 
         if self.support_credit_dwell > 0:
@@ -846,6 +882,15 @@ class GeometryAcquisitionRuntime:
                     physical_touchdown,
                     step_count,
                 )
+
+                if self.dynamic_alternating_rewards:
+                    self.preferred_foot.copy_(
+                        update_alternating_preferred_foot(
+                            self.preferred_foot,
+                            physical_touchdown,
+                            step_acquired,
+                        )
+                    )
 
                 # One stair acquisition per environment, even if both feet
                 # satisfy touchdown on the same simulation step.

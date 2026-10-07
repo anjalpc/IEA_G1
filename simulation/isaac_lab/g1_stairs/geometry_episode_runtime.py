@@ -410,6 +410,17 @@ def apply_geometry_episode_contract(env_cfg, resolved, *, promote=None):
         env_cfg.global_stair_acquisition = bool(
             acquisition.get("global_stair_acquisition", False)
         )
+        env_cfg.dynamic_alternating_rewards = bool(
+            acquisition.get("dynamic_alternating_rewards", False)
+        )
+        if (
+            env_cfg.dynamic_alternating_rewards
+            and not env_cfg.global_stair_acquisition
+        ):
+            raise ValueError(
+                "dynamic_alternating_rewards requires "
+                "global_stair_acquisition"
+            )
 
         shaping_start = float(
             acquisition.get(

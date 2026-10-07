@@ -588,3 +588,41 @@ def test_global_stair_target_update_counts_two_feet_once():
     assert old.tolist() == [2]
     assert acquired.tolist() == [True]
     assert updated.tolist() == [[3, 3]]
+
+
+def test_alternating_foot_gate_starts_open_then_selects_one_foot():
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        alternating_foot_gate,
+    )
+
+    preferred = torch.tensor([-1, 0, 1])
+    gate = alternating_foot_gate(preferred)
+
+    assert gate.tolist() == [
+        [True, True],
+        [True, False],
+        [False, True],
+    ]
+
+
+def test_update_alternating_preferred_foot_chooses_opposite():
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        update_alternating_preferred_foot,
+    )
+
+    preferred = torch.tensor([-1, 1, 0, -1])
+    touchdown = torch.tensor([
+        [True, False],
+        [False, True],
+        [False, False],
+        [True, True],
+    ])
+    acquired = torch.tensor([True, True, False, True])
+
+    updated = update_alternating_preferred_foot(
+        preferred,
+        touchdown,
+        acquired,
+    )
+
+    assert updated.tolist() == [1, 0, 0, -1]

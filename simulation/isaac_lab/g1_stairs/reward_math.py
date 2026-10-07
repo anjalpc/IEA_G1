@@ -672,6 +672,64 @@ def phase_arm_tolerance(
 
 
 
+def alternating_foot_gate(
+    preferred_foot: torch.Tensor,
+) -> torch.Tensor:
+    """Return [num_envs, 2] reward eligibility for dynamic alternation.
+
+    preferred_foot values: -1 means either foot, 0 left, 1 right.
+    """
+    if preferred_foot.ndim != 1:
+        raise ValueError("preferred_foot must have shape [num_envs]")
+    if bool(((preferred_foot < -1) | (preferred_foot > 1)).any()):
+        raise ValueError("preferred_foot values must be -1, 0, or 1")
+
+    foot_index = torch.arange(
+        2,
+        dtype=preferred_foot.dtype,
+        device=preferred_foot.device,
+    )[None, :]
+    return (
+        (preferred_foot < 0)[:, None]
+        | (foot_index == preferred_foot[:, None])
+    )
+
+
+def update_alternating_preferred_foot(
+    preferred_foot: torch.Tensor,
+    physical_touchdown: torch.Tensor,
+    acquired: torch.Tensor,
+) -> torch.Tensor:
+    """Prefer the opposite foot after a unique physical acquisition."""
+    if preferred_foot.ndim != 1:
+        raise ValueError("preferred_foot must have shape [num_envs]")
+    if physical_touchdown.shape != (preferred_foot.shape[0], 2):
+        raise ValueError(
+            "physical_touchdown must have shape [num_envs, 2]"
+        )
+    if acquired.shape != preferred_foot.shape:
+        raise ValueError("acquired must match preferred_foot shape")
+
+    count = physical_touchdown.to(torch.long).sum(dim=1)
+    unique = acquired & (count == 1)
+    acquirer = physical_touchdown.to(torch.long).argmax(dim=1)
+    opposite = 1 - acquirer
+
+    # Simultaneous acquisition stays unconstrained rather than
+    # hard-coding a left/right tie break.
+    after_acquisition = torch.where(
+        unique,
+        opposite.to(preferred_foot.dtype),
+        torch.full_like(preferred_foot, -1),
+    )
+    return torch.where(
+        acquired,
+        after_acquisition,
+        preferred_foot,
+    )
+
+
+
 def global_stair_target_update(
     target_step: torch.Tensor,
     physical_touchdown: torch.Tensor,
