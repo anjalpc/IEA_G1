@@ -131,3 +131,36 @@ class SimulationPublicationSchedule:
             ),
             publish_state=publish_state,
         )
+
+
+@dataclass(frozen=True)
+class LidarPublicationDecision:
+    """Lidar work due after one completed physics step."""
+
+    stamp: SimulationTimestamp
+    publish_lidar: bool
+
+
+class LidarPublicationSchedule:
+    """Schedule lidar observations from monotonic simulation time."""
+
+    def __init__(self, *, period_seconds):
+        self._schedule = (
+            SimulationPublicationSchedule(
+                state_period_seconds=(
+                    period_seconds
+                ),
+            )
+        )
+
+    def after_step(self, simulation_time):
+        """Return lidar work due for one completed physics step."""
+        decision = self._schedule.after_step(
+            simulation_time
+        )
+        return LidarPublicationDecision(
+            stamp=decision.clock_stamp,
+            publish_lidar=(
+                decision.publish_state
+            ),
+        )

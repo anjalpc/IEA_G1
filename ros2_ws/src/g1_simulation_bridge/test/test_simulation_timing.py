@@ -5,6 +5,7 @@ import math
 import pytest
 
 from g1_simulation_bridge.simulation_timing import (
+    LidarPublicationSchedule,
     SimulationPublicationSchedule,
     SimulationTimestamp,
     simulation_timestamp,
@@ -169,3 +170,90 @@ def test_rejects_duplicate_or_reversed_simulation_time(
         match="strictly increasing",
     ):
         schedule.after_step(next_time)
+
+
+def test_schedules_lidar_at_ten_hz_simulation_time():
+    schedule = LidarPublicationSchedule(
+        period_seconds=0.1,
+    )
+
+    decisions = [
+        schedule.after_step(simulation_time)
+        for simulation_time in (
+            0.02,
+            0.08,
+            0.10,
+            0.19,
+            0.20,
+        )
+    ]
+
+    assert [
+        decision.publish_lidar
+        for decision in decisions
+    ] == [
+        False,
+        False,
+        True,
+        False,
+        True,
+    ]
+    assert decisions[2].stamp == (
+        SimulationTimestamp(
+            sec=0,
+            nanosec=100000000,
+        )
+    )
+    assert decisions[4].stamp == (
+        SimulationTimestamp(
+            sec=0,
+            nanosec=200000000,
+        )
+    )
+
+
+def test_lidar_schedule_uses_elapsed_simulation_time():
+    schedule = LidarPublicationSchedule(
+        period_seconds=0.1,
+    )
+
+    decisions = [
+        schedule.after_step(simulation_time)
+        for simulation_time in (
+            0.03,
+            0.25,
+            0.29,
+            0.30,
+        )
+    ]
+
+    assert [
+        decision.publish_lidar
+        for decision in decisions
+    ] == [
+        False,
+        True,
+        False,
+        True,
+    ]
+
+
+@pytest.mark.parametrize(
+    "period_seconds",
+    [
+        0.0,
+        -0.1,
+        math.nan,
+        math.inf,
+    ],
+)
+def test_rejects_invalid_lidar_period(
+    period_seconds,
+):
+    with pytest.raises(
+        ValueError,
+        match="finite and positive",
+    ):
+        LidarPublicationSchedule(
+            period_seconds=period_seconds,
+        )
