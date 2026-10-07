@@ -288,3 +288,48 @@ def test_rejects_disabled_self_filter():
             torso_body_name="torso_link",
             robot_root_body_name=None,
         )
+
+
+def test_accepts_unnamed_environment_geometry():
+    model = mujoco.MjModel.from_xml_string(
+        """
+        <mujoco model="unnamed_environment">
+          <worldbody>
+            <geom
+              type="sphere"
+              pos="3 0 1"
+              size="0.1"
+            />
+            <body
+              name="pelvis"
+              pos="0 0 1"
+            >
+              <body name="torso_link" />
+            </body>
+          </worldbody>
+        </mujoco>
+        """
+    )
+    data = mujoco.MjData(model)
+    mujoco.mj_forward(model, data)
+
+    adapter = MuJoCoRayAdapter(
+        model=model,
+        data=data,
+        torso_body_name="torso_link",
+        robot_root_body_name="pelvis",
+    )
+
+    intersections = adapter.cast(
+        origin_world=(0.0, 0.0, 1.0),
+        directions_world=(
+            (1.0, 0.0, 0.0),
+        ),
+    )
+
+    assert intersections[0].distance == pytest.approx(
+        2.9,
+        abs=1.0e-12,
+    )
+    assert intersections[0].geom_id == 0
+    assert intersections[0].geom_name is None

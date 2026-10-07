@@ -29,7 +29,7 @@ class RayIntersection:
 
     distance: float
     geom_id: int
-    geom_name: str
+    geom_name: str | None
 
 
 def _finite_vector(name, values):
@@ -310,11 +310,6 @@ class MuJoCoRayAdapter:
                     mujoco.mjtObj.mjOBJ_GEOM,
                     geom_id,
                 )
-                if not geom_name:
-                    raise MuJoCoRaycastError(
-                        "raycast geometry must have a name"
-                    )
-
                 total_distance = (
                     travelled + distance
                 )
