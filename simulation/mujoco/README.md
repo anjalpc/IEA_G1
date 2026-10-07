@@ -275,8 +275,9 @@ For an integration run without the viewer:
 ### Verify raw navigation state
 
 The bridge publishes `/clock` after every completed 200 Hz physics
-step. It publishes `/g1/state/imu_raw` and
-`/g1/state/odometry_raw` at 50 Hz of simulation time.
+step. It publishes `/g1/state/imu_raw`,
+`/g1/state/odometry_raw`, and `/joint_states` at 50 Hz of simulation
+time. One MuJoCo sample and timestamp supply all three state messages.
 
 From another sourced development-container shell:
 
@@ -284,15 +285,22 @@ From another sourced development-container shell:
 cd /workspace/IEA_G1/ros2_ws
 source install/setup.bash
 
-ros2 topic list | rg '^/(clock|g1/state/(imu_raw|odometry_raw))$'
+ros2 topic list | rg '^/(clock|joint_states|g1/state/(imu_raw|odometry_raw))$'
 ros2 topic echo --once /clock
 ros2 topic echo --once /g1/state/imu_raw
 ros2 topic echo --once /g1/state/odometry_raw
+ros2 topic echo --once /joint_states
 ```
 
 Frames, cadence, and covariance are configured in
 `ros2_ws/src/g1_simulation_bridge/config/simulation.yaml`.
 Downstream simulation nodes must enable `use_sim_time`.
+
+`/joint_states` contains measured positions for
+`waist_yaw_joint`, `waist_roll_joint`, and `waist_pitch_joint` in
+that order. Velocity and effort arrays are intentionally empty. Do
+not run `joint_state_publisher` alongside the simulation bridge,
+because generated defaults would compete with measured MuJoCo state.
 
 These are raw measurements. The bridge publishes neither TF nor
 fused odometry, and navigation must consume them through the

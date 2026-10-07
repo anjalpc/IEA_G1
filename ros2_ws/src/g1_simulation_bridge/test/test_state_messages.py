@@ -2,6 +2,7 @@
 
 import pytest
 
+from g1_simulation_bridge import state_messages
 from g1_simulation_bridge.simulation_state import (
     SimulationStateSample,
 )
@@ -28,6 +29,12 @@ def sample():
         imu_orientation_xyzw=(0.11, 0.22, 0.33, 0.88),
         imu_angular_velocity_xyz=(1.1, 1.2, 1.3),
         imu_linear_acceleration_xyz=(2.1, 2.2, 2.3),
+        joint_names=(
+            "waist_yaw_joint",
+            "waist_roll_joint",
+            "waist_pitch_joint",
+        ),
+        joint_positions=(0.11, -0.22, 0.33),
     )
 
 
@@ -135,3 +142,23 @@ def test_places_body_frame_velocities_in_odometry_twist():
     ) == pytest.approx((0.7, 0.8, 0.9))
 
     assert list(message.twist.covariance) == diagonal(6)
+
+
+def test_builds_joint_state_from_same_simulation_timestamp():
+    message = state_messages.build_joint_state_message(
+        sample(),
+        TIMESTAMP,
+    )
+
+    assert message.header.stamp.sec == 12
+    assert message.header.stamp.nanosec == 345678901
+    assert list(message.name) == [
+        "waist_yaw_joint",
+        "waist_roll_joint",
+        "waist_pitch_joint",
+    ]
+    assert list(message.position) == pytest.approx(
+        [0.11, -0.22, 0.33]
+    )
+    assert list(message.velocity) == []
+    assert list(message.effort) == []

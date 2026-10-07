@@ -2,7 +2,7 @@
 
 from nav_msgs.msg import Odometry
 from rosgraph_msgs.msg import Clock
-from sensor_msgs.msg import Imu
+from sensor_msgs.msg import Imu, JointState
 
 from g1_simulation_bridge.simulation_state import (
     diagonal_covariance,
@@ -108,4 +108,14 @@ def build_odometry_message(
     message.pose.covariance = covariance
     message.twist.covariance = covariance
 
+    return message
+
+
+def build_joint_state_message(sample, timestamp):
+    """Build measured navigation-joint state at simulation time."""
+
+    message = JointState()
+    _set_stamp(message.header.stamp, timestamp)
+    message.name = sample.joint_names
+    message.position = sample.joint_positions
     return message

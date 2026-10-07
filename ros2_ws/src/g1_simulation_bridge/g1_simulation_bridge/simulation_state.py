@@ -4,6 +4,13 @@ from dataclasses import dataclass
 import math
 
 
+NAVIGATION_JOINT_NAMES = (
+    "waist_yaw_joint",
+    "waist_roll_joint",
+    "waist_pitch_joint",
+)
+
+
 @dataclass(frozen=True)
 class SimulationStateSample:
     """One hardware-independent simulation state sample."""
@@ -15,6 +22,8 @@ class SimulationStateSample:
     imu_orientation_xyzw: tuple
     imu_angular_velocity_xyz: tuple
     imu_linear_acceleration_xyz: tuple
+    joint_names: tuple
+    joint_positions: tuple
 
 
 def diagonal_covariance(*, width, variance):
@@ -84,6 +93,50 @@ class SimulationStateReader:
             model.jnt_dofadr[joint_id]
         )
 
+        self._joint_sources = []
+        resolved_joint_ids = {joint_id}
+        resolved_qpos_addresses = set()
+
+        for name in NAVIGATION_JOINT_NAMES:
+            resolved_id = self._required_id(
+                joint_type,
+                name,
+            )
+            if resolved_id in resolved_joint_ids:
+                raise ValueError(
+                    "required MuJoCo joints must resolve uniquely"
+                )
+            resolved_joint_ids.add(resolved_id)
+
+            resolved_type = int(
+                model.jnt_type[resolved_id]
+            )
+            expected_type = int(
+                mujoco.mjtJoint.mjJNT_HINGE
+            )
+            if resolved_type != expected_type:
+                raise ValueError(
+                    f"required MuJoCo joint {name} must be "
+                    "a scalar hinge joint"
+                )
+
+            qpos_address = int(
+                model.jnt_qposadr[resolved_id]
+            )
+            if qpos_address in resolved_qpos_addresses:
+                raise ValueError(
+                    "required MuJoCo joint qpos addresses "
+                    "must resolve uniquely"
+                )
+            resolved_qpos_addresses.add(qpos_address)
+            self._joint_sources.append(
+                (name, qpos_address)
+            )
+
+        self._joint_sources = tuple(
+            self._joint_sources
+        )
+
         self._sensor_sources = {}
         resolved_sensor_ids = set()
         expected_dimensions = {
@@ -133,7 +186,13 @@ class SimulationStateReader:
         )
 
     def _validate_layout(self, data):
-        required_qpos = self._qpos_address + 7
+        required_qpos = max(
+            self._qpos_address + 7,
+            max(
+                address + 1
+                for _, address in self._joint_sources
+            ),
+        )
         required_qvel = self._qvel_address + 6
         required_sensor_data = max(
             address + dimension
@@ -210,6 +269,10 @@ class SimulationStateReader:
             data,
             "imu_acc",
         )
+        joint_positions = tuple(
+            float(data.qpos[address])
+            for _, address in self._joint_sources
+        )
 
         values = (
             *position,
@@ -219,6 +282,7 @@ class SimulationStateReader:
             *imu_wxyz,
             *imu_gyro,
             *imu_acceleration,
+            *joint_positions,
         )
         self._validate_finite(values)
         self._validate_unit_quaternion(
@@ -241,4 +305,9 @@ class SimulationStateReader:
             imu_orientation_xyzw=_wxyz_to_xyzw(imu_wxyz),
             imu_angular_velocity_xyz=imu_gyro,
             imu_linear_acceleration_xyz=imu_acceleration,
+            joint_names=tuple(
+                name
+                for name, _ in self._joint_sources
+            ),
+            joint_positions=joint_positions,
         )

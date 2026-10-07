@@ -8,11 +8,12 @@ from rclpy.qos import (
     ReliabilityPolicy,
 )
 from rosgraph_msgs.msg import Clock
-from sensor_msgs.msg import Imu
+from sensor_msgs.msg import Imu, JointState
 
 from g1_simulation_bridge.state_messages import (
     build_clock_message,
     build_imu_message,
+    build_joint_state_message,
     build_odometry_message,
 )
 
@@ -20,6 +21,7 @@ from g1_simulation_bridge.state_messages import (
 CLOCK_TOPIC = "/clock"
 IMU_RAW_TOPIC = "/g1/state/imu_raw"
 ODOMETRY_RAW_TOPIC = "/g1/state/odometry_raw"
+JOINT_STATES_TOPIC = "/joint_states"
 
 
 def _stream_qos():
@@ -27,6 +29,15 @@ def _stream_qos():
         history=HistoryPolicy.KEEP_LAST,
         depth=1,
         reliability=ReliabilityPolicy.BEST_EFFORT,
+        durability=DurabilityPolicy.VOLATILE,
+    )
+
+
+def _joint_state_qos():
+    return QoSProfile(
+        history=HistoryPolicy.KEEP_LAST,
+        depth=1,
+        reliability=ReliabilityPolicy.RELIABLE,
         durability=DurabilityPolicy.VOLATILE,
     )
 
@@ -67,6 +78,11 @@ class SimulationStatePublisher:
             ODOMETRY_RAW_TOPIC,
             _stream_qos(),
         )
+        self._joint_state_publisher = node.create_publisher(
+            JointState,
+            JOINT_STATES_TOPIC,
+            _joint_state_qos(),
+        )
 
     def after_step(self, *, data, simulation_time):
         """Publish work due after one completed physics step."""
@@ -100,8 +116,15 @@ class SimulationStatePublisher:
                 self._covariance_variance
             ),
         )
+        joint_state_message = build_joint_state_message(
+            sample,
+            decision.clock_stamp,
+        )
 
         self._imu_publisher.publish(imu_message)
         self._odometry_publisher.publish(
             odometry_message
+        )
+        self._joint_state_publisher.publish(
+            joint_state_message
         )

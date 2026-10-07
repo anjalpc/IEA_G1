@@ -1,7 +1,7 @@
 """Contract tests for simulation navigation-state publishers."""
 
 import pytest
-from rclpy.qos import ReliabilityPolicy
+from rclpy.qos import DurabilityPolicy, ReliabilityPolicy
 
 from g1_simulation_bridge.simulation_state import (
     SimulationStateSample,
@@ -53,6 +53,12 @@ class FakeReader:
             imu_orientation_xyzw=(0.0, 0.0, 0.0, 1.0),
             imu_angular_velocity_xyz=(1.1, 1.2, 1.3),
             imu_linear_acceleration_xyz=(2.1, 2.2, 2.3),
+            joint_names=(
+                "waist_yaw_joint",
+                "waist_roll_joint",
+                "waist_pitch_joint",
+            ),
+            joint_positions=(0.11, -0.22, 0.33),
         )
 
 
@@ -70,7 +76,7 @@ def publisher(node=None, reader=None):
     )
 
 
-def test_creates_required_best_effort_depth_one_publishers():
+def test_creates_required_publishers_with_compatible_qos():
     node = FakeNode()
 
     publisher(node=node)
@@ -79,13 +85,35 @@ def test_creates_required_best_effort_depth_one_publishers():
         "/clock",
         "/g1/state/imu_raw",
         "/g1/state/odometry_raw",
+        "/joint_states",
     }
-    for created in node.publishers.values():
+
+    for topic in (
+        "/clock",
+        "/g1/state/imu_raw",
+        "/g1/state/odometry_raw",
+    ):
+        created = node.publishers[topic]
         assert created.qos.depth == 1
         assert (
             created.qos.reliability
             == ReliabilityPolicy.BEST_EFFORT
         )
+        assert (
+            created.qos.durability
+            == DurabilityPolicy.VOLATILE
+        )
+
+    joint_states = node.publishers["/joint_states"]
+    assert joint_states.qos.depth == 1
+    assert (
+        joint_states.qos.reliability
+        == ReliabilityPolicy.RELIABLE
+    )
+    assert (
+        joint_states.qos.durability
+        == DurabilityPolicy.VOLATILE
+    )
 
 
 def test_publishes_clock_after_every_physics_step():
@@ -189,3 +217,67 @@ def test_does_not_publish_partial_state_when_sampling_fails():
         node.publishers["/g1/state/odometry_raw"].messages
         == []
     )
+    assert node.publishers["/joint_states"].messages == []
+
+
+def test_publishes_joint_state_on_shared_state_cadence():
+    node = FakeNode()
+    reader = FakeReader()
+    state_publisher = publisher(
+        node=node,
+        reader=reader,
+    )
+    data = object()
+
+    for simulation_time in (
+        0.005,
+        0.010,
+        0.015,
+    ):
+        state_publisher.after_step(
+            data=data,
+            simulation_time=simulation_time,
+        )
+
+    assert node.publishers["/joint_states"].messages == []
+    assert reader.data_seen == []
+
+    state_publisher.after_step(
+        data=data,
+        simulation_time=0.020,
+    )
+
+    assert reader.data_seen == [data]
+
+    imu = node.publishers[
+        "/g1/state/imu_raw"
+    ].messages
+    odometry = node.publishers[
+        "/g1/state/odometry_raw"
+    ].messages
+    joint_states = node.publishers[
+        "/joint_states"
+    ].messages
+
+    assert len(imu) == 1
+    assert len(odometry) == 1
+    assert len(joint_states) == 1
+
+    joint_state = joint_states[0]
+    assert joint_state.header.stamp == imu[0].header.stamp
+    assert (
+        joint_state.header.stamp
+        == odometry[0].header.stamp
+    )
+    assert joint_state.header.stamp.nanosec == 20_000_000
+
+    assert list(joint_state.name) == [
+        "waist_yaw_joint",
+        "waist_roll_joint",
+        "waist_pitch_joint",
+    ]
+    assert list(joint_state.position) == pytest.approx(
+        [0.11, -0.22, 0.33]
+    )
+    assert list(joint_state.velocity) == []
+    assert list(joint_state.effort) == []

@@ -64,15 +64,24 @@ workstation navigation stack:
 | `/clock` | `rosgraph_msgs/msg/Clock` | 200 Hz | Simulation time |
 | `/g1/state/imu_raw` | `sensor_msgs/msg/Imu` | 50 Hz | `pelvis` |
 | `/g1/state/odometry_raw` | `nav_msgs/msg/Odometry` | 50 Hz | `odom` to `pelvis` |
+| `/joint_states` | `sensor_msgs/msg/JointState` | 50 Hz | Three movable waist joints |
 
 The source resolves `floating_base_joint`, `imu_quat`, `imu_gyro`,
-and `imu_acc` by MuJoCo name rather than fixed array offsets.
+`imu_acc`, and the three waist joints by MuJoCo name rather than
+fixed array offsets. The joint-state order is
+`waist_yaw_joint`, `waist_roll_joint`, then `waist_pitch_joint`.
+Only finite scalar hinge positions are accepted. The bridge does not
+publish default, commanded, or fabricated joint values.
+
 MuJoCo `wxyz` quaternions are converted to ROS `xyzw`. Global
 free-joint linear velocity is rotated into the pelvis frame, while
 body angular velocity remains in the pelvis frame.
 
-The streams use volatile, best-effort, depth-one QoS. Timestamps
-come from simulation time, not wall time or render cadence. Period,
+Clock, raw IMU, and raw odometry use volatile, best-effort,
+depth-one QoS. `/joint_states` uses volatile, reliable, depth-one
+QoS for compatibility with `robot_state_publisher`. All state
+messages released in one cycle use the same MuJoCo sample and
+simulation timestamp, not wall time or render cadence. Period,
 frames, and the nonzero covariance floor are configured in
 `ros2_ws/src/g1_simulation_bridge/config/simulation.yaml`.
 
@@ -132,9 +141,10 @@ The retained sensor frames are `d435_link`, `imu_in_torso`, and
 `torso_link` in the official kinematic model even though the physical
 device is mounted in the head area.
 
-This package publishes no TF and consumes no hardware. A later
-`robot_state_publisher` runtime requires joint states for
-`waist_yaw_joint`, `waist_roll_joint`, and `waist_pitch_joint`.
+This package publishes no TF and consumes no hardware. The future
+`robot_state_publisher` runtime consumes the three measured waist
+positions from `/joint_states`; it must not run
+`joint_state_publisher` or substitute default positions.
 
 The physical camera bridge currently labels depth images with
 `g1_depth_camera`. That frame must be aligned with `d435_link` before

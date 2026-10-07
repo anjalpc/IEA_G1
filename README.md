@@ -103,9 +103,9 @@ TF.
 ### `g1_simulation_bridge`
 
 Connects the same application-level command contract to simulation. It also
-publishes simulation `/clock`, raw IMU, and raw odometry for the workstation
-state-estimation and navigation stack. It is a development package and is not
-required on PC2.
+publishes simulation `/clock`, raw IMU, raw odometry, and measured waist
+`/joint_states` for the workstation state-estimation and navigation stack. It
+is a development package and is not required on PC2.
 
 ### `g1_bringup`
 

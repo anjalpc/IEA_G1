@@ -17,6 +17,10 @@ class FakeMujoco:
         mjOBJ_JOINT = 1
         mjOBJ_SENSOR = 2
 
+    class mjtJoint:
+        mjJNT_FREE = 0
+        mjJNT_HINGE = 3
+
     @staticmethod
     def mj_name2id(model, object_type, name):
         return model.names.get((object_type, name), -1)
@@ -28,12 +32,21 @@ class FakeModel:
     def __init__(self):
         self.names = {
             (FakeMujoco.mjtObj.mjOBJ_JOINT, "floating_base_joint"): 0,
+            (FakeMujoco.mjtObj.mjOBJ_JOINT, "waist_yaw_joint"): 1,
+            (FakeMujoco.mjtObj.mjOBJ_JOINT, "waist_roll_joint"): 2,
+            (FakeMujoco.mjtObj.mjOBJ_JOINT, "waist_pitch_joint"): 3,
             (FakeMujoco.mjtObj.mjOBJ_SENSOR, "imu_quat"): 0,
             (FakeMujoco.mjtObj.mjOBJ_SENSOR, "imu_gyro"): 1,
             (FakeMujoco.mjtObj.mjOBJ_SENSOR, "imu_acc"): 2,
         }
-        self.jnt_qposadr = [2]
-        self.jnt_dofadr = [1]
+        self.jnt_qposadr = [2, 9, 10, 11]
+        self.jnt_dofadr = [1, 7, 8, 9]
+        self.jnt_type = [
+            FakeMujoco.mjtJoint.mjJNT_FREE,
+            FakeMujoco.mjtJoint.mjJNT_HINGE,
+            FakeMujoco.mjtJoint.mjJNT_HINGE,
+            FakeMujoco.mjtJoint.mjJNT_HINGE,
+        ]
         self.sensor_adr = [0, 4, 7]
         self.sensor_dim = [4, 3, 3]
 
@@ -52,6 +65,9 @@ class FakeData:
             0.0,
             0.0,
             0.0,
+            0.11,
+            -0.22,
+            0.33,
         ]
         self.qvel = [
             99.0,
@@ -93,6 +109,12 @@ def test_resolves_named_sources_and_extracts_one_sample():
     assert sample.imu_orientation_xyzw == (0.0, 0.0, 0.0, 1.0)
     assert sample.imu_angular_velocity_xyz == (0.4, 0.5, 0.6)
     assert sample.imu_linear_acceleration_xyz == (4.0, 5.0, 6.0)
+    assert sample.joint_names == (
+        "waist_yaw_joint",
+        "waist_roll_joint",
+        "waist_pitch_joint",
+    )
+    assert sample.joint_positions == (0.11, -0.22, 0.33)
 
 
 def test_rotates_global_linear_velocity_into_pelvis_frame():
@@ -119,6 +141,9 @@ def test_rotates_global_linear_velocity_into_pelvis_frame():
     "object_type,name",
     [
         (FakeMujoco.mjtObj.mjOBJ_JOINT, "floating_base_joint"),
+        (FakeMujoco.mjtObj.mjOBJ_JOINT, "waist_yaw_joint"),
+        (FakeMujoco.mjtObj.mjOBJ_JOINT, "waist_roll_joint"),
+        (FakeMujoco.mjtObj.mjOBJ_JOINT, "waist_pitch_joint"),
         (FakeMujoco.mjtObj.mjOBJ_SENSOR, "imu_quat"),
         (FakeMujoco.mjtObj.mjOBJ_SENSOR, "imu_gyro"),
         (FakeMujoco.mjtObj.mjOBJ_SENSOR, "imu_acc"),
@@ -130,6 +155,41 @@ def test_rejects_missing_required_named_source(object_type, name):
 
     with pytest.raises(ValueError, match="required MuJoCo source"):
         reader(model)
+
+
+def test_rejects_aliased_required_joints():
+    model = FakeModel()
+    roll_id = model.names[
+        (FakeMujoco.mjtObj.mjOBJ_JOINT, "waist_roll_joint")
+    ]
+    model.names[
+        (FakeMujoco.mjtObj.mjOBJ_JOINT, "waist_pitch_joint")
+    ] = roll_id
+
+    with pytest.raises(ValueError, match="unique"):
+        reader(model)
+
+
+def test_rejects_non_hinge_navigation_joint():
+    model = FakeModel()
+    model.jnt_type[2] = FakeMujoco.mjtJoint.mjJNT_FREE
+
+    with pytest.raises(
+        ValueError,
+        match="waist_roll_joint.*hinge",
+    ):
+        reader(model)
+
+
+def test_rejects_truncated_joint_state_layout():
+    data = FakeData()
+    data.qpos = data.qpos[:11]
+
+    with pytest.raises(
+        ValueError,
+        match="state layout",
+    ):
+        reader().sample(data)
 
 
 def test_builds_explicit_diagonal_covariance():
@@ -187,6 +247,7 @@ def test_rejects_wrong_sensor_dimension(
         ("qpos", 2, math.nan),
         ("qvel", 1, math.inf),
         ("sensordata", 4, -math.inf),
+        ("qpos", 10, math.inf),
     ],
 )
 def test_rejects_nonfinite_simulation_state(
