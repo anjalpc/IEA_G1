@@ -298,7 +298,7 @@ These are raw measurements. The bridge publishes neither TF nor
 fused odometry, and navigation must consume them through the
 `g1_state_estimation` validation boundary.
 
-### Start validated odometry
+### Start validated navigation state
 
 In another sourced development-container shell:
 
@@ -309,14 +309,18 @@ ros2 launch g1_state_estimation state_estimation.launch.py
 ```
 
 After valid fresh IMU and odometry inputs arrive, verify the
-navigation-facing output from another shell:
+navigation-facing output and TF chain from another sourced shell:
 
 ```bash
 ros2 topic echo --once /g1/state/odometry
+ros2 run tf2_ros tf2_echo odom base_footprint
+ros2 run tf2_ros tf2_echo base_footprint pelvis
 ```
 
-The node suppresses this output whenever either raw stream is
-missing, invalid, or stale. It does not fuse sensors or publish TF.
+The node publishes validated odometry together with
+`odom -> base_footprint -> pelvis`. It suppresses both odometry and TF
+whenever either raw stream is missing, invalid, or stale. It does not
+perform sensor fusion.
 
 The runner starts the backend-neutral application with the simulation bridge,
 enables it through

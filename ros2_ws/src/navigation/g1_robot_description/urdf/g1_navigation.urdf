@@ -1,0 +1,98 @@
+<?xml version="1.0"?>
+<!--
+  SPDX-License-Identifier: BSD-3-Clause
+
+  Navigation-only kinematic subset derived from Unitree Robotics'
+  g1_29dof.urdf at commit:
+  5994d4faef0a9cadd3287f8de0199a67eeb2a259
+
+  See vendor/UNITREE_SOURCE.md and vendor/LICENSE.
+-->
+<robot name="g1_navigation">
+  <link name="pelvis"/>
+  <link name="waist_yaw_link"/>
+  <link name="waist_roll_link"/>
+  <link name="torso_link"/>
+  <link name="head_link"/>
+  <link name="imu_in_torso"/>
+  <link name="imu_in_pelvis"/>
+  <link name="d435_link"/>
+
+  <joint name="waist_yaw_joint" type="revolute">
+    <origin xyz="0 0 0" rpy="0 0 0"/>
+    <parent link="pelvis"/>
+    <child link="waist_yaw_link"/>
+    <axis xyz="0 0 1"/>
+    <limit
+      lower="-2.618"
+      upper="2.618"
+      effort="88"
+      velocity="32"
+    />
+  </joint>
+
+  <joint name="waist_roll_joint" type="revolute">
+    <origin
+      xyz="-0.0039635 0 0.035"
+      rpy="0 0 0"
+    />
+    <parent link="waist_yaw_link"/>
+    <child link="waist_roll_link"/>
+    <axis xyz="1 0 0"/>
+    <limit
+      lower="-0.52"
+      upper="0.52"
+      effort="35"
+      velocity="30"
+    />
+  </joint>
+
+  <joint name="waist_pitch_joint" type="revolute">
+    <origin xyz="0 0 0.019" rpy="0 0 0"/>
+    <parent link="waist_roll_link"/>
+    <child link="torso_link"/>
+    <axis xyz="0 1 0"/>
+    <limit
+      lower="-0.52"
+      upper="0.52"
+      effort="35"
+      velocity="30"
+    />
+  </joint>
+
+  <joint name="head_joint" type="fixed">
+    <origin
+      xyz="0.0039635 0 -0.054"
+      rpy="0 0 0"
+    />
+    <parent link="torso_link"/>
+    <child link="head_link"/>
+  </joint>
+
+  <joint name="imu_in_torso_joint" type="fixed">
+    <origin
+      xyz="-0.03959 -0.00224 0.13792"
+      rpy="0 0 0"
+    />
+    <parent link="torso_link"/>
+    <child link="imu_in_torso"/>
+  </joint>
+
+  <joint name="imu_in_pelvis_joint" type="fixed">
+    <origin
+      xyz="0.04525 0 -0.08339"
+      rpy="0 0 0"
+    />
+    <parent link="pelvis"/>
+    <child link="imu_in_pelvis"/>
+  </joint>
+
+  <joint name="d435_joint" type="fixed">
+    <origin
+      xyz="0.0576235 0.01753 0.41987"
+      rpy="0 0.8307767239493009 0"
+    />
+    <parent link="torso_link"/>
+    <child link="d435_link"/>
+  </joint>
+</robot>

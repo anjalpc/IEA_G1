@@ -103,14 +103,43 @@ at 50 Hz, and is configured in
 
 The two TF edges come from the same validated odometry sample and use
 the same timestamp. `g1_state_estimation` owns both edges because the
-pelvis height, roll, and pitch change while walking. A future robot
-description and state publisher must begin at `pelvis` and own only
-the downstream body, joint, and sensor frames; it must not republish
+pelvis height, roll, and pitch change while walking. Robot-description
+and state-publisher components begin at `pelvis` and own only its
+downstream body, joint, and sensor frames; they must not republish
 either navigation-state edge.
 
 This boundary does not fuse sensors, generate odometry, run SLAM, or
 command the robot. `base_footprint` is the authoritative planar robot
 frame for Nav2.
+
+### Navigation robot description
+
+`g1_robot_description` installs the kinematic subset required to
+connect `pelvis` to the moving waist, torso/head, D435, and official
+IMU reference frames. Its source is Unitree's official
+`g1_29dof.urdf`, pinned at commit
+`5994d4faef0a9cadd3287f8de0199a67eeb2a259`. The upstream BSD-3-Clause
+license and exact source digest are retained with the package.
+
+The description has one root, `pelvis`, and contains no `world`,
+`map`, `odom`, or `base_footprint` link. It contains no visual,
+collision, inertial, limb, or rubber-hand model. This prevents it from
+claiming that the installed BrainCo hands are Unitree rubber hands and
+avoids duplicating the existing MuJoCo meshes.
+
+The retained sensor frames are `d435_link`, `imu_in_torso`, and
+`imu_in_pelvis`. Unitree's standard D435 mount is fixed to
+`torso_link` in the official kinematic model even though the physical
+device is mounted in the head area.
+
+This package publishes no TF and consumes no hardware. A later
+`robot_state_publisher` runtime requires joint states for
+`waist_yaw_joint`, `waist_roll_joint`, and `waist_pitch_joint`.
+
+The physical camera bridge currently labels depth images with
+`g1_depth_camera`. That frame must be aligned with `d435_link` before
+physical mapping; the description does not guess or silently alias
+the mismatch.
 
 ## Body joint order
 
