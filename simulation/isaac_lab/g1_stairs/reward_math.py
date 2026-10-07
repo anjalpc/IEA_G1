@@ -730,6 +730,176 @@ def update_alternating_preferred_foot(
 
 
 
+
+def anticipatory_clearance_target(
+    distance_to_edge_m: torch.Tensor,
+    full_clearance_m: torch.Tensor,
+    *,
+    start_distance_m: float,
+    full_distance_m: float,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return a smooth pre-riser clearance target and eligibility window.
+
+    Horizontal progress never appears in the returned reward itself; it only
+    changes the vertical target. The window closes once the sole front crosses
+    the riser, so a single oversized forward stride cannot earn anticipatory
+    credit merely by reaching/passing the stair.
+    """
+    if not start_distance_m > full_distance_m >= 0.0:
+        raise ValueError(
+            "anticipatory distances require start_distance_m > "
+            "full_distance_m >= 0"
+        )
+    if distance_to_edge_m.shape != full_clearance_m.shape:
+        raise ValueError(
+            "distance_to_edge_m and full_clearance_m must match"
+        )
+
+    progress = (
+        (float(start_distance_m) - distance_to_edge_m)
+        / float(start_distance_m - full_distance_m)
+    ).clamp(0.0, 1.0)
+    # Smoothstep avoids a slope discontinuity at the start/full boundaries.
+    progress = progress * progress * (3.0 - 2.0 * progress)
+
+    eligible = (
+        (distance_to_edge_m >= 0.0)
+        & (distance_to_edge_m <= float(start_distance_m))
+    )
+    target = full_clearance_m.clamp_min(0.0) * progress
+    return target, eligible
+
+
+def bounded_vertical_progress_credit(
+    current_height_m: torch.Tensor,
+    previous_height_m: torch.Tensor,
+    target_height_m: torch.Tensor,
+    full_clearance_m: torch.Tensor,
+    *,
+    max_credit_vertical_speed_mps: float,
+    dt_s: float,
+) -> torch.Tensor:
+    """Normalized positive vertical progress with a hard credit-speed cap.
+
+    Moving horizontally cannot create credit because only the measured change
+    in vertical height is used. Raising faster than the configured speed does
+    not earn more reward, which removes an incentive for abrupt leg throwing.
+    """
+    if current_height_m.shape != previous_height_m.shape:
+        raise ValueError("current_height_m and previous_height_m must match")
+    if target_height_m.shape != current_height_m.shape:
+        raise ValueError("target_height_m must match height tensors")
+    if full_clearance_m.shape != current_height_m.shape:
+        raise ValueError("full_clearance_m must match height tensors")
+    if max_credit_vertical_speed_mps <= 0.0:
+        raise ValueError("max_credit_vertical_speed_mps must be positive")
+    if dt_s <= 0.0:
+        raise ValueError("dt_s must be positive")
+
+    vertical_delta = (current_height_m - previous_height_m).clamp_min(0.0)
+    remaining = (target_height_m - previous_height_m).clamp_min(0.0)
+    credited = torch.minimum(vertical_delta, remaining)
+    credited = torch.minimum(
+        credited,
+        torch.full_like(
+            credited,
+            float(max_credit_vertical_speed_mps) * float(dt_s),
+        ),
+    )
+    denominator = full_clearance_m.clamp_min(1.0e-6)
+    return credited / denominator
+
+
+def nonpreferred_acquisition_event(
+    preferred_foot: torch.Tensor,
+    physical_touchdown: torch.Tensor,
+) -> torch.Tensor:
+    """One event when a stair is acquired without the preferred foot.
+
+    A preferred value of -1 leaves the first acquisition unconstrained. The
+    physical acquisition itself is never blocked; this function only reports
+    whether reward shaping should treat the acquisition as nonpreferred.
+    """
+    gate = alternating_foot_gate(preferred_foot)
+    if physical_touchdown.shape != gate.shape:
+        raise ValueError(
+            "physical_touchdown must have shape [num_envs, 2]"
+        )
+    acquired = physical_touchdown.any(dim=1)
+    preferred_acquired = (physical_touchdown & gate).any(dim=1)
+    constrained = preferred_foot >= 0
+    return constrained & acquired & ~preferred_acquired
+
+
+
+def preferred_transition_contact_update(
+    armed: torch.Tensor,
+    resolved: torch.Tensor,
+    clear_lift: torch.Tensor,
+    old_tread_contact: torch.Tensor,
+    next_tread_contact: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Update one preferred-foot transition without prescribing a trajectory.
+
+    A transition becomes eligible only after clear lift. The first loaded
+    top-surface contact then resolves as either DIRECT_NEXT or REPLANT_OLD.
+    Next-tread contact takes priority if numerical overlap is ambiguous.
+    """
+    shape = armed.shape
+    for name, value in (
+        ("resolved", resolved),
+        ("clear_lift", clear_lift),
+        ("old_tread_contact", old_tread_contact),
+        ("next_tread_contact", next_tread_contact),
+    ):
+        if value.shape != shape:
+            raise ValueError(f"{name} must match armed shape")
+
+    armed_now = armed | (clear_lift & ~resolved)
+    unresolved = armed_now & ~resolved
+    direct_next = unresolved & next_tread_contact
+    replant_old = unresolved & old_tread_contact & ~next_tread_contact
+    resolved_now = resolved | direct_next | replant_old
+    return armed_now, resolved_now, replant_old, direct_next
+
+
+def bounded_impact_severity(
+    opposing_force_n: torch.Tensor,
+    event: torch.Tensor,
+    *,
+    minimum_force_n: float,
+    full_severity_force_n: float,
+    minimum_event_fraction: float = 0.25,
+) -> torch.Tensor:
+    """Bounded strike-event severity in [0, 1].
+
+    The minimum detected impact still has a small cost, while harder impacts
+    scale up to a bounded maximum. Extremely large collision forces therefore
+    cannot create unbounded gradients, but are no longer equivalent to mild
+    threshold-crossing contacts.
+    """
+    if not full_severity_force_n > minimum_force_n > 0.0:
+        raise ValueError(
+            "impact severity requires full_severity_force_n > "
+            "minimum_force_n > 0"
+        )
+    if not 0.0 <= minimum_event_fraction <= 1.0:
+        raise ValueError("minimum_event_fraction must be in [0, 1]")
+    if opposing_force_n.shape != event.shape:
+        raise ValueError("opposing_force_n and event must match")
+
+    magnitude = (-opposing_force_n).clamp_min(0.0)
+    scaled = (
+        (magnitude - float(minimum_force_n))
+        / float(full_severity_force_n - minimum_force_n)
+    ).clamp(0.0, 1.0)
+    severity = (
+        float(minimum_event_fraction)
+        + (1.0 - float(minimum_event_fraction)) * scaled
+    )
+    return torch.where(event, severity, torch.zeros_like(severity))
+
+
 def global_stair_target_update(
     target_step: torch.Tensor,
     physical_touchdown: torch.Tensor,

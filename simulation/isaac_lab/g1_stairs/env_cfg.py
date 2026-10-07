@@ -943,6 +943,36 @@ class StairRewardsCfg:
         params={},
     )
 
+    anticipatory_clearance_progress = RewTerm(
+        func=geometry_acquisition_rewards.anticipatory_clearance_progress,
+        weight=0.0,
+        params={
+            "start_distance_m": 0.22,
+            "full_clearance_distance_m": 0.05,
+            "clearance_margin_m": 0.015,
+            "support_advantage_start_n": 0.0,
+            "support_advantage_full_n": 60.0,
+            "max_credit_vertical_speed_mps": 0.60,
+        },
+    )
+
+    nonpreferred_stair_acquisition = RewTerm(
+        func=geometry_acquisition_rewards.nonpreferred_stair_acquisition,
+        weight=0.0,
+        params={},
+    )
+
+    preferred_old_tread_replant = RewTerm(
+        func=geometry_acquisition_rewards.preferred_old_tread_replant,
+        weight=0.0,
+        params={
+            "unload_force_n": 15.0,
+            "touchdown_force_n": 30.0,
+            "lift_clearance_m": 0.030,
+            "top_height_tolerance_m": 0.025,
+        },
+    )
+
     riser_face_strike = RewTerm(
         func=geometry_acquisition_rewards.riser_face_strike,
         weight=0.0,
@@ -951,6 +981,9 @@ class StairRewardsCfg:
             "below_top_margin_m": 0.005,
             "minimum_horizontal_force_n": 30.0,
             "minimum_previous_forward_speed_mps": 0.10,
+            "severity_enabled": False,
+            "full_severity_force_n": 250.0,
+            "minimum_event_fraction": 0.25,
         },
     )
 

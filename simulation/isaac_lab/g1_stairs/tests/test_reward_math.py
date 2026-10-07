@@ -626,3 +626,116 @@ def test_update_alternating_preferred_foot_chooses_opposite():
     )
 
     assert updated.tolist() == [1, 0, 0, -1]
+
+
+def test_anticipatory_clearance_target_is_local_and_closes_after_edge():
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        anticipatory_clearance_target,
+    )
+
+    distance = torch.tensor([0.25, 0.22, 0.135, 0.05, 0.0, -0.01])
+    full = torch.full_like(distance, 0.215)
+
+    target, eligible = anticipatory_clearance_target(
+        distance,
+        full,
+        start_distance_m=0.22,
+        full_distance_m=0.05,
+    )
+
+    assert eligible.tolist() == [False, True, True, True, True, False]
+    assert target[0].item() == pytest.approx(0.0)
+    assert target[1].item() == pytest.approx(0.0)
+    assert target[2].item() == pytest.approx(0.1075, abs=1e-6)
+    assert target[3].item() == pytest.approx(0.215, abs=1e-6)
+    assert target[4].item() == pytest.approx(0.215, abs=1e-6)
+
+
+def test_bounded_vertical_progress_cannot_reward_horizontal_or_abrupt_motion():
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        bounded_vertical_progress_credit,
+    )
+
+    current = torch.tensor([0.020, 0.020, 0.200])
+    previous = torch.tensor([0.000, 0.020, 0.000])
+    target = torch.tensor([0.200, 0.200, 0.200])
+    full = torch.tensor([0.215, 0.215, 0.215])
+
+    credit = bounded_vertical_progress_credit(
+        current,
+        previous,
+        target,
+        full,
+        max_credit_vertical_speed_mps=0.60,
+        dt_s=0.02,
+    )
+
+    capped = 0.60 * 0.02 / 0.215
+    assert credit.tolist() == pytest.approx([capped, 0.0, capped])
+
+
+def test_nonpreferred_acquisition_event_does_not_block_first_step():
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        nonpreferred_acquisition_event,
+    )
+
+    preferred = torch.tensor([-1, 1, 0, 1])
+    touchdown = torch.tensor([
+        [True, False],   # first acquisition: unconstrained
+        [True, False],   # left acquires while right preferred
+        [True, False],   # left acquires while left preferred
+        [False, True],   # right acquires while right preferred
+    ])
+
+    event = nonpreferred_acquisition_event(preferred, touchdown)
+    assert event.tolist() == [False, True, False, False]
+
+
+def test_bounded_impact_severity_distinguishes_hard_strikes_and_saturates():
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        bounded_impact_severity,
+    )
+
+    force_x = torch.tensor([-30.0, -140.0, -250.0, -659.0, -659.0])
+    event = torch.tensor([True, True, True, True, False])
+
+    severity = bounded_impact_severity(
+        force_x,
+        event,
+        minimum_force_n=30.0,
+        full_severity_force_n=250.0,
+        minimum_event_fraction=0.25,
+    )
+
+    assert severity.tolist() == pytest.approx([
+        0.25,
+        0.625,
+        1.0,
+        1.0,
+        0.0,
+    ])
+
+
+def test_preferred_transition_contact_requires_lift_and_penalizes_only_replant():
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        preferred_transition_contact_update,
+    )
+
+    armed = torch.tensor([False, False, True, True])
+    resolved = torch.tensor([False, False, False, False])
+    clear_lift = torch.tensor([False, True, False, False])
+    old_contact = torch.tensor([True, False, True, False])
+    next_contact = torch.tensor([False, False, False, True])
+
+    armed2, resolved2, replant, direct = preferred_transition_contact_update(
+        armed,
+        resolved,
+        clear_lift,
+        old_contact,
+        next_contact,
+    )
+
+    assert armed2.tolist() == [False, True, True, True]
+    assert replant.tolist() == [False, False, True, False]
+    assert direct.tolist() == [False, False, False, True]
+    assert resolved2.tolist() == [False, False, True, True]

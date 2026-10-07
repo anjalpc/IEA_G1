@@ -33,8 +33,13 @@ from .reward_math import normalized_excess_forward_velocity
 from .terrain_state import riser_height_per_env, stair_cfg
 from .reward_math import (
     alternating_foot_gate,
+    anticipatory_clearance_target,
+    bounded_impact_severity,
+    bounded_vertical_progress_credit,
     first_touchdown_placement_score,
     global_stair_target_update,
+    nonpreferred_acquisition_event,
+    preferred_transition_contact_update,
     update_alternating_preferred_foot,
 )
 
@@ -237,6 +242,9 @@ class GeometryAcquisitionRuntime:
         self.first_touchdown_placement_reward = torch.zeros_like(
             self.clearance_reward
         )
+        self.nonpreferred_acquisition_reward = torch.zeros_like(
+            self.clearance_reward
+        )
 
         self.last_step = -1
 
@@ -303,6 +311,7 @@ class GeometryAcquisitionRuntime:
         self.previous_foot_vx[env_ids] = 0.0
         self.previous_foot_vx_initialized[env_ids] = False
         self.first_touchdown_placement_reward[env_ids] = 0.0
+        self.nonpreferred_acquisition_reward[env_ids] = 0.0
 
         if self.contact_current_duration.shape[1] > 0:
             self.contact_current_duration[env_ids] = 0.0
@@ -336,6 +345,7 @@ class GeometryAcquisitionRuntime:
         if self.last_step == step:
             return
         self.last_step = step
+        self.nonpreferred_acquisition_reward.zero_()
 
         if activation_distance_m <= 0.0:
             raise ValueError("activation_distance_m must be positive")
@@ -842,6 +852,15 @@ class GeometryAcquisitionRuntime:
             & preferred_gate
         )
 
+        if self.dynamic_alternating_rewards:
+            nonpreferred_event = nonpreferred_acquisition_event(
+                self.preferred_foot,
+                physical_touchdown,
+            )
+            self.nonpreferred_acquisition_reward.copy_(
+                nonpreferred_event.to(self.clearance_reward.dtype) / dt
+            )
+
         if self.support_credit_dwell > 0:
             insertion_delta = rewarded_touchdown.to(
                 self.insertion_reward.dtype
@@ -1305,6 +1324,346 @@ class first_touchdown_placement(ManagerTermBase):
             )
         return self.runtime.first_touchdown_placement_reward
 
+class anticipatory_clearance_progress(ManagerTermBase):
+    """Reward only bounded vertical progress before reaching the target riser.
+
+    Horizontal foot motion only selects the local pre-riser window; it cannot
+    create reward. Credit is capped by vertical speed and stops at the smooth
+    geometry-relative clearance target, preventing giant-stride/high-kick
+    exploitation while providing earlier swing timing than unload-gated credit.
+    """
+
+    def __init__(self, cfg, env: "ManagerBasedRLEnv"):
+        super().__init__(cfg, env)
+        self.runtime = _runtime(env)
+        shape = (env.num_envs, 2)
+        self._previous_height = torch.zeros(
+            shape, dtype=torch.float32, device=env.device
+        )
+        self._previous_target = torch.full(
+            shape, -1, dtype=torch.long, device=env.device
+        )
+        self._initialized = torch.zeros(
+            shape, dtype=torch.bool, device=env.device
+        )
+
+    def reset(self, env_ids: Sequence[int] | None = None) -> None:
+        if env_ids is None:
+            env_ids = slice(None)
+        self._previous_height[env_ids] = 0.0
+        self._previous_target[env_ids] = -1
+        self._initialized[env_ids] = False
+
+    def __call__(
+        self,
+        env: "ManagerBasedRLEnv",
+        start_distance_m: float = 0.22,
+        full_clearance_distance_m: float = 0.05,
+        clearance_margin_m: float = 0.015,
+        support_advantage_start_n: float = 0.0,
+        support_advantage_full_n: float = 60.0,
+        max_credit_vertical_speed_mps: float = 0.60,
+    ) -> torch.Tensor:
+        if self.runtime.last_step != int(env.common_step_counter):
+            raise RuntimeError(
+                "anticipatory_clearance_progress must run after "
+                "terrain_relative_clearance/forward_insertion"
+            )
+        if clearance_margin_m < 0.0:
+            raise ValueError("clearance_margin_m cannot be negative")
+        if not support_advantage_full_n > support_advantage_start_n:
+            raise ValueError(
+                "support_advantage_full_n must exceed "
+                "support_advantage_start_n"
+            )
+
+        runtime = self.runtime
+        cfg = stair_cfg(env)
+        tread = float(cfg.tread_depth)
+        first_riser = float(cfg.start_clearance)
+        step_count = int(cfg.step_count)
+        riser_height = riser_height_per_env(env)
+        data = runtime.robot.data
+
+        foot_pos = (
+            data.body_pos_w[:, runtime.robot_foot_ids]
+            - env.scene.env_origins[:, None, :]
+        )
+        foot_quat = data.body_quat_w[:, runtime.robot_foot_ids]
+        offsets = runtime.sole_centres.to(dtype=foot_pos.dtype)[
+            None, None
+        ].expand(env.num_envs, 2, -1, -1)
+        quaternions = foot_quat.unsqueeze(2).expand(
+            -1, -1, offsets.shape[2], -1
+        )
+        sole_points = (
+            foot_pos.unsqueeze(2)
+            + _quat_rotate_wxyz(quaternions, offsets)
+        )
+        radius = float(G1_SOLE_SPHERE_RADIUS_M)
+        sole_bottom = (sole_points[..., 2] - radius).amin(dim=2)
+        front_x = sole_points[..., 0].amax(dim=2) + radius
+
+        target_index = runtime.target_step.clamp(
+            min=0, max=step_count - 1
+        )
+        valid_target = (
+            (runtime.target_step < step_count)
+            & (riser_height[:, None] > 1.0e-8)
+        )
+        target_riser_x = (
+            first_riser + target_index.to(foot_pos.dtype) * tread
+        )
+        support_height = (
+            target_index.to(foot_pos.dtype) * riser_height[:, None]
+        )
+        relative_height = (sole_bottom - support_height).clamp_min(0.0)
+        full_clearance = (
+            riser_height[:, None] + float(clearance_margin_m)
+        ).clamp_min(1.0e-6)
+        distance_to_edge = target_riser_x - front_x
+        target_height, in_window = anticipatory_clearance_target(
+            distance_to_edge,
+            full_clearance,
+            start_distance_m=float(start_distance_m),
+            full_distance_m=float(full_clearance_distance_m),
+        )
+
+        target_changed = runtime.target_step != self._previous_target
+        previous_height = torch.where(
+            self._initialized & ~target_changed,
+            self._previous_height,
+            relative_height,
+        )
+        credit = bounded_vertical_progress_credit(
+            relative_height,
+            previous_height,
+            target_height,
+            full_clearance,
+            max_credit_vertical_speed_mps=(
+                float(max_credit_vertical_speed_mps)
+            ),
+            dt_s=float(env.step_dt),
+        )
+
+        vertical_force = runtime.sensor.data.net_forces_w[
+            :, runtime.sensor_foot_ids, 2
+        ].clamp_min(0.0)
+        opposite_force = torch.stack(
+            (vertical_force[:, 1], vertical_force[:, 0]), dim=1
+        )
+        support_advantage = opposite_force - vertical_force
+        transfer_gate = _smooth_rising(
+            support_advantage,
+            float(support_advantage_start_n),
+            float(support_advantage_full_n),
+        )
+
+        if runtime.dynamic_alternating_rewards:
+            preferred_gate = alternating_foot_gate(runtime.preferred_foot)
+        else:
+            preferred_gate = torch.ones_like(valid_target, dtype=torch.bool)
+
+        credit = (
+            credit
+            * transfer_gate
+            * in_window.to(credit.dtype)
+            * valid_target.to(credit.dtype)
+            * preferred_gate.to(credit.dtype)
+        )
+
+        self._previous_height.copy_(relative_height)
+        self._previous_target.copy_(runtime.target_step)
+        self._initialized[:] = True
+
+        # RewardManager multiplies by env.step_dt. Normalized vertical progress
+        # therefore integrates to bounded per-target credit.
+        return credit.sum(dim=1) / float(env.step_dt)
+
+
+class nonpreferred_stair_acquisition(ManagerTermBase):
+    """One-shot event when the nonpreferred foot physically acquires a stair."""
+
+    def __init__(self, cfg, env: "ManagerBasedRLEnv"):
+        super().__init__(cfg, env)
+        self.runtime = _runtime(env)
+
+    def reset(self, env_ids: Sequence[int] | None = None) -> None:
+        del env_ids
+
+    def __call__(self, env: "ManagerBasedRLEnv") -> torch.Tensor:
+        if self.runtime.last_step != int(env.common_step_counter):
+            raise RuntimeError(
+                "nonpreferred_stair_acquisition must run after "
+                "terrain_relative_clearance/forward_insertion"
+            )
+        return self.runtime.nonpreferred_acquisition_reward
+
+
+class preferred_old_tread_replant(ManagerTermBase):
+    """Emit one event when the preferred foot lifts then replants old tread.
+
+    The event is armed only after clear unloading/lift following an acquisition.
+    Static support is never penalized. A direct loaded contact on the next tread
+    resolves the transition without penalty.
+    """
+
+    def __init__(self, cfg, env: "ManagerBasedRLEnv"):
+        super().__init__(cfg, env)
+        self.runtime = _runtime(env)
+        self._armed = torch.zeros(
+            env.num_envs, dtype=torch.bool, device=env.device
+        )
+        self._resolved = torch.zeros_like(self._armed)
+        self._target = torch.full(
+            (env.num_envs,), -1, dtype=torch.long, device=env.device
+        )
+        self._preferred = torch.full_like(self._target, -1)
+
+    def reset(self, env_ids: Sequence[int] | None = None) -> None:
+        if env_ids is None:
+            env_ids = slice(None)
+        self._armed[env_ids] = False
+        self._resolved[env_ids] = False
+        self._target[env_ids] = -1
+        self._preferred[env_ids] = -1
+
+    def __call__(
+        self,
+        env: "ManagerBasedRLEnv",
+        unload_force_n: float = 15.0,
+        touchdown_force_n: float = 30.0,
+        lift_clearance_m: float = 0.030,
+        top_height_tolerance_m: float = 0.025,
+    ) -> torch.Tensor:
+        if self.runtime.last_step != int(env.common_step_counter):
+            raise RuntimeError(
+                "preferred_old_tread_replant must run after "
+                "terrain_relative_clearance/forward_insertion"
+            )
+        if unload_force_n < 0.0:
+            raise ValueError("unload_force_n cannot be negative")
+        if touchdown_force_n <= unload_force_n:
+            raise ValueError("touchdown_force_n must exceed unload_force_n")
+        if lift_clearance_m <= 0.0:
+            raise ValueError("lift_clearance_m must be positive")
+        if top_height_tolerance_m <= 0.0:
+            raise ValueError("top_height_tolerance_m must be positive")
+
+        runtime = self.runtime
+        cfg = stair_cfg(env)
+        tread = float(cfg.tread_depth)
+        first_riser = float(cfg.start_clearance)
+        step_count = int(cfg.step_count)
+        riser_height = riser_height_per_env(env)
+
+        current_target = runtime.target_step[:, 0]
+        preferred = runtime.preferred_foot
+        valid_transition = (
+            runtime.dynamic_alternating_rewards
+            & (preferred >= 0)
+            & (current_target > 0)
+            & (current_target < step_count)
+        )
+
+        changed = (
+            (current_target != self._target)
+            | (preferred != self._preferred)
+        )
+        self._armed.copy_(self._armed & ~changed & valid_transition)
+        self._resolved.copy_(self._resolved & ~changed & valid_transition)
+        self._target.copy_(current_target)
+        self._preferred.copy_(preferred)
+
+        data = runtime.robot.data
+        foot_pos = (
+            data.body_pos_w[:, runtime.robot_foot_ids]
+            - env.scene.env_origins[:, None, :]
+        )
+        foot_quat = data.body_quat_w[:, runtime.robot_foot_ids]
+        offsets = runtime.sole_centres.to(dtype=foot_pos.dtype)[
+            None, None
+        ].expand(env.num_envs, 2, -1, -1)
+        quaternions = foot_quat.unsqueeze(2).expand(
+            -1, -1, offsets.shape[2], -1
+        )
+        sole_points = (
+            foot_pos.unsqueeze(2)
+            + _quat_rotate_wxyz(quaternions, offsets)
+        )
+        radius = float(G1_SOLE_SPHERE_RADIUS_M)
+        sole_bottom_points = sole_points[..., 2] - radius
+        rear_x = sole_points[..., 0].amin(dim=2) - radius
+        front_x = sole_points[..., 0].amax(dim=2) + radius
+        vertical_force = runtime.sensor.data.net_forces_w[
+            :, runtime.sensor_foot_ids, 2
+        ].clamp_min(0.0)
+
+        pref_idx = preferred.clamp(0, 1)
+        gather1 = pref_idx[:, None]
+        pref_rear = rear_x.gather(1, gather1).squeeze(1)
+        pref_front = front_x.gather(1, gather1).squeeze(1)
+        pref_force = vertical_force.gather(1, gather1).squeeze(1)
+        pref_bottom = sole_bottom_points.amin(dim=2).gather(
+            1, gather1
+        ).squeeze(1)
+
+        target_float = current_target.to(foot_pos.dtype)
+        old_start = first_riser + (target_float - 1.0) * tread
+        old_end = first_riser + target_float * tread
+        next_start = old_end
+        next_end = next_start + tread
+        old_top = target_float * riser_height
+        next_top = (target_float + 1.0) * riser_height
+
+        clear_lift = (
+            valid_transition
+            & (pref_force <= float(unload_force_n))
+            & (pref_bottom >= old_top + float(lift_clearance_m))
+        )
+
+        loaded = pref_force >= float(touchdown_force_n)
+        # Any loaded sole-bottom contact on the old tread counts as a replant;
+        # requiring the entire sole to be flat would leave a pitched-toe/heel
+        # loophole. Direct-next gets priority only when the loaded bottom is at
+        # the next tread height.
+        old_height = (
+            (pref_bottom - old_top).abs()
+            <= float(top_height_tolerance_m)
+        )
+        next_height = (
+            (pref_bottom - next_top).abs()
+            <= float(top_height_tolerance_m)
+        )
+        old_contact = (
+            loaded
+            & old_height
+            & (pref_front >= old_start)
+            & (pref_rear <= old_end)
+        )
+        next_contact = (
+            loaded
+            & next_height
+            & (pref_front >= next_start)
+            & (pref_rear <= next_end)
+        )
+
+        armed, resolved, replant, _direct = (
+            preferred_transition_contact_update(
+                self._armed,
+                self._resolved,
+                clear_lift,
+                old_contact & valid_transition,
+                next_contact & valid_transition,
+            )
+        )
+        self._armed.copy_(armed)
+        self._resolved.copy_(resolved)
+
+        return replant.to(dtype=foot_pos.dtype) / float(env.step_dt)
+
+
+
 
 class riser_face_strike(ManagerTermBase):
     """Emit one event for a low forward impact on the current target riser."""
@@ -1349,6 +1708,9 @@ class riser_face_strike(ManagerTermBase):
         below_top_margin_m: float = 0.005,
         minimum_horizontal_force_n: float = 30.0,
         minimum_previous_forward_speed_mps: float = 0.10,
+        severity_enabled: bool = False,
+        full_severity_force_n: float = 250.0,
+        minimum_event_fraction: float = 0.25,
     ) -> torch.Tensor:
         if face_band_m <= 0.0:
             raise ValueError("face_band_m must be positive")
@@ -1360,6 +1722,16 @@ class riser_face_strike(ManagerTermBase):
             raise ValueError(
                 "minimum_previous_forward_speed_mps cannot be negative"
             )
+        if severity_enabled:
+            if full_severity_force_n <= minimum_horizontal_force_n:
+                raise ValueError(
+                    "full_severity_force_n must exceed "
+                    "minimum_horizontal_force_n"
+                )
+            if not 0.0 <= minimum_event_fraction <= 1.0:
+                raise ValueError(
+                    "minimum_event_fraction must be in [0, 1]"
+                )
 
         runtime = self.runtime
         cfg = stair_cfg(env)
@@ -1483,11 +1855,19 @@ class riser_face_strike(ManagerTermBase):
         self._previous_vx.copy_(current_vx)
         self._initialized[:] = True
 
+        if severity_enabled:
+            value = bounded_impact_severity(
+                force_x,
+                event,
+                minimum_force_n=float(minimum_horizontal_force_n),
+                full_severity_force_n=float(full_severity_force_n),
+                minimum_event_fraction=float(minimum_event_fraction),
+            )
+        else:
+            value = event.to(dtype=foot_pos.dtype)
+
         # RewardManager multiplies by env.step_dt.
-        return (
-            event.to(dtype=foot_pos.dtype).sum(dim=1)
-            / float(env.step_dt)
-        )
+        return value.sum(dim=1) / float(env.step_dt)
 
 
 class knee_forward_velocity_guard(ManagerTermBase):
