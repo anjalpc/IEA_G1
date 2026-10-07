@@ -41,6 +41,7 @@ from .reward_math import (
     nonpreferred_acquisition_event,
     preferred_transition_contact_update,
     step_over_transition_update,
+    escrowed_transition_reward,
     update_alternating_preferred_foot,
 )
 
@@ -1747,6 +1748,9 @@ class step_over_transition_contract(ManagerTermBase):
             n, dtype=torch.float32, device=device
         )
         self._lift_front_valid = torch.zeros_like(self._active)
+        self._milestone_credit_paid = torch.zeros(
+            n, dtype=torch.float32, device=device
+        )
         self.last_event_code = torch.zeros_like(self._target)
 
     def reset(self, env_ids: Sequence[int] | None = None) -> None:
@@ -1761,6 +1765,7 @@ class step_over_transition_contract(ManagerTermBase):
         self._resolved[env_ids] = False
         self._lift_front_x[env_ids] = 0.0
         self._lift_front_valid[env_ids] = False
+        self._milestone_credit_paid[env_ids] = 0.0
         self.last_event_code[env_ids] = 0
 
     def __call__(
@@ -1780,7 +1785,9 @@ class step_over_transition_contract(ManagerTermBase):
         strike_minimum_event_fraction: float = 0.10,
         success_value: float = 1.0,
         failure_value: float = -1.0,
-        strike_failure_base: float = -0.5,
+        lift_milestone_value: float = 0.20,
+        clearance_milestone_value: float = 0.30,
+        strike_failure_base: float = -1.0,
         strike_failure_severity_scale: float = -0.5,
     ) -> torch.Tensor:
         if self.runtime.last_step != int(env.common_step_counter):
@@ -2035,10 +2042,23 @@ class step_over_transition_contract(ManagerTermBase):
                 float(strike_failure_severity_scale)
             ),
         )
+        new_lift_milestone = lifted & ~self._lifted
+        new_clearance_milestone = cleared & ~self._cleared
+        reward, milestone_credit_paid = escrowed_transition_reward(
+            reward,
+            event_code,
+            new_lift_milestone,
+            new_clearance_milestone,
+            self._milestone_credit_paid,
+            lift_milestone_value=float(lift_milestone_value),
+            clearance_milestone_value=float(clearance_milestone_value),
+        )
+
         self._lifted.copy_(lifted)
         self._cleared.copy_(cleared)
         self._next_contact_seen.copy_(next_seen)
         self._resolved.copy_(resolved)
+        self._milestone_credit_paid.copy_(milestone_credit_paid)
         self.last_event_code.copy_(event_code)
 
         # After any physical acquisition, begin the next transition from the
@@ -2054,6 +2074,13 @@ class step_over_transition_contract(ManagerTermBase):
         self._next_contact_seen.copy_(torch.where(acquired, torch.zeros_like(self._next_contact_seen), self._next_contact_seen))
         self._resolved.copy_(torch.where(acquired, torch.zeros_like(self._resolved), self._resolved))
         self._lift_front_valid.copy_(torch.where(acquired, torch.zeros_like(self._lift_front_valid), self._lift_front_valid))
+        self._milestone_credit_paid.copy_(
+            torch.where(
+                acquired,
+                torch.zeros_like(self._milestone_credit_paid),
+                self._milestone_credit_paid,
+            )
+        )
 
         next_transition = (
             acquired

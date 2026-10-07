@@ -1095,6 +1095,64 @@ def step_over_transition_update(
         event_code,
     )
 
+def escrowed_transition_reward(
+    base_event_reward: torch.Tensor,
+    event_code: torch.Tensor,
+    new_lift: torch.Tensor,
+    new_clearance: torch.Tensor,
+    credit_paid: torch.Tensor,
+    *,
+    lift_milestone_value: float = 0.20,
+    clearance_milestone_value: float = 0.30,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Emit non-farmable milestone credit for a step-over transition.
+
+    Lift and verified-riser-clearance milestones are paid at most once.  A
+    terminal event repays all previously emitted milestone credit by subtracting
+    ``credit_paid`` from the terminal value.  Therefore a clean transition
+    still totals exactly its terminal success value, while any failed
+    transition totals exactly its bounded failure value regardless of how much
+    partial progress occurred first.  Horizontal displacement never enters this
+    calculation.
+    """
+    shape = base_event_reward.shape
+    tensors = (
+        ("event_code", event_code),
+        ("new_lift", new_lift),
+        ("new_clearance", new_clearance),
+        ("credit_paid", credit_paid),
+    )
+    for name, value in tensors:
+        if value.shape != shape:
+            raise ValueError(f"{name} must match base_event_reward shape")
+    if lift_milestone_value < 0.0:
+        raise ValueError("lift_milestone_value cannot be negative")
+    if clearance_milestone_value < 0.0:
+        raise ValueError("clearance_milestone_value cannot be negative")
+
+    milestone = (
+        new_lift.to(base_event_reward.dtype) * float(lift_milestone_value)
+        + new_clearance.to(base_event_reward.dtype)
+        * float(clearance_milestone_value)
+    )
+    terminal = event_code != 0
+
+    # On a terminal step, do not pay a new milestone first.  The emitted value
+    # makes the complete transition return equal to the terminal target after
+    # accounting for milestones paid on earlier steps.
+    reward = torch.where(
+        terminal,
+        base_event_reward - credit_paid,
+        milestone,
+    )
+    paid_now = torch.where(
+        terminal,
+        credit_paid,
+        credit_paid + milestone,
+    )
+    return reward, paid_now
+
+
 def global_stair_target_update(
     target_step: torch.Tensor,
     physical_touchdown: torch.Tensor,

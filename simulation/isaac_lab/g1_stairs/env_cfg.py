@@ -991,7 +991,9 @@ class StairRewardsCfg:
             "strike_minimum_event_fraction": 0.10,
             "success_value": 1.0,
             "failure_value": -1.0,
-            "strike_failure_base": -0.5,
+            "lift_milestone_value": 0.20,
+            "clearance_milestone_value": 0.30,
+            "strike_failure_base": -1.0,
             "strike_failure_severity_scale": -0.5,
         },
     )

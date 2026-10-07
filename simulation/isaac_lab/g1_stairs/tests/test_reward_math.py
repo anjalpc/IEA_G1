@@ -970,3 +970,114 @@ def test_step_over_transition_forward_excursion_is_failure():
     assert out[3].item() is True
     assert out[4].item() == pytest.approx(-1.0)
     assert out[5].item() == 6
+
+
+def test_escrowed_transition_reward_clean_sequence_totals_one():
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        escrowed_transition_reward,
+    )
+
+    paid = torch.tensor([0.0])
+
+    r1, paid = escrowed_transition_reward(
+        torch.tensor([0.0]),
+        torch.tensor([0]),
+        torch.tensor([True]),
+        torch.tensor([False]),
+        paid,
+        lift_milestone_value=0.20,
+        clearance_milestone_value=0.30,
+    )
+    r2, paid = escrowed_transition_reward(
+        torch.tensor([0.0]),
+        torch.tensor([0]),
+        torch.tensor([False]),
+        torch.tensor([True]),
+        paid,
+        lift_milestone_value=0.20,
+        clearance_milestone_value=0.30,
+    )
+    r3, paid = escrowed_transition_reward(
+        torch.tensor([1.0]),
+        torch.tensor([1]),
+        torch.tensor([False]),
+        torch.tensor([False]),
+        paid,
+        lift_milestone_value=0.20,
+        clearance_milestone_value=0.30,
+    )
+
+    assert r1.item() == pytest.approx(0.20)
+    assert r2.item() == pytest.approx(0.30)
+    assert r3.item() == pytest.approx(0.50)
+    assert (r1 + r2 + r3).item() == pytest.approx(1.0)
+
+
+def test_escrowed_transition_reward_replant_repays_partial_credit():
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        escrowed_transition_reward,
+    )
+
+    paid = torch.tensor([0.50])
+    reward, paid_after = escrowed_transition_reward(
+        torch.tensor([-1.0]),
+        torch.tensor([2]),
+        torch.tensor([False]),
+        torch.tensor([False]),
+        paid,
+    )
+
+    assert reward.item() == pytest.approx(-1.50)
+    assert (torch.tensor(0.50) + reward).item() == pytest.approx(-1.0)
+    assert paid_after.item() == pytest.approx(0.50)
+
+
+def test_escrowed_transition_reward_cannot_farm_repeated_milestones():
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        escrowed_transition_reward,
+    )
+
+    paid = torch.tensor([0.20])
+    reward, paid_after = escrowed_transition_reward(
+        torch.tensor([0.0]),
+        torch.tensor([0]),
+        torch.tensor([False]),
+        torch.tensor([False]),
+        paid,
+    )
+
+    assert reward.item() == pytest.approx(0.0)
+    assert paid_after.item() == pytest.approx(0.20)
+
+
+def test_step_over_strike_failure_is_not_cheaper_than_generic_failure():
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        step_over_transition_update,
+    )
+
+    active = torch.tensor([True])
+    z = torch.tensor([False])
+    out = step_over_transition_update(
+        active,
+        z,
+        z,
+        z,
+        z,
+        clear_lift=z,
+        clear_riser=z,
+        old_tread_contact=z,
+        next_tread_contact=z,
+        strike_event=torch.tensor([True]),
+        forward_excursion_violation=z,
+        acquisition_event=z,
+        preferred_acquisition=z,
+        single_acquisition=z,
+        strike_severity=torch.tensor([0.10]),
+        failure_value=-1.0,
+        strike_failure_base=-1.0,
+        strike_failure_severity_scale=-0.5,
+    )
+
+    assert out[4].item() == pytest.approx(-1.05)
+    assert out[4].item() <= -1.0
+    assert out[5].item() == 3
