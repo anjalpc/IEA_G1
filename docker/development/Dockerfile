@@ -136,7 +136,9 @@ ENV LD_LIBRARY_PATH=/opt/mujoco/lib:/opt/unitree_robotics/lib:/opt/unitree_rl_la
 
 # Use one ROS middleware and domain in every development shell. CycloneDDS
 # avoids Fast DDS shared-memory transport problems between container shells.
+# Navigation perception reuses the upstream ROS point-cloud converter.
 RUN apt-get update && apt-get install -y --no-install-recommends \
+      ros-humble-pointcloud-to-laserscan \
       ros-humble-rmw-cyclonedds-cpp && \
     rm -rf /var/lib/apt/lists/*
 
