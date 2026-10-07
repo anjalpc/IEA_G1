@@ -900,6 +900,201 @@ def bounded_impact_severity(
     return torch.where(event, severity, torch.zeros_like(severity))
 
 
+
+def step_over_transition_update(
+    active: torch.Tensor,
+    lifted: torch.Tensor,
+    cleared: torch.Tensor,
+    next_contact_seen: torch.Tensor,
+    resolved: torch.Tensor,
+    *,
+    clear_lift: torch.Tensor,
+    clear_riser: torch.Tensor,
+    old_tread_contact: torch.Tensor,
+    next_tread_contact: torch.Tensor,
+    strike_event: torch.Tensor,
+    forward_excursion_violation: torch.Tensor,
+    acquisition_event: torch.Tensor,
+    preferred_acquisition: torch.Tensor,
+    single_acquisition: torch.Tensor,
+    strike_severity: torch.Tensor,
+    success_value: float = 1.0,
+    failure_value: float = -1.0,
+    strike_failure_base: float = -0.5,
+    strike_failure_severity_scale: float = -0.5,
+) -> tuple[
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+]:
+    """Advance an explicit clean step-over transition contract.
+
+    A transition must lift, clear the target riser, make its first loaded
+    top-surface contact on the target tread, and then physically acquire that
+    tread with the committed foot. Replant, strike, excessive forward swing,
+    nonpreferred acquisition, or acquisition without the required sequence
+    resolves the transition as a failure. Each transition emits at most one
+    signed event reward.
+    """
+    shape = active.shape
+    tensors = (
+        ("lifted", lifted),
+        ("cleared", cleared),
+        ("next_contact_seen", next_contact_seen),
+        ("resolved", resolved),
+        ("clear_lift", clear_lift),
+        ("clear_riser", clear_riser),
+        ("old_tread_contact", old_tread_contact),
+        ("next_tread_contact", next_tread_contact),
+        ("strike_event", strike_event),
+        ("forward_excursion_violation", forward_excursion_violation),
+        ("acquisition_event", acquisition_event),
+        ("preferred_acquisition", preferred_acquisition),
+        ("single_acquisition", single_acquisition),
+        ("strike_severity", strike_severity),
+    )
+    for name, value in tensors:
+        if value.shape != shape:
+            raise ValueError(f"{name} must match active shape")
+
+    eligible = active & ~resolved
+    lifted_now = lifted | (eligible & clear_lift)
+    cleared_now = cleared | (eligible & lifted_now & clear_riser)
+
+    strike_failure = eligible & strike_event
+    excursion_failure = (
+        eligible
+        & lifted_now
+        & forward_excursion_violation
+        & ~strike_failure
+    )
+    replant_failure = (
+        eligible
+        & lifted_now
+        & old_tread_contact
+        & ~strike_failure
+        & ~excursion_failure
+    )
+
+    # A target-tread contact before verified riser clearance does not count as
+    # a clean step-over. This also closes a "clip then land" loophole.
+    premature_next_failure = (
+        eligible
+        & lifted_now
+        & next_tread_contact
+        & ~cleared_now
+        & ~strike_failure
+        & ~excursion_failure
+        & ~replant_failure
+    )
+
+    direct_contact = (
+        eligible
+        & lifted_now
+        & cleared_now
+        & next_tread_contact
+        & ~strike_failure
+        & ~excursion_failure
+        & ~replant_failure
+    )
+    next_seen_now = next_contact_seen | direct_contact
+
+    already_failed = (
+        strike_failure
+        | excursion_failure
+        | replant_failure
+        | premature_next_failure
+    )
+    acquisition_pending = eligible & acquisition_event & ~already_failed
+
+    nonpreferred_failure = (
+        acquisition_pending
+        & (~preferred_acquisition | ~single_acquisition)
+    )
+    unclean_acquisition_failure = (
+        acquisition_pending
+        & preferred_acquisition
+        & single_acquisition
+        & ~next_seen_now
+    )
+    success = (
+        acquisition_pending
+        & preferred_acquisition
+        & single_acquisition
+        & next_seen_now
+    )
+
+    failure = (
+        strike_failure
+        | excursion_failure
+        | replant_failure
+        | premature_next_failure
+        | nonpreferred_failure
+        | unclean_acquisition_failure
+    )
+    resolved_now = resolved | success | failure
+
+    reward = torch.zeros_like(strike_severity)
+    reward = torch.where(
+        success,
+        torch.full_like(reward, float(success_value)),
+        reward,
+    )
+    reward = torch.where(
+        failure & ~strike_failure,
+        torch.full_like(reward, float(failure_value)),
+        reward,
+    )
+    strike_value = (
+        float(strike_failure_base)
+        + float(strike_failure_severity_scale)
+        * strike_severity.clamp(0.0, 1.0)
+    )
+    reward = torch.where(strike_failure, strike_value, reward)
+
+    # Event codes are diagnostic only:
+    # 0 none, 1 success, 2 replant, 3 strike, 4 nonpreferred,
+    # 5 sequence/clearance failure, 6 excessive forward excursion.
+    event_code = torch.zeros(shape, dtype=torch.long, device=active.device)
+    event_code = torch.where(success, torch.ones_like(event_code), event_code)
+    event_code = torch.where(
+        replant_failure,
+        torch.full_like(event_code, 2),
+        event_code,
+    )
+    event_code = torch.where(
+        strike_failure,
+        torch.full_like(event_code, 3),
+        event_code,
+    )
+    event_code = torch.where(
+        nonpreferred_failure,
+        torch.full_like(event_code, 4),
+        event_code,
+    )
+    event_code = torch.where(
+        premature_next_failure | unclean_acquisition_failure,
+        torch.full_like(event_code, 5),
+        event_code,
+    )
+    event_code = torch.where(
+        excursion_failure,
+        torch.full_like(event_code, 6),
+        event_code,
+    )
+
+    return (
+        lifted_now,
+        cleared_now,
+        next_seen_now,
+        resolved_now,
+        reward,
+        event_code,
+    )
+
 def global_stair_target_update(
     target_step: torch.Tensor,
     physical_touchdown: torch.Tensor,

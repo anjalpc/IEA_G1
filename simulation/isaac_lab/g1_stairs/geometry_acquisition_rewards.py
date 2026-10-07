@@ -40,6 +40,7 @@ from .reward_math import (
     global_stair_target_update,
     nonpreferred_acquisition_event,
     preferred_transition_contact_update,
+    step_over_transition_update,
     update_alternating_preferred_foot,
 )
 
@@ -246,6 +247,26 @@ class GeometryAcquisitionRuntime:
             self.clearance_reward
         )
 
+        # Per-step physical events are preserved before global target state is
+        # advanced so downstream transition rewards can reason about the exact
+        # stair/contact that occurred on this simulation step.
+        self.physical_touchdown_event = torch.zeros(
+            shape, dtype=torch.bool, device=env.device
+        )
+        self.step_acquired_event = torch.zeros(
+            env.num_envs, dtype=torch.bool, device=env.device
+        )
+        self.acquired_target_index = torch.full(
+            (env.num_envs,), -1, dtype=torch.long, device=env.device
+        )
+        self.sample_target_index = torch.full_like(
+            self.acquired_target_index, -1
+        )
+        self.riser_face_strike_sample = torch.zeros(
+            shape, dtype=torch.bool, device=env.device
+        )
+        self.riser_strike_force_x = torch.zeros_like(self.best_clearance)
+
         self.last_step = -1
 
         # Iteration diagnostics. These counters are consumed by the metrics
@@ -312,6 +333,12 @@ class GeometryAcquisitionRuntime:
         self.previous_foot_vx_initialized[env_ids] = False
         self.first_touchdown_placement_reward[env_ids] = 0.0
         self.nonpreferred_acquisition_reward[env_ids] = 0.0
+        self.physical_touchdown_event[env_ids] = False
+        self.step_acquired_event[env_ids] = False
+        self.acquired_target_index[env_ids] = -1
+        self.sample_target_index[env_ids] = -1
+        self.riser_face_strike_sample[env_ids] = False
+        self.riser_strike_force_x[env_ids] = 0.0
 
         if self.contact_current_duration.shape[1] > 0:
             self.contact_current_duration[env_ids] = 0.0
@@ -346,6 +373,12 @@ class GeometryAcquisitionRuntime:
             return
         self.last_step = step
         self.nonpreferred_acquisition_reward.zero_()
+        self.physical_touchdown_event.zero_()
+        self.step_acquired_event.zero_()
+        self.acquired_target_index.fill_(-1)
+        self.riser_face_strike_sample.zero_()
+        self.riser_strike_force_x.zero_()
+        self.sample_target_index.copy_(self.target_step[:, 0])
 
         if activation_distance_m <= 0.0:
             raise ValueError("activation_distance_m must be positive")
@@ -514,6 +547,8 @@ class GeometryAcquisitionRuntime:
                 >= float(riser_minimum_previous_forward_speed_mps)
             )
         )
+        self.riser_face_strike_sample.copy_(riser_face_strike_sample)
+        self.riser_strike_force_x.copy_(force_x)
 
         self.previous_foot_vx.copy_(current_vx)
         self.previous_foot_vx_initialized[:] = True
@@ -846,6 +881,8 @@ class GeometryAcquisitionRuntime:
                 )
             )
 
+        self.physical_touchdown_event.copy_(physical_touchdown)
+
         rewarded_touchdown = (
             physical_touchdown
             & first_placement_gate
@@ -900,6 +937,15 @@ class GeometryAcquisitionRuntime:
                     self.target_step,
                     physical_touchdown,
                     step_count,
+                )
+
+                self.step_acquired_event.copy_(step_acquired)
+                self.acquired_target_index.copy_(
+                    torch.where(
+                        step_acquired,
+                        old_target,
+                        torch.full_like(old_target, -1),
+                    )
                 )
 
                 if self.dynamic_alternating_rewards:
@@ -1664,6 +1710,372 @@ class preferred_old_tread_replant(ManagerTermBase):
 
         return replant.to(dtype=foot_pos.dtype) / float(env.step_dt)
 
+
+
+class step_over_transition_contract(ManagerTermBase):
+    """Reward only complete clean step-over transitions.
+
+    Stair 1 is free-choice: the first clearly lifting foot inside a local
+    pre-riser window becomes committed. After every verified stair acquisition,
+    the opposite foot becomes committed automatically through the existing
+    dynamic-alternation state. A transition succeeds only if the committed foot
+    lifts, clears the target riser, makes its first loaded target-surface
+    contact on the next tread, and then physically acquires that tread.
+
+    Replant, riser strike, excessive airborne forward excursion, wrong-foot
+    acquisition, or acquisition without the required sequence resolves that
+    transition as a one-shot failure. Physical acquisition itself is never
+    blocked or rewritten.
+    """
+
+    def __init__(self, cfg, env: "ManagerBasedRLEnv"):
+        super().__init__(cfg, env)
+        self.runtime = _runtime(env)
+        n = env.num_envs
+        device = env.device
+
+        self._active = torch.zeros(n, dtype=torch.bool, device=device)
+        self._target = torch.full(
+            (n,), -1, dtype=torch.long, device=device
+        )
+        self._preferred = torch.full_like(self._target, -1)
+        self._lifted = torch.zeros_like(self._active)
+        self._cleared = torch.zeros_like(self._active)
+        self._next_contact_seen = torch.zeros_like(self._active)
+        self._resolved = torch.zeros_like(self._active)
+        self._lift_front_x = torch.zeros(
+            n, dtype=torch.float32, device=device
+        )
+        self._lift_front_valid = torch.zeros_like(self._active)
+        self.last_event_code = torch.zeros_like(self._target)
+
+    def reset(self, env_ids: Sequence[int] | None = None) -> None:
+        if env_ids is None:
+            env_ids = slice(None)
+        self._active[env_ids] = False
+        self._target[env_ids] = -1
+        self._preferred[env_ids] = -1
+        self._lifted[env_ids] = False
+        self._cleared[env_ids] = False
+        self._next_contact_seen[env_ids] = False
+        self._resolved[env_ids] = False
+        self._lift_front_x[env_ids] = 0.0
+        self._lift_front_valid[env_ids] = False
+        self.last_event_code[env_ids] = 0
+
+    def __call__(
+        self,
+        env: "ManagerBasedRLEnv",
+        first_commit_distance_m: float = 0.30,
+        unload_force_n: float = 15.0,
+        opposite_support_force_n: float = 30.0,
+        touchdown_force_n: float = 30.0,
+        lift_clearance_m: float = 0.030,
+        riser_clearance_margin_m: float = 0.015,
+        clearance_window_m: float = 0.050,
+        top_height_tolerance_m: float = 0.025,
+        max_forward_excursion_m: float = 0.40,
+        strike_minimum_force_n: float = 30.0,
+        strike_full_severity_force_n: float = 600.0,
+        strike_minimum_event_fraction: float = 0.10,
+        success_value: float = 1.0,
+        failure_value: float = -1.0,
+        strike_failure_base: float = -0.5,
+        strike_failure_severity_scale: float = -0.5,
+    ) -> torch.Tensor:
+        if self.runtime.last_step != int(env.common_step_counter):
+            raise RuntimeError(
+                "step_over_transition_contract must run after "
+                "terrain_relative_clearance/forward_insertion"
+            )
+        if not self.runtime.global_stair_acquisition:
+            raise RuntimeError(
+                "step_over_transition_contract requires global acquisition"
+            )
+        if not self.runtime.dynamic_alternating_rewards:
+            raise RuntimeError(
+                "step_over_transition_contract requires dynamic alternation"
+            )
+        if first_commit_distance_m <= 0.0:
+            raise ValueError("first_commit_distance_m must be positive")
+        if unload_force_n < 0.0:
+            raise ValueError("unload_force_n cannot be negative")
+        if opposite_support_force_n <= unload_force_n:
+            raise ValueError(
+                "opposite_support_force_n must exceed unload_force_n"
+            )
+        if touchdown_force_n <= unload_force_n:
+            raise ValueError("touchdown_force_n must exceed unload_force_n")
+        if lift_clearance_m <= 0.0:
+            raise ValueError("lift_clearance_m must be positive")
+        if riser_clearance_margin_m < 0.0:
+            raise ValueError("riser_clearance_margin_m cannot be negative")
+        if clearance_window_m <= 0.0:
+            raise ValueError("clearance_window_m must be positive")
+        if top_height_tolerance_m <= 0.0:
+            raise ValueError("top_height_tolerance_m must be positive")
+        if max_forward_excursion_m <= 0.0:
+            raise ValueError("max_forward_excursion_m must be positive")
+
+        runtime = self.runtime
+        cfg = stair_cfg(env)
+        tread = float(cfg.tread_depth)
+        first_riser = float(cfg.start_clearance)
+        step_count = int(cfg.step_count)
+        riser_height = riser_height_per_env(env)
+        current_target = runtime.target_step[:, 0]
+
+        # Start the first-riser contract without prescribing left or right.
+        first_init = (
+            ~self._active
+            & (self._target < 0)
+            & (current_target == 0)
+            & ~runtime.step_acquired_event
+        )
+        self._active.copy_(self._active | first_init)
+        self._target.copy_(
+            torch.where(first_init, torch.zeros_like(self._target), self._target)
+        )
+
+        data = runtime.robot.data
+        foot_pos = (
+            data.body_pos_w[:, runtime.robot_foot_ids]
+            - env.scene.env_origins[:, None, :]
+        )
+        foot_quat = data.body_quat_w[:, runtime.robot_foot_ids]
+        offsets = runtime.sole_centres.to(dtype=foot_pos.dtype)[
+            None, None
+        ].expand(env.num_envs, 2, -1, -1)
+        quaternions = foot_quat.unsqueeze(2).expand(
+            -1, -1, offsets.shape[2], -1
+        )
+        sole_points = (
+            foot_pos.unsqueeze(2)
+            + _quat_rotate_wxyz(quaternions, offsets)
+        )
+        radius = float(G1_SOLE_SPHERE_RADIUS_M)
+        sole_bottom_points = sole_points[..., 2] - radius
+        sole_bottom = sole_bottom_points.amin(dim=2)
+        rear_x = sole_points[..., 0].amin(dim=2) - radius
+        front_x = sole_points[..., 0].amax(dim=2) + radius
+        vertical_force = runtime.sensor.data.net_forces_w[
+            :, runtime.sensor_foot_ids, 2
+        ].clamp_min(0.0)
+
+        target = self._target.clamp(min=0, max=step_count - 1)
+        target_f = target.to(foot_pos.dtype)
+        old_top = target_f * riser_height
+        next_top = (target_f + 1.0) * riser_height
+        next_start = first_riser + target_f * tread
+        next_end = next_start + tread
+        historical_old_start = first_riser + (target_f - 1.0) * tread
+        old_start = torch.where(
+            target == 0,
+            next_start - float(first_commit_distance_m),
+            historical_old_start,
+        )
+        old_end = next_start
+
+        # For stair 1 only, commit whichever foot naturally initiates a local
+        # supported lift. No reward is emitted for commitment itself.
+        open_first = (
+            self._active
+            & ~self._resolved
+            & (self._target == 0)
+            & (self._preferred < 0)
+        )
+        distance_to_first = next_start[:, None] - front_x
+        opposite_force = torch.stack(
+            (vertical_force[:, 1], vertical_force[:, 0]), dim=1
+        )
+        first_candidate = (
+            open_first[:, None]
+            & (distance_to_first >= 0.0)
+            & (distance_to_first <= float(first_commit_distance_m))
+            & (vertical_force <= float(unload_force_n))
+            & (opposite_force >= float(opposite_support_force_n))
+            & (
+                sole_bottom
+                >= old_top[:, None] + float(lift_clearance_m)
+            )
+        )
+        candidate_score = torch.where(
+            first_candidate,
+            sole_bottom - old_top[:, None],
+            torch.full_like(sole_bottom, -1.0),
+        )
+        has_candidate = first_candidate.any(dim=1)
+        chosen = candidate_score.argmax(dim=1)
+        commit_now = open_first & has_candidate
+        self._preferred.copy_(
+            torch.where(commit_now, chosen, self._preferred)
+        )
+
+        preferred_idx = self._preferred.clamp(0, 1)
+        gather1 = preferred_idx[:, None]
+        committed = self._preferred >= 0
+        pref_rear = rear_x.gather(1, gather1).squeeze(1)
+        pref_front = front_x.gather(1, gather1).squeeze(1)
+        pref_force = vertical_force.gather(1, gather1).squeeze(1)
+        pref_bottom = sole_bottom.gather(1, gather1).squeeze(1)
+
+        clear_lift = (
+            self._active
+            & committed
+            & ~self._resolved
+            & (pref_force <= float(unload_force_n))
+            & (pref_bottom >= old_top + float(lift_clearance_m))
+        )
+        new_lift = clear_lift & ~self._lifted
+        self._lift_front_x.copy_(
+            torch.where(new_lift, pref_front, self._lift_front_x)
+        )
+        self._lift_front_valid.copy_(
+            self._lift_front_valid | new_lift
+        )
+
+        clear_riser = (
+            self._active
+            & committed
+            & (pref_bottom >= next_top + float(riser_clearance_margin_m))
+            & (pref_front >= next_start - float(clearance_window_m))
+            & (pref_rear <= next_end)
+        )
+
+        loaded = pref_force >= float(touchdown_force_n)
+        old_contact = (
+            self._active
+            & committed
+            & loaded
+            & (
+                (pref_bottom - old_top).abs()
+                <= float(top_height_tolerance_m)
+            )
+            & (pref_front >= old_start)
+            & (pref_rear <= old_end)
+        )
+        next_contact = (
+            self._active
+            & committed
+            & loaded
+            & (
+                (pref_bottom - next_top).abs()
+                <= float(top_height_tolerance_m)
+            )
+            & (pref_front >= next_start)
+            & (pref_rear <= next_end)
+        )
+
+        excursion = pref_front - self._lift_front_x
+        excursion_violation = (
+            self._active
+            & committed
+            & self._lift_front_valid
+            & (excursion > float(max_forward_excursion_m))
+        )
+
+        sample_matches = runtime.sample_target_index == self._target
+        strike_all = runtime.riser_face_strike_sample & sample_matches[:, None]
+        severity_all = bounded_impact_severity(
+            runtime.riser_strike_force_x,
+            strike_all,
+            minimum_force_n=float(strike_minimum_force_n),
+            full_severity_force_n=float(strike_full_severity_force_n),
+            minimum_event_fraction=float(strike_minimum_event_fraction),
+        )
+        preferred_strike = strike_all.gather(1, gather1).squeeze(1)
+        preferred_severity = severity_all.gather(1, gather1).squeeze(1)
+        open_strike = strike_all.any(dim=1)
+        open_severity = severity_all.amax(dim=1)
+        strike_event = torch.where(
+            committed, preferred_strike, open_strike
+        )
+        strike_severity = torch.where(
+            committed, preferred_severity, open_severity
+        )
+
+        acquisition_event = (
+            runtime.step_acquired_event
+            & (runtime.acquired_target_index == self._target)
+        )
+        physical = runtime.physical_touchdown_event
+        preferred_acquisition = (
+            committed
+            & physical.gather(1, gather1).squeeze(1)
+        )
+        single_acquisition = physical.sum(dim=1) == 1
+
+        (
+            lifted,
+            cleared,
+            next_seen,
+            resolved,
+            reward,
+            event_code,
+        ) = step_over_transition_update(
+            self._active,
+            self._lifted,
+            self._cleared,
+            self._next_contact_seen,
+            self._resolved,
+            clear_lift=clear_lift,
+            clear_riser=clear_riser,
+            old_tread_contact=old_contact,
+            next_tread_contact=next_contact,
+            strike_event=strike_event,
+            forward_excursion_violation=excursion_violation,
+            acquisition_event=acquisition_event,
+            preferred_acquisition=preferred_acquisition,
+            single_acquisition=single_acquisition,
+            strike_severity=strike_severity,
+            success_value=float(success_value),
+            failure_value=float(failure_value),
+            strike_failure_base=float(strike_failure_base),
+            strike_failure_severity_scale=(
+                float(strike_failure_severity_scale)
+            ),
+        )
+        self._lifted.copy_(lifted)
+        self._cleared.copy_(cleared)
+        self._next_contact_seen.copy_(next_seen)
+        self._resolved.copy_(resolved)
+        self.last_event_code.copy_(event_code)
+
+        # After any physical acquisition, begin the next transition from the
+        # newly synchronized target. The existing runtime chooses the opposite
+        # foot; simultaneous acquisition leaves preferred=-1 and therefore does
+        # not silently invent an alternating foot.
+        acquired = runtime.step_acquired_event
+        self._active.copy_(torch.where(acquired, torch.zeros_like(self._active), self._active))
+        self._target.copy_(torch.where(acquired, torch.full_like(self._target, -1), self._target))
+        self._preferred.copy_(torch.where(acquired, torch.full_like(self._preferred, -1), self._preferred))
+        self._lifted.copy_(torch.where(acquired, torch.zeros_like(self._lifted), self._lifted))
+        self._cleared.copy_(torch.where(acquired, torch.zeros_like(self._cleared), self._cleared))
+        self._next_contact_seen.copy_(torch.where(acquired, torch.zeros_like(self._next_contact_seen), self._next_contact_seen))
+        self._resolved.copy_(torch.where(acquired, torch.zeros_like(self._resolved), self._resolved))
+        self._lift_front_valid.copy_(torch.where(acquired, torch.zeros_like(self._lift_front_valid), self._lift_front_valid))
+
+        next_transition = (
+            acquired
+            & (current_target > 0)
+            & (current_target < step_count)
+            & (runtime.preferred_foot >= 0)
+        )
+        self._active.copy_(self._active | next_transition)
+        self._target.copy_(
+            torch.where(next_transition, current_target, self._target)
+        )
+        self._preferred.copy_(
+            torch.where(
+                next_transition,
+                runtime.preferred_foot,
+                self._preferred,
+            )
+        )
+
+        # RewardManager multiplies by step_dt; convert one-shot transition
+        # values into exact event returns.
+        return reward / float(env.step_dt)
 
 
 

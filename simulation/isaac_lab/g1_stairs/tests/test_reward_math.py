@@ -739,3 +739,234 @@ def test_preferred_transition_contact_requires_lift_and_penalizes_only_replant()
     assert replant.tolist() == [False, False, True, False]
     assert direct.tolist() == [False, False, False, True]
     assert resolved2.tolist() == [False, False, True, True]
+
+
+def test_step_over_transition_requires_clearance_before_success():
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        step_over_transition_update,
+    )
+
+    z = torch.tensor([False])
+    lifted, cleared, seen, resolved, reward, code = (
+        step_over_transition_update(
+            torch.tensor([True]),
+            z,
+            z,
+            z,
+            z,
+            clear_lift=torch.tensor([True]),
+            clear_riser=z,
+            old_tread_contact=z,
+            next_tread_contact=torch.tensor([True]),
+            strike_event=z,
+            forward_excursion_violation=z,
+            acquisition_event=z,
+            preferred_acquisition=z,
+            single_acquisition=z,
+            strike_severity=torch.tensor([0.0]),
+        )
+    )
+
+    assert lifted.item() is True
+    assert cleared.item() is False
+    assert seen.item() is False
+    assert resolved.item() is True
+    assert reward.item() == pytest.approx(-1.0)
+    assert code.item() == 5
+
+
+def test_step_over_transition_direct_next_success_sequence():
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        step_over_transition_update,
+    )
+
+    active = torch.tensor([True])
+    z = torch.tensor([False])
+
+    lifted, cleared, seen, resolved, reward, code = (
+        step_over_transition_update(
+            active,
+            z,
+            z,
+            z,
+            z,
+            clear_lift=torch.tensor([True]),
+            clear_riser=torch.tensor([True]),
+            old_tread_contact=z,
+            next_tread_contact=torch.tensor([True]),
+            strike_event=z,
+            forward_excursion_violation=z,
+            acquisition_event=z,
+            preferred_acquisition=z,
+            single_acquisition=z,
+            strike_severity=torch.tensor([0.0]),
+        )
+    )
+    assert lifted.item() is True
+    assert cleared.item() is True
+    assert seen.item() is True
+    assert resolved.item() is False
+    assert reward.item() == pytest.approx(0.0)
+    assert code.item() == 0
+
+    lifted, cleared, seen, resolved, reward, code = (
+        step_over_transition_update(
+            active,
+            lifted,
+            cleared,
+            seen,
+            resolved,
+            clear_lift=z,
+            clear_riser=z,
+            old_tread_contact=z,
+            next_tread_contact=z,
+            strike_event=z,
+            forward_excursion_violation=z,
+            acquisition_event=torch.tensor([True]),
+            preferred_acquisition=torch.tensor([True]),
+            single_acquisition=torch.tensor([True]),
+            strike_severity=torch.tensor([0.0]),
+        )
+    )
+    assert resolved.item() is True
+    assert reward.item() == pytest.approx(1.0)
+    assert code.item() == 1
+
+
+def test_step_over_transition_replant_resolves_once():
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        step_over_transition_update,
+    )
+
+    active = torch.tensor([True])
+    z = torch.tensor([False])
+    lifted = torch.tensor([True])
+
+    out = step_over_transition_update(
+        active,
+        lifted,
+        z,
+        z,
+        z,
+        clear_lift=z,
+        clear_riser=z,
+        old_tread_contact=torch.tensor([True]),
+        next_tread_contact=z,
+        strike_event=z,
+        forward_excursion_violation=z,
+        acquisition_event=z,
+        preferred_acquisition=z,
+        single_acquisition=z,
+        strike_severity=torch.tensor([0.0]),
+    )
+    assert out[3].item() is True
+    assert out[4].item() == pytest.approx(-1.0)
+    assert out[5].item() == 2
+
+    out2 = step_over_transition_update(
+        active,
+        out[0],
+        out[1],
+        out[2],
+        out[3],
+        clear_lift=z,
+        clear_riser=z,
+        old_tread_contact=torch.tensor([True]),
+        next_tread_contact=z,
+        strike_event=z,
+        forward_excursion_violation=z,
+        acquisition_event=z,
+        preferred_acquisition=z,
+        single_acquisition=z,
+        strike_severity=torch.tensor([0.0]),
+    )
+    assert out2[4].item() == pytest.approx(0.0)
+    assert out2[5].item() == 0
+
+
+def test_step_over_transition_hard_strike_is_bounded_but_costlier():
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        step_over_transition_update,
+    )
+
+    active = torch.tensor([True, True])
+    z = torch.tensor([False, False])
+    out = step_over_transition_update(
+        active,
+        z,
+        z,
+        z,
+        z,
+        clear_lift=z,
+        clear_riser=z,
+        old_tread_contact=z,
+        next_tread_contact=z,
+        strike_event=torch.tensor([True, True]),
+        forward_excursion_violation=z,
+        acquisition_event=z,
+        preferred_acquisition=z,
+        single_acquisition=z,
+        strike_severity=torch.tensor([0.1, 1.0]),
+        strike_failure_base=-0.5,
+        strike_failure_severity_scale=-0.5,
+    )
+    assert out[4].tolist() == pytest.approx([-0.55, -1.0])
+    assert out[5].tolist() == [3, 3]
+
+
+def test_step_over_transition_nonpreferred_acquisition_fails():
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        step_over_transition_update,
+    )
+
+    t = torch.tensor([True])
+    z = torch.tensor([False])
+    out = step_over_transition_update(
+        t,
+        t,
+        t,
+        t,
+        z,
+        clear_lift=z,
+        clear_riser=z,
+        old_tread_contact=z,
+        next_tread_contact=z,
+        strike_event=z,
+        forward_excursion_violation=z,
+        acquisition_event=t,
+        preferred_acquisition=z,
+        single_acquisition=t,
+        strike_severity=torch.tensor([0.0]),
+    )
+    assert out[3].item() is True
+    assert out[4].item() == pytest.approx(-1.0)
+    assert out[5].item() == 4
+
+
+def test_step_over_transition_forward_excursion_is_failure():
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        step_over_transition_update,
+    )
+
+    t = torch.tensor([True])
+    z = torch.tensor([False])
+    out = step_over_transition_update(
+        t,
+        t,
+        z,
+        z,
+        z,
+        clear_lift=z,
+        clear_riser=z,
+        old_tread_contact=z,
+        next_tread_contact=z,
+        strike_event=z,
+        forward_excursion_violation=t,
+        acquisition_event=z,
+        preferred_acquisition=z,
+        single_acquisition=z,
+        strike_severity=torch.tensor([0.0]),
+    )
+    assert out[3].item() is True
+    assert out[4].item() == pytest.approx(-1.0)
+    assert out[5].item() == 6

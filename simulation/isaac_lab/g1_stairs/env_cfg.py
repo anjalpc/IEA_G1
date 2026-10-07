@@ -973,6 +973,29 @@ class StairRewardsCfg:
         },
     )
 
+    step_over_transition_contract = RewTerm(
+        func=geometry_acquisition_rewards.step_over_transition_contract,
+        weight=0.0,
+        params={
+            "first_commit_distance_m": 0.30,
+            "unload_force_n": 15.0,
+            "opposite_support_force_n": 30.0,
+            "touchdown_force_n": 30.0,
+            "lift_clearance_m": 0.030,
+            "riser_clearance_margin_m": 0.015,
+            "clearance_window_m": 0.050,
+            "top_height_tolerance_m": 0.025,
+            "max_forward_excursion_m": 0.40,
+            "strike_minimum_force_n": 30.0,
+            "strike_full_severity_force_n": 600.0,
+            "strike_minimum_event_fraction": 0.10,
+            "success_value": 1.0,
+            "failure_value": -1.0,
+            "strike_failure_base": -0.5,
+            "strike_failure_severity_scale": -0.5,
+        },
+    )
+
     riser_face_strike = RewTerm(
         func=geometry_acquisition_rewards.riser_face_strike,
         weight=0.0,
