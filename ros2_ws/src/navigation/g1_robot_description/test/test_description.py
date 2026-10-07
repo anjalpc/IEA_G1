@@ -75,6 +75,13 @@ EXPECTED_JOINTS = {
         "xyz": "0.0576235 0.01753 0.41987",
         "rpy": "0 0.8307767239493009 0",
     },
+    "mid360_joint": {
+        "type": "fixed",
+        "parent": "torso_link",
+        "child": "mid360_link",
+        "xyz": "0.0002835 0.00003 0.40618",
+        "rpy": "0 0.04014257279586953 0",
+    },
 }
 
 EXPECTED_LINKS = {
@@ -86,6 +93,7 @@ EXPECTED_LINKS = {
     "imu_in_torso",
     "imu_in_pelvis",
     "d435_link",
+    "mid360_link",
 }
 
 

@@ -124,8 +124,9 @@ frame for Nav2.
 ### Navigation robot description
 
 `g1_robot_description` installs the kinematic subset required to
-connect `pelvis` to the moving waist, torso/head, D435, and official
-IMU reference frames. Its source is Unitree's official
+connect `pelvis` to the moving waist, torso/head, Intel RealSense
+D435i, Livox MID-360, and official IMU reference frames. Its source
+is Unitree's official
 `g1_29dof.urdf`, pinned at commit
 `5994d4faef0a9cadd3287f8de0199a67eeb2a259`. The upstream BSD-3-Clause
 license and exact source digest are retained with the package.
@@ -136,10 +137,13 @@ collision, inertial, limb, or rubber-hand model. This prevents it from
 claiming that the installed BrainCo hands are Unitree rubber hands and
 avoids duplicating the existing MuJoCo meshes.
 
-The retained sensor frames are `d435_link`, `imu_in_torso`, and
-`imu_in_pelvis`. Unitree's standard D435 mount is fixed to
-`torso_link` in the official kinematic model even though the physical
-device is mounted in the head area.
+The retained sensor frames are `d435_link`, `mid360_link`,
+`imu_in_torso`, and `imu_in_pelvis`. Unitree's standard Intel
+RealSense D435i and Livox MID-360 head-area mounts are represented as
+fixed children of `torso_link`, matching the pinned official
+kinematic model. The MID-360 transform is
+`xyz="0.0002835 0.00003 0.40618"` and
+`rpy="0 0.04014257279586953 0"`.
 
 This package publishes no TF and consumes no hardware. The future
 `robot_state_publisher` runtime consumes the three measured waist
@@ -148,8 +152,10 @@ positions from `/joint_states`; it must not run
 
 The physical camera bridge currently labels depth images with
 `g1_depth_camera`. That frame must be aligned with `d435_link` before
-physical mapping; the description does not guess or silently alias
-the mismatch.
+physical mapping. Likewise, the physical MID-360 driver must publish
+in `mid360_link` or provide an explicit measured transform from its
+driver frame. The description does not guess or silently alias either
+mismatch.
 
 ## Body joint order
 

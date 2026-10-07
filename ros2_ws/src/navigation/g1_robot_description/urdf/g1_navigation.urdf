@@ -17,6 +17,7 @@
   <link name="imu_in_torso"/>
   <link name="imu_in_pelvis"/>
   <link name="d435_link"/>
+  <link name="mid360_link"/>
 
   <joint name="waist_yaw_joint" type="revolute">
     <origin xyz="0 0 0" rpy="0 0 0"/>
@@ -94,5 +95,14 @@
     />
     <parent link="torso_link"/>
     <child link="d435_link"/>
+  </joint>
+
+  <joint name="mid360_joint" type="fixed">
+    <origin
+      xyz="0.0002835 0.00003 0.40618"
+      rpy="0 0.04014257279586953 0"
+    />
+    <parent link="torso_link"/>
+    <child link="mid360_link"/>
   </joint>
 </robot>

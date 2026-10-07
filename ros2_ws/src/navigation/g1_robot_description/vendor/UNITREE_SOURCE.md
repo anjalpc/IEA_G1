@@ -15,9 +15,9 @@
 from this pinned official Unitree 29-DOF description.
 
 The local subset retains only the navigation-relevant chain from
-`pelvis` through the moving waist to the torso/head, D435, and IMU
-reference frames. Visual, collision, inertial, limb, and Unitree
-rubber-hand elements are intentionally excluded.
+`pelvis` through the moving waist to the torso/head, D435, MID-360,
+and IMU reference frames. Visual, collision, inertial, limb, and
+Unitree rubber-hand elements are intentionally excluded.
 
 The installed physical hands are BrainCo Revo2 devices and remain
 governed by their existing project descriptions. This navigation
