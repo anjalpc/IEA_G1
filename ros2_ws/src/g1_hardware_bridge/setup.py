@@ -27,6 +27,10 @@ setup(
         "console_scripts": [
             "hardware_bridge = g1_hardware_bridge.hardware_bridge_node:main",
             (
+                "hardware_joint_state = "
+                "g1_hardware_bridge.joint_state.node:main"
+            ),
+            (
                 "camera_bridge = "
                 "g1_hardware_bridge.camera.node:main"
             ),

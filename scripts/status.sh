@@ -12,7 +12,7 @@ export ROS_DOMAIN_ID="${G1_APPLICATION_DOMAIN_ID:-42}"
 
 echo "Processes:"
 pgrep -af \
-    '[b]rainco_hand_server|[r]os2 launch g1_bringup|[h]ardware_bridge|[h]andshake_node|[h]and_presence_node|[r]gb_helper|[c]amera_bridge|[c]ard_presentation|[c]ard_handover_detector|[a]rm.state_helper|[e]vent_gateway.py' \
+    '[b]rainco_hand_server|[r]os2 launch g1_bringup|[h]ardware_bridge|[h]ardware_joint_state|[h]andshake_node|[h]and_presence_node|[r]gb_helper|[c]amera_bridge|[c]ard_presentation|[c]ard_handover_detector|[a]rm.state_helper|[e]vent_gateway.py' \
     || true
 echo
 echo "Supervisor PID records:"

@@ -4,7 +4,7 @@ Robotics development, simulation, training, and runtime stack for a Unitree G1 w
 
 This repository has three main workflows:
 
-- **Robot runtime (PC2):** ROS 2 Foxy nodes run on the robot and own the arms, hands, and cameras.
+- **Robot runtime (PC2):** ROS 2 Foxy nodes run on the robot and own the arms, hands, cameras, and measured waist-joint source.
 - **Workstation development:** the development container provides ROS 2 Humble, MuJoCo, Unitree SDKs, and test tools without changing the host machine.
 - **Isaac Lab stair training:** a separate GPU container runs the pinned reinforcement-learning environment and recorded stair experiments.
 
@@ -78,7 +78,9 @@ It contains:
 - `arm/`: Unitree arm ownership, command validation, motion execution, state monitoring, and safe release;
 - `hand/`: BrainCo hand commands and state helpers;
 - `camera/`: Unitree RGB shared-memory access and RealSense depth-camera access;
+- `joint_state/`: isolates read-only Unitree `rt/lowstate` access and publishes measured waist positions on `/joint_states`;
 - `hardware_bridge`: translates validated ROS commands into physical arm/hand operations;
+- `hardware_joint_state`: supervises the isolated physical waist-state helper;
 - `camera_bridge`: publishes camera data used by the interaction detectors;
 - `rgb_helper`: isolates access to the Unitree RGB camera;
 - `config/hardware.yaml` and `config/camera.yaml`: physical limits and device settings.
@@ -106,8 +108,9 @@ transforms above `pelvis`.
 
 Validates raw IMU and odometry inputs, evaluates freshness and
 health, and publishes `/g1/state/odometry` only while both streams
-are navigation-ready. It does not perform sensor fusion or publish
-TF.
+are navigation-ready. It publishes the validated
+`odom -> base_footprint -> pelvis` TF boundary but does not perform
+sensor fusion.
 
 ### `g1_simulation_bridge`
 
@@ -118,7 +121,7 @@ is a development package and is not required on PC2.
 
 ### `g1_bringup`
 
-Owns the supported physical launch file, `event_interaction.launch.py`. It launches and supervises the hardware bridge, cameras, handshake nodes, card nodes, and detectors as one stack. If a required node exits, the launch shuts down rather than leaving a partially working robot stack.
+Owns the supported physical launch file, `event_interaction.launch.py`. It launches and supervises the hardware bridge, physical waist-joint source, cameras, handshake nodes, card nodes, and detectors as one stack. If a required node exits, the launch shuts down rather than leaving a partially working robot stack.
 
 ## Supported scripts
 

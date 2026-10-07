@@ -89,6 +89,34 @@ This source publishes neither TF nor fused state. The
 `g1_state_estimation` package remains the validation and health
 boundary before future fusion and Nav2 consumption.
 
+### Physical waist joint-state source
+
+On PC2, `g1_hardware_bridge` owns the read-only physical source for
+the three movable waist joints. The isolated native helper subscribes
+to Unitree `rt/lowstate` on DDS domain `0`; it creates no command
+publisher and never writes robot state. The supervising ROS node runs
+on application domain `42` and publishes standard
+`sensor_msgs/msg/JointState` messages on `/joint_states`.
+
+The hardware indices for mode-machine `5` are:
+
+| SDK index | Joint |
+|---:|---|
+| 12 | `waist_yaw_joint` |
+| 13 | `waist_roll_joint` |
+| 14 | `waist_pitch_joint` |
+
+The output order is yaw, roll, then pitch. Samples must have an
+advancing native tick and three finite measured positions. Publication
+is rate-limited to 50 Hz and uses volatile, reliable, depth-one QoS.
+There are no default, commanded, interpolated, or replayed values.
+
+The native helper is deliberately separated from application ROS so
+Unitree DDS domain `0` cannot collide with ROS application domain
+`42`. `g1_bringup/event_interaction.launch.py` supervises the parent
+node as required: loss of this state source shuts down the supported
+physical stack instead of leaving navigation with frozen joints.
+
 ### Validated navigation-state boundary
 
 `g1_state_estimation` subscribes to `/g1/state/imu_raw` and

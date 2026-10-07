@@ -108,6 +108,7 @@ A healthy result includes:
 
 - BrainCo server and both hands ready;
 - the ROS launch and all required nodes;
+- `/g1_hardware_joint_state` publishing measured waist state;
 - `event_gateway.py` and `/tmp/g1_event_control.sock`;
 - handshake and card ROS services on domain 42.
 
@@ -116,6 +117,60 @@ Stop cleanly:
 ```bash
 cd /home/unitree/IEA_G1
 ./scripts/start.sh stop
+```
+
+## Verify physical waist state
+
+On PC2, with the supported stack running:
+
+```bash
+source /opt/ros/foxy/setup.bash
+source /home/unitree/IEA_G1/ros2_ws/install/setup.bash
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+export ROS_DOMAIN_ID=42
+
+ros2 node list | grep '^/g1_hardware_joint_state$'
+ros2 topic info /joint_states --verbose
+ros2 topic echo --once /joint_states
+```
+
+The message must contain exactly these measured names in order:
+
+```text
+waist_yaw_joint
+waist_roll_joint
+waist_pitch_joint
+```
+
+The topic must have one physical publisher with reliable, volatile,
+depth-one QoS. Do not start a second physical joint-state source.
+
+On the workstation, use the same reachable ROS network, application
+domain, and RMW implementation. In the development container:
+
+```bash
+cd /workspace/IEA_G1/ros2_ws
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+export ROS_DOMAIN_ID=42
+
+ros2 launch g1_robot_description robot_state.launch.py \
+  use_sim_time:=false
+```
+
+In another container terminal, verify that remote measurements reach
+`robot_state_publisher` and drive the downstream body tree:
+
+```bash
+cd /workspace/IEA_G1/ros2_ws
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
+export ROS_DOMAIN_ID=42
+
+ros2 topic info /joint_states
+ros2 run tf2_ros tf2_echo pelvis d435_link
 ```
 
 ## Manual checks
