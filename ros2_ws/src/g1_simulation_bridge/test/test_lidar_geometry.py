@@ -25,6 +25,7 @@ from navigation.lidar_geometry import (  # noqa: E402
     integration_ray_directions,
     points_from_ray_distances,
     ray_directions,
+    sensor_directions_to_world,
     world_points_to_sensor,
 )
 
@@ -329,3 +330,35 @@ def test_rejects_invalid_range_projection(
             range_max=range_max,
         )
 
+
+def test_rotates_sensor_ray_directions_into_world_frame():
+    half_yaw = math.pi / 4.0
+    pose = SensorPose(
+        position_xyz=(10.0, 20.0, 30.0),
+        orientation_wxyz=(
+            math.cos(half_yaw),
+            0.0,
+            0.0,
+            math.sin(half_yaw),
+        ),
+    )
+
+    directions_world = sensor_directions_to_world(
+        pose,
+        (
+            (1.0, 0.0, 0.0),
+            (0.0, 1.0, 0.0),
+            (0.0, 0.0, 1.0),
+        ),
+    )
+
+    np.testing.assert_allclose(
+        directions_world,
+        (
+            (0.0, 1.0, 0.0),
+            (-1.0, 0.0, 0.0),
+            (0.0, 0.0, 1.0),
+        ),
+        rtol=0.0,
+        atol=1.0e-12,
+    )

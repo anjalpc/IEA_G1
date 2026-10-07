@@ -339,6 +339,47 @@ def points_from_ray_distances(
     return tuple(points)
 
 
+def sensor_directions_to_world(
+    pose,
+    directions_sensor,
+):
+    """Rotate normalized sensor-frame directions into the world frame."""
+    _finite_vector(
+        "sensor position",
+        pose.position_xyz,
+        3,
+    )
+    orientation = _finite_vector(
+        "sensor orientation",
+        pose.orientation_wxyz,
+        4,
+    )
+    if not math.isclose(
+        float(np.linalg.norm(orientation)),
+        1.0,
+        rel_tol=0.0,
+        abs_tol=_NORMALIZATION_TOLERANCE,
+    ):
+        raise ValueError(
+            "sensor orientation must be normalized"
+        )
+
+    directions = _validated_directions(
+        directions_sensor
+    )
+
+    return tuple(
+        tuple(
+            float(value)
+            for value in _rotate_vector(
+                orientation,
+                direction,
+            )
+        )
+        for direction in directions
+    )
+
+
 def world_points_to_sensor(pose, points_world):
     """Transform finite world points into the sensor frame."""
     position = _finite_vector(
