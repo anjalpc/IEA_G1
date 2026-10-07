@@ -1,0 +1,15 @@
+pointcloud_to_laserscan:
+  ros__parameters:
+    # Initial navigation envelope. Validate with recorded physical data.
+    target_frame: base_footprint
+    transform_tolerance: 0.05
+    min_height: 0.05
+    max_height: 1.75
+    angle_min: -3.141592653589793
+    angle_max: 3.141592653589793
+    angle_increment: 0.008726646259971648
+    scan_time: 0.1
+    range_min: 0.25
+    range_max: 40.0
+    use_inf: true
+    queue_size: 4

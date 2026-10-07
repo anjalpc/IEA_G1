@@ -195,6 +195,38 @@ in `mid360_link` or provide an explicit measured transform from its
 driver frame. The description does not guess or silently alias either
 mismatch.
 
+### Navigation perception boundary
+
+`g1_navigation_perception` runs on the workstation and owns
+navigation-specific preprocessing for both MID-360 and future D435i
+observations. Physical sensor acquisition remains on PC2.
+
+The initial MID-360 contract is:
+
+| Direction | Topic | Type | Frame |
+|---|---|---|---|
+| Input | `/g1/sensors/lidar/points` | `sensor_msgs/msg/PointCloud2` | `mid360_link` |
+| Output | `/scan` | `sensor_msgs/msg/LaserScan` | `base_footprint` |
+
+The package launches the upstream ROS
+`pointcloud_to_laserscan_node`; it contains no custom projection
+algorithm. The input subscription uses best-effort, volatile QoS and
+is created lazily only while `/scan` has a subscriber. Therefore the
+input topic may be absent from the ROS graph when no mapping or
+navigation consumer is active.
+
+The initial projection envelope is 0.05 m through 1.75 m above
+`base_footprint`, with a 0.25 m minimum and 40 m maximum range,
+360-degree coverage, 0.5-degree angular bins, and a 0.1 s scan time.
+These are conservative integration values, not validated physical
+calibration. They must be checked against recorded MID-360 data,
+self-returns, obstacle coverage, and timestamped TF before physical
+mapping.
+
+This package does not provide a physical or simulated point-cloud
+publisher. It does not run Livox hardware, SLAM Toolbox, AMCL, Nav2,
+or map persistence.
+
 ## Body joint order
 
 `Policy` is the neural-network action index. `SDK` is the index in Unitree

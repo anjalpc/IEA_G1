@@ -112,6 +112,16 @@ are navigation-ready. It publishes the validated
 `odom -> base_footprint -> pelvis` TF boundary but does not perform
 sensor fusion.
 
+### `g1_navigation_perception`
+
+Owns workstation-side preprocessing of navigation sensor observations.
+Its initial MID-360 path reuses the upstream
+`pointcloud_to_laserscan` node to transform
+`/g1/sensors/lidar/points` into `/scan` in `base_footprint`.
+It does not own the physical Livox driver, SLAM, Nav2, or robot
+commands. Future D435i navigation preprocessing belongs in this same
+package rather than a package per sensor.
+
 ### `g1_simulation_bridge`
 
 Connects the same application-level command contract to simulation. It also
