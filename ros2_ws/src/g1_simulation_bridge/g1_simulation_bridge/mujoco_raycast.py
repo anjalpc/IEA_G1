@@ -8,6 +8,7 @@ import numpy as np
 
 
 _NORMALIZATION_TOLERANCE = 1.0e-9
+_SELF_HIT_ADVANCE_METRES = 1.0e-7
 
 
 class MuJoCoRaycastError(RuntimeError):
@@ -117,6 +118,51 @@ def _native_raycast(
     return float(distance), int(geom_id[0])
 
 
+def _body_belongs_to_subtree(
+    model,
+    *,
+    body_id,
+    root_body_id,
+):
+    while True:
+        if body_id == root_body_id:
+            return True
+        if body_id == 0:
+            return False
+        body_id = int(
+            model.body_parentid[body_id]
+        )
+
+
+def _robot_geometry_ids(
+    model,
+    *,
+    root_body_name,
+):
+    root_body_id = mujoco.mj_name2id(
+        model,
+        mujoco.mjtObj.mjOBJ_BODY,
+        root_body_name,
+    )
+    if root_body_id < 0:
+        raise MuJoCoRaycastError(
+            "robot root body not found: "
+            f"{root_body_name}"
+        )
+
+    return frozenset(
+        geom_id
+        for geom_id in range(model.ngeom)
+        if _body_belongs_to_subtree(
+            model,
+            body_id=int(
+                model.geom_bodyid[geom_id]
+            ),
+            root_body_id=root_body_id,
+        )
+    )
+
+
 class MuJoCoRayAdapter:
     """Read a named torso pose and cast validated world-frame rays."""
 
@@ -126,6 +172,7 @@ class MuJoCoRayAdapter:
         model,
         data,
         torso_body_name,
+        robot_root_body_name=None,
         raycast=None,
     ):
         self._model = model
@@ -134,6 +181,18 @@ class MuJoCoRayAdapter:
             _native_raycast
             if raycast is None
             else raycast
+        )
+        if robot_root_body_name is None:
+            raise MuJoCoRaycastError(
+                "robot root body name is required"
+            )
+        self._robot_geom_ids = (
+            _robot_geometry_ids(
+                model,
+                root_body_name=(
+                    robot_root_body_name
+                ),
+            )
         )
 
         torso_body_id = mujoco.mj_name2id(
@@ -195,7 +254,7 @@ class MuJoCoRayAdapter:
         origin_world,
         directions_world,
     ):
-        """Cast normalized world rays and return validated intersections."""
+        """Cast rays while excluding robot-owned intersections."""
         origin = _finite_vector(
             "ray origin",
             origin_world,
@@ -203,55 +262,88 @@ class MuJoCoRayAdapter:
         directions = _validated_directions(
             directions_world
         )
+        maximum_attempts = (
+            2 * len(self._robot_geom_ids)
+            + 1
+        )
 
         intersections = []
         for direction in directions:
-            distance, geom_id = self._raycast(
-                self._model,
-                self._data,
-                origin,
-                direction,
-            )
-            distance = float(distance)
-            geom_id = int(geom_id)
+            ray_origin = origin.copy()
+            travelled = 0.0
 
-            if not math.isfinite(distance):
-                raise MuJoCoRaycastError(
-                    "raycast distance must be finite"
-                )
-
-            if distance < 0.0 and geom_id < 0:
-                intersections.append(None)
-                continue
-
-            if distance <= 0.0:
-                raise MuJoCoRaycastError(
-                    "raycast hit distance must be positive"
-                )
-            if (
-                geom_id < 0
-                or geom_id >= self._model.ngeom
+            for _attempt in range(
+                maximum_attempts
             ):
-                raise MuJoCoRaycastError(
-                    "raycast geometry id is invalid"
+                distance, geom_id = self._raycast(
+                    self._model,
+                    self._data,
+                    ray_origin,
+                    direction,
                 )
+                distance = float(distance)
+                geom_id = int(geom_id)
 
-            geom_name = mujoco.mj_id2name(
-                self._model,
-                mujoco.mjtObj.mjOBJ_GEOM,
-                geom_id,
-            )
-            if not geom_name:
-                raise MuJoCoRaycastError(
-                    "raycast geometry must have a name"
-                )
+                if not math.isfinite(distance):
+                    raise MuJoCoRaycastError(
+                        "raycast distance must be finite"
+                    )
 
-            intersections.append(
-                RayIntersection(
-                    distance=distance,
-                    geom_id=geom_id,
-                    geom_name=geom_name,
+                if distance < 0.0 and geom_id < 0:
+                    intersections.append(None)
+                    break
+
+                if distance <= 0.0:
+                    raise MuJoCoRaycastError(
+                        "raycast hit distance must be positive"
+                    )
+                if (
+                    geom_id < 0
+                    or geom_id >= self._model.ngeom
+                ):
+                    raise MuJoCoRaycastError(
+                        "raycast geometry id is invalid"
+                    )
+
+                geom_name = mujoco.mj_id2name(
+                    self._model,
+                    mujoco.mjtObj.mjOBJ_GEOM,
+                    geom_id,
                 )
-            )
+                if not geom_name:
+                    raise MuJoCoRaycastError(
+                        "raycast geometry must have a name"
+                    )
+
+                total_distance = (
+                    travelled + distance
+                )
+                if (
+                    geom_id
+                    not in self._robot_geom_ids
+                ):
+                    intersections.append(
+                        RayIntersection(
+                            distance=total_distance,
+                            geom_id=geom_id,
+                            geom_name=geom_name,
+                        )
+                    )
+                    break
+
+                advance = (
+                    distance
+                    + _SELF_HIT_ADVANCE_METRES
+                )
+                ray_origin = (
+                    ray_origin
+                    + direction * advance
+                )
+                travelled += advance
+            else:
+                raise MuJoCoRaycastError(
+                    "ray exceeded bounded "
+                    "self-filter attempts"
+                )
 
         return tuple(intersections)
