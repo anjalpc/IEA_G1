@@ -52,18 +52,18 @@ def node():
 
 
 def test_creates_contract_services_and_state_publisher(node):
-    services = {
-        name
-        for name, _types in node.get_service_names_and_types()
-    }
-    topics = {
-        name
-        for name, _types in node.get_topic_names_and_types()
-    }
-
-    assert "/g1/locomotion/acquire" in services
-    assert "/g1/locomotion/release" in services
-    assert "/g1/locomotion/state" in topics
+    assert (
+        node.acquire_service.srv_name
+        == "/g1/locomotion/acquire"
+    )
+    assert (
+        node.release_service.srv_name
+        == "/g1/locomotion/release"
+    )
+    assert (
+        node.state_publisher.topic_name
+        == "/g1/locomotion/state"
+    )
 
 
 def test_acquire_service_maps_pure_result(node):
