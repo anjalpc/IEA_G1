@@ -23,13 +23,21 @@ from g1_simulation_bridge.simulation_state import (
     SimulationStateReader,
 )
 from g1_simulation_bridge.state_config import (
+    load_lidar_publisher_config,
     load_state_publisher_config,
 )
 from g1_simulation_bridge.simulation_timing import (
+    LidarPublicationSchedule,
     SimulationPublicationSchedule,
 )
 from g1_simulation_bridge.state_publisher import (
     SimulationStatePublisher,
+)
+from g1_simulation_bridge.lidar_publisher import (
+    SimulationLidarPublisher,
+)
+from g1_simulation_bridge.mujoco_raycast import (
+    MuJoCoRayAdapter,
 )
 
 
@@ -168,11 +176,50 @@ class G1SimulationAdapter(Node):
         self.controls.set_arm(99, "bridge:shutdown:arm_release")
 
 
+def build_lidar_publisher(
+    *,
+    node,
+    backend,
+    config,
+    geometry,
+):
+    """Build the enabled lidar runtime or preserve the disabled path."""
+    if not config.enabled:
+        return None
+
+    ray_adapter = MuJoCoRayAdapter(
+        model=backend.model,
+        data=backend.data,
+        torso_body_name=(
+            config.torso_body_name
+        ),
+        robot_root_body_name=(
+            config.robot_root_body_name
+        ),
+    )
+    schedule = LidarPublicationSchedule(
+        period_seconds=config.period_seconds,
+    )
+    return SimulationLidarPublisher(
+        node=node,
+        ray_adapter=ray_adapter,
+        schedule=schedule,
+        geometry=geometry,
+        directions_sensor=(
+            geometry.integration_ray_directions()
+        ),
+        frame_id=config.frame_id,
+        range_min=config.range_min,
+        range_max=config.range_max,
+    )
+
+
 def advance_simulation(
     *,
     backend,
     state_publisher,
     substeps,
+    lidar_publisher=None,
 ):
     """Advance physics and publish after every completed step."""
 
@@ -187,10 +234,17 @@ def advance_simulation(
 
     for _ in range(substeps):
         backend.step()
+        simulation_time = float(
+            backend.data.time
+        )
         state_publisher.after_step(
             data=backend.data,
-            simulation_time=float(backend.data.time),
+            simulation_time=simulation_time,
         )
+        if lidar_publisher is not None:
+            lidar_publisher.after_step(
+                simulation_time=simulation_time,
+            )
 
 
 def parse_args(args=None):
@@ -220,6 +274,9 @@ def main(args=None):
     rclpy.init(args=ros_args)
     node = G1SimulationAdapter(controls)
     state_config = load_state_publisher_config(node)
+    lidar_config = load_lidar_publisher_config(
+        node
+    )
     state_publisher = SimulationStatePublisher(
         node=node,
         state_reader=SimulationStateReader(
@@ -238,6 +295,17 @@ def main(args=None):
             state_config.covariance_variance
         ),
     )
+
+    lidar_geometry = None
+    if lidar_config.enabled:
+        from navigation import lidar_geometry
+
+    lidar_publisher = build_lidar_publisher(
+        node=node,
+        backend=backend,
+        config=lidar_config,
+        geometry=lidar_geometry,
+    )
     interrupted = False
 
     def stop(_signum, _frame):
@@ -255,6 +323,7 @@ def main(args=None):
             backend=backend,
             state_publisher=state_publisher,
             substeps=substeps,
+            lidar_publisher=lidar_publisher,
         )
 
     try:

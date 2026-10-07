@@ -16,6 +16,19 @@ class SimulationStatePublisherConfig:
     covariance_variance: float
 
 
+@dataclass(frozen=True)
+class SimulationLidarPublisherConfig:
+    """Validated runtime configuration for simulated lidar."""
+
+    enabled: bool
+    period_seconds: float
+    frame_id: str
+    range_min: float
+    range_max: float
+    torso_body_name: str
+    robot_root_body_name: str
+
+
 def _positive_number(value, *, name):
     if (
         isinstance(value, bool)
@@ -27,6 +40,14 @@ def _positive_number(value, *, name):
             f"{name} must be finite and positive"
         )
     return float(value)
+
+
+def _boolean(value, *, name):
+    if not isinstance(value, bool):
+        raise ValueError(
+            f"{name} must be boolean"
+        )
+    return value
 
 
 def _frame_id(value, *, name):
@@ -86,5 +107,79 @@ def load_state_publisher_config(node):
         covariance_variance=_positive_number(
             covariance_variance,
             name="state_covariance_variance",
+        ),
+    )
+
+
+def load_lidar_publisher_config(node):
+    """Declare, read, and validate simulated lidar parameters."""
+    enabled = node.declare_parameter(
+        "lidar_enabled",
+        False,
+    ).value
+    period_seconds = node.declare_parameter(
+        "lidar_period_seconds",
+        0.1,
+    ).value
+    frame_id = node.declare_parameter(
+        "lidar_frame_id",
+        "mid360_link",
+    ).value
+    range_min = node.declare_parameter(
+        "lidar_range_min",
+        0.25,
+    ).value
+    range_max = node.declare_parameter(
+        "lidar_range_max",
+        40.0,
+    ).value
+    torso_body_name = node.declare_parameter(
+        "lidar_torso_body_name",
+        "torso_link",
+    ).value
+    robot_root_body_name = (
+        node.declare_parameter(
+            "lidar_robot_root_body_name",
+            "pelvis",
+        ).value
+    )
+
+    period_seconds = _positive_number(
+        period_seconds,
+        name="lidar_period_seconds",
+    )
+    range_min = _positive_number(
+        range_min,
+        name="lidar_range_min",
+    )
+    range_max = _positive_number(
+        range_max,
+        name="lidar_range_max",
+    )
+    if range_max <= range_min:
+        raise ValueError(
+            "lidar_range_max must be greater "
+            "than lidar_range_min"
+        )
+
+    return SimulationLidarPublisherConfig(
+        enabled=_boolean(
+            enabled,
+            name="lidar_enabled",
+        ),
+        period_seconds=period_seconds,
+        frame_id=_frame_id(
+            frame_id,
+            name="lidar_frame_id",
+        ),
+        range_min=range_min,
+        range_max=range_max,
+        torso_body_name=_frame_id(
+            torso_body_name,
+            name="lidar_torso_body_name",
+        ),
+        robot_root_body_name=_frame_id(
+            robot_root_body_name,
+            name="lidar_robot_root_body_name",
         ),
     )

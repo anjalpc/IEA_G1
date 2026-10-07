@@ -10,3 +10,13 @@ g1_simulation_bridge:
     odom_frame_id: odom
     odom_child_frame_id: pelvis
     state_covariance_variance: 1.0e-6
+
+    # Deterministic navigation-integration lidar source.
+    # This is not a physical MID-360 firing-pattern model.
+    lidar_enabled: true
+    lidar_period_seconds: 0.1
+    lidar_frame_id: mid360_link
+    lidar_range_min: 0.25
+    lidar_range_max: 40.0
+    lidar_torso_body_name: torso_link
+    lidar_robot_root_body_name: pelvis
