@@ -16,6 +16,7 @@ def test_installs_description_and_provenance():
 
     required = (
         share / "urdf/g1_navigation.urdf",
+        share / "launch/robot_state.launch.py",
         share / "vendor/UNITREE_SOURCE.md",
         share / "vendor/LICENSE",
     )

@@ -330,6 +330,47 @@ The node publishes validated odometry together with
 whenever either raw stream is missing, invalid, or stale. It does not
 perform sensor fusion.
 
+### Start the navigation robot-description transforms
+
+In another sourced development-container shell, launch the upstream
+robot-state publisher against simulation time:
+
+```bash
+cd /workspace/IEA_G1/ros2_ws
+source install/setup.bash
+
+ros2 launch g1_robot_description robot_state.launch.py \
+  use_sim_time:=true
+```
+
+Do not start `joint_state_publisher`; measured waist positions already
+arrive from MuJoCo on `/joint_states`.
+
+After the bridge, state-estimation node, and robot-state publisher are
+running, verify the complete transform tree:
+
+```bash
+ros2 node list | rg \
+  '^/(g1_state_estimation|g1_robot_state_publisher)$'
+
+ros2 run tf2_ros tf2_echo odom d435_link
+ros2 run tf2_ros tf2_echo odom mid360_link
+```
+
+The description runtime owns transforms from `pelvis` downward. The
+state-estimation runtime remains the sole owner of
+`odom -> base_footprint -> pelvis`.
+
+For the future physical workstation path, omit the simulation argument:
+
+```bash
+ros2 launch g1_robot_description robot_state.launch.py
+```
+
+That physical launch requires a hardware `/joint_states` source and
+explicit alignment of the camera and MID-360 driver frames with
+`d435_link` and `mid360_link`.
+
 The runner starts the backend-neutral application with the simulation bridge,
 enables it through
 `/event/handshake/start`, then triggers `/event/handshake/grip`, and

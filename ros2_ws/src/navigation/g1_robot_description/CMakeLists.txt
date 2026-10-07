@@ -4,7 +4,7 @@ project(g1_robot_description)
 find_package(ament_cmake REQUIRED)
 
 install(
-  DIRECTORY urdf vendor
+  DIRECTORY urdf vendor launch
   DESTINATION share/${PROJECT_NAME}
 )
 
@@ -19,6 +19,16 @@ if(BUILD_TESTING)
   ament_add_pytest_test(
     test_install
     test/test_install.py
+  )
+
+  ament_add_pytest_test(
+    test_runtime_package
+    test/test_runtime_package.py
+  )
+
+  ament_add_pytest_test(
+    test_runtime_launch
+    test/test_runtime_launch.py
   )
 endif()
 

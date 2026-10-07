@@ -93,6 +93,15 @@ Implements the handshake state machine and hand-presence detector. It exposes st
 
 Implements the left-arm card workflow: hold, present, detect a handover, release, and return safely. It exposes hold, present, and cancel services and publishes card/arm state.
 
+### `g1_robot_description`
+
+Installs the navigation-relevant kinematic chain from `pelvis` through
+the moving waist to the Intel RealSense D435i, Livox MID-360, and
+official IMU frames. Its launch file runs upstream
+`robot_state_publisher` against measured `/joint_states`; it does not
+generate default joint positions or claim the navigation-state
+transforms above `pelvis`.
+
 ### `g1_state_estimation`
 
 Validates raw IMU and odometry inputs, evaluates freshness and

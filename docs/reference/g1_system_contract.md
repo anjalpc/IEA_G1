@@ -145,10 +145,20 @@ kinematic model. The MID-360 transform is
 `xyz="0.0002835 0.00003 0.40618"` and
 `rpy="0 0.04014257279586953 0"`.
 
-This package publishes no TF and consumes no hardware. The future
-`robot_state_publisher` runtime consumes the three measured waist
-positions from `/joint_states`; it must not run
-`joint_state_publisher` or substitute default positions.
+This package consumes no hardware. Its installed
+`robot_state.launch.py` starts the upstream ROS 2
+`robot_state_publisher`, loads `g1_navigation.urdf`, and consumes the
+three measured waist positions from `/joint_states`.
+
+The runtime publishes the three moving waist edges on `/tf` and the
+fixed head, D435i, MID-360, and IMU edges on `/tf_static`. It begins
+at the URDF root `pelvis`; it does not publish or duplicate
+`odom -> base_footprint -> pelvis`.
+
+`use_sim_time` defaults to `false` for the future physical workstation
+path. Simulation must explicitly launch with `use_sim_time:=true`.
+The runtime never starts `joint_state_publisher` or substitutes
+default joint positions.
 
 The physical camera bridge currently labels depth images with
 `g1_depth_camera`. That frame must be aligned with `d435_link` before
