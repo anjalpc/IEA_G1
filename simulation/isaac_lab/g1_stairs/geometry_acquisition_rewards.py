@@ -1419,8 +1419,10 @@ class anticipatory_clearance_progress(ManagerTermBase):
         )
         relative_height = (sole_bottom - support_height).clamp_min(0.0)
         full_clearance = (
-            riser_height[:, None] + float(clearance_margin_m)
-        ).clamp_min(1.0e-6)
+            riser_height[:, None]
+            + float(clearance_margin_m)
+        ).expand_as(relative_height).clamp_min(1.0e-6)
+
         distance_to_edge = target_riser_x - front_x
         target_height, in_window = anticipatory_clearance_target(
             distance_to_edge,
