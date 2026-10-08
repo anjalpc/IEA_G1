@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>g1_navigation_control</name>
+  <version>0.1.0</version>
+  <description>
+    Lease-protected Nav2 command adapter for the G1.
+  </description>
+  <maintainer email="anjal-mohammed.pothuvachola@telefonica.com">
+    Anjal Mohammed Pothuvachola
+  </maintainer>
+  <license>BSD-3-Clause</license>
+
+  <depend>geometry_msgs</depend>
+  <depend>g1_locomotion_interfaces</depend>
+  <depend>g1_robot_interfaces</depend>
+  <depend>rclpy</depend>
+
+  <test_depend>builtin_interfaces</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

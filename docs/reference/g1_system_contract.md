@@ -318,6 +318,29 @@ The current simulation G1 is supported by an elastic overhead harness and
 initial-pose joint PD control. That limitation remains separate from the
 successful SLAM data-path proof.
 
+### Navigation command authority
+
+Nav2 publishes untrusted velocity output on
+`/g1/navigation/cmd_vel_raw`. That topic has no authority to move the
+robot or simulation backend.
+
+`g1_navigation_control` requests `OWNER_NAVIGATION` only after receiving
+Nav2 command demand. The first command is dropped while lease acquisition
+is pending. After a lease is granted, the adapter validates the planar
+velocity, attaches the opaque lease identifier, and publishes
+`g1_locomotion_interfaces/msg/LocomotionCommand` on
+`/g1/locomotion/command`.
+
+Navigation is forward-only in this initial integration. Commands are bounded
+to 0.15 m/s forward velocity and 0.40 rad/s yaw rate; lateral velocity and
+unsupported axes are rejected. The locomotion arbiter independently validates
+the same command before dispatch.
+
+An invalid command, a command-stream timeout, or adapter shutdown causes the
+adapter to publish an explicit zero command under the active lease, clear its
+local authority, and request lease release. The locomotion arbiter remains the
+authoritative owner and retains its independent command watchdog.
+
 ## Body joint order
 
 `Policy` is the neural-network action index. `SDK` is the index in Unitree
