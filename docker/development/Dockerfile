@@ -139,7 +139,8 @@ ENV LD_LIBRARY_PATH=/opt/mujoco/lib:/opt/unitree_robotics/lib:/opt/unitree_rl_la
 # Navigation perception reuses the upstream ROS point-cloud converter.
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ros-humble-pointcloud-to-laserscan \
-      ros-humble-rmw-cyclonedds-cpp && \
+      ros-humble-rmw-cyclonedds-cpp \
+      ros-humble-rviz2 && \
     rm -rf /var/lib/apt/lists/*
 
 ENV ROS_DOMAIN_ID=42
