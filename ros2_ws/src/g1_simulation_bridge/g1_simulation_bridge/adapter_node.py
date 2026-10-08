@@ -14,6 +14,7 @@ import rclpy
 from rclpy.node import Node
 from g1_robot_interfaces.bridge_server import BridgeServer
 from g1_robot_interfaces.arm_motion import validate_arm_motion
+from g1_robot_interfaces.locomotion import PlanarVelocityLimits
 from g1_robot_interfaces.validation import (
     validate_hand_name,
     validate_hand_ramp_seconds,
@@ -24,6 +25,7 @@ from g1_simulation_bridge.simulation_state import (
 )
 from g1_simulation_bridge.state_config import (
     load_lidar_publisher_config,
+    load_simulation_locomotion_config,
     load_state_publisher_config,
 )
 from g1_simulation_bridge.simulation_timing import (
@@ -38,6 +40,9 @@ from g1_simulation_bridge.lidar_publisher import (
 )
 from g1_simulation_bridge.mujoco_raycast import (
     MuJoCoRayAdapter,
+)
+from g1_simulation_bridge.simulation_locomotion import (
+    SimulationLocomotionController,
 )
 
 
@@ -214,12 +219,51 @@ def build_lidar_publisher(
     )
 
 
+
+def build_simulation_locomotion(
+    *,
+    node,
+    backend,
+    config,
+    carrier_type,
+):
+    """Build the explicitly enabled planar carrier runtime."""
+    if not config.enabled:
+        return None
+
+    carrier = carrier_type(
+        mujoco=backend.mujoco,
+        model=backend.model,
+        data=backend.data,
+        harness=backend.harness,
+        command_timeout_seconds=(
+            config.command_timeout_seconds
+        ),
+        max_forward_mps=config.max_forward_mps,
+        max_lateral_mps=config.max_lateral_mps,
+        max_yaw_rate_rps=config.max_yaw_rate_rps,
+        allow_lateral=config.allow_lateral,
+        joint_name=config.joint_name,
+    )
+    return SimulationLocomotionController(
+        node=node,
+        carrier=carrier,
+        data=backend.data,
+        velocity_limits=PlanarVelocityLimits(
+            forward_mps=config.max_forward_mps,
+            lateral_mps=config.max_lateral_mps,
+            yaw_rate_rps=config.max_yaw_rate_rps,
+        ),
+        allow_lateral=config.allow_lateral,
+    )
+
 def advance_simulation(
     *,
     backend,
     state_publisher,
     substeps,
     lidar_publisher=None,
+    locomotion_controller=None,
 ):
     """Advance physics and publish after every completed step."""
 
@@ -237,6 +281,8 @@ def advance_simulation(
         simulation_time = float(
             backend.data.time
         )
+        if locomotion_controller is not None:
+            locomotion_controller.after_step()
         state_publisher.after_step(
             data=backend.data,
             simulation_time=simulation_time,
@@ -277,6 +323,9 @@ def main(args=None):
     lidar_config = load_lidar_publisher_config(
         node
     )
+    locomotion_config = (
+        load_simulation_locomotion_config(node)
+    )
     state_publisher = SimulationStatePublisher(
         node=node,
         state_reader=SimulationStateReader(
@@ -306,6 +355,22 @@ def main(args=None):
         config=lidar_config,
         geometry=lidar_geometry,
     )
+
+    carrier_type = None
+    if locomotion_config.enabled:
+        from navigation.mujoco_planar_carrier import (
+            MuJoCoPlanarCarrier,
+        )
+        carrier_type = MuJoCoPlanarCarrier
+
+    locomotion_controller = (
+        build_simulation_locomotion(
+            node=node,
+            backend=backend,
+            config=locomotion_config,
+            carrier_type=carrier_type,
+        )
+    )
     interrupted = False
 
     def stop(_signum, _frame):
@@ -324,6 +389,7 @@ def main(args=None):
             state_publisher=state_publisher,
             substeps=substeps,
             lidar_publisher=lidar_publisher,
+            locomotion_controller=locomotion_controller,
         )
 
     try:
@@ -347,6 +413,8 @@ def main(args=None):
                     if remaining > 0.0:
                         time.sleep(remaining)
     finally:
+        if locomotion_controller is not None:
+            locomotion_controller.stop()
         node.safe_reset()
         for _ in range(substeps):
             backend.step()

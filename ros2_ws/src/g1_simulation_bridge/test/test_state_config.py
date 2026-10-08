@@ -6,8 +6,10 @@ import pytest
 
 from g1_simulation_bridge.state_config import (
     SimulationLidarPublisherConfig,
+    SimulationLocomotionConfig,
     SimulationStatePublisherConfig,
     load_lidar_publisher_config,
+    load_simulation_locomotion_config,
     load_state_publisher_config,
 )
 
@@ -249,3 +251,99 @@ def test_rejects_invalid_lidar_name(
         match="non-empty string",
     ):
         load_lidar_publisher_config(node)
+
+def test_declares_disabled_planar_carrier_defaults():
+    """Ordinary simulation cannot move kinematically."""
+    node = FakeNode()
+
+    config = load_simulation_locomotion_config(node)
+
+    assert config == SimulationLocomotionConfig(
+        enabled=False,
+        command_timeout_seconds=0.15,
+        max_forward_mps=0.15,
+        max_lateral_mps=0.01,
+        max_yaw_rate_rps=0.40,
+        allow_lateral=False,
+        joint_name="floating_base_joint",
+    )
+    assert node.declarations == {
+        "planar_carrier_enabled": False,
+        "planar_carrier_command_timeout_seconds": 0.15,
+        "planar_carrier_max_forward_mps": 0.15,
+        "planar_carrier_max_lateral_mps": 0.01,
+        "planar_carrier_max_yaw_rate_rps": 0.40,
+        "planar_carrier_allow_lateral": False,
+        "planar_carrier_joint_name": "floating_base_joint",
+    }
+
+
+def test_loads_explicit_planar_carrier_configuration():
+    """Navigation simulation can explicitly enable the fixture."""
+    node = FakeNode({
+        "planar_carrier_enabled": True,
+        "planar_carrier_command_timeout_seconds": 0.20,
+        "planar_carrier_max_forward_mps": 0.10,
+        "planar_carrier_max_lateral_mps": 0.02,
+        "planar_carrier_max_yaw_rate_rps": 0.30,
+        "planar_carrier_allow_lateral": True,
+        "planar_carrier_joint_name": "custom_free_joint",
+    })
+
+    config = load_simulation_locomotion_config(node)
+
+    assert config == SimulationLocomotionConfig(
+        enabled=True,
+        command_timeout_seconds=0.20,
+        max_forward_mps=0.10,
+        max_lateral_mps=0.02,
+        max_yaw_rate_rps=0.30,
+        allow_lateral=True,
+        joint_name="custom_free_joint",
+    )
+
+
+@pytest.mark.parametrize(
+    "parameter",
+    (
+        "planar_carrier_enabled",
+        "planar_carrier_allow_lateral",
+    ),
+)
+@pytest.mark.parametrize("value", (0, 1, "true", None))
+def test_rejects_nonboolean_planar_carrier_values(
+    parameter,
+    value,
+):
+    """Carrier enablement cannot rely on truthiness."""
+    node = FakeNode({parameter: value})
+
+    with pytest.raises(ValueError, match="boolean"):
+        load_simulation_locomotion_config(node)
+
+
+@pytest.mark.parametrize(
+    "parameter",
+    (
+        "planar_carrier_command_timeout_seconds",
+        "planar_carrier_max_forward_mps",
+        "planar_carrier_max_lateral_mps",
+        "planar_carrier_max_yaw_rate_rps",
+    ),
+)
+@pytest.mark.parametrize(
+    "value",
+    (0.0, -0.1, math.nan, math.inf),
+)
+def test_rejects_invalid_planar_carrier_limits(
+    parameter,
+    value,
+):
+    """Carrier limits must remain finite and positive."""
+    node = FakeNode({parameter: value})
+
+    with pytest.raises(
+        ValueError,
+        match="finite and positive",
+    ):
+        load_simulation_locomotion_config(node)

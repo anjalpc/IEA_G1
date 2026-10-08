@@ -17,6 +17,19 @@ class SimulationStatePublisherConfig:
 
 
 @dataclass(frozen=True)
+class SimulationLocomotionConfig:
+    """Validated simulation-only planar carrier settings."""
+
+    enabled: bool
+    command_timeout_seconds: float
+    max_forward_mps: float
+    max_lateral_mps: float
+    max_yaw_rate_rps: float
+    allow_lateral: bool
+    joint_name: str
+
+
+@dataclass(frozen=True)
 class SimulationLidarPublisherConfig:
     """Validated runtime configuration for simulated lidar."""
 
@@ -181,5 +194,69 @@ def load_lidar_publisher_config(node):
         robot_root_body_name=_frame_id(
             robot_root_body_name,
             name="lidar_robot_root_body_name",
+        ),
+    )
+
+def load_simulation_locomotion_config(node):
+    """Declare and validate the planar carrier parameters."""
+    enabled = node.declare_parameter(
+        "planar_carrier_enabled",
+        False,
+    ).value
+    command_timeout_seconds = node.declare_parameter(
+        "planar_carrier_command_timeout_seconds",
+        0.15,
+    ).value
+    max_forward_mps = node.declare_parameter(
+        "planar_carrier_max_forward_mps",
+        0.15,
+    ).value
+    max_lateral_mps = node.declare_parameter(
+        "planar_carrier_max_lateral_mps",
+        0.01,
+    ).value
+    max_yaw_rate_rps = node.declare_parameter(
+        "planar_carrier_max_yaw_rate_rps",
+        0.40,
+    ).value
+    allow_lateral = node.declare_parameter(
+        "planar_carrier_allow_lateral",
+        False,
+    ).value
+    joint_name = node.declare_parameter(
+        "planar_carrier_joint_name",
+        "floating_base_joint",
+    ).value
+
+    return SimulationLocomotionConfig(
+        enabled=_boolean(
+            enabled,
+            name="planar_carrier_enabled",
+        ),
+        command_timeout_seconds=_positive_number(
+            command_timeout_seconds,
+            name=(
+                "planar_carrier_command_timeout_seconds"
+            ),
+        ),
+        max_forward_mps=_positive_number(
+            max_forward_mps,
+            name="planar_carrier_max_forward_mps",
+        ),
+        max_lateral_mps=_positive_number(
+            max_lateral_mps,
+            name="planar_carrier_max_lateral_mps",
+        ),
+        max_yaw_rate_rps=_positive_number(
+            max_yaw_rate_rps,
+            name="planar_carrier_max_yaw_rate_rps",
+        ),
+        allow_lateral=_boolean(
+            allow_lateral,
+            name="planar_carrier_allow_lateral",
+        ),
+        joint_name=_frame_id(
+            joint_name,
+            name="planar_carrier_joint_name",
         ),
     )

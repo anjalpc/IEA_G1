@@ -6,6 +6,7 @@ from g1_simulation_bridge import adapter_node
 from g1_simulation_bridge.adapter_node import (
     advance_simulation,
     build_lidar_publisher,
+    build_simulation_locomotion,
 )
 
 
@@ -248,3 +249,138 @@ def test_enabled_lidar_binds_live_backend_and_contract(
     assert publisher["frame_id"] == "mid360_link"
     assert publisher["range_min"] == 0.25
     assert publisher["range_max"] == 40.0
+
+class LocomotionRecorder:
+    """Record carrier application in backend event order."""
+
+    def __init__(self, backend):
+        self.backend = backend
+        self.calls = []
+
+    def after_step(self):
+        """Record one post-physics carrier application."""
+        self.calls.append(self.backend.data.time)
+        self.backend.events.append(
+            ("locomotion", self.backend.data.time)
+        )
+
+
+def test_locomotion_runs_before_state_and_lidar_publication():
+    """Published sensors observe the corrected carrier pose."""
+    backend = FakeBackend()
+    locomotion = LocomotionRecorder(backend)
+    state = StatePublisherRecorder(backend)
+    lidar = LidarPublisherRecorder(backend)
+
+    advance_simulation(
+        backend=backend,
+        state_publisher=state,
+        lidar_publisher=lidar,
+        locomotion_controller=locomotion,
+        substeps=2,
+    )
+
+    assert locomotion.calls == [0.005, 0.010]
+    assert backend.events == [
+        ("step", 0.0),
+        ("locomotion", 0.005),
+        ("step", 0.005),
+        ("locomotion", 0.010),
+    ]
+    assert all(
+        call[2][-1][0] == "locomotion"
+        for call in state.calls
+    )
+    assert all(
+        call[1][-1][0] == "locomotion"
+        for call in lidar.calls
+    )
+
+
+def locomotion_config(*, enabled):
+    """Return a complete planar-carrier configuration."""
+    return SimpleNamespace(
+        enabled=enabled,
+        command_timeout_seconds=0.15,
+        max_forward_mps=0.15,
+        max_lateral_mps=0.01,
+        max_yaw_rate_rps=0.40,
+        allow_lateral=False,
+        joint_name="floating_base_joint",
+    )
+
+
+def test_disabled_locomotion_constructs_no_runtime():
+    """Default simulation remains unchanged."""
+    result = build_simulation_locomotion(
+        node=object(),
+        backend=object(),
+        config=locomotion_config(enabled=False),
+        carrier_type=object(),
+    )
+
+    assert result is None
+
+
+def test_enabled_locomotion_binds_backend_and_limits(
+    monkeypatch,
+):
+    """Explicit enablement constructs carrier and controller."""
+    backend = SimpleNamespace(
+        mujoco=object(),
+        model=object(),
+        data=object(),
+        harness=object(),
+    )
+    node = object()
+    created = {}
+
+    class FakeCarrier:
+        def __init__(self, **kwargs):
+            created["carrier"] = kwargs
+
+    class FakeController:
+        def __init__(self, **kwargs):
+            created["controller"] = kwargs
+
+    monkeypatch.setattr(
+        adapter_node,
+        "SimulationLocomotionController",
+        FakeController,
+    )
+
+    result = build_simulation_locomotion(
+        node=node,
+        backend=backend,
+        config=locomotion_config(enabled=True),
+        carrier_type=FakeCarrier,
+    )
+
+    assert isinstance(result, FakeController)
+    assert created["carrier"] == {
+        "mujoco": backend.mujoco,
+        "model": backend.model,
+        "data": backend.data,
+        "harness": backend.harness,
+        "command_timeout_seconds": 0.15,
+        "max_forward_mps": 0.15,
+        "max_lateral_mps": 0.01,
+        "max_yaw_rate_rps": 0.40,
+        "allow_lateral": False,
+        "joint_name": "floating_base_joint",
+    }
+
+    controller = created["controller"]
+    assert controller["node"] is node
+    assert controller["data"] is backend.data
+    assert controller["carrier"].__class__ is FakeCarrier
+    assert controller["allow_lateral"] is False
+    assert controller[
+        "velocity_limits"
+    ].forward_mps == 0.15
+    assert controller[
+        "velocity_limits"
+    ].lateral_mps == 0.01
+    assert controller[
+        "velocity_limits"
+    ].yaw_rate_rps == 0.40

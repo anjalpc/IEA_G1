@@ -1,0 +1,32 @@
+g1_simulation_bridge:
+  ros__parameters:
+    # Simulation order matches the BrainCo bridge command order.
+    right_hand_neutral_target: [0.399, 0.399, 0.050, 0.050, 0.049, 0.050]
+    left_hand_neutral_target: [0.400, 0.400, 0.049, 0.050, 0.049, 0.050]
+
+    # Raw navigation-state source contract.
+    state_period_seconds: 0.02
+    imu_frame_id: pelvis
+    odom_frame_id: odom
+    odom_child_frame_id: pelvis
+    state_covariance_variance: 1.0e-6
+
+    # Simulation-only planar navigation carrier.
+    # The standard simulation remains physics-driven.
+    planar_carrier_enabled: true
+    planar_carrier_command_timeout_seconds: 0.15
+    planar_carrier_max_forward_mps: 0.15
+    planar_carrier_max_lateral_mps: 0.01
+    planar_carrier_max_yaw_rate_rps: 0.40
+    planar_carrier_allow_lateral: false
+    planar_carrier_joint_name: floating_base_joint
+
+    # Deterministic navigation-integration lidar source.
+    # This is not a physical MID-360 firing-pattern model.
+    lidar_enabled: true
+    lidar_period_seconds: 0.1
+    lidar_frame_id: mid360_link
+    lidar_range_min: 0.25
+    lidar_range_max: 40.0
+    lidar_torso_body_name: torso_link
+    lidar_robot_root_body_name: pelvis
