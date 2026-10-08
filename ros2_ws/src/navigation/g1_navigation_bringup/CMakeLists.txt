@@ -25,6 +25,11 @@ if(BUILD_TESTING)
     test_control_integration_contract
     test/test_control_integration_contract.py
   )
+
+  ament_add_pytest_test(
+    test_navigation_simulation_launch
+    test/test_navigation_simulation_launch.py
+  )
 endif()
 
 ament_package()

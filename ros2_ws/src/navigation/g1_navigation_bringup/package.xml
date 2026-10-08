@@ -15,6 +15,11 @@
   <exec_depend>ament_index_python</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
+  <exec_depend>g1_simulation_bridge</exec_depend>
+  <exec_depend>g1_state_estimation</exec_depend>
+  <exec_depend>g1_robot_description</exec_depend>
+  <exec_depend>g1_navigation_perception</exec_depend>
+  <exec_depend>g1_navigation_mapping</exec_depend>
   <exec_depend>g1_locomotion_control</exec_depend>
   <exec_depend>g1_navigation_control</exec_depend>
   <exec_depend>nav2_behaviors</exec_depend>

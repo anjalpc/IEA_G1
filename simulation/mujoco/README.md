@@ -560,6 +560,16 @@ the simulated pelvis kinematically in X, Y, and yaw after commands pass through
 the navigation adapter and locomotion arbiter. It does not run a walking or
 balance policy.
 
+For the complete tested stack, use the single headless bringup command:
+
+    cd /workspace/IEA_G1/ros2_ws
+    source install/setup.bash
+    ros2 launch g1_navigation_bringup navigation_simulation.launch.py
+
+This starts simulation, validated state, robot TF, lidar projection, SLAM
+Toolbox, Nav2, and leased simulation control. Stop the complete stack with
+`Ctrl+C`.
+
 Start the headless simulation bridge with the opt-in configuration:
 
     cd /workspace/IEA_G1/ros2_ws

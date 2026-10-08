@@ -344,6 +344,13 @@ backend. Neither configuration selects the Unitree Sport backend. The
 locomotion arbiter remains the sole owner of backend dispatch and retains its
 independent 0.25 s stop watchdog.
 
+The complete workstation integration fixture is started with
+`g1_navigation_bringup/launch/navigation_simulation.launch.py`. It composes
+the package-owned simulation, state estimation, robot description,
+perception, mapping, Nav2, and navigation-control launches. Every include has
+a scoped launch-configuration context so generic arguments such as
+`params_file` cannot leak between packages.
+
 ### Navigation command authority
 
 Nav2 publishes untrusted velocity output on
