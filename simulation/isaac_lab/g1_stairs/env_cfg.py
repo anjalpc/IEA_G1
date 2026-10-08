@@ -993,6 +993,7 @@ class StairRewardsCfg:
             "failure_value": -1.0,
             "lift_milestone_value": 0.20,
             "clearance_milestone_value": 0.30,
+            "insertion_milestone_value": 0.20,
             "strike_failure_base": -1.0,
             "strike_failure_severity_scale": -0.5,
         },
