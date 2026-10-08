@@ -371,6 +371,89 @@ That physical launch requires a hardware `/joint_states` source and
 explicit alignment of the camera and MID-360 driver frames with
 `d435_link` and `mid360_link`.
 
+### Verify simulated MID-360 navigation observations
+
+The simulation configuration enables one deterministic point-cloud
+source on `/g1/sensors/lidar/points`. Do not run a physical Livox
+driver at the same time.
+
+Start the simulation bridge:
+
+```bash
+cd /workspace/IEA_G1/ros2_ws
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+
+ros2 launch g1_simulation_bridge simulation_handshake.launch.py
+```
+
+For a viewer-free run, set the bridge arguments first:
+
+```bash
+export G1_SIMULATION_ARGUMENTS="--headless"
+ros2 launch g1_simulation_bridge simulation_handshake.launch.py
+```
+
+In separate sourced container shells, launch the validated state,
+robot transforms, and workstation perception:
+
+```bash
+ros2 launch g1_state_estimation state_estimation.launch.py
+```
+
+```bash
+ros2 launch g1_robot_description robot_state.launch.py \
+  use_sim_time:=true
+```
+
+```bash
+ros2 launch g1_navigation_perception perception.launch.py \
+  use_sim_time:=true
+```
+
+Verify the source and complete transform:
+
+```bash
+ros2 topic info /g1/sensors/lidar/points --verbose
+ros2 topic echo --once /g1/sensors/lidar/points --field header
+ros2 topic echo --once /g1/sensors/lidar/points --field width
+ros2 run tf2_ros tf2_echo odom mid360_link
+```
+
+The cloud must have exactly one publisher, frame `mid360_link`, and
+best-effort, volatile, depth-one QoS. Its header advances at 10 Hz of
+simulation time. Wall-clock arrival may be slower when raycasting
+reduces the simulation real-time factor.
+
+The point-cloud converter is lazy. With no `/scan` subscriber,
+`/g1/sensors/lidar/points` has zero subscriptions. Running
+
+```bash
+ros2 topic hz /scan
+```
+
+creates one cloud subscription and produces scans in
+`base_footprint`; stopping the consumer removes the subscription.
+
+For RViz2, enter the GUI-enabled development container and run:
+
+```bash
+rviz2
+```
+
+Use `odom` as the fixed frame. Add `PointCloud2` on
+`/g1/sensors/lidar/points` and set Reliability Policy to
+`Best Effort`. Add `LaserScan` on `/scan`, `TF`, `Grid`, and
+`RobotModel` as needed.
+
+A floor-dominated scene produces an approximately circular return
+ring below the head-mounted sensor. The ring is centered around the
+ground projection of `mid360_link`, not necessarily
+`base_footprint`, because the mount is offset and follows live torso
+orientation. The navigation URDF intentionally supplies the
+pelvis-to-sensor frame chain rather than a complete visual humanoid
+model.
+
 The runner starts the backend-neutral application with the simulation bridge,
 enables it through
 `/event/handshake/start`, then triggers `/event/handshake/grip`, and

@@ -124,10 +124,13 @@ package rather than a package per sensor.
 
 ### `g1_simulation_bridge`
 
-Connects the same application-level command contract to simulation. It also
-publishes simulation `/clock`, raw IMU, raw odometry, and measured waist
-`/joint_states` for the workstation state-estimation and navigation stack. It
-is a development package and is not required on PC2.
+Connects the same application-level command contract to simulation. It
+publishes simulation `/clock`, raw IMU, raw odometry, measured waist
+`/joint_states`, and an optional deterministic MID-360 integration
+cloud on `/g1/sensors/lidar/points`. The lidar source uses the
+official head mount, simulation-time scheduling, and explicit robot
+self-filtering. It must never run alongside the physical Livox
+publisher. This is a development package and is not required on PC2.
 
 ### `g1_bringup`
 

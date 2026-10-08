@@ -5,7 +5,7 @@ BrainCo hands, and stair-climbing RL task. It is intended to eliminate routine
 dependence on upstream websites. The machine-readable YAML files linked below
 remain authoritative when this summary and a configuration disagree.
 
-Last reviewed: 2026-09-13
+Last reviewed: 2026-10-08
 
 ## Robot identity
 
@@ -88,6 +88,54 @@ frames, and the nonzero covariance floor are configured in
 This source publishes neither TF nor fused state. The
 `g1_state_estimation` package remains the validation and health
 boundary before future fusion and Nav2 consumption.
+
+### Simulated MID-360 navigation source
+
+When enabled in
+`ros2_ws/src/g1_simulation_bridge/config/simulation.yaml`,
+`g1_simulation_bridge` also publishes deterministic MuJoCo lidar
+observations:
+
+| Contract | Value |
+|---|---|
+| Topic | `/g1/sensors/lidar/points` |
+| Type | `sensor_msgs/msg/PointCloud2` |
+| Frame | `mid360_link` |
+| Cadence | 10 Hz of simulation time |
+| Fields | Little-endian float32 `x`, `y`, `z` |
+| QoS | Best effort, volatile, depth one |
+| Range | 0.25 m through 40.0 m |
+
+The source composes the live `torso_link` pose with the official
+fixed MID-360 mount. Rays originate in `mid360_link`, are rotated
+into the MuJoCo world for intersection tests, and accepted returns
+are published back in `mid360_link`.
+
+The initial navigation-integration grid uses 0.5-degree azimuth
+spacing and elevation rows at -20, 0, and +20 degrees, producing
+2160 candidate rays per cloud. This deterministic grid is not the
+physical Livox firing pattern and must not be presented as sensor
+fidelity validation.
+
+Robot geometries are identified from the MuJoCo `pelvis` body
+subtree and explicitly skipped. Self-filtering is mandatory whenever
+the source is enabled. Environment geometries may be unnamed; their
+numeric MuJoCo identity and body ownership remain authoritative.
+
+Cloud scheduling uses completed physics-step simulation time, not
+wall time or viewer cadence. Computational raycasting may make
+simulation progress slower than real time while preserving the
+10 Hz simulation-time cadence.
+
+The simulated source and physical Livox source are mutually
+exclusive. Exactly one publisher may own
+`/g1/sensors/lidar/points` in a running system. Never enable the
+simulated source while the physical MID-360 driver is publishing.
+
+`g1_simulation_bridge` publishes neither `/scan` nor lidar TF.
+`g1_navigation_perception` owns the lazy conversion to `/scan`, and
+`g1_robot_description` owns the fixed `torso_link -> mid360_link`
+transform.
 
 ### Physical waist joint-state source
 

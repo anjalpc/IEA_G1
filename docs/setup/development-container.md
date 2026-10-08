@@ -77,7 +77,7 @@ Rebuild after changing `docker/development/Dockerfile` or its overlay files:
 ./scripts/dev.sh shell --headless
 ```
 
-## Graphical MuJoCo
+## Graphical MuJoCo and RViz2
 
 On a Linux X11 host:
 
@@ -85,7 +85,33 @@ On a Linux X11 host:
 ./scripts/dev.sh shell --gui
 ```
 
-The GUI mode passes X11 authentication and GPU devices through to the container. If the host has no active `DISPLAY`, use `--headless` and follow [the simulation guide](../../simulation/mujoco/README.md) for non-visual checks.
+The GUI mode passes X11 authentication and GPU devices through to the
+container. The image includes RViz2 for navigation point-cloud, scan,
+robot-description, and TF inspection:
+
+```bash
+cd /workspace/IEA_G1/ros2_ws
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+rviz2
+```
+
+Use `odom` as the fixed frame for the simulated navigation stack.
+Sensor topics use best-effort QoS, so RViz PointCloud2 and LaserScan
+displays must use Reliability Policy `Best Effort`.
+
+After changing `docker/development/Dockerfile`, rebuild the image
+before expecting RViz2 in a new container:
+
+```bash
+cd /workspace/IEA_G1
+./scripts/dev.sh build
+./scripts/dev.sh shell --gui --no-build
+```
+
+If the host has no active `DISPLAY`, use `--headless` and follow
+[the simulation guide](../../simulation/mujoco/README.md) for
+non-visual checks.
 
 ## What the image contains
 
