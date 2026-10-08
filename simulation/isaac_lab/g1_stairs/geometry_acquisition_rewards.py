@@ -1742,6 +1742,11 @@ class step_over_transition_contract(ManagerTermBase):
         self._preferred = torch.full_like(self._target, -1)
         self._lifted = torch.zeros_like(self._active)
         self._cleared = torch.zeros_like(self._active)
+
+        # One-shot escrowed post-clearance insertion milestone.
+        # Used only for target==1: stair 1 -> stair 2.
+        self._inserted = torch.zeros_like(self._active)
+
         self._next_contact_seen = torch.zeros_like(self._active)
         self._resolved = torch.zeros_like(self._active)
         self._lift_front_x = torch.zeros(
@@ -1761,6 +1766,7 @@ class step_over_transition_contract(ManagerTermBase):
         self._preferred[env_ids] = -1
         self._lifted[env_ids] = False
         self._cleared[env_ids] = False
+        self._inserted[env_ids] = False
         self._next_contact_seen[env_ids] = False
         self._resolved[env_ids] = False
         self._lift_front_x[env_ids] = 0.0
@@ -1787,6 +1793,7 @@ class step_over_transition_contract(ManagerTermBase):
         failure_value: float = -1.0,
         lift_milestone_value: float = 0.20,
         clearance_milestone_value: float = 0.30,
+        insertion_milestone_value: float = 0.20,
         strike_failure_base: float = -1.0,
         strike_failure_severity_scale: float = -0.5,
     ) -> torch.Tensor:
@@ -2054,8 +2061,44 @@ class step_over_transition_contract(ManagerTermBase):
             clearance_milestone_value=float(clearance_milestone_value),
         )
 
+        # Target index 1 is specifically the stair-1 -> stair-2 transition.
+        #
+        # Give one bounded provisional credit only after the committed foot has
+        # already cleared the target riser and, while still unloaded, moves its
+        # entire sole beyond the riser plane.  This supplies the missing
+        # post-clearance forward signal without rewarding arbitrary horizontal
+        # reach.  target==2 (stair 2 -> stair 3) is deliberately unchanged.
+        #
+        # The credit is added to milestone_credit_paid, so the terminal escrow
+        # event later subtracts it.  Thus:
+        #   clean transition total = success_value
+        #   failed transition total = failure_value
+        insertion_candidate = (
+            self._active
+            & committed
+            & (self._target == 1)
+            & cleared
+            & ~self._inserted
+            & ~resolved
+            & (pref_force <= float(unload_force_n))
+            & (pref_rear >= next_start)
+        )
+
+        insertion_credit = (
+            insertion_candidate.to(reward.dtype)
+            * float(insertion_milestone_value)
+        )
+
+        reward = reward + insertion_credit
+        milestone_credit_paid = (
+            milestone_credit_paid + insertion_credit
+        )
+
+        inserted = self._inserted | insertion_candidate
+
         self._lifted.copy_(lifted)
         self._cleared.copy_(cleared)
+        self._inserted.copy_(inserted)
         self._next_contact_seen.copy_(next_seen)
         self._resolved.copy_(resolved)
         self._milestone_credit_paid.copy_(milestone_credit_paid)
@@ -2071,6 +2114,7 @@ class step_over_transition_contract(ManagerTermBase):
         self._preferred.copy_(torch.where(acquired, torch.full_like(self._preferred, -1), self._preferred))
         self._lifted.copy_(torch.where(acquired, torch.zeros_like(self._lifted), self._lifted))
         self._cleared.copy_(torch.where(acquired, torch.zeros_like(self._cleared), self._cleared))
+        self._inserted.copy_(torch.where(acquired, torch.zeros_like(self._inserted), self._inserted))
         self._next_contact_seen.copy_(torch.where(acquired, torch.zeros_like(self._next_contact_seen), self._next_contact_seen))
         self._resolved.copy_(torch.where(acquired, torch.zeros_like(self._resolved), self._resolved))
         self._lift_front_valid.copy_(torch.where(acquired, torch.zeros_like(self._lift_front_valid), self._lift_front_valid))
