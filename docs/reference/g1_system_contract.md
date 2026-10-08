@@ -308,6 +308,38 @@ locomotion lease, or send robot commands. Simulation launches it with
 `use_sim_time:=true`; the future physical workstation path must use wall
 clock time.
 
+### Navigation localization boundary
+
+`g1_navigation_localization` loads a selected occupancy-map YAML with
+upstream Nav2 Map Server and localizes the robot with upstream AMCL. Its
+frame and topic contract is:
+
+| Direction | Name | Ownership |
+|---|---|---|
+| Input | `/scan` | `g1_navigation_perception` |
+| Input transform | `odom -> base_footprint` | `g1_state_estimation` |
+| Input map | occupancy YAML + PGM | Map Server |
+| Output | `/amcl_pose` | AMCL |
+| Output transform | `map -> odom` | AMCL |
+
+Mapping and localization modes are mutually exclusive. SLAM Toolbox owns
+`map -> odom` while creating a map; AMCL owns the same transform while using
+a saved map. They must never run together.
+
+Localization requires an explicit initial pose in the `map` frame. The
+production localization package does not hide or guess that pose. Operators
+provide it through `/initialpose`; the deterministic simulation proof seeds
+the known arena start at `(0, 0, 0)`.
+
+The committed `navigation_arena.yaml` and `navigation_arena.pgm` files are a
+reference fixture for the deterministic MuJoCo navigation arena only. They
+are not a physical-building map and must not be deployed as one.
+
+`localization_simulation.launch.py` composes the headless simulation,
+validated state, robot description, lidar projection, saved-map
+localization, Nav2, and leased simulation control. It excludes SLAM Toolbox
+and requires the map YAML path explicitly.
+
 The deterministic MuJoCo navigation arena is an integration fixture, not a
 model of a physical building. A nonempty stationary map proves scan
 generation, projection, timestamps, TF connectivity, and SLAM ingestion. It

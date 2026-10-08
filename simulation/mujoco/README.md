@@ -570,6 +570,22 @@ This starts simulation, validated state, robot TF, lidar projection, SLAM
 Toolbox, Nav2, and leased simulation control. Stop the complete stack with
 `Ctrl+C`.
 
+#### Run saved-map localization
+
+The package includes a simulation-only reference map for the deterministic
+navigation arena. Start the saved-map stack with:
+
+    cd /workspace/IEA_G1/ros2_ws
+    source install/setup.bash
+    LOCALIZATION_SHARE="$(ros2 pkg prefix g1_navigation_localization)/share/g1_navigation_localization"
+    ros2 launch g1_navigation_bringup localization_simulation.launch.py map:="${LOCALIZATION_SHARE}/maps/navigation_arena.yaml"
+
+This launch uses Map Server and AMCL instead of SLAM Toolbox. After startup,
+publish the known simulation start pose `(0, 0, 0)` on `/initialpose` before
+sending a Nav2 goal. On a physical site, the operator must select the correct
+site map and provide the measured initial pose; the simulation defaults are
+not transferable.
+
 Start the headless simulation bridge with the opt-in configuration:
 
     cd /workspace/IEA_G1/ros2_ws

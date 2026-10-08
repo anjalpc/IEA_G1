@@ -20,6 +20,7 @@
   <exec_depend>g1_robot_description</exec_depend>
   <exec_depend>g1_navigation_perception</exec_depend>
   <exec_depend>g1_navigation_mapping</exec_depend>
+  <exec_depend>g1_navigation_localization</exec_depend>
   <exec_depend>g1_locomotion_control</exec_depend>
   <exec_depend>g1_navigation_control</exec_depend>
   <exec_depend>nav2_behaviors</exec_depend>

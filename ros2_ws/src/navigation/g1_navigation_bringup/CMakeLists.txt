@@ -30,6 +30,11 @@ if(BUILD_TESTING)
     test_navigation_simulation_launch
     test/test_navigation_simulation_launch.py
   )
+
+  ament_add_pytest_test(
+    test_localization_simulation_launch
+    test/test_localization_simulation_launch.py
+  )
 endif()
 
 ament_package()
