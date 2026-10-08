@@ -918,6 +918,7 @@ def step_over_transition_update(
     preferred_acquisition: torch.Tensor,
     single_acquisition: torch.Tensor,
     strike_severity: torch.Tensor,
+    prelift_old_tread_support: torch.Tensor | None = None,
     success_value: float = 1.0,
     failure_value: float = -1.0,
     strike_failure_base: float = -0.5,
@@ -940,6 +941,10 @@ def step_over_transition_update(
     signed event reward.
     """
     shape = active.shape
+
+    if prelift_old_tread_support is None:
+        prelift_old_tread_support = torch.zeros_like(active)
+
     tensors = (
         ("lifted", lifted),
         ("cleared", cleared),
@@ -955,6 +960,7 @@ def step_over_transition_update(
         ("preferred_acquisition", preferred_acquisition),
         ("single_acquisition", single_acquisition),
         ("strike_severity", strike_severity),
+        ("prelift_old_tread_support", prelift_old_tread_support),
     )
     for name, value in tensors:
         if value.shape != shape:
@@ -971,16 +977,29 @@ def step_over_transition_update(
         & forward_excursion_violation
         & ~strike_failure
     )
+
+    # Stair-to-stair only: once the previous stair has been acquired, the
+    # committed opposite foot must remain on the lower support until lift.
+    # Loading the acquired tread first is the observed step-to exploit.
+    consolidation_failure = (
+        eligible
+        & ~lifted_now
+        & prelift_old_tread_support
+        & ~strike_failure
+        & ~excursion_failure
+    )
+
     replant_failure = (
         eligible
         & lifted_now
         & old_tread_contact
         & ~strike_failure
         & ~excursion_failure
+        & ~consolidation_failure
     )
 
     # A target-tread contact before verified riser clearance does not count as
-    # a clean step-over. This also closes a "clip then land" loophole.
+    # a clean step-over.
     premature_next_failure = (
         eligible
         & lifted_now
@@ -988,6 +1007,7 @@ def step_over_transition_update(
         & ~cleared_now
         & ~strike_failure
         & ~excursion_failure
+        & ~consolidation_failure
         & ~replant_failure
     )
 
@@ -998,6 +1018,7 @@ def step_over_transition_update(
         & next_tread_contact
         & ~strike_failure
         & ~excursion_failure
+        & ~consolidation_failure
         & ~replant_failure
     )
     next_seen_now = next_contact_seen | direct_contact
@@ -1005,6 +1026,7 @@ def step_over_transition_update(
     already_failed = (
         strike_failure
         | excursion_failure
+        | consolidation_failure
         | replant_failure
         | premature_next_failure
     )
@@ -1030,6 +1052,7 @@ def step_over_transition_update(
     failure = (
         strike_failure
         | excursion_failure
+        | consolidation_failure
         | replant_failure
         | premature_next_failure
         | nonpreferred_failure
@@ -1057,12 +1080,18 @@ def step_over_transition_update(
 
     # Event codes are diagnostic only:
     # 0 none, 1 success, 2 replant, 3 strike, 4 nonpreferred,
-    # 5 sequence/clearance failure, 6 excessive forward excursion.
+    # 5 sequence/clearance failure, 6 excessive forward excursion,
+    # 7 pre-lift old-tread consolidation.
     event_code = torch.zeros(shape, dtype=torch.long, device=active.device)
     event_code = torch.where(success, torch.ones_like(event_code), event_code)
     event_code = torch.where(
         replant_failure,
         torch.full_like(event_code, 2),
+        event_code,
+    )
+    event_code = torch.where(
+        consolidation_failure,
+        torch.full_like(event_code, 7),
         event_code,
     )
     event_code = torch.where(

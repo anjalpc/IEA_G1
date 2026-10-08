@@ -118,6 +118,17 @@ class GeometryEpisodeRuntime:
             self._joint_limit_peak_rad[level] = torch.maximum(
                 self._joint_limit_peak_rad[level], peak,
             )
+        acquisition_runtime = getattr(
+            env, "_g1_v04_acquisition", None
+        )
+        step_over_contract_violation = getattr(
+            acquisition_runtime,
+            "step_over_contract_violation",
+            None,
+        )
+        if step_over_contract_violation is None:
+            step_over_contract_violation = torch.zeros_like(invalid)
+
         reason = self.tracker.update(
             position=position, roll_pitch=torch.stack((roll, pitch), -1),
             riser_height=riser_height_per_env(env), foot_position=feet,
@@ -127,6 +138,7 @@ class GeometryEpisodeRuntime:
             velocity_limit=(data.joint_vel.abs() > data.soft_joint_vel_limits + 1.e-5).any(-1),
             torque_limit=(data.applied_torque.abs() > data.joint_effort_limits + 1.e-3).any(-1),
             timed_out=env.episode_length_buf >= env.max_episode_length,
+            step_over_contract_violation=step_over_contract_violation,
             **finish_state,
         )
         self._record_joint_limit_diagnostics(env, data, limits, reason)

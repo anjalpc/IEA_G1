@@ -322,6 +322,8 @@ class GeometryAcquisitionRuntime:
             env_ids = slice(None)
 
         self.target_step[env_ids] = 0
+        if hasattr(self, "step_over_contract_violation"):
+            self.step_over_contract_violation[env_ids] = False
         self.preferred_foot[env_ids] = -1
         self.support_elapsed[env_ids] = 0.0
         self.touchdown_attempt_active[env_ids] = False
@@ -1957,16 +1959,34 @@ class step_over_transition_contract(ManagerTermBase):
         )
 
         loaded = pref_force >= float(touchdown_force_n)
+
+        old_height = (
+            (pref_bottom - old_top).abs()
+            <= float(top_height_tolerance_m)
+        )
+        old_overlap = (
+            (pref_front >= old_start)
+            & (pref_rear <= old_end)
+        )
+
+        # For stair-to-stair transitions only, support above the unload
+        # threshold on the already-acquired tread is forbidden. This closes
+        # both the pre-lift consolidation and the 15-30 N dead band.
+        prelift_old_tread_support = (
+            self._active
+            & committed
+            & (self._target > 0)
+            & (pref_force > float(unload_force_n))
+            & old_height
+            & old_overlap
+        )
+
         old_contact = (
             self._active
             & committed
             & loaded
-            & (
-                (pref_bottom - old_top).abs()
-                <= float(top_height_tolerance_m)
-            )
-            & (pref_front >= old_start)
-            & (pref_rear <= old_end)
+            & old_height
+            & old_overlap
         )
         next_contact = (
             self._active
@@ -2036,6 +2056,7 @@ class step_over_transition_contract(ManagerTermBase):
             clear_riser=clear_riser,
             old_tread_contact=old_contact,
             next_tread_contact=next_contact,
+            prelift_old_tread_support=prelift_old_tread_support,
             strike_event=strike_event,
             forward_excursion_violation=excursion_violation,
             acquisition_event=acquisition_event,
@@ -2049,6 +2070,16 @@ class step_over_transition_contract(ManagerTermBase):
                 float(strike_failure_severity_scale)
             ),
         )
+        # Any transition-contract failure is sticky for the episode so it
+        # cannot be paid once and followed by further stair/finish rewards.
+        if not hasattr(runtime, "step_over_contract_violation"):
+            runtime.step_over_contract_violation = torch.zeros(
+                env.num_envs,
+                dtype=torch.bool,
+                device=env.device,
+            )
+        runtime.step_over_contract_violation |= event_code >= 2
+
         new_lift_milestone = lifted & ~self._lifted
         new_clearance_milestone = cleared & ~self._cleared
         reward, milestone_credit_paid = escrowed_transition_reward(

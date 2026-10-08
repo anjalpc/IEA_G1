@@ -24,6 +24,7 @@ class Result(IntEnum):
     WRONG_DIRECTION = 9
     STALL = 10
     TIMEOUT = 11
+    STEP_OVER_CONTRACT = 12
 
 
 @dataclass(frozen=True)
@@ -108,9 +109,23 @@ class EpisodeTracker:
     def update(self, *, position, roll_pitch, riser_height, foot_position,
                foot_force_z, forbidden_contact, invalid_state, joint_limit,
                velocity_limit, torque_limit, timed_out,
+               step_over_contract_violation=None,
                sole_bounds=None, body_linear_velocity=None,
                body_angular_velocity=None, foot_linear_velocity=None):
         active = self.reason == Result.RUNNING
+
+        if step_over_contract_violation is None:
+            step_over_contract_violation = torch.zeros_like(active)
+        else:
+            if step_over_contract_violation.shape != active.shape:
+                raise ValueError(
+                    "step_over_contract_violation must match episode shape"
+                )
+            step_over_contract_violation = (
+                step_over_contract_violation
+                .to(device=active.device, dtype=torch.bool)
+            )
+
         x, y, z = position.unbind(-1)
         new = active & ~self.started
         self.start_x[new] = x[new]
@@ -212,6 +227,7 @@ class EpisodeTracker:
         # control step; timeout is the only bootstrapped truncation.
         failures = (
             (Result.INVALID_STATE, invalid_state),
+            (Result.STEP_OVER_CONTRACT, step_over_contract_violation),
             (Result.FALL, ~upright | ~clearance_ok),
             (Result.FORBIDDEN_CONTACT, forbidden_contact),
             (Result.COURSE_BOUNDARY, boundary),
