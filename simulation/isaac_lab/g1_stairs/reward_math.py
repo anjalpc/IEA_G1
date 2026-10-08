@@ -1140,6 +1140,38 @@ def step_over_hard_failure_mask(
 
 
 
+
+def discounted_potential_shaping(
+    previous_potential: torch.Tensor,
+    current_potential: torch.Tensor,
+    terminal: torch.Tensor,
+    *,
+    discount_gamma: float,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Return gamma*Phi(s') - Phi(s), forcing terminal Phi(s') to zero."""
+    if previous_potential.shape != current_potential.shape:
+        raise ValueError(
+            "previous_potential and current_potential must match"
+        )
+    if terminal.shape != current_potential.shape:
+        raise ValueError("terminal must match potential tensors")
+    if terminal.dtype != torch.bool:
+        raise ValueError("terminal must be boolean")
+    if not 0.0 < discount_gamma <= 1.0:
+        raise ValueError("discount_gamma must be in (0, 1]")
+
+    next_potential = torch.where(
+        terminal,
+        torch.zeros_like(current_potential),
+        current_potential,
+    )
+    shaping = (
+        float(discount_gamma) * next_potential
+        - previous_potential
+    )
+    return shaping, next_potential
+
+
 def monotonic_progress_credit(
     current_fraction: torch.Tensor,
     best_fraction: torch.Tensor,

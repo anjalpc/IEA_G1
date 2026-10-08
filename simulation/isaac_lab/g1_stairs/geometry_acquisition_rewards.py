@@ -43,7 +43,7 @@ from .reward_math import (
     step_over_transition_update,
     step_over_hard_failure_mask,
     escrowed_transition_reward,
-    monotonic_progress_credit,
+    discounted_potential_shaping,
     update_alternating_preferred_foot,
 )
 
@@ -1790,7 +1790,7 @@ class step_over_transition_contract(ManagerTermBase):
         self._milestone_credit_paid = torch.zeros(
             n, dtype=torch.float32, device=device
         )
-        self._vertical_clearance_best_fraction = torch.zeros(
+        self._vertical_clearance_potential = torch.zeros(
             n, dtype=torch.float32, device=device
         )
         self.last_event_code = torch.zeros_like(self._target)
@@ -1809,7 +1809,7 @@ class step_over_transition_contract(ManagerTermBase):
         self._lift_front_x[env_ids] = 0.0
         self._lift_front_valid[env_ids] = False
         self._milestone_credit_paid[env_ids] = 0.0
-        self._vertical_clearance_best_fraction[env_ids] = 0.0
+        self._vertical_clearance_potential[env_ids] = 0.0
         self.last_event_code[env_ids] = 0
 
     def __call__(
@@ -1832,6 +1832,7 @@ class step_over_transition_contract(ManagerTermBase):
         lift_milestone_value: float = 0.20,
         clearance_milestone_value: float = 0.30,
         vertical_clearance_progress_value: float = 0.0,
+        vertical_clearance_discount_gamma: float = 0.99,
         insertion_milestone_value: float = 0.20,
         strike_failure_base: float = -1.0,
         strike_failure_severity_scale: float = -0.5,
@@ -1866,6 +1867,10 @@ class step_over_transition_contract(ManagerTermBase):
         if vertical_clearance_progress_value < 0.0:
             raise ValueError(
                 "vertical_clearance_progress_value cannot be negative"
+            )
+        if not 0.0 < vertical_clearance_discount_gamma <= 1.0:
+            raise ValueError(
+                "vertical_clearance_discount_gamma must be in (0, 1]"
             )
         if clearance_window_m <= 0.0:
             raise ValueError("clearance_window_m must be positive")
@@ -2148,13 +2153,9 @@ class step_over_transition_contract(ManagerTermBase):
         #
         # Anti-exploit contract:
         # - no credit on free-choice ground -> stair1 (target == 0)
-        # - only committed preferred foot
-        # - preferred foot must be unloaded
-        # - opposite foot must provide support
-        # - only new maximum vertical clearance can pay
-        # - no horizontal coordinate enters the potential
-        # - terminal steps cannot emit new progress credit
-        # - all prior progress credit remains inside terminal escrow
+        # Discount-neutral potential shaping for stair-to-stair clearance.
+        # Phi depends only on committed-foot vertical clearance.
+        # Horizontal displacement does not enter the potential.
         clearance_denominator = (
             next_top
             + float(riser_clearance_margin_m)
@@ -2166,34 +2167,42 @@ class step_over_transition_contract(ManagerTermBase):
             / clearance_denominator
         ).clamp(0.0, 1.0)
 
-        vertical_clearance_eligible = (
+        vertical_clearance_state = (
             self._active
             & committed
             & (self._target > 0)
-            & ~self._resolved
-            & ~self._cleared
-            & (event_code == 0)
-            & (pref_force <= float(unload_force_n))
-            & (
-                pref_opposite_force
-                >= float(opposite_support_force_n)
-            )
+            & ~resolved
+        )
+
+        current_potential = torch.where(
+            vertical_clearance_state,
+            vertical_clearance_fraction
+            * float(vertical_clearance_progress_value),
+            torch.zeros_like(vertical_clearance_fraction),
+        )
+
+        # Isaac Lab computes termination before reward.  event_code is
+        # generated inside this reward term, so both sources are terminal.
+        potential_terminal = (
+            env.reset_buf
+            | (event_code != 0)
         )
 
         (
-            vertical_clearance_best_fraction,
-            vertical_clearance_credit,
-        ) = monotonic_progress_credit(
-            vertical_clearance_fraction,
-            self._vertical_clearance_best_fraction,
-            vertical_clearance_eligible,
-            total_value=float(
-                vertical_clearance_progress_value
+            vertical_clearance_shaping,
+            vertical_clearance_potential,
+        ) = discounted_potential_shaping(
+            self._vertical_clearance_potential,
+            current_potential,
+            potential_terminal,
+            discount_gamma=float(
+                vertical_clearance_discount_gamma
             ),
         )
 
         new_lift_milestone = lifted & ~self._lifted
         new_clearance_milestone = cleared & ~self._cleared
+
         reward, milestone_credit_paid = escrowed_transition_reward(
             reward,
             event_code,
@@ -2201,9 +2210,12 @@ class step_over_transition_contract(ManagerTermBase):
             new_clearance_milestone,
             self._milestone_credit_paid,
             lift_milestone_value=float(lift_milestone_value),
-            clearance_milestone_value=float(clearance_milestone_value),
-            progress_credit=vertical_clearance_credit,
+            clearance_milestone_value=float(
+                clearance_milestone_value
+            ),
         )
+
+        reward = reward + vertical_clearance_shaping
 
         # Target index 1 is specifically the stair-1 -> stair-2 transition.
         #
@@ -2246,8 +2258,8 @@ class step_over_transition_contract(ManagerTermBase):
         self._next_contact_seen.copy_(next_seen)
         self._resolved.copy_(resolved)
         self._milestone_credit_paid.copy_(milestone_credit_paid)
-        self._vertical_clearance_best_fraction.copy_(
-            vertical_clearance_best_fraction
+        self._vertical_clearance_potential.copy_(
+            vertical_clearance_potential
         )
         self.last_event_code.copy_(event_code)
 
@@ -2276,13 +2288,13 @@ class step_over_transition_contract(ManagerTermBase):
         self._next_contact_seen.copy_(torch.where(acquired, torch.zeros_like(self._next_contact_seen), self._next_contact_seen))
         self._resolved.copy_(torch.where(acquired, torch.zeros_like(self._resolved), self._resolved))
         self._lift_front_valid.copy_(torch.where(acquired, torch.zeros_like(self._lift_front_valid), self._lift_front_valid))
-        self._vertical_clearance_best_fraction.copy_(
+        self._vertical_clearance_potential.copy_(
             torch.where(
                 acquired,
                 torch.zeros_like(
-                    self._vertical_clearance_best_fraction
+                    self._vertical_clearance_potential
                 ),
-                self._vertical_clearance_best_fraction,
+                self._vertical_clearance_potential,
             )
         )
         self._milestone_credit_paid.copy_(
