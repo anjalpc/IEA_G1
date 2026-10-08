@@ -100,6 +100,26 @@ def test_development_image_uses_exact_nav2_lock():
     assert "/tmp/nav2-packages.lock" in dockerfile
 
 
+
+def test_development_dds_capacity_supports_navigation_processes():
+    """The full navigation stack must fit in the DDS participant range."""
+    configuration = (
+        REPOSITORY_ROOT / "config" / "cyclonedds_humble.xml"
+    )
+    root = ET.parse(configuration).getroot()
+    discovery = root.find("./Domain/Discovery")
+
+    assert discovery is not None
+
+    participant_index = discovery.find("ParticipantIndex")
+    maximum_index = discovery.find("MaxAutoParticipantIndex")
+
+    assert participant_index is not None
+    assert participant_index.text == "auto"
+    assert maximum_index is not None
+    assert int(maximum_index.text) == 63
+
+
 def test_package_contains_no_custom_nav2_implementation():
     forbidden_source_roots = (
         PACKAGE_ROOT / "src",

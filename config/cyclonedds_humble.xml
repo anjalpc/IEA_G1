@@ -9,6 +9,7 @@
     </General>
     <Discovery>
       <ParticipantIndex>auto</ParticipantIndex>
+      <MaxAutoParticipantIndex>63</MaxAutoParticipantIndex>
     </Discovery>
   </Domain>
 </CycloneDDS>

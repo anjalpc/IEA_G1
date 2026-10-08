@@ -414,6 +414,12 @@ DDS/network separation is mandatory:
 | Native MuJoCo simulation | 1 | Loopback (`lo`) |
 | Project ROS application stack | 42 | Configured CycloneDDS interface |
 
+The development application domain uses CycloneDDS with automatic participant
+indices and `MaxAutoParticipantIndex` set to `63`. This provides sufficient
+capacity for the separate simulation, state-estimation, perception, mapping,
+and Nav2 processes. It changes discovery capacity only; domain ownership and
+network isolation remain unchanged.
+
 Never run simulation on hardware domain 0. Never run two low-level physical
 controllers simultaneously. The physical hardware bridge is the only project
 component permitted to command the robot directly.
