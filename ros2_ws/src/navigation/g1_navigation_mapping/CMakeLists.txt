@@ -1,0 +1,25 @@
+cmake_minimum_required(VERSION 3.5)
+project(g1_navigation_mapping)
+
+find_package(ament_cmake REQUIRED)
+
+install(
+  DIRECTORY config launch
+  DESTINATION share/${PROJECT_NAME}
+)
+
+if(BUILD_TESTING)
+  find_package(ament_cmake_pytest REQUIRED)
+
+  ament_add_pytest_test(
+    test_package_contract
+    test/test_package_contract.py
+  )
+
+  ament_add_pytest_test(
+    test_mapping_contract
+    test/test_mapping_contract.py
+  )
+endif()
+
+ament_package()
