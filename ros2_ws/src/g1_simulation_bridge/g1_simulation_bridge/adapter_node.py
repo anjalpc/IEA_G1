@@ -69,7 +69,11 @@ def resolve_simulation_root(explicit_path=None):
     )
     for candidate in candidates:
         resolved = candidate.expanduser().resolve()
-        if (resolved / "run_handshake_demo.py").is_file():
+        if (
+            resolved
+            / "runtime"
+            / "integrated_backend.py"
+        ).is_file():
             return resolved
     raise FileNotFoundError(
         "simulation backend not found; run from the IEA_G1 checkout or set "

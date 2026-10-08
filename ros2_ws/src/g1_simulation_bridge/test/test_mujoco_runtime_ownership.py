@@ -62,6 +62,7 @@ def test_ros_adapter_loads_the_reusable_backend_directly():
     ).read_text(encoding="utf-8")
 
     assert "from runtime.integrated_backend import" in adapter
+    assert "run_handshake_demo.py" not in adapter
     assert "from run_handshake_demo import" not in adapter
 
 
