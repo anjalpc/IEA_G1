@@ -20,6 +20,11 @@ if(BUILD_TESTING)
     test_mapping_contract
     test/test_mapping_contract.py
   )
+
+  ament_add_pytest_test(
+    test_runtime_launch
+    test/test_runtime_launch.py
+  )
 endif()
 
 ament_package()
