@@ -137,9 +137,13 @@ ENV LD_LIBRARY_PATH=/opt/mujoco/lib:/opt/unitree_robotics/lib:/opt/unitree_rl_la
 # Use one ROS middleware and domain in every development shell. CycloneDDS
 # avoids Fast DDS shared-memory transport problems between container shells.
 # Navigation perception reuses the upstream ROS point-cloud converter.
-RUN apt-get update && apt-get install -y --no-install-recommends \
-      ros-humble-navigation2 \
-      ros-humble-nav2-bringup \
+# Install the captured Nav2/DWB Debian build set exactly. An unavailable
+# version must fail the image build instead of silently changing behavior.
+COPY nav2-packages.lock /tmp/nav2-packages.lock
+RUN apt-get update && \
+    xargs -r apt-get install -y --no-install-recommends \
+      < /tmp/nav2-packages.lock && \
+    apt-get install -y --no-install-recommends \
       ros-humble-pointcloud-to-laserscan \
       ros-humble-rmw-cyclonedds-cpp \
       ros-humble-rviz2 \
