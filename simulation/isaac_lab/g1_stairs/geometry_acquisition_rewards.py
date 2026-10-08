@@ -293,6 +293,13 @@ class GeometryAcquisitionRuntime:
             dtype=torch.long,
             device=env.device,
         )
+        # Iteration-level step-over event counts:
+        # rows: target 0/1/2, columns: event codes 0..7.
+        self.step_over_event_counts = torch.zeros(
+            (3, 8),
+            dtype=torch.long,
+            device=env.device,
+        )
 
         count = len(self.forbidden_ids)
         self.contact_max_force = torch.zeros(
@@ -1153,6 +1160,28 @@ class GeometryAcquisitionRuntime:
             ),
         }
 
+        transition_labels = (
+            "ground_to_step1",
+            "step1_to_step2",
+            "step2_to_step3",
+        )
+        event_labels = {
+            1: "success",
+            2: "replant",
+            3: "strike",
+            4: "nonpreferred",
+            5: "sequence",
+            6: "excursion",
+            7: "consolidation",
+        }
+        for target_index, transition in enumerate(transition_labels):
+            for code, label in event_labels.items():
+                result[
+                    f"v04_step_over_{transition}_event{code}_{label}"
+                ] = float(
+                    self.step_over_event_counts[target_index, code].item()
+                )
+
         for i, name in enumerate(self.forbidden_names):
             prefix = f"v04_contact_{name}"
             result[f"{prefix}_max_force_n"] = float(
@@ -1174,6 +1203,7 @@ class GeometryAcquisitionRuntime:
         self.clearance_progress_events.zero_()
         self.insertion_progress_events.zero_()
         self.touchdowns.zero_()
+        self.step_over_event_counts.zero_()
 
         self.contact_max_force.zero_()
         self.contact_events.zero_()
@@ -2137,6 +2167,17 @@ class step_over_transition_contract(ManagerTermBase):
         self._resolved.copy_(resolved)
         self._milestone_credit_paid.copy_(milestone_credit_paid)
         self.last_event_code.copy_(event_code)
+
+        # Preserve event distribution across episode resets until
+        # consume_metrics() is called at the iteration boundary.
+        for target_index in range(3):
+            target_mask = self._target == target_index
+            for code in range(1, 8):
+                runtime.step_over_event_counts[target_index, code] += (
+                    torch.count_nonzero(
+                        target_mask & (event_code == code)
+                    )
+                )
 
         # After any physical acquisition, begin the next transition from the
         # newly synchronized target. The existing runtime chooses the opposite
