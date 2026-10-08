@@ -127,6 +127,22 @@ wall time or viewer cadence. Computational raycasting may make
 simulation progress slower than real time while preserving the
 10 Hz simulation-time cadence.
 
+The project-owned navigation integration arena is declared in
+`simulation/mujoco/navigation/navigation_arena.py` and is composed
+after loading the vendored Unitree scene. It contains the named
+geometries `navigation_wall_north`, `navigation_wall_east`, and
+`navigation_pillar_southwest`. These deterministic objects provide
+finite vertical lidar returns without modifying vendor files. They
+are an integration fixture, not a model of a physical building.
+
+The ROS MuJoCo backend initializes the G1 under an enabled elastic
+overhead harness and holds the imported initial joint pose with
+joint-space PD control. It does not run the Unitree balance or walking
+policy. The robot may therefore appear suspended with an L-shaped arm
+posture. This runtime proves sensors, TF, mapping, and interaction
+contracts; it does not prove unsupported standing or autonomous
+walking.
+
 The simulated source and physical Livox source are mutually
 exclusive. Exactly one publisher may own
 `/g1/sensors/lidar/points` in a running system. Never enable the

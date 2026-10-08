@@ -446,13 +446,23 @@ Use `odom` as the fixed frame. Add `PointCloud2` on
 `Best Effort`. Add `LaserScan` on `/scan`, `TF`, `Grid`, and
 `RobotModel` as needed.
 
-A floor-dominated scene produces an approximately circular return
-ring below the head-mounted sensor. The ring is centered around the
-ground projection of `mid360_link`, not necessarily
-`base_footprint`, because the mount is offset and follows live torso
-orientation. The navigation URDF intentionally supplies the
-pelvis-to-sensor frame chain rather than a complete visual humanoid
-model.
+The floor is visible in the raw point cloud but is intentionally
+removed by the planar projection height filter. With no vertical
+environment geometry, all 720 `/scan` bins are infinite and SLAM
+correctly produces an empty map. An RViz maximum-range ring must not
+be mistaken for physical obstacle returns.
+
+The project-owned navigation integration arena adds asymmetric named
+walls and a pillar outside the vendored Unitree scene. These objects
+provide deterministic finite scan returns for mapping tests. They do
+not represent a physical building.
+
+The ROS simulation uses an elastic overhead harness and initial-pose
+joint PD control, not a balance or walking policy. It can prove the
+sensor and mapping chain while stationary, but it does not validate
+unsupported standing or navigation while walking. The navigation
+URDF intentionally supplies the pelvis-to-sensor frame chain rather
+than a complete visual humanoid model.
 
 The runner starts the backend-neutral application with the simulation bridge,
 enables it through

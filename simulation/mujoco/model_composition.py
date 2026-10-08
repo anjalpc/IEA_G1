@@ -7,6 +7,10 @@ from pathlib import Path
 
 import mujoco
 
+from navigation.navigation_arena import (
+    add_navigation_arena,
+)
+
 
 SIMULATION_ROOT = Path(__file__).resolve().parent
 G1_SCENE = SIMULATION_ROOT / "vendor" / "unitree_g1" / "scene_29dof.xml"
@@ -113,6 +117,7 @@ def build_combined_spec() -> mujoco.MjSpec:
     # Compose from the full vendor scene, not the bare robot MJCF. The scene
     # supplies the visible/contacting floor, lighting, and camera defaults.
     spec = mujoco.MjSpec.from_file(str(G1_SCENE))
+    add_navigation_arena(spec)
     for side in ("right", "left"):
         _remove_placeholder(spec, side)
         wrist = spec.body(f"{side}_wrist_yaw_link")
