@@ -1,0 +1,661 @@
+schema_version: 1
+code:
+  project_branch: g1-stair-rl
+  project_commit: resolved_from_clean_worktree_at_launch
+  require_clean_worktree: true
+  unitree_rl_lab_commit: 4960b84732b0c2ec593dccbfe963fda1bcd7b1e3
+software:
+  isaac_sim: 5.1.0
+  isaac_lab_release: 2.3.0
+  isaac_lab_tag: v2.3.0
+  isaac_lab_commit: 3c6e67bb5c7ada942a6d1884ab69338f57596f77
+  rsl_rl: 3.0.1
+execution:
+  provider: aws
+  instance_type: g6.4xlarge
+  device: cuda:0
+  headless: true
+  environments: 2048
+  maximum_iterations: 3000
+  training_seed: 42
+  evaluation_seeds:
+  - 1001
+  - 1002
+  - 1003
+  - 1004
+  - 1005
+  deterministic_torch: false
+task:
+  id: Unitree-IEA-G1-29dof-Stairs-v0
+  custom_stair_task_active: true
+  episode_length_s: 24.0
+  objective: Approach and climb exactly three stairs, reach 0.20 m onto the upper
+    platform, stop, and remain stably supported for 1.0 s.
+robot:
+  variant: G1_EDU_U7
+  mode_machine: 5
+  policy_dofs: 29
+  asset: G1_GEOMETRY_LOCOMOTION_ROBOT_CFG
+  asset_revision: official_29dof_usd_with_deployment_pd_contract
+  brainco_hands:
+    physically_present_on_robot: true
+    included_in_this_debug_asset: false
+    locomotion_action_channels: 0
+    required_before_final_training: true
+timing:
+  physics_timestep_s: 0.005
+  physics_frequency_hz: 200
+  decimation: 4
+  control_timestep_s: 0.02
+  control_frequency_hz: 50
+  policy_frequency_hz: 50
+  observation_latency_s: 0.0
+  action_latency_s: 0.0
+observations:
+  history_length: 5
+  corruption_enabled: false
+  concatenated: true
+  policy_order:
+  - base_angular_velocity
+  - projected_gravity
+  - velocity_command
+  - joint_position_offset
+  - joint_velocity
+  - previous_action
+  - explicit_stair_geometry
+  additions:
+    local_terrain_height_scan:
+      frame: yaw_aligned_robot_frame
+      clipping:
+      - -1.0
+      - 1.0
+      sensor: height_scanner
+      actor_input: false
+      critic_input: true
+  deployment_warning: Actor uses only deployable 480-D locomotion history plus 5-D
+    explicit stair geometry; terrain height scan is critic-only.
+  action_history_included: true
+  terrain_scan_in_actor: false
+  terrain_scan_in_critic: true
+  actor_height_scan: false
+  critic_height_scan: true
+actions:
+  type: joint_position_offset
+  dimension: 29
+  scale: 0.25
+  clipping: resolved_from_upstream_environment
+  use_default_joint_offset: true
+  smoothing: none
+  joint_order:
+  - left_hip_pitch_joint
+  - right_hip_pitch_joint
+  - waist_yaw_joint
+  - left_hip_roll_joint
+  - right_hip_roll_joint
+  - waist_roll_joint
+  - left_hip_yaw_joint
+  - right_hip_yaw_joint
+  - waist_pitch_joint
+  - left_knee_joint
+  - right_knee_joint
+  - left_shoulder_pitch_joint
+  - right_shoulder_pitch_joint
+  - left_ankle_pitch_joint
+  - right_ankle_pitch_joint
+  - left_shoulder_roll_joint
+  - right_shoulder_roll_joint
+  - left_ankle_roll_joint
+  - right_ankle_roll_joint
+  - left_shoulder_yaw_joint
+  - right_shoulder_yaw_joint
+  - left_elbow_joint
+  - right_elbow_joint
+  - left_wrist_roll_joint
+  - right_wrist_roll_joint
+  - left_wrist_pitch_joint
+  - right_wrist_pitch_joint
+  - left_wrist_yaw_joint
+  - right_wrist_yaw_joint
+commands:
+  forward_velocity_mps:
+  - 0.35
+  - 0.35
+  lateral_velocity_mps:
+  - 0.0
+  - 0.0
+  yaw_velocity_radps:
+  - 0.0
+  - 0.0
+terrain:
+  type: fixed_three_step_ascent
+  direction: positive_x
+  course_size_m:
+  - 5.75
+  - 1.2
+  approach_length_m: 2.0
+  riser_height_m: 0.04
+  tread_depth_m: 0.25
+  step_count: 3
+  stair_run_m: 0.75
+  total_rise_m: 0.12
+  platform_length_m: 3.0
+  required_platform_continuation_m: 0.2
+  platform_starts_immediately_after_third_tread: true
+  collision_representation: non_overlapping_trimesh_boxes
+  horizontal_resolution_m: 0.05
+  vertical_resolution_m: 0.005
+  curriculum_enabled: true
+  riser_height_range_m:
+  - 0.04
+  - 0.2
+  riser_heights_m:
+  - 0.04
+  - 0.08
+  - 0.12
+  - 0.16
+  - 0.2
+  curriculum:
+    enabled: true
+    initial_max_level: 0
+    platform_margin_m: 0.1
+    minimum_upright_gravity_z: 0.75
+    minimum_base_clearance_m: 0.55
+    minimum_nonflat_env_fraction: 0.0
+reset_distribution:
+  base_pose: fixed
+  base_pose_offset: fixed_zero
+  base_velocity: fixed_zero
+  joint_position_scale:
+  - 1.0
+  - 1.0
+  joint_velocity_radps:
+  - 0.0
+  - 0.0
+domain_randomization:
+  enabled: false
+  rigid_body_material: false
+  added_mass: false
+  pushes: false
+  observation_noise: false
+  action_latency: false
+rewards:
+  aggregation: weighted_sum_per_step
+  clipping: none
+  always_logged:
+    forward_progress_raw:
+      formula: base_position_x_t_minus_base_position_x_previous
+      units: m_per_step
+      active_weight: 0.0
+    upward_progress_raw:
+      formula: positive_part_of_base_height_t_minus_base_height_previous
+      units: m_per_step
+      active_weight: 0.0
+    stair_progress_raw:
+      formula: maximum_step_index_reached_minus_previous_maximum_step_index
+      units: steps
+      active_weight: 0.0
+    platform_entry_raw:
+      formula: first_entry_onto_upper_platform
+      threshold_robot_relative_x_m: 1.75
+      active_weight: 0.0
+    task_completion_raw:
+      formula: first_crossing_of_required_post_stair_distance
+      threshold_robot_relative_x_m: 1.95
+      active_weight: 0.0
+    upright_raw:
+      formula: squared_xy_projected_gravity
+      interpretation: zero_when_upright_increases_with_tilt
+      active_weight: 0.0
+    forbidden_contact_raw:
+      formula: count_of_new_forbidden_contact_events
+      active_weight: 0.0
+    fall_raw:
+      formula: first_transition_into_fall_state
+      active_weight: 0.0
+    feet_clearance_raw:
+      formula: foot_clearance_tracking_error
+      active_weight: 0.0
+    feet_slip_raw:
+      formula: stance_foot_horizontal_slip_speed
+      active_weight: 0.0
+    joint_limit_raw:
+      formula: joint_limit_violation_magnitude
+      active_weight: 0.0
+    velocity_limit_raw:
+      formula: joint_velocity_limit_violation_magnitude
+      active_weight: 0.0
+    torque_limit_raw:
+      formula: actuator_torque_limit_violation_magnitude
+      active_weight: 0.0
+    action_rate_raw:
+      formula: squared_action_difference
+      active_weight: 0.0
+    joint_jerk_raw:
+      formula: finite_difference_joint_acceleration
+      active_weight: 0.0
+    mechanical_power_raw:
+      formula: sum_absolute_joint_torque_times_joint_velocity
+      active_weight: 0.0
+terminations:
+  inherited:
+  - timeout
+  - base_height_fall
+  - bad_orientation_fall
+  independent_stair_success_evaluator_active: false
+  reason: Simulator-independent evaluator exists; live Isaac Lab adapter remains required
+curriculum:
+  terrain_riser_height:
+    enabled: true
+    range_m:
+    - 0.04
+    - 0.2
+    initial_level: 0
+  command_curriculum:
+    enabled: false
+policy_initialization:
+  type: unitree_velocity_onnx_transfer
+  source:
+    task: Unitree-G1-29dof-Velocity
+    path: /workspace/unitree_rl_lab/deploy/robots/g1_29dof/config/policy/velocity/v0/exported/policy.onnx
+  locomotion_observations: 480
+  terrain_observations: 0
+  actor_height_scan_observations: 0
+  explicit_geometry_observations: 5
+  stair_observations: 485
+  actions: 29
+  new_observation_initialization: zero
+  critic_initialization: fresh
+  pretrained_actor_trainable: true
+  optimizer_initialization: fresh
+ppo:
+  rollout_steps_per_environment: 24
+  actor_hidden_dimensions:
+  - 512
+  - 256
+  - 128
+  critic_hidden_dimensions:
+  - 512
+  - 256
+  - 128
+  activation: elu
+  initial_action_noise_std: 0.15
+  value_loss_coefficient: 1.0
+  clipped_value_loss: true
+  clip_range: 0.2
+  entropy_coefficient: 0.005
+  learning_epochs: 5
+  minibatches: 4
+  learning_rate: 0.0001
+  learning_rate_schedule: adaptive
+  discount_gamma: 0.99
+  gae_lambda: 0.95
+  desired_kl: 0.01
+  maximum_gradient_norm: 1.0
+  observation_normalization: false
+checkpointing:
+  upstream_interval_iterations: 500
+  require_final_smoke_checkpoint: true
+  never_overwrite: true
+  attach_project_commit: true
+  attach_resolved_config: true
+  calculate_sha256: true
+  interval_iterations: 10
+  save_new_best_validation: true
+  preserve_optimizer_state: true
+  filename_fields:
+  - run_id
+  - iteration
+  - simulated_steps
+  best_training_candidate:
+    enabled: false
+required_outputs:
+- resolved_config.yaml
+- run_manifest.yaml
+- console.log
+- environment.log
+- tensorboard
+- final_checkpoint
+- checkpoint_sha256
+acceptance:
+  isaac_sim_starts: true
+  task_registration_succeeds: true
+  gpu_is_used: true
+  observations_are_finite: true
+  actions_are_finite: true
+  checkpoint_is_written: true
+  logs_are_written: true
+  checkpoint_can_be_downloaded: true
+  simulator_error_count: 0
+  nan_count: 0
+  resets_succeed: true
+  action_dimension: 29
+start_pose:
+  distribution: fixed
+  terrain_origin_m:
+  - 1.0
+  - 0.6
+  - 0.0
+  base_height_from_robot_asset_m: 0.8
+  orientation_rpy_rad:
+  - 0.0
+  - 0.0
+  - 0.0
+  distance_before_first_riser_m: 1.0
+  lateral_offset_m: 0.0
+  position_randomization_m:
+  - 0.0
+  - 0.0
+  - 0.0
+  yaw_randomization_rad: 0.0
+hard_blockers:
+- nan_detected
+- infinity_detected
+- tensor_shape_mismatch
+- invalid_reset
+- unstable_physics
+- corrupted_checkpoint
+launch_gates:
+  independent_evaluator_implemented: true
+  essential_metrics_implemented: true
+  fixed_evaluation_cameras_implemented: true
+  aws_upstream_validation_passed: true
+  staircase_geometry_validation_passed: true
+  allow_launch: true
+metric_deferrals:
+  approximate_kl:
+    reason: RSL-RL 3.0.1 computes adaptive KL internally but does not expose it in
+      loss_dict
+    required_before: PPO ablation studies
+  clip_fraction:
+    reason: RSL-RL 3.0.1 does not expose clipped-sample fraction
+    required_before: PPO ablation studies
+  automatic_periodic_evaluation:
+    reason: Checkpoints are persisted every 50 iterations; independent evaluation
+      is launched separately
+    required_before: final multi-seed checkpoint selection
+success_definition:
+  independent_from_reward: true
+  requirements:
+    approach_staircase: true
+    ascend_step_1: true
+    ascend_step_2: true
+    ascend_step_3: true
+    reach_upper_platform: true
+    travel_after_final_step_m: 0.2
+    upright_dwell_s: 1.0
+    forbidden_contacts: false
+    joint_limit_violation: false
+    velocity_limit_violation: false
+    torque_limit_violation: false
+fall_definition:
+  any_of:
+    base_height_below_m: 0.45
+    absolute_roll_above_rad: 0.8
+    absolute_pitch_above_rad: 0.8
+    torso_contact: true
+    pelvis_contact: true
+    invalid_simulation_state: true
+failure_categories:
+  primary_priority_order:
+  - invalid_simulation_state
+  - fall
+  - torque_violation
+  - velocity_violation
+  - joint_violation
+  - forbidden_contact
+  - wrong_direction
+  - slip
+  - stall
+  - timeout
+  preserve_secondary_flags: true
+forbidden_contacts:
+- torso
+- pelvis
+- left_knee
+- right_knee
+- left_forearm
+- right_forearm
+- left_hand
+- right_hand
+evaluation:
+  interval_iterations: 50
+  episodes_per_seed: 20
+  screening_episode_total: 100
+  training_seeds_excluded: true
+  select_by_training_return: false
+  candidate_score_components:
+  - success_rate
+  - fall_rate
+  - forbidden_contact_rate
+  - constraint_compliance
+  - stability
+  - action_smoothness
+essential_metrics:
+  rewards:
+  - total
+  - every_raw_component
+  - every_weighted_component
+  outcomes:
+  - success
+  - fall
+  - timeout
+  - stall
+  - slip
+  - forbidden_contact
+  progress:
+  - maximum_x
+  - maximum_base_height
+  - maximum_step_reached
+  - platform_reached
+  - final_distance_after_platform
+  constraints:
+  - joint_limit_violations
+  - velocity_limit_violations
+  - torque_limit_violations
+  - action_saturation_count
+  motion:
+  - action_rate
+  - joint_jerk
+  - mechanical_power
+  ppo:
+  - policy_loss
+  - value_loss
+  - entropy
+  - approximate_kl
+  - clip_fraction
+  - learning_rate
+  performance:
+  - simulation_fps
+  - environment_steps_per_second
+  - gpu_memory
+  - wall_clock_time
+  - nan_count
+recording:
+  training_rendering: false
+  periodic_evaluation_video: true
+  camera_views:
+  - side
+  - front
+  - foot_close_up
+  - slow_motion_contact
+  associate_video_with_checkpoint: true
+stop_conditions:
+- any_nan_or_infinity
+- invalid_reset
+- unstable_physics
+- success_rate_not_improving_after_defined_review_window
+- reward_increases_while_safety_metrics_worsen
+- repeated_collision_exploitation
+experiment:
+  id: g1_fresh_step_over_curriculum
+  purpose: Fresh stair curriculum from the official Unitree velocity prior with the
+    current corrected acquisition, hard alternating step-over, arm/posture, riser-strike,
+    heading, and stable platform-stop contracts active from iteration 0.
+  type: geometry_conditioned_stair_finish_clean
+  meaningful_stair_training: true
+reset_randomization:
+  enabled: false
+  distance_before_first_riser_m:
+  - 1.0
+  - 1.0
+  lateral_offset_m:
+  - 0.0
+  - 0.0
+  yaw_offset_rad:
+  - 0.0
+  - 0.0
+command:
+  forward_velocity_mps: 0.35
+  stair_heading:
+    enabled: true
+    target_heading_rad: 0.0
+    control_stiffness: 1.0
+    max_yaw_rate_radps: 0.6
+  platform_finish:
+    transition_duration_s: 0.4
+    minimum_step_advance_m: 0.15
+episode_contract:
+  enabled: true
+  platform_continuation_m: 0.2
+  supported_dwell_s: 1.0
+  minimum_base_clearance_m: 0.45
+  maximum_roll_pitch_rad: 0.8
+  forbidden_contact_force_n: 1.0
+  support_force_n: 30.0
+  sole_height_tolerance_m: 0.025
+  boundary_margin_m: 0.15
+  stall_duration_s: 2.0
+  progress_epsilon_m: 0.02
+  wrong_direction_tolerance_m: 0.25
+  stable_finish: true
+acquisition_credit:
+  verified_insertion: true
+  support_dwell_s: 0.1
+  require_first_touchdown_placement: true
+  global_stair_acquisition: true
+  dynamic_alternating_rewards: true
+  first_touchdown_shaping_start_margin_m: -0.15
+reward_experiment:
+  active_stage: geometry_locomotion_clean
+  strict_runtime_set: true
+  rewards:
+    stage_plan:
+      geometry_locomotion_clean:
+        track_stair_axis_velocity: 1.0
+        track_ang_vel_z: 0.5
+        stair_centerline_error: -0.5
+        upright: -5.0
+        base_angular_velocity: -0.05
+        joint_acc: -2.5e-07
+        action_rate: -0.05
+        dof_pos_limits: -5.0
+        feet_slide: -0.2
+        undesired_contacts: -5.0
+        terrain_relative_clearance: 1.0
+        forward_insertion: 1.0
+        stable_platform_finish: 2.0
+        finish_planar_velocity_error: -0.15
+        finish_centerline_error: -0.05
+        posture_envelope_guard: -0.124863414
+        body_heading_guard: -0.1
+        first_touchdown_placement: 0.5
+        step_over_transition_contract: 1.0
+reward_parameters:
+  track_stair_axis_velocity:
+    target_velocity_mps: 0.35
+    std_mps: 0.25
+    command_name: base_velocity
+  stair_centerline_error:
+    scale_m: 0.25
+  terrain_relative_clearance:
+    activation_distance_m: 0.3
+    clearance_margin_m: 0.015
+    tread_margin_m: 0.015
+    insertion_target_m: 0.04
+    unload_full_force_n: 15.0
+    unload_zero_force_n: 80.0
+    opposite_support_start_n: 30.0
+    opposite_support_full_n: 100.0
+    insertion_clearance_fraction: 0.7
+    touchdown_force_n: 30.0
+    touchdown_speed_mps: 0.2
+    touchdown_height_tolerance_m: 0.025
+    diagnostic_contact_threshold_n: 1.0
+    suppress_riser_face_clearance_credit: true
+    escrow_clearance_until_riser_crossing: true
+    riser_face_band_m: 0.025
+    riser_below_top_margin_m: 0.005
+    riser_minimum_horizontal_force_n: 30.0
+    riser_minimum_previous_forward_speed_mps: 0.1
+  forward_insertion:
+    activation_distance_m: 0.3
+    clearance_margin_m: 0.015
+    tread_margin_m: 0.015
+    insertion_target_m: 0.04
+    unload_full_force_n: 15.0
+    unload_zero_force_n: 80.0
+    opposite_support_start_n: 30.0
+    opposite_support_full_n: 100.0
+    insertion_clearance_fraction: 0.7
+    touchdown_force_n: 30.0
+    touchdown_speed_mps: 0.2
+    touchdown_height_tolerance_m: 0.025
+    diagnostic_contact_threshold_n: 1.0
+    suppress_riser_face_clearance_credit: true
+    escrow_clearance_until_riser_crossing: true
+    riser_face_band_m: 0.025
+    riser_below_top_margin_m: 0.005
+    riser_minimum_horizontal_force_n: 30.0
+    riser_minimum_previous_forward_speed_mps: 0.1
+  posture_envelope_guard:
+    joint_specific_excess_squared: false
+    joint_specific_target_excess_squared: false
+    phase_specific_target_excess_squared: false
+    phase_specific_family_target_excess_squared: true
+    phase_shoulder_pitch_approach_tolerance_rad: 0.2
+    phase_shoulder_pitch_ascent_tolerance_rad: 0.35
+    phase_shoulder_pitch_safe_platform_tolerance_rad: 0.2
+    phase_shoulder_roll_approach_tolerance_rad: 0.3
+    phase_shoulder_roll_ascent_tolerance_rad: 0.4
+    phase_shoulder_roll_safe_platform_tolerance_rad: 0.25
+    phase_shoulder_yaw_approach_tolerance_rad: 0.1
+    phase_shoulder_yaw_ascent_tolerance_rad: 0.2
+    phase_shoulder_yaw_safe_platform_tolerance_rad: 0.1
+    phase_elbow_approach_tolerance_rad: 0.35
+    phase_elbow_ascent_tolerance_rad: 0.45
+    phase_elbow_safe_platform_tolerance_rad: 0.25
+    phase_wrist_approach_tolerance_rad: 0.15
+    phase_wrist_ascent_tolerance_rad: 0.15
+    phase_wrist_safe_platform_tolerance_rad: 0.15
+    phase_command_name: base_velocity
+    phase_cruise_speed_mps: 0.35
+    shoulder_pitch_relative_weight: 1.0
+    shoulder_roll_relative_weight: 1.0
+    shoulder_yaw_relative_weight: 1.0
+    elbow_relative_weight: 1.0
+    wrist_relative_weight: 1.0
+  body_heading_guard:
+    free_yaw_rad: 0.1
+    zero_at_yaw_rad: 0.35
+  step_over_transition_contract:
+    first_commit_distance_m: 0.3
+    unload_force_n: 15.0
+    opposite_support_force_n: 30.0
+    touchdown_force_n: 30.0
+    lift_clearance_m: 0.03
+    riser_clearance_margin_m: 0.015
+    clearance_window_m: 0.05
+    top_height_tolerance_m: 0.025
+    max_forward_excursion_m: 0.4
+    strike_minimum_force_n: 30.0
+    strike_full_severity_force_n: 600.0
+    strike_minimum_event_fraction: 0.1
+    success_value: 1.0
+    failure_value: -1.0
+    lift_milestone_value: 0.0
+    clearance_milestone_value: 0.0
+    vertical_clearance_progress_value: 0.0
+    vertical_clearance_discount_gamma: 0.99
+    insertion_milestone_value: 0.0
+    strike_failure_base: -1.0
+    strike_failure_severity_scale: -0.5

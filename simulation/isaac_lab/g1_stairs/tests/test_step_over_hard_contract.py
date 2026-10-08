@@ -233,3 +233,92 @@ def test_terminal_step_cannot_collect_clearance_credit():
 
     torch.testing.assert_close(reward, torch.tensor([-1.0]))
     torch.testing.assert_close(paid, torch.tensor([0.0]))
+
+
+def test_first_stair_invalid_acquisition_is_hard_but_approach_failures_stay_soft():
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        step_over_hard_failure_mask,
+    )
+
+    event_code = torch.tensor([3, 2, 5, 4, 5, 6])
+    target = torch.zeros(6, dtype=torch.long)
+
+    acquisition = torch.tensor([
+        False,
+        False,
+        False,
+        True,
+        True,
+        False,
+    ])
+
+    mask = step_over_hard_failure_mask(
+        event_code,
+        target,
+        acquisition_event=acquisition,
+    )
+
+    assert mask.tolist() == [
+        False,  # approach strike remains soft
+        False,  # approach replant remains soft
+        False,  # premature stair1 contact remains soft
+        True,   # simultaneous/uncommitted stair1 acquisition
+        True,   # unclean stair1 acquisition
+        False,  # first-step excursion remains soft
+    ]
+
+
+def test_first_touchdown_gate_blocks_shuffle_into_acquisition():
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        gate_physical_touchdown_by_first_placement,
+    )
+
+    candidate = torch.tensor([
+        [True, True],
+        [False, True],
+    ])
+
+    first_good = torch.tensor([
+        [False, True],
+        [False, False],
+    ])
+
+    gated = gate_physical_touchdown_by_first_placement(
+        candidate,
+        first_good,
+    )
+
+    assert gated.tolist() == [
+        [False, True],
+        [False, False],
+    ]
+
+
+def test_first_stair_failed_acquisition_is_always_hard():
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        step_over_hard_failure_mask,
+    )
+
+    event_code = torch.tensor([3, 3, 6, 5, 1])
+    target = torch.zeros(5, dtype=torch.long)
+    acquisition = torch.tensor([
+        False,  # ordinary approach strike
+        True,   # strike + stair1 acquisition
+        True,   # excursion + acquisition
+        True,   # sequence failure + acquisition
+        True,   # clean stair1 acquisition
+    ])
+
+    mask = step_over_hard_failure_mask(
+        event_code,
+        target,
+        acquisition_event=acquisition,
+    )
+
+    assert mask.tolist() == [
+        False,
+        True,
+        True,
+        True,
+        False,
+    ]

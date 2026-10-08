@@ -1,0 +1,17 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_fresh_step_over_curriculum.yaml
+  resolved_config_required: true
+
+experiment:
+  id: g1_fresh_step_over_curriculum_smoke1
+  purpose: One-iteration runtime qualification of fresh corrected step-over curriculum from the official Unitree velocity prior.
+
+execution:
+  environments: 2048
+  maximum_iterations: 1
+  training_seed: 42
+
+checkpointing:
+  interval_iterations: 10

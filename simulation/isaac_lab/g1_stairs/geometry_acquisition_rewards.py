@@ -42,6 +42,7 @@ from .reward_math import (
     preferred_transition_contact_update,
     step_over_transition_update,
     step_over_hard_failure_mask,
+    gate_physical_touchdown_by_first_placement,
     escrowed_transition_reward,
     discounted_potential_shaping,
     update_alternating_preferred_foot,
@@ -874,6 +875,13 @@ class GeometryAcquisitionRuntime:
             & (
                 foot_speed
                 <= float(touchdown_speed_mps)
+            )
+        )
+
+        physical_touchdown = (
+            gate_physical_touchdown_by_first_placement(
+                physical_touchdown,
+                first_placement_gate,
             )
         )
 
@@ -2128,7 +2136,11 @@ class step_over_transition_contract(ManagerTermBase):
                 device=env.device,
             )
         runtime.step_over_contract_violation |= (
-            step_over_hard_failure_mask(event_code, self._target)
+            step_over_hard_failure_mask(
+                event_code,
+                self._target,
+                acquisition_event=acquisition_event,
+            )
         )
 
         # Read-only transition snapshot for geometry_trace.py.

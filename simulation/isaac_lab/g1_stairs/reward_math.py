@@ -1128,15 +1128,65 @@ def step_over_transition_update(
 def step_over_hard_failure_mask(
     event_code: torch.Tensor,
     target: torch.Tensor,
+    acquisition_event: torch.Tensor | None = None,
 ) -> torch.Tensor:
-    """Hard-fail only stair-to-stair transition violations.
+    """Hard-fail invalid acquisitions plus stair-to-stair violations.
 
-    target==0 is the free-choice ground-to-stair1 transition.
-    target>0 is the alternating stair-to-stair contract.
+    Ground -> stair1 remains free-choice and keeps approach strike/replant
+    failures soft. Once a physical stair1 acquisition occurs, however, it
+    must be a single clean acquisition; simultaneous/uncommitted or unclean
+    acquisition cannot disable the later alternating contract.
     """
     if event_code.shape != target.shape:
         raise ValueError("event_code and target must have matching shapes")
-    return (target > 0) & (event_code >= 2)
+
+    if acquisition_event is None:
+        acquisition_event = torch.zeros_like(
+            event_code,
+            dtype=torch.bool,
+        )
+
+    if acquisition_event.shape != target.shape:
+        raise ValueError(
+            "acquisition_event and target must have matching shapes"
+        )
+
+    if acquisition_event.dtype != torch.bool:
+        raise ValueError("acquisition_event must be boolean")
+
+    first_acquisition_failure = (
+        (target == 0)
+        & acquisition_event
+        & (event_code >= 2)
+    )
+
+    stair_to_stair_failure = (
+        (target > 0)
+        & (event_code >= 2)
+    )
+
+    return first_acquisition_failure | stair_to_stair_failure
+
+
+def gate_physical_touchdown_by_first_placement(
+    physical_touchdown: torch.Tensor,
+    first_placement_gate: torch.Tensor,
+) -> torch.Tensor:
+    """Reject continuous-support shuffles after a poor first loaded contact."""
+    if physical_touchdown.shape != first_placement_gate.shape:
+        raise ValueError(
+            "physical_touchdown and first_placement_gate must match"
+        )
+
+    if (
+        physical_touchdown.dtype != torch.bool
+        or first_placement_gate.dtype != torch.bool
+    ):
+        raise ValueError(
+            "touchdown placement gates must be boolean"
+        )
+
+    return physical_touchdown & first_placement_gate
 
 
 
