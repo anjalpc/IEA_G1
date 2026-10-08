@@ -159,7 +159,10 @@ RUN groupadd --gid ${GROUP_ID} dev && \
 RUN echo "dev ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/dev && \
     chmod 0440 /etc/sudoers.d/dev
 
-RUN echo "source /opt/ros/humble/setup.bash" >> /home/dev/.bashrc
+COPY iea_g1_container.bashrc /tmp/iea_g1_container.bashrc
+RUN echo "source /opt/ros/humble/setup.bash" >> /home/dev/.bashrc && \
+    cat /tmp/iea_g1_container.bashrc >> /home/dev/.bashrc && \
+    rm /tmp/iea_g1_container.bashrc
 
 # Python DDS helpers need SDK2 Python separately from the native C++ SDK.
 # Keep this late layer independent of the expensive simulator build.

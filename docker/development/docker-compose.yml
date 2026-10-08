@@ -18,6 +18,10 @@ services:
 
     network_mode: host
 
+    environment:
+      IEA_G1_CONTAINER: "1"
+      TERM: xterm-256color
+
     volumes:
       - ../../:/workspace/IEA_G1
 
