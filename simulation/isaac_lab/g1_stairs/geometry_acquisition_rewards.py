@@ -2113,6 +2113,24 @@ class step_over_transition_contract(ManagerTermBase):
             step_over_hard_failure_mask(event_code, self._target)
         )
 
+        # Read-only transition snapshot for geometry_trace.py.
+        runtime.step_over_trace_target = self._target.clone()
+        runtime.step_over_trace_preferred = self._preferred.clone()
+        runtime.step_over_trace_event_code = event_code.clone()
+        runtime.step_over_trace_lifted = lifted.clone()
+        runtime.step_over_trace_cleared = cleared.clone()
+        runtime.step_over_trace_clear_lift = clear_lift.clone()
+        runtime.step_over_trace_clear_riser = clear_riser.clone()
+        runtime.step_over_trace_old_contact = old_contact.clone()
+        runtime.step_over_trace_next_contact = next_contact.clone()
+        runtime.step_over_trace_consolidation = (
+            prelift_old_tread_support.clone()
+        )
+        runtime.step_over_trace_pref_force_n = pref_force.clone()
+        runtime.step_over_trace_pref_rear_x = pref_rear.clone()
+        runtime.step_over_trace_pref_front_x = pref_front.clone()
+        runtime.step_over_trace_pref_bottom_z = pref_bottom.clone()
+
         new_lift_milestone = lifted & ~self._lifted
         new_clearance_milestone = cleared & ~self._cleared
         reward, milestone_credit_paid = escrowed_transition_reward(

@@ -91,6 +91,76 @@ class GeometryTrace:
                     self.manager._step_reward[0] * env.step_dt
                 ),
             })
+        acquisition = getattr(env, "_g1_v04_acquisition", None)
+        if acquisition is not None:
+            def trace_value(name):
+                value = getattr(acquisition, name, None)
+                return (
+                    self.values(value[0])
+                    if value is not None
+                    else None
+                )
+
+            row.update({
+                "step_over_target": trace_value(
+                    "step_over_trace_target"
+                ),
+                "step_over_preferred_foot": trace_value(
+                    "step_over_trace_preferred"
+                ),
+                "step_over_event_code": trace_value(
+                    "step_over_trace_event_code"
+                ),
+                "step_over_lifted": trace_value(
+                    "step_over_trace_lifted"
+                ),
+                "step_over_cleared": trace_value(
+                    "step_over_trace_cleared"
+                ),
+                "step_over_clear_lift": trace_value(
+                    "step_over_trace_clear_lift"
+                ),
+                "step_over_clear_riser": trace_value(
+                    "step_over_trace_clear_riser"
+                ),
+                "step_over_old_contact": trace_value(
+                    "step_over_trace_old_contact"
+                ),
+                "step_over_next_contact": trace_value(
+                    "step_over_trace_next_contact"
+                ),
+                "step_over_consolidation": trace_value(
+                    "step_over_trace_consolidation"
+                ),
+                "step_over_pref_force_n": trace_value(
+                    "step_over_trace_pref_force_n"
+                ),
+                "step_over_pref_rear_x": trace_value(
+                    "step_over_trace_pref_rear_x"
+                ),
+                "step_over_pref_front_x": trace_value(
+                    "step_over_trace_pref_front_x"
+                ),
+                "step_over_pref_bottom_z": trace_value(
+                    "step_over_trace_pref_bottom_z"
+                ),
+                "step_acquired_event": self.values(
+                    acquisition.step_acquired_event[0]
+                ),
+                "acquired_target_index": self.values(
+                    acquisition.acquired_target_index[0]
+                ),
+                "physical_touchdown_event": self.values(
+                    acquisition.physical_touchdown_event[0]
+                ),
+                "riser_face_strike_sample": self.values(
+                    acquisition.riser_face_strike_sample[0]
+                ),
+                "riser_strike_force_x": self.values(
+                    acquisition.riser_strike_force_x[0]
+                ),
+            })
+
         runtime = getattr(env, "_g1_geometry_episode", None)
         row["finish_dwell_s"] = (
             float(runtime.tracker.dwell[0].item())
