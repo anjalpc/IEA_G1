@@ -42,4 +42,3 @@ def test_registers_runtime_contract_tests():
     assert "test/test_runtime_package.py" in cmake
     assert "test_runtime_launch" in cmake
     assert "test/test_runtime_launch.py" in cmake
-
