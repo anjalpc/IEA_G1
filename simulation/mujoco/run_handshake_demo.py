@@ -31,7 +31,7 @@ from model_composition import (  # noqa: E402
     hand_actuator_names,
     validate_combined_model,
 )
-from run_g1_model import ElasticHarness, initialize  # noqa: E402
+from runtime.model_runtime import ElasticHarness, initialize  # noqa: E402
 
 
 # Median physical joint positions measured after Unitree action 27 reached
