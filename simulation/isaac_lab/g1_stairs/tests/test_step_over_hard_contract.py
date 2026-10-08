@@ -123,3 +123,113 @@ def test_hard_gate_starts_after_first_stair():
         True,   # pre-lift same-tread consolidation
         False,  # clean success
     ]
+
+
+
+def test_vertical_clearance_progress_is_non_farmable():
+    import torch
+
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        monotonic_progress_credit,
+    )
+
+    best = torch.zeros(1)
+    eligible = torch.tensor([True])
+
+    best, c1 = monotonic_progress_credit(
+        torch.tensor([0.25]),
+        best,
+        eligible,
+        total_value=0.30,
+    )
+    best, c2 = monotonic_progress_credit(
+        torch.tensor([0.10]),
+        best,
+        eligible,
+        total_value=0.30,
+    )
+    best, c3 = monotonic_progress_credit(
+        torch.tensor([0.80]),
+        best,
+        eligible,
+        total_value=0.30,
+    )
+    best, c4 = monotonic_progress_credit(
+        torch.tensor([2.00]),
+        best,
+        eligible,
+        total_value=0.30,
+    )
+
+    torch.testing.assert_close(c1, torch.tensor([0.075]))
+    torch.testing.assert_close(c2, torch.tensor([0.0]))
+    torch.testing.assert_close(c3, torch.tensor([0.165]))
+    torch.testing.assert_close(c4, torch.tensor([0.060]))
+    torch.testing.assert_close(
+        c1 + c2 + c3 + c4,
+        torch.tensor([0.30]),
+    )
+    torch.testing.assert_close(best, torch.tensor([1.0]))
+
+
+def test_vertical_clearance_credit_is_repaid_on_failure():
+    import torch
+
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        escrowed_transition_reward,
+    )
+
+    zeros_b = torch.tensor([False])
+    paid = torch.zeros(1)
+
+    first_reward, paid = escrowed_transition_reward(
+        torch.zeros(1),
+        torch.zeros(1, dtype=torch.long),
+        zeros_b,
+        zeros_b,
+        paid,
+        lift_milestone_value=0.0,
+        clearance_milestone_value=0.0,
+        progress_credit=torch.tensor([0.18]),
+    )
+
+    failure_reward, _ = escrowed_transition_reward(
+        torch.tensor([-1.0]),
+        torch.tensor([2]),
+        zeros_b,
+        zeros_b,
+        paid,
+        lift_milestone_value=0.0,
+        clearance_milestone_value=0.0,
+        progress_credit=torch.tensor([0.12]),
+    )
+
+    # Earlier shaping is exactly cancelled at failure.
+    torch.testing.assert_close(
+        first_reward + failure_reward,
+        torch.tensor([-1.0]),
+    )
+
+
+def test_terminal_step_cannot_collect_clearance_credit():
+    import torch
+
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        escrowed_transition_reward,
+    )
+
+    zeros_b = torch.tensor([False])
+
+    reward, paid = escrowed_transition_reward(
+        torch.tensor([-1.0]),
+        torch.tensor([2]),
+        zeros_b,
+        zeros_b,
+        torch.zeros(1),
+        lift_milestone_value=0.0,
+        clearance_milestone_value=0.0,
+        progress_credit=torch.tensor([0.30]),
+    )
+
+    torch.testing.assert_close(reward, torch.tensor([-1.0]))
+    torch.testing.assert_close(paid, torch.tensor([0.0]))

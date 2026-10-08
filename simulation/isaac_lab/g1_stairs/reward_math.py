@@ -1139,6 +1139,47 @@ def step_over_hard_failure_mask(
     return (target > 0) & (event_code >= 2)
 
 
+
+def monotonic_progress_credit(
+    current_fraction: torch.Tensor,
+    best_fraction: torch.Tensor,
+    eligible: torch.Tensor,
+    *,
+    total_value: float,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Emit only previously unseen bounded progress.
+
+    The potential is clamped to [0, 1]. Moving backward or repeating the
+    same height emits zero additional credit.
+    """
+    shape = current_fraction.shape
+    for name, value in (
+        ("best_fraction", best_fraction),
+        ("eligible", eligible),
+    ):
+        if value.shape != shape:
+            raise ValueError(
+                f"{name} must match current_fraction shape"
+            )
+    if total_value < 0.0:
+        raise ValueError("total_value cannot be negative")
+
+    current = current_fraction.clamp(0.0, 1.0)
+    previous = best_fraction.clamp(0.0, 1.0)
+
+    candidate = torch.where(
+        eligible,
+        current,
+        previous,
+    )
+    best_now = torch.maximum(previous, candidate)
+
+    delta = (best_now - previous).clamp_min(0.0)
+    credit = delta * float(total_value)
+
+    return best_now, credit
+
+
 def escrowed_transition_reward(
     base_event_reward: torch.Tensor,
     event_code: torch.Tensor,
@@ -1148,6 +1189,7 @@ def escrowed_transition_reward(
     *,
     lift_milestone_value: float = 0.20,
     clearance_milestone_value: float = 0.30,
+    progress_credit: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Emit non-farmable milestone credit for a step-over transition.
 
@@ -1160,11 +1202,15 @@ def escrowed_transition_reward(
     calculation.
     """
     shape = base_event_reward.shape
+    if progress_credit is None:
+        progress_credit = torch.zeros_like(base_event_reward)
+
     tensors = (
         ("event_code", event_code),
         ("new_lift", new_lift),
         ("new_clearance", new_clearance),
         ("credit_paid", credit_paid),
+        ("progress_credit", progress_credit),
     )
     for name, value in tensors:
         if value.shape != shape:
@@ -1178,6 +1224,7 @@ def escrowed_transition_reward(
         new_lift.to(base_event_reward.dtype) * float(lift_milestone_value)
         + new_clearance.to(base_event_reward.dtype)
         * float(clearance_milestone_value)
+        + progress_credit.to(base_event_reward.dtype)
     )
     terminal = event_code != 0
 

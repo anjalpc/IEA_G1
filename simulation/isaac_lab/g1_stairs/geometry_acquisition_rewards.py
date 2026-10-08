@@ -43,6 +43,7 @@ from .reward_math import (
     step_over_transition_update,
     step_over_hard_failure_mask,
     escrowed_transition_reward,
+    monotonic_progress_credit,
     update_alternating_preferred_foot,
 )
 
@@ -1789,6 +1790,9 @@ class step_over_transition_contract(ManagerTermBase):
         self._milestone_credit_paid = torch.zeros(
             n, dtype=torch.float32, device=device
         )
+        self._vertical_clearance_best_fraction = torch.zeros(
+            n, dtype=torch.float32, device=device
+        )
         self.last_event_code = torch.zeros_like(self._target)
 
     def reset(self, env_ids: Sequence[int] | None = None) -> None:
@@ -1805,6 +1809,7 @@ class step_over_transition_contract(ManagerTermBase):
         self._lift_front_x[env_ids] = 0.0
         self._lift_front_valid[env_ids] = False
         self._milestone_credit_paid[env_ids] = 0.0
+        self._vertical_clearance_best_fraction[env_ids] = 0.0
         self.last_event_code[env_ids] = 0
 
     def __call__(
@@ -1826,6 +1831,7 @@ class step_over_transition_contract(ManagerTermBase):
         failure_value: float = -1.0,
         lift_milestone_value: float = 0.20,
         clearance_milestone_value: float = 0.30,
+        vertical_clearance_progress_value: float = 0.0,
         insertion_milestone_value: float = 0.20,
         strike_failure_base: float = -1.0,
         strike_failure_severity_scale: float = -0.5,
@@ -1857,6 +1863,10 @@ class step_over_transition_contract(ManagerTermBase):
             raise ValueError("lift_clearance_m must be positive")
         if riser_clearance_margin_m < 0.0:
             raise ValueError("riser_clearance_margin_m cannot be negative")
+        if vertical_clearance_progress_value < 0.0:
+            raise ValueError(
+                "vertical_clearance_progress_value cannot be negative"
+            )
         if clearance_window_m <= 0.0:
             raise ValueError("clearance_window_m must be positive")
         if top_height_tolerance_m <= 0.0:
@@ -1964,6 +1974,9 @@ class step_over_transition_contract(ManagerTermBase):
         pref_rear = rear_x.gather(1, gather1).squeeze(1)
         pref_front = front_x.gather(1, gather1).squeeze(1)
         pref_force = vertical_force.gather(1, gather1).squeeze(1)
+        pref_opposite_force = opposite_force.gather(
+            1, gather1
+        ).squeeze(1)
         pref_bottom = sole_bottom.gather(1, gather1).squeeze(1)
 
         clear_lift = (
@@ -2131,6 +2144,54 @@ class step_over_transition_contract(ManagerTermBase):
         runtime.step_over_trace_pref_front_x = pref_front.clone()
         runtime.step_over_trace_pref_bottom_z = pref_bottom.clone()
 
+        # Z-only stair-to-stair clearance potential.
+        #
+        # Anti-exploit contract:
+        # - no credit on free-choice ground -> stair1 (target == 0)
+        # - only committed preferred foot
+        # - preferred foot must be unloaded
+        # - opposite foot must provide support
+        # - only new maximum vertical clearance can pay
+        # - no horizontal coordinate enters the potential
+        # - terminal steps cannot emit new progress credit
+        # - all prior progress credit remains inside terminal escrow
+        clearance_denominator = (
+            next_top
+            + float(riser_clearance_margin_m)
+            - old_top
+        ).clamp_min(1.0e-6)
+
+        vertical_clearance_fraction = (
+            (pref_bottom - old_top)
+            / clearance_denominator
+        ).clamp(0.0, 1.0)
+
+        vertical_clearance_eligible = (
+            self._active
+            & committed
+            & (self._target > 0)
+            & ~self._resolved
+            & ~self._cleared
+            & (event_code == 0)
+            & (pref_force <= float(unload_force_n))
+            & (
+                pref_opposite_force
+                >= float(opposite_support_force_n)
+            )
+        )
+
+        (
+            vertical_clearance_best_fraction,
+            vertical_clearance_credit,
+        ) = monotonic_progress_credit(
+            vertical_clearance_fraction,
+            self._vertical_clearance_best_fraction,
+            vertical_clearance_eligible,
+            total_value=float(
+                vertical_clearance_progress_value
+            ),
+        )
+
         new_lift_milestone = lifted & ~self._lifted
         new_clearance_milestone = cleared & ~self._cleared
         reward, milestone_credit_paid = escrowed_transition_reward(
@@ -2141,6 +2202,7 @@ class step_over_transition_contract(ManagerTermBase):
             self._milestone_credit_paid,
             lift_milestone_value=float(lift_milestone_value),
             clearance_milestone_value=float(clearance_milestone_value),
+            progress_credit=vertical_clearance_credit,
         )
 
         # Target index 1 is specifically the stair-1 -> stair-2 transition.
@@ -2184,6 +2246,9 @@ class step_over_transition_contract(ManagerTermBase):
         self._next_contact_seen.copy_(next_seen)
         self._resolved.copy_(resolved)
         self._milestone_credit_paid.copy_(milestone_credit_paid)
+        self._vertical_clearance_best_fraction.copy_(
+            vertical_clearance_best_fraction
+        )
         self.last_event_code.copy_(event_code)
 
         # Preserve event distribution across episode resets until
@@ -2211,6 +2276,15 @@ class step_over_transition_contract(ManagerTermBase):
         self._next_contact_seen.copy_(torch.where(acquired, torch.zeros_like(self._next_contact_seen), self._next_contact_seen))
         self._resolved.copy_(torch.where(acquired, torch.zeros_like(self._resolved), self._resolved))
         self._lift_front_valid.copy_(torch.where(acquired, torch.zeros_like(self._lift_front_valid), self._lift_front_valid))
+        self._vertical_clearance_best_fraction.copy_(
+            torch.where(
+                acquired,
+                torch.zeros_like(
+                    self._vertical_clearance_best_fraction
+                ),
+                self._vertical_clearance_best_fraction,
+            )
+        )
         self._milestone_credit_paid.copy_(
             torch.where(
                 acquired,
