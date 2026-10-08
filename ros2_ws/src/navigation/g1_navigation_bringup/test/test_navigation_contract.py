@@ -70,6 +70,18 @@ def test_uses_established_navigation_frames_and_topics():
     )
 
 
+def test_local_costmap_dimensions_use_humble_integer_types():
+    configuration = load_configuration()
+    local = configuration[
+        "local_costmap"
+    ]["local_costmap"]["ros__parameters"]
+
+    assert local["width"] == 4
+    assert local["height"] == 4
+    assert isinstance(local["width"], int)
+    assert isinstance(local["height"], int)
+
+
 def test_costmaps_consume_the_approved_scan():
     configuration = load_configuration()
     local = configuration[
