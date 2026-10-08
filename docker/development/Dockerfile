@@ -140,7 +140,8 @@ ENV LD_LIBRARY_PATH=/opt/mujoco/lib:/opt/unitree_robotics/lib:/opt/unitree_rl_la
 RUN apt-get update && apt-get install -y --no-install-recommends \
       ros-humble-pointcloud-to-laserscan \
       ros-humble-rmw-cyclonedds-cpp \
-      ros-humble-rviz2 && \
+      ros-humble-rviz2 \
+      ros-humble-slam-toolbox && \
     rm -rf /var/lib/apt/lists/*
 
 ENV ROS_DOMAIN_ID=42
