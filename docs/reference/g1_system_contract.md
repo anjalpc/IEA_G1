@@ -338,8 +338,10 @@ the same command before dispatch.
 
 An invalid command, a command-stream timeout, or adapter shutdown causes the
 adapter to publish an explicit zero command under the active lease, clear its
-local authority, and request lease release. The locomotion arbiter remains the
-authoritative owner and retains its independent command watchdog.
+local authority, and request lease release. The adapter timeout is 0.15 s,
+while the locomotion arbiter retains an independent 0.25 s fallback watchdog.
+This ordering gives the adapter time to release normally while preserving an
+arbiter-owned stop if the adapter fails.
 
 ## Body joint order
 

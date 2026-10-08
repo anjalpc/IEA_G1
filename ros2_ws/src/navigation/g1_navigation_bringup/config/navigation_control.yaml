@@ -1,0 +1,19 @@
+g1_locomotion_arbiter:
+  ros__parameters:
+    backend: recording
+    command_timeout_seconds: 0.25
+    max_forward_mps: 0.15
+    max_lateral_mps: 0.01
+    max_yaw_rate_rps: 0.40
+    watchdog_rate_hz: 50.0
+    state_publish_rate_hz: 10.0
+
+g1_navigation_command_adapter:
+  ros__parameters:
+    requester_id: g1-navigation-control
+    command_timeout_seconds: 0.15
+    max_forward_mps: 0.15
+    max_lateral_mps: 0.01
+    max_yaw_rate_rps: 0.40
+    allow_lateral: false
+    watchdog_rate_hz: 20.0
