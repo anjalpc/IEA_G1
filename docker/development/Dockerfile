@@ -138,6 +138,8 @@ ENV LD_LIBRARY_PATH=/opt/mujoco/lib:/opt/unitree_robotics/lib:/opt/unitree_rl_la
 # avoids Fast DDS shared-memory transport problems between container shells.
 # Navigation perception reuses the upstream ROS point-cloud converter.
 RUN apt-get update && apt-get install -y --no-install-recommends \
+      ros-humble-navigation2 \
+      ros-humble-nav2-bringup \
       ros-humble-pointcloud-to-laserscan \
       ros-humble-rmw-cyclonedds-cpp \
       ros-humble-rviz2 \
