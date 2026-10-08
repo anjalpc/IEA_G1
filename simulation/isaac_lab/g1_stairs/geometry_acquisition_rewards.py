@@ -41,6 +41,7 @@ from .reward_math import (
     nonpreferred_acquisition_event,
     preferred_transition_contact_update,
     step_over_transition_update,
+    step_over_hard_failure_mask,
     escrowed_transition_reward,
     update_alternating_preferred_foot,
 )
@@ -2078,7 +2079,9 @@ class step_over_transition_contract(ManagerTermBase):
                 dtype=torch.bool,
                 device=env.device,
             )
-        runtime.step_over_contract_violation |= event_code >= 2
+        runtime.step_over_contract_violation |= (
+            step_over_hard_failure_mask(event_code, self._target)
+        )
 
         new_lift_milestone = lifted & ~self._lifted
         new_clearance_milestone = cleared & ~self._cleared

@@ -103,3 +103,23 @@ def test_step_over_contract_violation_is_native_terminal():
     )
 
     assert reason.item() == Result.STEP_OVER_CONTRACT
+
+
+
+def test_hard_gate_starts_after_first_stair():
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        step_over_hard_failure_mask,
+    )
+
+    event_code = torch.tensor([3, 2, 4, 7, 1])
+    target = torch.tensor([0, 0, 1, 2, 2])
+
+    mask = step_over_hard_failure_mask(event_code, target)
+
+    assert mask.tolist() == [
+        False,  # first-riser strike remains soft
+        False,  # first-riser replant remains soft
+        True,   # wrong-foot stair-to-stair acquisition
+        True,   # pre-lift same-tread consolidation
+        False,  # clean success
+    ]

@@ -1124,6 +1124,21 @@ def step_over_transition_update(
         event_code,
     )
 
+
+def step_over_hard_failure_mask(
+    event_code: torch.Tensor,
+    target: torch.Tensor,
+) -> torch.Tensor:
+    """Hard-fail only stair-to-stair transition violations.
+
+    target==0 is the free-choice ground-to-stair1 transition.
+    target>0 is the alternating stair-to-stair contract.
+    """
+    if event_code.shape != target.shape:
+        raise ValueError("event_code and target must have matching shapes")
+    return (target > 0) & (event_code >= 2)
+
+
 def escrowed_transition_reward(
     base_event_reward: torch.Tensor,
     event_code: torch.Tensor,
