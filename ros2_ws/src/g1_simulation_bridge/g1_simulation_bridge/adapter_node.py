@@ -79,7 +79,7 @@ def resolve_simulation_root(explicit_path=None):
 def load_backend(simulation_root):
     """Load the MuJoCo implementation behind the ROS adapter boundary."""
     sys.path.insert(0, str(simulation_root))
-    from run_handshake_demo import IntegratedG1Backend, SimulationControls
+    from runtime.integrated_backend import IntegratedG1Backend, SimulationControls
     return SimulationControls, IntegratedG1Backend
 
 

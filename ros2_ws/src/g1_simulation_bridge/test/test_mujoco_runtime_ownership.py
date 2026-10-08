@@ -34,5 +34,42 @@ def test_handshake_runner_uses_reusable_runtime_directly():
         encoding="utf-8"
     )
 
-    assert "from runtime.model_runtime import" in source
-    assert "from run_g1_model import ElasticHarness, initialize" not in source
+    assert "from runtime.integrated_backend import" in source
+    assert "from run_g1_model import" not in source
+
+def test_integrated_backend_has_a_dedicated_runtime_module():
+    sys.path.insert(0, str(MUJOCO_ROOT))
+    try:
+        from runtime.integrated_backend import (
+            IntegratedG1Backend,
+            SimulationControls,
+        )
+    finally:
+        sys.path.remove(str(MUJOCO_ROOT))
+
+    assert IntegratedG1Backend.__module__ == "runtime.integrated_backend"
+    assert SimulationControls.__module__ == "runtime.integrated_backend"
+
+
+def test_ros_adapter_loads_the_reusable_backend_directly():
+    adapter = (
+        REPOSITORY_ROOT
+        / "ros2_ws"
+        / "src"
+        / "g1_simulation_bridge"
+        / "g1_simulation_bridge"
+        / "adapter_node.py"
+    ).read_text(encoding="utf-8")
+
+    assert "from runtime.integrated_backend import" in adapter
+    assert "from run_handshake_demo import" not in adapter
+
+
+def test_handshake_runner_consumes_the_reusable_backend():
+    source = (MUJOCO_ROOT / "run_handshake_demo.py").read_text(
+        encoding="utf-8"
+    )
+
+    assert "from runtime.integrated_backend import" in source
+    assert "class SimulationControls:" not in source
+    assert "class IntegratedG1Backend:" not in source
