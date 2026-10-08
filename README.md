@@ -122,6 +122,13 @@ It does not own the physical Livox driver, SLAM, Nav2, or robot
 commands. Future D435i navigation preprocessing belongs in this same
 package rather than a package per sensor.
 
+### `g1_navigation_mapping`
+
+Runs upstream ROS 2 Humble SLAM Toolbox on the workstation. It consumes
+`/scan`, publishes `/map`, and exclusively owns `map -> odom`. The package
+contains configuration and launch integration only; it does not implement a
+custom SLAM algorithm, publish local odometry, or command locomotion.
+
 ### `g1_simulation_bridge`
 
 Connects the same application-level command contract to simulation. It

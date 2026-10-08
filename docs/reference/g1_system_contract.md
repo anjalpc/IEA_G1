@@ -291,6 +291,33 @@ This package does not provide a physical or simulated point-cloud
 publisher. It does not run Livox hardware, SLAM Toolbox, AMCL, Nav2,
 or map persistence.
 
+### Navigation mapping boundary
+
+`g1_navigation_mapping` runs upstream asynchronous SLAM Toolbox on the
+workstation. Its frame and topic contract is:
+
+| Direction | Name | Ownership |
+|---|---|---|
+| Input | `/scan` | `g1_navigation_perception` |
+| Input transform | `odom -> base_footprint` | `g1_state_estimation` |
+| Output | `/map` | SLAM Toolbox |
+| Output transform | `map -> odom` | SLAM Toolbox |
+
+The mapping package does not publish `odom -> base_footprint`, acquire a
+locomotion lease, or send robot commands. Simulation launches it with
+`use_sim_time:=true`; the future physical workstation path must use wall
+clock time.
+
+The deterministic MuJoCo navigation arena is an integration fixture, not a
+model of a physical building. A nonempty stationary map proves scan
+generation, projection, timestamps, TF connectivity, and SLAM ingestion. It
+does not prove loop closure, map quality while walking, localization recovery,
+humanoid balance, or autonomous locomotion.
+
+The current simulation G1 is supported by an elastic overhead harness and
+initial-pose joint PD control. That limitation remains separate from the
+successful SLAM data-path proof.
+
 ## Body joint order
 
 `Policy` is the neural-network action index. `SDK` is the index in Unitree

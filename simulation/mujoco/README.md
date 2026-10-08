@@ -384,14 +384,14 @@ cd /workspace/IEA_G1/ros2_ws
 source /opt/ros/humble/setup.bash
 source install/setup.bash
 
-ros2 launch g1_simulation_bridge simulation_handshake.launch.py
+ros2 launch g1_simulation_bridge simulation.launch.py
 ```
 
 For a viewer-free run, set the bridge arguments first:
 
 ```bash
 export G1_SIMULATION_ARGUMENTS="--headless"
-ros2 launch g1_simulation_bridge simulation_handshake.launch.py
+ros2 launch g1_simulation_bridge simulation.launch.py
 ```
 
 In separate sourced container shells, launch the validated state,
@@ -463,6 +463,70 @@ sensor and mapping chain while stationary, but it does not validate
 unsupported standing or navigation while walking. The navigation
 URDF intentionally supplies the pelvis-to-sensor frame chain rather
 than a complete visual humanoid model.
+
+### Run the stationary SLAM integration proof
+
+Start each component in a separate development-container shell. The project
+overlay is sourced automatically by the supported container prompt.
+
+Terminal 1 — simulation and deterministic navigation arena:
+
+```bash
+export G1_SIMULATION_ARGUMENTS="--headless"
+ros2 launch g1_simulation_bridge simulation.launch.py
+```
+
+Terminal 2 — validated navigation state:
+
+```bash
+ros2 launch g1_state_estimation state_estimation.launch.py
+```
+
+Terminal 3 — pelvis-to-sensor transforms:
+
+```bash
+ros2 launch g1_robot_description robot_state.launch.py \
+  use_sim_time:=true
+```
+
+Terminal 4 — point cloud to planar scan:
+
+```bash
+ros2 launch g1_navigation_perception perception.launch.py \
+  use_sim_time:=true
+```
+
+Terminal 5 — asynchronous mapping:
+
+```bash
+ros2 launch g1_navigation_mapping mapping.launch.py \
+  use_sim_time:=true
+```
+
+A successful stationary proof has finite usable `/scan` ranges, a `/map`
+whose width and height are nonzero, and a resolvable transform from `map` to
+`mid360_link`:
+
+```bash
+ros2 topic info /scan --verbose
+
+ros2 topic echo --once \
+  --qos-reliability reliable \
+  --qos-durability transient_local \
+  --field info \
+  /map
+
+ros2 run tf2_ros tf2_echo map mid360_link
+```
+
+The first `tf2_echo` message may report that a frame does not exist while ROS
+graph discovery and TF buffers initialize. Subsequent transforms demonstrate
+success.
+
+This proof must not be described as autonomous navigation. The robot is
+stationary, harness-supported, and held near its imported pose by joint PD
+control. No balance controller, walking policy, Nav2 controller, or
+locomotion command is active.
 
 The runner starts the backend-neutral application with the simulation bridge,
 enables it through
