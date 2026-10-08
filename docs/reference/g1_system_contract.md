@@ -318,6 +318,32 @@ The current simulation G1 is supported by an elastic overhead harness and
 initial-pose joint PD control. That limitation remains separate from the
 successful SLAM data-path proof.
 
+### Simulation-only navigation carrier
+
+The harness-supported G1 cannot currently execute a balance or walking
+policy. Closed-loop Nav2 integration therefore uses an explicit,
+simulation-only planar carrier. This fixture validates navigation data flow,
+planning, command authority, watchdogs, and simulated pose feedback; it does
+not validate humanoid gait, balance, contact dynamics, or hardware motion.
+
+The standard `simulation.yaml` configuration keeps
+`planar_carrier_enabled` false. The opt-in
+`navigation_simulation.yaml` configuration enables it. The carrier accepts
+only arbiter-approved commands on the private
+`/g1/simulation/locomotion_command` topic.
+
+The carrier integrates planar X, Y, and yaw using MuJoCo simulation time.
+It preserves the physics-controlled pelvis Z value and updates the elastic
+harness anchor in X and Y so the support follows the test fixture. Lateral
+motion is disabled, forward speed is limited to 0.15 m/s, yaw rate is limited
+to 0.40 rad/s, and stale commands stop after 0.15 s.
+
+`navigation_control.yaml` retains the non-moving recording backend.
+`navigation_simulation_control.yaml` explicitly selects the simulation
+backend. Neither configuration selects the Unitree Sport backend. The
+locomotion arbiter remains the sole owner of backend dispatch and retains its
+independent 0.25 s stop watchdog.
+
 ### Navigation command authority
 
 Nav2 publishes untrusted velocity output on

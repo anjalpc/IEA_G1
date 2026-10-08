@@ -17,6 +17,9 @@ from g1_locomotion_interfaces.srv import (
 
 from g1_locomotion_control.backend import RecordingBackend
 from g1_locomotion_control.node import LocomotionArbiterNode
+from g1_locomotion_control.simulation_backend import (
+    SimulationBackend,
+)
 
 
 @pytest.fixture
@@ -243,14 +246,14 @@ def test_watchdog_callback_revokes_expired_lease(timed_node):
     assert instance.backend.stop_count == 1
 
 
-def test_rejects_nonrecording_backend_configuration():
+def test_rejects_unsupported_backend_configuration():
     if not rclpy.ok():
         rclpy.init()
 
     try:
         with pytest.raises(
             ValueError,
-            match="only the recording backend",
+            match="unsupported locomotion backend",
         ):
             LocomotionArbiterNode(
                 parameter_overrides=[
@@ -270,5 +273,42 @@ def test_rejects_nonrecording_backend_configuration():
                 ],
             )
     finally:
+        if rclpy.ok():
+            rclpy.shutdown()
+
+def test_constructs_explicit_simulation_backend():
+    """Simulation selection creates only the ROS transport."""
+    if not rclpy.ok():
+        rclpy.init()
+
+    instance = LocomotionArbiterNode(
+        parameter_overrides=[
+            Parameter("backend", value="simulation"),
+            Parameter("max_forward_mps", value=0.15),
+            Parameter("max_lateral_mps", value=0.01),
+            Parameter("max_yaw_rate_rps", value=0.40),
+        ],
+    )
+
+    try:
+        assert isinstance(
+            instance.backend,
+            SimulationBackend,
+        )
+        assert (
+            instance.simulation_command_publisher.topic_name
+            == "/g1/simulation/locomotion_command"
+        )
+        assert instance.simulation_command_qos.depth == 1
+        assert (
+            instance.simulation_command_qos.reliability
+            == ReliabilityPolicy.BEST_EFFORT
+        )
+        assert (
+            instance.simulation_command_qos.durability
+            == DurabilityPolicy.VOLATILE
+        )
+    finally:
+        instance.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()

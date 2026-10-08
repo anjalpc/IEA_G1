@@ -160,6 +160,10 @@ class LocomotionArbiter:
                     "BACKEND_UNAVAILABLE",
                 )
 
+            # A successful health check clears a transient
+            # backend-unavailable readiness state.
+            self._ready = True
+
             lease_id = self._lease_factory()
             try:
                 validate_lease_id(lease_id)

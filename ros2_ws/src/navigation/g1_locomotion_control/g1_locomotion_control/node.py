@@ -4,6 +4,7 @@ import math
 
 import rclpy
 
+from geometry_msgs.msg import Twist
 from rclpy.node import Node
 from rclpy.qos import (
     DurabilityPolicy,
@@ -24,6 +25,9 @@ from g1_robot_interfaces.locomotion import PlanarVelocityLimits
 
 from g1_locomotion_control.arbiter import LocomotionArbiter
 from g1_locomotion_control.backend import RecordingBackend
+from g1_locomotion_control.simulation_backend import (
+    SimulationBackend,
+)
 
 
 class LocomotionArbiterNode(Node):
@@ -56,9 +60,12 @@ class LocomotionArbiterNode(Node):
         backend_name = str(
             self.get_parameter("backend").value
         )
-        if backend_name != "recording":
+        if backend_name not in {
+            "recording",
+            "simulation",
+        }:
             raise ValueError(
-                "only the recording backend is available"
+                "unsupported locomotion backend"
             )
 
         limits = PlanarVelocityLimits(
@@ -91,7 +98,31 @@ class LocomotionArbiterNode(Node):
                     f"{name} must be finite and positive"
                 )
 
-        self.backend = backend or RecordingBackend()
+        self.simulation_command_qos = None
+        self.simulation_command_publisher = None
+
+        if backend is not None:
+            self.backend = backend
+        elif backend_name == "recording":
+            self.backend = RecordingBackend()
+        else:
+            self.simulation_command_qos = QoSProfile(
+                history=HistoryPolicy.KEEP_LAST,
+                depth=1,
+                reliability=ReliabilityPolicy.BEST_EFFORT,
+                durability=DurabilityPolicy.VOLATILE,
+            )
+            self.simulation_command_publisher = (
+                self.create_publisher(
+                    Twist,
+                    "/g1/simulation/locomotion_command",
+                    self.simulation_command_qos,
+                )
+            )
+            self.backend = SimulationBackend(
+                self.simulation_command_publisher
+            )
+
         arbiter_arguments = {
             "backend": self.backend,
             "velocity_limits": limits,

@@ -553,6 +553,38 @@ action-27 arm trajectory is still the reviewed MuJoCo approximation because
 Unitree does not expose the firmware trajectory implementation as simulation
 joint targets.
 
+### Run the simulation-only planar navigation carrier
+
+This mode is an integration fixture for the harness-supported robot. It moves
+the simulated pelvis kinematically in X, Y, and yaw after commands pass through
+the navigation adapter and locomotion arbiter. It does not run a walking or
+balance policy.
+
+Start the headless simulation bridge with the opt-in configuration:
+
+    cd /workspace/IEA_G1/ros2_ws
+    source install/setup.bash
+    export G1_SIMULATION_ARGUMENTS="--headless"
+    SIM_CONFIG="$(ros2 pkg prefix g1_simulation_bridge)/share/g1_simulation_bridge/config/navigation_simulation.yaml"
+    ros2 launch g1_simulation_bridge simulation.launch.py params_file:="${SIM_CONFIG}"
+
+In a second container terminal, start the simulation control boundary:
+
+    cd /workspace/IEA_G1/ros2_ws
+    source install/setup.bash
+    CONTROL_CONFIG="$(ros2 pkg prefix g1_navigation_bringup)/share/g1_navigation_bringup/config/navigation_simulation_control.yaml"
+    ros2 launch g1_navigation_bringup navigation_control.launch.py use_sim_time:=true params_file:="${CONTROL_CONFIG}"
+
+The private `/g1/simulation/locomotion_command` topic must have exactly one
+arbiter publisher and one simulation-bridge subscriber before motion is
+accepted. If the bridge is absent, the backend reports unavailable and the
+arbiter remains stopped.
+
+A short command stream may cover less wall-clock distance than
+`speed * wall time` because carrier integration uses simulation time. On
+timeout, ownership must return to `OWNER_NONE`, `stopped` must be true, and
+readiness remains true when the bridge is healthy.
+
 ## 5. Promotion toward hardware
 
 Before moving a change to PC2:

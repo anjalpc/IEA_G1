@@ -9,6 +9,9 @@ import yaml
 
 PACKAGE_ROOT = Path(__file__).parents[1]
 CONFIGURATION = PACKAGE_ROOT / "config/navigation_control.yaml"
+SIMULATION_CONFIGURATION = (
+    PACKAGE_ROOT / "config/navigation_simulation_control.yaml"
+)
 LAUNCH_FILE = PACKAGE_ROOT / "launch/navigation_control.launch.py"
 
 
@@ -111,3 +114,31 @@ def test_manifest_declares_control_runtime_dependencies():
 
     assert "g1_locomotion_control" in dependencies
     assert "g1_navigation_control" in dependencies
+
+def test_simulation_control_uses_simulation_backend():
+    """Navigation simulation explicitly selects its transport backend."""
+    assert SIMULATION_CONFIGURATION.is_file()
+    configuration = yaml.safe_load(
+        SIMULATION_CONFIGURATION.read_text(encoding="utf-8")
+    )
+    arbiter = parameters(
+        configuration,
+        "g1_locomotion_arbiter",
+    )
+    adapter = parameters(
+        configuration,
+        "g1_navigation_command_adapter",
+    )
+
+    assert arbiter["backend"] == "simulation"
+
+    for name in (
+        "max_forward_mps",
+        "max_lateral_mps",
+        "max_yaw_rate_rps",
+    ):
+        assert adapter[name] == arbiter[name]
+
+    assert adapter["allow_lateral"] is False
+    assert adapter["command_timeout_seconds"] == 0.15
+    assert arbiter["command_timeout_seconds"] == 0.25

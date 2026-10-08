@@ -157,3 +157,26 @@ def test_unhealthy_backend_cannot_grant_a_lease():
     assert snapshot.active_owner == OWNER_NONE
     assert snapshot.ready is False
     assert backend.stop_count == 0
+
+def test_successful_acquire_restores_readiness_after_transient_outage():
+    """A recovered backend must clear stale unavailable readiness."""
+    instance, backend, _clock = arbiter()
+
+    backend.set_healthy(False)
+    denied = instance.acquire(
+        OWNER_NAVIGATION,
+        "navigation",
+    )
+
+    assert denied.granted is False
+    assert denied.reason == "BACKEND_UNAVAILABLE"
+    assert instance.snapshot().ready is False
+
+    backend.set_healthy(True)
+    granted = instance.acquire(
+        OWNER_NAVIGATION,
+        "navigation",
+    )
+
+    assert granted.granted is True
+    assert instance.snapshot().ready is True
