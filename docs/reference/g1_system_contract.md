@@ -181,6 +181,24 @@ Unitree DDS domain `0` cannot collide with ROS application domain
 node as required: loss of this state source shuts down the supported
 physical stack instead of leaving navigation with frozen joints.
 
+### Physical navigation-state probe
+
+`g1_hardware_bridge` provides the manual `physical_state_probe` command for
+time-bounded, read-only inspection on PC2. It uses native Unitree DDS domain
+`0`, creates subscribers only, and never starts automatically from bringup.
+
+The approved candidates are `rt/lowstate`, `rt/secondary_imu`, and
+`rt/sportmodestate`. A run emits exactly one `PHYSICAL_STATE_PROBE=` JSON line
+containing sanitized metadata only. Raw measurements, network interfaces,
+addresses, identifiers, and exception details are forbidden from the output.
+
+A `VALID` result proves only that the candidate was available, finite,
+sufficiently sampled, and advancing during the bounded run. It does not
+authorize that stream as navigation input. In particular,
+`rt/sportmodestate` may disappear when Unitree's built-in motion service is
+disabled. Commanded velocity and IMU-only dead reckoning remain forbidden
+substitutes for measured planar odometry.
+
 ### Validated navigation-state boundary
 
 `g1_state_estimation` subscribes to `/g1/state/imu_raw` and

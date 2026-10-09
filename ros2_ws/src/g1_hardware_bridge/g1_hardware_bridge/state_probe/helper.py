@@ -4,6 +4,7 @@ import argparse
 import importlib
 import math
 import threading
+import time
 
 from g1_hardware_bridge.state_probe.protocol import (
     REASON_FIELDS_MISSING,
@@ -242,6 +243,15 @@ def parse_args(args=None):
     return parser.parse_args(args)
 
 
+def resolve_channel_api(import_module=importlib.import_module):
+    """Resolve Unitree channel primitives only when explicitly called."""
+    module = import_module("unitree_sdk2py.core.channel")
+    return (
+        module.ChannelFactoryInitialize,
+        module.ChannelSubscriber,
+    )
+
+
 def resolve_candidate_types(import_module=importlib.import_module):
     """Resolve approved message types without importing command APIs."""
     resolved = {}
@@ -259,3 +269,46 @@ def resolve_candidate_types(import_module=importlib.import_module):
             resolved[topic] = None
 
     return resolved
+
+
+def run_native(
+    args=None,
+    import_module=importlib.import_module,
+    monotonic=time.monotonic,
+    sleep=time.sleep,
+    emit=print,
+):
+    """Run the explicit, time-bounded native state probe."""
+    options = parse_args(args)
+    candidate_types = resolve_candidate_types(
+        import_module=import_module,
+    )
+
+    try:
+        channel_initialize, subscriber_factory = (
+            resolve_channel_api(import_module=import_module)
+        )
+    except Exception:
+        def channel_initialize(_domain, _interface):
+            raise RuntimeError("Unitree channel API unavailable")
+
+        def subscriber_factory(_topic, _message_type):
+            raise RuntimeError("Unitree channel API unavailable")
+
+    return run_probe(
+        interface=options.interface,
+        duration_seconds=options.duration_seconds,
+        minimum_samples=options.minimum_samples,
+        candidate_types=candidate_types,
+        channel_factory_initialize=channel_initialize,
+        subscriber_factory=subscriber_factory,
+        monotonic=monotonic,
+        sleep=sleep,
+        emit=emit,
+    )
+
+
+def main(args=None):
+    """Run the manual physical-state probe console command."""
+    run_native(args=args)
+    return 0

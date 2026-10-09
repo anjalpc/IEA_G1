@@ -207,3 +207,33 @@ cd /home/unitree/IEA_G1
 ```
 
 Fix the first process failure in the log. Because the launch is supervised, one required camera, detector, bridge, or gateway failure intentionally takes the whole interaction stack offline.
+
+## Read-only physical navigation-state probe
+
+The `physical_state_probe` command is a manual, time-bounded, read-only PC2
+inspection tool. It subscribes to approved Unitree state candidates on DDS
+domain `0`. It creates no command publisher and never starts automatically.
+
+Before running it:
+
+1. Secure the G1 in its harness with an operator present.
+2. Stop body-policy, Sport, teleoperation, and other command processes.
+3. Use the robot-facing network interface explicitly.
+4. Run:
+
+```bash
+ros2 run g1_hardware_bridge physical_state_probe \
+  --interface <ROBOT_NETWORK_INTERFACE> \
+  --duration-seconds 10 \
+  --minimum-samples 20
+```
+
+A normal run prints exactly one line beginning with
+`PHYSICAL_STATE_PROBE=`. Retain only that sanitized JSON line. It contains
+availability, sample count, cadence, field lengths, progress status, and a
+reason code. It contains no raw sensor values, interface names, addresses,
+robot identifiers, or exception details.
+
+`VALID` proves only that a candidate was available, finite, sufficiently
+sampled, and advancing during the probe. It does not approve that candidate
+as navigation odometry.

@@ -31,6 +31,10 @@ setup(
                 "g1_hardware_bridge.joint_state.node:main"
             ),
             (
+                "physical_state_probe = "
+                "g1_hardware_bridge.state_probe.helper:main"
+            ),
+            (
                 "camera_bridge = "
                 "g1_hardware_bridge.camera.node:main"
             ),

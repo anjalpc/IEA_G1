@@ -1,10 +1,15 @@
 """Authority boundary for the read-only physical-state probe."""
 
+import ast
 import json
 from pathlib import Path
 from types import SimpleNamespace
 
-from g1_hardware_bridge.state_probe.helper import run_probe
+from g1_hardware_bridge.state_probe.helper import (
+    resolve_channel_api,
+    run_native,
+    run_probe,
+)
 from g1_hardware_bridge.state_probe.protocol import OUTPUT_PREFIX
 
 
@@ -14,6 +19,16 @@ HELPER = (
     / "g1_hardware_bridge"
     / "state_probe"
     / "helper.py"
+)
+REPOSITORY_ROOT = PACKAGE_ROOT.parents[2]
+DEPLOYMENT_GUIDE = (
+    REPOSITORY_ROOT / "docs" / "setup" / "robot-deployment.md"
+)
+SYSTEM_CONTRACT = (
+    REPOSITORY_ROOT
+    / "docs"
+    / "reference"
+    / "g1_system_contract.md"
 )
 
 
@@ -260,3 +275,151 @@ def test_run_probe_contains_subscriber_failure():
         result["topics"]["rt/lowstate"]["reason"]
         == "RUNTIME_FAILURE"
     )
+
+
+def test_resolves_official_read_only_channel_api():
+    initialized = object()
+    subscriber = object()
+    requested = []
+
+    module = SimpleNamespace(
+        ChannelFactoryInitialize=initialized,
+        ChannelSubscriber=subscriber,
+    )
+
+    result = resolve_channel_api(
+        import_module=lambda name: (
+            requested.append(name) or module
+        ),
+    )
+
+    assert requested == ["unitree_sdk2py.core.channel"]
+    assert result == (initialized, subscriber)
+
+
+def test_package_exposes_manual_physical_state_probe():
+    setup = (PACKAGE_ROOT / "setup.py").read_text(
+        encoding="utf-8",
+    )
+    tree = ast.parse(setup)
+    strings = {
+        node.value
+        for node in ast.walk(tree)
+        if isinstance(node, ast.Constant)
+        and isinstance(node.value, str)
+    }
+
+    assert (
+        "physical_state_probe = "
+        "g1_hardware_bridge.state_probe.helper:main"
+    ) in strings
+
+
+def test_normal_bringup_never_starts_physical_state_probe():
+    bringup = (
+        PACKAGE_ROOT.parent
+        / "g1_bringup"
+        / "launch"
+    )
+    source = "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in bringup.glob("*.launch.py")
+    )
+
+    assert "physical_state_probe" not in source
+
+
+def test_run_native_wires_lazy_read_only_dependencies():
+    clock = FakeClock()
+    initialized = []
+    created = []
+    emitted = []
+    low_state_type = type("LowState", (), {})
+    imu = SimpleNamespace(
+        quaternion=[1.0, 0.0, 0.0, 0.0],
+        gyroscope=[0.0, 0.0, 0.0],
+        accelerometer=[0.0, 0.0, 9.81],
+    )
+
+    def subscriber_factory(topic, message_type):
+        return FakeSubscriber(
+            topic,
+            message_type,
+            [
+                SimpleNamespace(tick=1, imu_state=imu),
+                SimpleNamespace(tick=2, imu_state=imu),
+            ],
+            created,
+        )
+
+    modules = {
+        "unitree_sdk2py.core.channel": SimpleNamespace(
+            ChannelFactoryInitialize=(
+                lambda domain, interface: initialized.append(
+                    (domain, interface)
+                )
+            ),
+            ChannelSubscriber=subscriber_factory,
+        ),
+        "unitree_sdk2py.idl.unitree_hg.msg.dds_": (
+            SimpleNamespace(LowState_=low_state_type)
+        ),
+    }
+
+    def import_module(name):
+        if name not in modules:
+            raise ImportError("optional type unavailable")
+        return modules[name]
+
+    result = run_native(
+        args=[
+            "--interface",
+            "test-interface",
+            "--duration-seconds",
+            "1",
+            "--minimum-samples",
+            "2",
+        ],
+        import_module=import_module,
+        monotonic=clock.monotonic,
+        sleep=clock.sleep,
+        emit=emitted.append,
+    )
+
+    assert initialized == [(0, "test-interface")]
+    assert created == [("rt/lowstate", low_state_type)]
+    assert len(emitted) == 1
+    assert result["topics"]["rt/lowstate"]["reason"] == "VALID"
+
+
+def test_deployment_guide_documents_guarded_manual_probe():
+    guide = " ".join(
+        DEPLOYMENT_GUIDE.read_text(
+            encoding="utf-8",
+        ).split()
+    )
+
+    required = (
+        "physical_state_probe",
+        "--interface",
+        "--duration-seconds 10",
+        "--minimum-samples 20",
+        "PHYSICAL_STATE_PROBE=",
+        "DDS domain `0`",
+        "read-only",
+    )
+    assert all(value in guide for value in required)
+
+
+def test_system_contract_records_physical_probe_boundary():
+    contract = SYSTEM_CONTRACT.read_text(encoding="utf-8")
+
+    required = (
+        "Physical navigation-state probe",
+        "`rt/lowstate`",
+        "`rt/secondary_imu`",
+        "`rt/sportmodestate`",
+        "`PHYSICAL_STATE_PROBE=`",
+        "never starts automatically",
+    )
+    assert all(value in contract for value in required)
