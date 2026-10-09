@@ -615,12 +615,15 @@ class GeometryAcquisitionRuntime:
             float(opposite_support_full_n),
         )
 
-        swing_gate = (
+        # Separate support/swing eligibility from horizontal progress.
+        # Clearance and approach are coupled below so neither can generate
+        # substantial credit while the other prerequisite is lagging.
+        support_swing_gate = (
             own_unload
             * opposite_support
-            * approach_gate
             * valid_target.to(foot_pos.dtype)
         )
+        swing_gate = support_swing_gate * approach_gate
 
         if self.dynamic_alternating_rewards:
             preferred_gate = alternating_foot_gate(
@@ -630,14 +633,25 @@ class GeometryAcquisitionRuntime:
                 swing_gate
                 * preferred_gate.to(swing_gate.dtype)
             )
+            support_swing_gate = (
+                support_swing_gate
+                * preferred_gate.to(support_swing_gate.dtype)
+            )
         else:
             preferred_gate = torch.ones_like(
                 valid_target,
                 dtype=torch.bool,
             )
 
+        # Coupled lift-and-crossing potential.
+        #
+        # If clearance is low, moving farther toward the riser cannot keep
+        # increasing this score. If the foot is high but still far away,
+        # additional lift likewise cannot finish the potential. Progress
+        # therefore requires both useful clearance and forward approach.
         clearance_score = (
-            clearance_fraction * swing_gate
+            torch.minimum(clearance_fraction, approach_gate)
+            * support_swing_gate
         ).clamp(0.0, 1.0)
 
         new_clearance_peak = torch.maximum(
@@ -933,13 +947,9 @@ class GeometryAcquisitionRuntime:
                 nonpreferred_event.to(self.clearance_reward.dtype) / dt
             )
 
-        if self.support_credit_dwell > 0:
-            insertion_delta = rewarded_touchdown.to(
-                self.insertion_reward.dtype
-            )
-            self.insertion_reward.copy_(
-                insertion_delta.sum(dim=1) / dt
-            )
+        # support_credit_dwell gates physical acquisition below. It must
+        # not replace the dense geometric forward-insertion shaping computed
+        # above; otherwise insertion becomes effectively touchdown-only.
 
         if escrow_clearance_until_riser_crossing:
             # Verified touchdown is the acquisition event. A foot that only
