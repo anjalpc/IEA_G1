@@ -1,0 +1,82 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_fresh_step_over_curriculum.yaml
+  resolved_config_required: true
+
+experiment:
+  id: g1_fresh_stageA_mixed04_bootstrap300
+  purpose: >
+    Stage A bootstrap from the official Unitree velocity prior. Preserve flat
+    locomotion while learning genuine 4 cm stair lift and tread landing before
+    imposing first-touchdown anti-shuffle or alternating stair-to-stair
+    transition requirements.
+
+execution:
+  maximum_iterations: 300
+
+terrain:
+  riser_heights_m:
+    - 0.0
+    - 0.04
+  curriculum:
+    enabled: true
+    initial_max_level: 1
+    minimum_nonflat_env_fraction: 0.25
+    require_strict_success_for_promotion: true
+
+acquisition_credit:
+  verified_insertion: true
+  support_dwell_s: 0.1
+
+  # Stage A deliberately permits the historical bootstrap strategy.
+  require_first_touchdown_placement: false
+  global_stair_acquisition: false
+  dynamic_alternating_rewards: false
+
+reward_experiment:
+  active_stage: geometry_locomotion_stage_a_bootstrap
+  strict_runtime_set: true
+
+  rewards:
+    stage_plan:
+      geometry_locomotion_stage_a_bootstrap:
+        track_stair_axis_velocity: 1.0
+        track_ang_vel_z: 0.5
+        stair_centerline_error: -0.5
+
+        upright: -5.0
+        base_angular_velocity: -0.05
+        joint_acc: -2.5e-07
+        action_rate: -0.05
+        dof_pos_limits: -5.0
+        feet_slide: -0.2
+        undesired_contacts: -5.0
+
+        # Dense Stage-A bootstrap signal.
+        terrain_relative_clearance: 1.0
+        forward_insertion: 1.0
+
+        stable_platform_finish: 2.0
+        finish_planar_velocity_error: -0.15
+        finish_centerline_error: -0.05
+
+        # Preserve current posture/heading protection.
+        posture_envelope_guard: -0.124863414
+        body_heading_guard: -0.1
+
+        # Prevent termination becoming an attractive escape,
+        # but keep it weaker than the failed -4 experiment.
+        geometry_failure_termination_event: -1.0
+
+reward_parameters:
+  terrain_relative_clearance:
+    suppress_riser_face_clearance_credit: true
+    escrow_clearance_until_riser_crossing: false
+
+  forward_insertion:
+    suppress_riser_face_clearance_credit: true
+    escrow_clearance_until_riser_crossing: false
+
+  # Inherited parameter block belongs to an inactive Stage-C/D reward.
+  step_over_transition_contract: null
