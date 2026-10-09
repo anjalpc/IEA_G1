@@ -139,12 +139,15 @@ def finish_arm_target_return(
 
 
 def stable_platform_finish(env):
-    """Reward ongoing verified settling and a one-shot successful finish."""
+    """Reward bounded non-recyclable settling progress and final success."""
     from .geometry_episode import Result
+
     runtime = getattr(env, "_g1_geometry_episode", None)
     if runtime is None or not runtime.contract.stable_finish:
         return torch.zeros(env.num_envs, device=env.device)
+
     tracker = runtime.tracker
-    settling = (tracker.dwell > 0).to(torch.float32)
+    required = float(tracker.cfg.supported_dwell_s)
+    settling_progress = tracker.dwell_peak_increment / required
     completed = (tracker.reason == Result.SUCCESS).to(torch.float32)
-    return settling + completed / env.step_dt
+    return (settling_progress + completed) / float(env.step_dt)

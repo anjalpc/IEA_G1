@@ -80,6 +80,38 @@ class GeometryEpisodeTests(unittest.TestCase):
             t.update(**s)
         self.assertEqual(t.reason.item(), Result.RUNNING)
 
+    def test_finish_dwell_peak_progress_is_not_recycled(self):
+        t, s = tracker(), sample()
+        credited = 0.0
+
+        for _ in range(30):
+            t.update(**s)
+            credited += float(t.dwell_peak_increment.item())
+
+        self.assertAlmostEqual(credited, 0.60, places=5)
+        self.assertAlmostEqual(t.best_dwell.item(), 0.60, places=5)
+
+        s["foot_force_z"].zero_()
+        t.update(**s)
+        self.assertEqual(t.dwell.item(), 0.0)
+        self.assertEqual(t.dwell_peak_increment.item(), 0.0)
+
+        s["foot_force_z"][:] = 100.0
+        recycled = 0.0
+        for _ in range(30):
+            t.update(**s)
+            recycled += float(t.dwell_peak_increment.item())
+
+        self.assertAlmostEqual(recycled, 0.0, places=5)
+        self.assertAlmostEqual(t.best_dwell.item(), 0.60, places=5)
+
+        for _ in range(10):
+            t.update(**s)
+            recycled += float(t.dwell_peak_increment.item())
+
+        self.assertAlmostEqual(recycled, 0.20, places=5)
+        self.assertAlmostEqual(t.best_dwell.item(), 0.80, places=5)
+
     def test_failure_overrides_success_on_same_step(self):
         t, s = tracker(supported_dwell_s=.02), sample()
         s["forbidden_contact"][:] = True

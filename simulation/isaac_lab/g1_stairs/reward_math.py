@@ -810,6 +810,82 @@ def bounded_vertical_progress_credit(
     return credited / denominator
 
 
+def bounded_monotonic_vertical_progress_credit(
+    current_height_m: torch.Tensor,
+    best_height_m: torch.Tensor,
+    target_height_m: torch.Tensor,
+    full_clearance_m: torch.Tensor,
+    *,
+    max_credit_vertical_speed_mps: float,
+    dt_s: float,
+    suppress_credit: torch.Tensor | None = None,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Reward only newly achieved vertical peak height toward the target.
+
+    The physical peak is monotonic for the current stair target. Dropping and
+    lifting back to an already reached height therefore earns nothing. The
+    peak still advances on abrupt motion so excess speed-capped displacement
+    cannot be cashed on later steps.
+    """
+    shape = current_height_m.shape
+    for name, value in (
+        ("best_height_m", best_height_m),
+        ("target_height_m", target_height_m),
+        ("full_clearance_m", full_clearance_m),
+    ):
+        if value.shape != shape:
+            raise ValueError(f"{name} must match current_height_m")
+    if max_credit_vertical_speed_mps <= 0.0:
+        raise ValueError("max_credit_vertical_speed_mps must be positive")
+    if dt_s <= 0.0:
+        raise ValueError("dt_s must be positive")
+    if suppress_credit is None:
+        suppress_credit = torch.zeros(
+            shape, dtype=torch.bool, device=current_height_m.device
+        )
+    elif suppress_credit.shape != shape or suppress_credit.dtype != torch.bool:
+        raise ValueError("suppress_credit must be a boolean tensor matching height")
+
+    previous_peak = best_height_m.clamp_min(0.0)
+    current = current_height_m.clamp_min(0.0)
+    new_peak = torch.maximum(previous_peak, current)
+
+    peak_delta = (current - previous_peak).clamp_min(0.0)
+    remaining = (target_height_m - previous_peak).clamp_min(0.0)
+    credited = torch.minimum(peak_delta, remaining)
+    credited = torch.minimum(
+        credited,
+        torch.full_like(
+            credited,
+            float(max_credit_vertical_speed_mps) * float(dt_s),
+        ),
+    )
+    denominator = full_clearance_m.clamp_min(1.0e-6)
+    credit = credited / denominator
+    credit = torch.where(suppress_credit, torch.zeros_like(credit), credit)
+    return new_peak, credit
+
+
+def first_touchdown_reward_event(
+    new_attempt: torch.Tensor,
+    preferred_gate: torch.Tensor,
+    reward_seen: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor]:
+    """Globally one-shot first-contact shaping for each stair target."""
+    if new_attempt.shape != preferred_gate.shape or new_attempt.ndim != 2:
+        raise ValueError("new_attempt and preferred_gate must match [N, 2]")
+    if new_attempt.dtype != torch.bool or preferred_gate.dtype != torch.bool:
+        raise ValueError("first-touchdown gates must be boolean")
+    if reward_seen.shape != (new_attempt.shape[0],) or reward_seen.dtype != torch.bool:
+        raise ValueError("reward_seen must be boolean [N]")
+
+    eligible = new_attempt & preferred_gate
+    unique = eligible.sum(dim=1) == 1
+    event = eligible & unique[:, None] & ~reward_seen[:, None]
+    seen_now = reward_seen | new_attempt.any(dim=1)
+    return event, seen_now
+
+
 def nonpreferred_acquisition_event(
     preferred_foot: torch.Tensor,
     physical_touchdown: torch.Tensor,

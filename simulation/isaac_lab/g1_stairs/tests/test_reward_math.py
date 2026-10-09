@@ -674,6 +674,108 @@ def test_bounded_vertical_progress_cannot_reward_horizontal_or_abrupt_motion():
     assert credit.tolist() == pytest.approx([capped, 0.0, capped])
 
 
+def test_monotonic_anticipatory_clearance_cannot_farm_lift_drop_lift():
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        bounded_monotonic_vertical_progress_credit,
+    )
+
+    best = torch.zeros(1)
+    target = torch.tensor([0.055])
+    full = torch.tensor([0.055])
+
+    best, c1 = bounded_monotonic_vertical_progress_credit(
+        torch.tensor([0.020]), best, target, full,
+        max_credit_vertical_speed_mps=2.0, dt_s=0.02,
+    )
+    best, c2 = bounded_monotonic_vertical_progress_credit(
+        torch.tensor([0.005]), best, target, full,
+        max_credit_vertical_speed_mps=2.0, dt_s=0.02,
+    )
+    best, c3 = bounded_monotonic_vertical_progress_credit(
+        torch.tensor([0.020]), best, target, full,
+        max_credit_vertical_speed_mps=2.0, dt_s=0.02,
+    )
+    best, c4 = bounded_monotonic_vertical_progress_credit(
+        torch.tensor([0.030]), best, target, full,
+        max_credit_vertical_speed_mps=2.0, dt_s=0.02,
+    )
+
+    assert c1.item() == pytest.approx(0.020 / 0.055)
+    assert c2.item() == pytest.approx(0.0)
+    assert c3.item() == pytest.approx(0.0)
+    assert c4.item() == pytest.approx(0.010 / 0.055)
+    assert best.item() == pytest.approx(0.030)
+
+
+def test_monotonic_anticipatory_clearance_advances_peak_when_speed_capped():
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        bounded_monotonic_vertical_progress_credit,
+    )
+
+    best, credit = bounded_monotonic_vertical_progress_credit(
+        torch.tensor([0.050]),
+        torch.tensor([0.000]),
+        torch.tensor([0.055]),
+        torch.tensor([0.055]),
+        max_credit_vertical_speed_mps=0.60,
+        dt_s=0.02,
+    )
+
+    assert credit.item() == pytest.approx(0.012 / 0.055)
+    assert best.item() == pytest.approx(0.050)
+
+
+def test_monotonic_anticipatory_clearance_suppresses_strike_bounce():
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        bounded_monotonic_vertical_progress_credit,
+    )
+
+    best, credit = bounded_monotonic_vertical_progress_credit(
+        torch.tensor([0.040]),
+        torch.tensor([0.010]),
+        torch.tensor([0.055]),
+        torch.tensor([0.055]),
+        max_credit_vertical_speed_mps=2.0,
+        dt_s=0.02,
+        suppress_credit=torch.tensor([True]),
+    )
+
+    assert credit.item() == pytest.approx(0.0)
+    assert best.item() == pytest.approx(0.040)
+
+
+def test_first_touchdown_reward_is_global_one_shot_and_rejects_ambiguous():
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        first_touchdown_reward_event,
+    )
+
+    new_attempt = torch.tensor([
+        [True, False],
+        [True, True],
+        [True, False],
+        [False, True],
+    ])
+    preferred = torch.tensor([
+        [True, True],
+        [True, True],
+        [False, True],
+        [True, True],
+    ])
+    seen = torch.tensor([False, False, False, True])
+
+    event, seen_now = first_touchdown_reward_event(
+        new_attempt, preferred, seen
+    )
+
+    assert event.tolist() == [
+        [True, False],
+        [False, False],
+        [False, False],
+        [False, False],
+    ]
+    assert seen_now.tolist() == [True, True, True, True]
+
+
 def test_nonpreferred_acquisition_event_does_not_block_first_step():
     from simulation.isaac_lab.g1_stairs.reward_math import (
         nonpreferred_acquisition_event,

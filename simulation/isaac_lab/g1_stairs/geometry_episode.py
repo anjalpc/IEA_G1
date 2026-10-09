@@ -88,6 +88,8 @@ class EpisodeTracker:
         self.best_x = torch.zeros(num_envs, device=device)
         self.stall_time = torch.zeros(num_envs, device=device)
         self.dwell = torch.zeros(num_envs, device=device)
+        self.best_dwell = torch.zeros(num_envs, device=device)
+        self.dwell_peak_increment = torch.zeros(num_envs, device=device)
         # Diagnostic milestones are intentionally separate from the strict
         # finish predicate. platform_contact_seen means at least one foot made
         # valid load-bearing contact on the upper platform. platform_seen keeps
@@ -102,7 +104,8 @@ class EpisodeTracker:
 
     def reset(self, ids):
         for value in (self.reason, self.started, self.start_x, self.best_x,
-                      self.stall_time, self.dwell, self.platform_contact_seen,
+                      self.stall_time, self.dwell, self.best_dwell,
+                      self.dwell_peak_increment, self.platform_contact_seen,
                       self.platform_seen, self.entered_stairs, self.phase):
             value[ids] = 0
 
@@ -220,6 +223,13 @@ class EpisodeTracker:
         )
         dwelling = valid & supported_platform & (x >= self.completion_x)
         self.dwell = torch.where(active, torch.where(dwelling, self.dwell + self.dt, 0.0), self.dwell)
+        new_best_dwell = torch.maximum(self.best_dwell, self.dwell)
+        self.dwell_peak_increment = torch.where(
+            active,
+            (new_best_dwell - self.best_dwell).clamp_min(0.0),
+            torch.zeros_like(self.dwell_peak_increment),
+        )
+        self.best_dwell = torch.where(active, new_best_dwell, self.best_dwell)
         if self.cfg.stable_finish:
             # An intentionally stationary, valid finishing pose is not a stall.
             self.stall_time = torch.where(dwelling, 0.0, self.stall_time)

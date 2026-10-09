@@ -35,8 +35,9 @@ from .reward_math import (
     alternating_foot_gate,
     anticipatory_clearance_target,
     bounded_impact_severity,
-    bounded_vertical_progress_credit,
+    bounded_monotonic_vertical_progress_credit,
     first_touchdown_placement_score,
+    first_touchdown_reward_event,
     global_stair_target_update,
     nonpreferred_acquisition_event,
     preferred_transition_contact_update,
@@ -207,6 +208,11 @@ class GeometryAcquisitionRuntime:
         self.touchdown_placement_scored = torch.zeros(
             shape, dtype=torch.bool, device=env.device
         )
+        # Reward shaping is globally one-shot per stair target. A simultaneous
+        # two-foot loaded contact is ambiguous and receives no placement bonus.
+        self.first_touchdown_reward_seen = torch.zeros(
+            env.num_envs, dtype=torch.bool, device=env.device
+        )
 
         # Stair target state. In historical mode each foot advances
         # independently. In global mode both columns remain synchronized.
@@ -339,6 +345,7 @@ class GeometryAcquisitionRuntime:
         self.touchdown_attempt_active[env_ids] = False
         self.touchdown_attempt_good[env_ids] = False
         self.touchdown_placement_scored[env_ids] = False
+        self.first_touchdown_reward_seen[env_ids] = False
         self.best_clearance[env_ids] = 0.0
         self.best_insertion[env_ids] = 0.0
         self.pending_clearance[env_ids] = 0.0
@@ -817,10 +824,13 @@ class GeometryAcquisitionRuntime:
                 front_safe_margin_m=float(tread_margin_m),
             )
 
-            placement_reward_event = (
-                new_attempt
-                & ~self.touchdown_placement_scored
-                & preferred_gate
+            (
+                placement_reward_event,
+                first_touchdown_reward_seen,
+            ) = first_touchdown_reward_event(
+                new_attempt,
+                preferred_gate,
+                self.first_touchdown_reward_seen,
             )
 
             self.first_touchdown_placement_reward.copy_(
@@ -833,6 +843,11 @@ class GeometryAcquisitionRuntime:
                 / dt
             )
 
+            # The first loaded target-surface contact closes shaping for the
+            # whole stair target, even when it is nonpreferred or simultaneous.
+            self.first_touchdown_reward_seen.copy_(
+                first_touchdown_reward_seen
+            )
             self.touchdown_placement_scored.copy_(
                 self.touchdown_placement_scored
                 | placement_reward_event
@@ -1030,6 +1045,14 @@ class GeometryAcquisitionRuntime:
                     reset_mask,
                     torch.zeros_like(self.touchdown_placement_scored),
                     self.touchdown_placement_scored,
+                )
+            )
+            reset_environment = reset_mask.any(dim=1)
+            self.first_touchdown_reward_seen.copy_(
+                torch.where(
+                    reset_environment,
+                    torch.zeros_like(self.first_touchdown_reward_seen),
+                    self.first_touchdown_reward_seen,
                 )
             )
             self.support_elapsed.copy_(
@@ -1426,7 +1449,7 @@ class anticipatory_clearance_progress(ManagerTermBase):
         super().__init__(cfg, env)
         self.runtime = _runtime(env)
         shape = (env.num_envs, 2)
-        self._previous_height = torch.zeros(
+        self._best_height = torch.zeros(
             shape, dtype=torch.float32, device=env.device
         )
         self._previous_target = torch.full(
@@ -1439,7 +1462,7 @@ class anticipatory_clearance_progress(ManagerTermBase):
     def reset(self, env_ids: Sequence[int] | None = None) -> None:
         if env_ids is None:
             env_ids = slice(None)
-        self._previous_height[env_ids] = 0.0
+        self._best_height[env_ids] = 0.0
         self._previous_target[env_ids] = -1
         self._initialized[env_ids] = False
 
@@ -1521,20 +1544,21 @@ class anticipatory_clearance_progress(ManagerTermBase):
         )
 
         target_changed = runtime.target_step != self._previous_target
-        previous_height = torch.where(
+        previous_best = torch.where(
             self._initialized & ~target_changed,
-            self._previous_height,
+            self._best_height,
             relative_height,
         )
-        credit = bounded_vertical_progress_credit(
+        best_height, credit = bounded_monotonic_vertical_progress_credit(
             relative_height,
-            previous_height,
+            previous_best,
             target_height,
             full_clearance,
             max_credit_vertical_speed_mps=(
                 float(max_credit_vertical_speed_mps)
             ),
             dt_s=float(env.step_dt),
+            suppress_credit=runtime.riser_face_strike_sample,
         )
 
         vertical_force = runtime.sensor.data.net_forces_w[
@@ -1563,7 +1587,9 @@ class anticipatory_clearance_progress(ManagerTermBase):
             * preferred_gate.to(credit.dtype)
         )
 
-        self._previous_height.copy_(relative_height)
+        # The helper suppresses strike-step credit while still advancing the
+        # physical peak, so collision bounce cannot be cashed later.
+        self._best_height.copy_(best_height)
         self._previous_target.copy_(runtime.target_step)
         self._initialized[:] = True
 
