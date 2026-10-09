@@ -866,6 +866,77 @@ def bounded_monotonic_vertical_progress_credit(
     return new_peak, credit
 
 
+def bounded_anticipatory_attempt_credit(
+    current_height_m: torch.Tensor,
+    best_height_m: torch.Tensor,
+    target_height_m: torch.Tensor,
+    full_clearance_m: torch.Tensor,
+    attempt_active: torch.Tensor,
+    attempt_spent: torch.Tensor,
+    eligible: torch.Tensor,
+    invalidate_attempt: torch.Tensor,
+    *,
+    max_credit_vertical_speed_mps: float,
+    dt_s: float,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+    """One bounded anticipatory lift attempt per foot and stair target.
+
+    An attempt starts only on an eligible sample. Its first sample establishes
+    the local height baseline and pays nothing. Only new vertical peak height
+    reached while the same attempt remains eligible can earn credit. A strike,
+    lower-surface replant, or crossing of the riser invalidates the attempt and
+    marks it spent until the stair target changes/reset. This prevents ordinary
+    approach swings, strike bounce, or repeated lift/replant cycles from
+    recycling clearance reward.
+    """
+    shape = current_height_m.shape
+    for name, value in (
+        ("best_height_m", best_height_m),
+        ("target_height_m", target_height_m),
+        ("full_clearance_m", full_clearance_m),
+        ("attempt_active", attempt_active),
+        ("attempt_spent", attempt_spent),
+        ("eligible", eligible),
+        ("invalidate_attempt", invalidate_attempt),
+    ):
+        if value.shape != shape:
+            raise ValueError(f"{name} must match current_height_m")
+    for name, value in (
+        ("attempt_active", attempt_active),
+        ("attempt_spent", attempt_spent),
+        ("eligible", eligible),
+        ("invalidate_attempt", invalidate_attempt),
+    ):
+        if value.dtype != torch.bool:
+            raise ValueError(f"{name} must be boolean")
+
+    # Invalidation has priority: collision/replant cannot simultaneously start
+    # or receive credit.
+    new_attempt = eligible & ~attempt_active & ~attempt_spent & ~invalidate_attempt
+    continuing = attempt_active & eligible & ~invalidate_attempt
+
+    candidate_best, credit = bounded_monotonic_vertical_progress_credit(
+        current_height_m,
+        best_height_m,
+        target_height_m,
+        full_clearance_m,
+        max_credit_vertical_speed_mps=max_credit_vertical_speed_mps,
+        dt_s=dt_s,
+    )
+    credit = torch.where(continuing, credit, torch.zeros_like(credit))
+
+    best_now = torch.where(continuing, candidate_best, best_height_m)
+    # Starting the local attempt establishes a physical baseline but never pays
+    # an entry bonus for height achieved during the ordinary approach gait.
+    best_now = torch.where(new_attempt, current_height_m.clamp_min(0.0), best_now)
+
+    ended = attempt_active & invalidate_attempt
+    spent_now = attempt_spent | ended
+    active_now = (attempt_active | new_attempt) & ~invalidate_attempt
+
+    return best_now, active_now, spent_now, credit
+
+
 def first_touchdown_reward_event(
     new_attempt: torch.Tensor,
     preferred_gate: torch.Tensor,

@@ -10,6 +10,34 @@ from .reward_math import (
 )
 
 
+def geometry_failure_termination_event(env) -> torch.Tensor:
+    """One-shot penalty for geometry-contract failures, never success.
+
+    Uses the native non-timeout termination flag but explicitly excludes the
+    shared geometry SUCCESS reason. This closes suicide/course-boundary escape
+    without penalizing valid task completion.
+    """
+    from .geometry_episode import Result
+
+    terminated = getattr(env, "reset_terminated", None)
+    if terminated is None:
+        raise RuntimeError(
+            "geometry_failure_termination_event requires env.reset_terminated"
+        )
+    runtime = getattr(env, "_g1_geometry_episode", None)
+    if runtime is None:
+        raise RuntimeError(
+            "geometry_failure_termination_event requires geometry episode runtime"
+        )
+    if float(env.step_dt) <= 0.0:
+        raise ValueError("reward step dt must be positive")
+
+    failure = terminated.to(dtype=torch.bool) & (
+        runtime.tracker.reason != Result.SUCCESS
+    )
+    return failure.to(dtype=torch.float32) / float(env.step_dt)
+
+
 def track_stair_axis_velocity(
     env,
     target_velocity_mps: float = 0.35,

@@ -7,6 +7,7 @@ import torch
 
 from simulation.isaac_lab.g1_stairs.geometry_locomotion_rewards import (
     finish_arm_target_return,
+    geometry_failure_termination_event,
 )
 
 
@@ -63,3 +64,19 @@ def test_finish_arm_target_return_is_zero_before_stop_and_ramps_to_full() -> Non
     )
 
     assert cost.tolist() == pytest.approx([0.0, 0.25, 0.5])
+
+
+def test_geometry_failure_termination_event_penalizes_failure_not_success() -> None:
+    from simulation.isaac_lab.g1_stairs.geometry_episode import Result
+
+    tracker = SimpleNamespace(
+        reason=torch.tensor([Result.FALL, Result.SUCCESS, Result.RUNNING])
+    )
+    env = SimpleNamespace(
+        reset_terminated=torch.tensor([True, True, False]),
+        step_dt=0.02,
+        _g1_geometry_episode=SimpleNamespace(tracker=tracker),
+    )
+
+    event = geometry_failure_termination_event(env)
+    assert event.tolist() == pytest.approx([50.0, 0.0, 0.0])

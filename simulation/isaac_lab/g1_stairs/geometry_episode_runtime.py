@@ -274,6 +274,7 @@ def finish_geometry_episodes(
     env_ids,
     promote=False,
     minimum_nonflat_env_fraction=0.0,
+    require_strict_success_for_promotion=False,
 ):
     """Count the terminal snapshot before scene reset or terrain reassignment."""
     runtime = getattr(env, "_g1_geometry_episode", None)
@@ -291,10 +292,14 @@ def finish_geometry_episodes(
     levels = (terrain.terrain_levels[ids].clone() if len(runtime.heights) > 1
               else torch.zeros_like(ids))
     success = reason == Result.SUCCESS
-    # Curriculum progression is intentionally independent of the final
-    # one-second finish dwell. A physically valid supported platform pose
-    # qualifies the stair height for promotion.
-    curriculum_success = tracker.platform_seen[ids].clone()
+    # Curriculum promotion may use either the historical supported-platform
+    # milestone or the strict task-success contract. Fresh curricula opt into
+    # strict success so a brief platform pose cannot unlock harder geometry.
+    curriculum_success = (
+        success.clone()
+        if require_strict_success_for_promotion
+        else tracker.platform_seen[ids].clone()
+    )
 
     runtime.last_completed = {
         "step": int(env.common_step_counter), "env_ids": ids.clone(),
@@ -382,6 +387,9 @@ def apply_geometry_episode_contract(env_cfg, resolved, *, promote=None):
     minimum_nonflat_env_fraction = float(
         curriculum_cfg.get("minimum_nonflat_env_fraction", 0.0)
     )
+    require_strict_success_for_promotion = bool(
+        curriculum_cfg.get("require_strict_success_for_promotion", False)
+    )
     if not 0.0 <= minimum_nonflat_env_fraction <= 1.0:
         raise ValueError(
             "terrain.curriculum.minimum_nonflat_env_fraction must be in [0, 1]"
@@ -406,6 +414,9 @@ def apply_geometry_episode_contract(env_cfg, resolved, *, promote=None):
                 ),
                 "minimum_nonflat_env_fraction": (
                     minimum_nonflat_env_fraction
+                ),
+                "require_strict_success_for_promotion": (
+                    require_strict_success_for_promotion
                 ),
             },
         )

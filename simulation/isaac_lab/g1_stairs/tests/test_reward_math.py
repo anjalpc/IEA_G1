@@ -744,6 +744,79 @@ def test_monotonic_anticipatory_clearance_suppresses_strike_bounce():
     assert best.item() == pytest.approx(0.040)
 
 
+def test_anticipatory_attempt_starts_locally_and_cannot_recycle_or_restart():
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        bounded_anticipatory_attempt_credit,
+    )
+
+    best = torch.zeros(1)
+    active = torch.tensor([False])
+    spent = torch.tensor([False])
+    target = torch.tensor([0.055])
+    full = torch.tensor([0.055])
+
+    # Ordinary approach/ineligible height cannot consume the local budget.
+    best, active, spent, c0 = bounded_anticipatory_attempt_credit(
+        torch.tensor([0.025]), best, target, full, active, spent,
+        torch.tensor([False]), torch.tensor([False]),
+        max_credit_vertical_speed_mps=2.0, dt_s=0.02,
+    )
+    assert best.item() == pytest.approx(0.0)
+    assert c0.item() == pytest.approx(0.0)
+
+    # First eligible sample establishes the local baseline with no entry bonus.
+    best, active, spent, c1 = bounded_anticipatory_attempt_credit(
+        torch.tensor([0.025]), best, target, full, active, spent,
+        torch.tensor([True]), torch.tensor([False]),
+        max_credit_vertical_speed_mps=2.0, dt_s=0.02,
+    )
+    assert active.item() is True
+    assert best.item() == pytest.approx(0.025)
+    assert c1.item() == pytest.approx(0.0)
+
+    best, active, spent, c2 = bounded_anticipatory_attempt_credit(
+        torch.tensor([0.035]), best, target, full, active, spent,
+        torch.tensor([True]), torch.tensor([False]),
+        max_credit_vertical_speed_mps=2.0, dt_s=0.02,
+    )
+    assert c2.item() == pytest.approx(0.010 / 0.055)
+
+    # Drop and relift to the same peak cannot recycle credit.
+    best, active, spent, c3 = bounded_anticipatory_attempt_credit(
+        torch.tensor([0.010]), best, target, full, active, spent,
+        torch.tensor([True]), torch.tensor([False]),
+        max_credit_vertical_speed_mps=2.0, dt_s=0.02,
+    )
+    best, active, spent, c4 = bounded_anticipatory_attempt_credit(
+        torch.tensor([0.035]), best, target, full, active, spent,
+        torch.tensor([True]), torch.tensor([False]),
+        max_credit_vertical_speed_mps=2.0, dt_s=0.02,
+    )
+    assert c3.item() == pytest.approx(0.0)
+    assert c4.item() == pytest.approx(0.0)
+
+    # Strike/replant invalidates the attempt and blocks another attempt on the
+    # same stair target. Collision-induced height receives no credit.
+    best, active, spent, c5 = bounded_anticipatory_attempt_credit(
+        torch.tensor([0.050]), best, target, full, active, spent,
+        torch.tensor([True]), torch.tensor([True]),
+        max_credit_vertical_speed_mps=2.0, dt_s=0.02,
+    )
+    assert c5.item() == pytest.approx(0.0)
+    assert active.item() is False
+    assert spent.item() is True
+
+    best2, active2, spent2, c6 = bounded_anticipatory_attempt_credit(
+        torch.tensor([0.055]), best, target, full, active, spent,
+        torch.tensor([True]), torch.tensor([False]),
+        max_credit_vertical_speed_mps=2.0, dt_s=0.02,
+    )
+    assert c6.item() == pytest.approx(0.0)
+    assert active2.item() is False
+    assert spent2.item() is True
+    assert best2.item() == pytest.approx(best.item())
+
+
 def test_first_touchdown_reward_is_global_one_shot_and_rejects_ambiguous():
     from simulation.isaac_lab.g1_stairs.reward_math import (
         first_touchdown_reward_event,

@@ -35,7 +35,7 @@ from .reward_math import (
     alternating_foot_gate,
     anticipatory_clearance_target,
     bounded_impact_severity,
-    bounded_monotonic_vertical_progress_credit,
+    bounded_anticipatory_attempt_credit,
     first_touchdown_placement_score,
     first_touchdown_reward_event,
     global_stair_target_update,
@@ -1455,7 +1455,10 @@ class anticipatory_clearance_progress(ManagerTermBase):
         self._previous_target = torch.full(
             shape, -1, dtype=torch.long, device=env.device
         )
-        self._initialized = torch.zeros(
+        self._attempt_active = torch.zeros(
+            shape, dtype=torch.bool, device=env.device
+        )
+        self._attempt_spent = torch.zeros(
             shape, dtype=torch.bool, device=env.device
         )
 
@@ -1464,7 +1467,8 @@ class anticipatory_clearance_progress(ManagerTermBase):
             env_ids = slice(None)
         self._best_height[env_ids] = 0.0
         self._previous_target[env_ids] = -1
-        self._initialized[env_ids] = False
+        self._attempt_active[env_ids] = False
+        self._attempt_spent[env_ids] = False
 
     def __call__(
         self,
@@ -1543,24 +1547,6 @@ class anticipatory_clearance_progress(ManagerTermBase):
             full_distance_m=float(full_clearance_distance_m),
         )
 
-        target_changed = runtime.target_step != self._previous_target
-        previous_best = torch.where(
-            self._initialized & ~target_changed,
-            self._best_height,
-            relative_height,
-        )
-        best_height, credit = bounded_monotonic_vertical_progress_credit(
-            relative_height,
-            previous_best,
-            target_height,
-            full_clearance,
-            max_credit_vertical_speed_mps=(
-                float(max_credit_vertical_speed_mps)
-            ),
-            dt_s=float(env.step_dt),
-            suppress_credit=runtime.riser_face_strike_sample,
-        )
-
         vertical_force = runtime.sensor.data.net_forces_w[
             :, runtime.sensor_foot_ids, 2
         ].clamp_min(0.0)
@@ -1568,30 +1554,80 @@ class anticipatory_clearance_progress(ManagerTermBase):
             (vertical_force[:, 1], vertical_force[:, 0]), dim=1
         )
         support_advantage = opposite_force - vertical_force
-        transfer_gate = _smooth_rising(
-            support_advantage,
-            float(support_advantage_start_n),
-            float(support_advantage_full_n),
-        )
 
         if runtime.dynamic_alternating_rewards:
             preferred_gate = alternating_foot_gate(runtime.preferred_foot)
         else:
             preferred_gate = torch.ones_like(valid_target, dtype=torch.bool)
 
-        credit = (
-            credit
-            * transfer_gate
-            * in_window.to(credit.dtype)
-            * valid_target.to(credit.dtype)
-            * preferred_gate.to(credit.dtype)
+        # Advance attempt state only in the physically relevant pre-riser swing
+        # phase. Ordinary approach swings must not consume the clearance budget.
+        transfer_ready = (
+            support_advantage >= float(support_advantage_full_n)
+        )
+        eligible = (
+            in_window
+            & valid_target
+            & preferred_gate
+            & transfer_ready
         )
 
-        # The helper suppresses strike-step credit while still advancing the
-        # physical peak, so collision bounce cannot be cashed later.
+        target_changed = runtime.target_step != self._previous_target
+        self._best_height.copy_(torch.where(
+            target_changed,
+            torch.zeros_like(self._best_height),
+            self._best_height,
+        ))
+        self._attempt_active.copy_(torch.where(
+            target_changed,
+            torch.zeros_like(self._attempt_active),
+            self._attempt_active,
+        ))
+        self._attempt_spent.copy_(torch.where(
+            target_changed,
+            torch.zeros_like(self._attempt_spent),
+            self._attempt_spent,
+        ))
+
+        # A loaded return to the lower support surface is a failed/replanted
+        # swing attempt. Passing the riser plane or striking it also closes the
+        # attempt. A spent attempt cannot restart until target change/reset.
+        lower_replant = (
+            self._attempt_active
+            & (vertical_force >= float(support_advantage_full_n))
+            & (relative_height <= float(clearance_margin_m))
+        )
+        passed_edge = self._attempt_active & (distance_to_edge < 0.0)
+        invalidate_attempt = (
+            runtime.riser_face_strike_sample
+            | lower_replant
+            | passed_edge
+        )
+
+        (
+            best_height,
+            attempt_active,
+            attempt_spent,
+            credit,
+        ) = bounded_anticipatory_attempt_credit(
+            relative_height,
+            self._best_height,
+            target_height,
+            full_clearance,
+            self._attempt_active,
+            self._attempt_spent,
+            eligible,
+            invalidate_attempt,
+            max_credit_vertical_speed_mps=(
+                float(max_credit_vertical_speed_mps)
+            ),
+            dt_s=float(env.step_dt),
+        )
+
         self._best_height.copy_(best_height)
+        self._attempt_active.copy_(attempt_active)
+        self._attempt_spent.copy_(attempt_spent)
         self._previous_target.copy_(runtime.target_step)
-        self._initialized[:] = True
 
         # RewardManager multiplies by env.step_dt. Normalized vertical progress
         # therefore integrates to bounded per-target credit.

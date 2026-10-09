@@ -462,6 +462,10 @@ class StairRewardsCfg:
         func=stair_rewards.failure_termination_event,
         weight=-1.0,
     )
+    geometry_failure_termination_event = RewTerm(
+        func=geometry_locomotion_rewards.geometry_failure_termination_event,
+        weight=0.0,
+    )
 
     # Geometry-driven specialist task terms.  Parameters remain bounded and
     # config-overridable through reward_parameters in the resolved YAML.
