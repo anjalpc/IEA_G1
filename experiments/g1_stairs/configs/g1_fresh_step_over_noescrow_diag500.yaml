@@ -1,0 +1,22 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_fresh_step_over_curriculum.yaml
+  resolved_config_required: true
+
+experiment:
+  id: g1_fresh_step_over_noescrow_diag500
+  purpose: >
+    Fresh official-Unitree-prior 4/8/12/16/20 cm curriculum diagnostic.
+    Test whether immediate pre-riser clearance/insertion shaping resolves the
+    verified stair-1 riser-strike bootstrap failure while preserving all other
+    current contracts.
+
+execution:
+  maximum_iterations: 500
+
+reward_parameters:
+  terrain_relative_clearance:
+    escrow_clearance_until_riser_crossing: false
+  forward_insertion:
+    escrow_clearance_until_riser_crossing: false
