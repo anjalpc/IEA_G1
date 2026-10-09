@@ -6,6 +6,7 @@ import pytest
 
 from g1_hardware_bridge.state_probe.helper import (
     CANDIDATE_BINDINGS,
+    extract_candidate_observation,
     parse_args,
     resolve_candidate_types,
 )
@@ -111,3 +112,114 @@ def test_contains_missing_module_without_exception():
         "rt/secondary_imu": None,
         "rt/sportmodestate": None,
     }
+
+
+def imu_state(value=0.1):
+    return SimpleNamespace(
+        quaternion=[1.0, 0.0, 0.0, 0.0],
+        gyroscope=[value, 0.0, 0.0],
+        accelerometer=[0.0, 0.0, 9.81],
+    )
+
+
+def test_extracts_sanitized_low_state_observation():
+    message = SimpleNamespace(
+        tick=42,
+        imu_state=imu_state(),
+    )
+
+    result = extract_candidate_observation(
+        "rt/lowstate",
+        message,
+        callback_sequence=1,
+    )
+
+    assert result == {
+        "topic": "rt/lowstate",
+        "progress": 42,
+        "field_lengths": {
+            "accelerometer": 3,
+            "gyroscope": 3,
+            "quaternion": 4,
+        },
+        "finite": True,
+    }
+
+
+def test_extracts_sanitized_secondary_imu_observation():
+    result = extract_candidate_observation(
+        "rt/secondary_imu",
+        imu_state(),
+        callback_sequence=7,
+    )
+
+    assert result["topic"] == "rt/secondary_imu"
+    assert result["progress"] == 7
+    assert result["field_lengths"] == {
+        "accelerometer": 3,
+        "gyroscope": 3,
+        "quaternion": 4,
+    }
+
+
+def test_extracts_sanitized_sport_state_observation():
+    message = SimpleNamespace(
+        position=[1.0, 2.0, 3.0],
+        velocity=[0.1, 0.2, 0.3],
+    )
+
+    result = extract_candidate_observation(
+        "rt/sportmodestate",
+        message,
+        callback_sequence=9,
+    )
+
+    assert result == {
+        "topic": "rt/sportmodestate",
+        "progress": 9,
+        "field_lengths": {
+            "position": 3,
+            "velocity": 3,
+        },
+        "finite": True,
+    }
+
+
+def test_candidate_extraction_does_not_retain_raw_values():
+    message = SimpleNamespace(
+        position=[123.456, 234.567, 345.678],
+        velocity=[456.789, 567.891, 678.912],
+    )
+
+    result = extract_candidate_observation(
+        "rt/sportmodestate",
+        message,
+        callback_sequence=1,
+    )
+
+    serialized = repr(result)
+    assert "123.456" not in serialized
+    assert "678.912" not in serialized
+
+
+@pytest.mark.parametrize(
+    "topic,message",
+    [
+        ("rt/lowstate", SimpleNamespace(tick=1)),
+        ("rt/secondary_imu", SimpleNamespace()),
+        (
+            "rt/sportmodestate",
+            SimpleNamespace(position=[0.0, 0.0, 0.0]),
+        ),
+    ],
+)
+def test_rejects_candidate_messages_with_missing_fields(
+    topic,
+    message,
+):
+    with pytest.raises(AttributeError):
+        extract_candidate_observation(
+            topic,
+            message,
+            callback_sequence=1,
+        )

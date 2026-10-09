@@ -3,6 +3,16 @@
 import argparse
 import importlib
 import math
+import threading
+
+from g1_hardware_bridge.state_probe.protocol import (
+    REASON_FIELDS_MISSING,
+    REASON_NONFINITE_SAMPLE,
+    REASON_RUNTIME_FAILURE,
+    ProbeSummary,
+    encode_summary,
+    normalize_observation,
+)
 
 
 CANDIDATE_BINDINGS = {
@@ -56,6 +66,157 @@ def _positive_integer(value):
             "value must be positive"
         )
     return value
+
+
+def extract_candidate_observation(
+    topic,
+    message,
+    callback_sequence,
+):
+    """Extract only sanitized metadata from an approved message."""
+    if topic == "rt/lowstate":
+        imu = message.imu_state
+        progress = message.tick
+        fields = {
+            "quaternion": imu.quaternion,
+            "gyroscope": imu.gyroscope,
+            "accelerometer": imu.accelerometer,
+        }
+    elif topic == "rt/secondary_imu":
+        progress = callback_sequence
+        fields = {
+            "quaternion": message.quaternion,
+            "gyroscope": message.gyroscope,
+            "accelerometer": message.accelerometer,
+        }
+    elif topic == "rt/sportmodestate":
+        progress = callback_sequence
+        fields = {
+            "position": message.position,
+            "velocity": message.velocity,
+        }
+    else:
+        raise ValueError("state-probe topic is not approved")
+
+    return normalize_observation(
+        topic=topic,
+        progress=progress,
+        fields=fields,
+    )
+
+
+def run_probe(
+    interface,
+    duration_seconds,
+    minimum_samples,
+    candidate_types,
+    channel_factory_initialize,
+    subscriber_factory,
+    monotonic,
+    sleep,
+    emit,
+):
+    """Observe approved DDS state streams for one bounded interval."""
+    interface = str(interface).strip()
+    if not interface:
+        raise ValueError("interface must be nonempty")
+
+    summary = ProbeSummary(minimum_samples=minimum_samples)
+    callback_sequences = {
+        topic: 0
+        for topic in CANDIDATE_BINDINGS
+    }
+    subscribers = []
+    summary_lock = threading.Lock()
+    started_at = monotonic()
+
+    for topic in CANDIDATE_BINDINGS:
+        if candidate_types.get(topic) is None:
+            summary.mark_unavailable(topic)
+
+    def finish():
+        with summary_lock:
+            result = summary.finalize(
+                requested_duration_seconds=duration_seconds,
+                actual_elapsed_seconds=max(
+                    0.0,
+                    monotonic() - started_at,
+                ),
+            )
+        emit(encode_summary(result))
+        return result
+
+    try:
+        channel_factory_initialize(0, interface)
+    except Exception:
+        for topic in CANDIDATE_BINDINGS:
+            if candidate_types.get(topic) is not None:
+                summary.mark_failure(
+                    topic,
+                    REASON_RUNTIME_FAILURE,
+                )
+        return finish()
+
+    for topic in CANDIDATE_BINDINGS:
+        message_type = candidate_types.get(topic)
+        if message_type is None:
+            continue
+
+        def callback(message, observed_topic=topic):
+            with summary_lock:
+                callback_sequences[observed_topic] += 1
+                try:
+                    observation = extract_candidate_observation(
+                        observed_topic,
+                        message,
+                        callback_sequences[observed_topic],
+                    )
+                    summary.observe(
+                        observation,
+                        observed_at=max(
+                            0.0,
+                            monotonic() - started_at,
+                        ),
+                    )
+                except (AttributeError, TypeError):
+                    summary.mark_failure(
+                        observed_topic,
+                        REASON_FIELDS_MISSING,
+                    )
+                except ValueError as error:
+                    reason = REASON_FIELDS_MISSING
+                    if "finite" in str(error):
+                        reason = REASON_NONFINITE_SAMPLE
+                    summary.mark_failure(observed_topic, reason)
+                except Exception:
+                    summary.mark_failure(
+                        observed_topic,
+                        REASON_RUNTIME_FAILURE,
+                    )
+
+        try:
+            subscriber = subscriber_factory(topic, message_type)
+            subscriber.Init(callback)
+            subscribers.append(subscriber)
+        except Exception:
+            with summary_lock:
+                summary.mark_failure(
+                    topic,
+                    REASON_RUNTIME_FAILURE,
+                )
+
+    try:
+        sleep(duration_seconds)
+    except Exception:
+        with summary_lock:
+            for topic in CANDIDATE_BINDINGS:
+                if candidate_types.get(topic) is not None:
+                    summary.mark_failure(
+                        topic,
+                        REASON_RUNTIME_FAILURE,
+                    )
+
+    return finish()
 
 
 def parse_args(args=None):

@@ -126,6 +126,7 @@ class ProbeSummary:
                 "progress_advanced": False,
                 "field_lengths": None,
                 "fields_consistent": True,
+                "failure_reason": None,
             }
             for topic in APPROVED_TOPICS
         }
@@ -136,6 +137,18 @@ class ProbeSummary:
             raise ValueError("state-probe topic is not approved")
         state = self._topics[topic]
         state["available"] = False
+
+    def mark_failure(self, topic, reason):
+        """Record one sanitized failure reason for an approved topic."""
+        if topic not in APPROVED_TOPICS:
+            raise ValueError("state-probe topic is not approved")
+        if reason not in {
+            REASON_FIELDS_MISSING,
+            REASON_NONFINITE_SAMPLE,
+            REASON_RUNTIME_FAILURE,
+        }:
+            raise ValueError("state-probe failure reason is invalid")
+        self._topics[topic]["failure_reason"] = reason
 
     def observe(self, observation, observed_at):
         """Consume sanitized observation metadata without retaining values."""
@@ -203,6 +216,8 @@ class ProbeSummary:
 
         if not state["available"]:
             reason = REASON_TYPE_UNAVAILABLE
+        elif state["failure_reason"] is not None:
+            reason = state["failure_reason"]
         elif count == 0:
             reason = REASON_NO_SAMPLES
         elif not state["fields_consistent"]:
