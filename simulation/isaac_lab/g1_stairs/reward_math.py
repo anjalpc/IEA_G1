@@ -1010,6 +1010,37 @@ def preferred_transition_contact_update(
     return armed_now, resolved_now, replant_old, direct_next
 
 
+
+def update_crossing_attempt_invalid(
+    previous_invalid,
+    riser_strike,
+    safe_lower_replant,
+):
+    """Latch strike invalidation until a safe lower-support replant."""
+    if (
+        previous_invalid.shape != riser_strike.shape
+        or previous_invalid.shape != safe_lower_replant.shape
+    ):
+        raise ValueError(
+            "crossing-attempt tensors must have identical shapes"
+        )
+
+    if (
+        previous_invalid.dtype != torch.bool
+        or riser_strike.dtype != torch.bool
+        or safe_lower_replant.dtype != torch.bool
+    ):
+        raise ValueError("crossing-attempt tensors must be bool")
+
+    # A strike always wins over a same-sample replant.
+    cleared = (
+        previous_invalid
+        & safe_lower_replant
+        & ~riser_strike
+    )
+    return (previous_invalid & ~cleared) | riser_strike
+
+
 def bounded_impact_severity(
     opposing_force_n: torch.Tensor,
     event: torch.Tensor,

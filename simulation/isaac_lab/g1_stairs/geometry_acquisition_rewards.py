@@ -35,6 +35,7 @@ from .reward_math import (
     alternating_foot_gate,
     anticipatory_clearance_target,
     bounded_impact_severity,
+    update_crossing_attempt_invalid,
     bounded_anticipatory_attempt_credit,
     first_touchdown_placement_score,
     first_touchdown_reward_event,
@@ -276,6 +277,9 @@ class GeometryAcquisitionRuntime:
             shape, dtype=torch.bool, device=env.device
         )
         self.riser_strike_force_x = torch.zeros_like(self.best_clearance)
+        self.crossing_attempt_invalid = torch.zeros(
+            shape, dtype=torch.bool, device=env.device
+        )
 
         self.last_step = -1
 
@@ -359,6 +363,7 @@ class GeometryAcquisitionRuntime:
         self.sample_target_index[env_ids] = -1
         self.riser_face_strike_sample[env_ids] = False
         self.riser_strike_force_x[env_ids] = 0.0
+        self.crossing_attempt_invalid[env_ids] = False
 
         if self.contact_current_duration.shape[1] > 0:
             self.contact_current_duration[env_ids] = 0.0
@@ -582,6 +587,30 @@ class GeometryAcquisitionRuntime:
             + float(clearance_margin_m)
         ).clamp_min(1.0e-6)
 
+        safe_lower_replant = (
+            self.crossing_attempt_invalid
+            & valid_target
+            & (vertical_force >= float(touchdown_force_n))
+            & (
+                relative_height
+                <= float(touchdown_height_tolerance_m)
+            )
+            & (
+                front_x
+                <= next_riser_x - float(riser_face_band_m)
+            )
+        )
+
+        self.crossing_attempt_invalid.copy_(
+            update_crossing_attempt_invalid(
+                self.crossing_attempt_invalid,
+                riser_face_strike_sample,
+                safe_lower_replant,
+            )
+        )
+
+        crossing_attempt_valid = ~self.crossing_attempt_invalid
+
         clearance_fraction = (
             relative_height / target_clearance
         ).clamp(0.0, 1.0)
@@ -652,6 +681,7 @@ class GeometryAcquisitionRuntime:
         clearance_score = (
             torch.minimum(clearance_fraction, approach_gate)
             * support_swing_gate
+            * crossing_attempt_valid.to(foot_pos.dtype)
         ).clamp(0.0, 1.0)
 
         new_clearance_peak = torch.maximum(
@@ -736,6 +766,7 @@ class GeometryAcquisitionRuntime:
             * clearance_gate
             * swing_gate
             * safe_end_gate
+            * crossing_attempt_valid.to(foot_pos.dtype)
         ).clamp(0.0, 1.0)
 
         new_insertion_peak = torch.maximum(
@@ -1093,6 +1124,13 @@ class GeometryAcquisitionRuntime:
                     reset_mask,
                     torch.zeros_like(self.pending_clearance),
                     self.pending_clearance,
+                )
+            )
+            self.crossing_attempt_invalid.copy_(
+                torch.where(
+                    reset_mask,
+                    torch.zeros_like(self.crossing_attempt_invalid),
+                    self.crossing_attempt_invalid,
                 )
             )
 

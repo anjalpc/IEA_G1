@@ -1256,3 +1256,48 @@ def test_step_over_strike_failure_is_not_cheaper_than_generic_failure():
     assert out[4].item() == pytest.approx(-1.05)
     assert out[4].item() <= -1.0
     assert out[5].item() == 3
+
+
+
+def test_crossing_attempt_invalid_latches_until_replant():
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        update_crossing_attempt_invalid,
+    )
+
+    x = torch.tensor([[False, False]])
+
+    x = update_crossing_attempt_invalid(
+        x,
+        torch.tensor([[False, True]]),
+        torch.tensor([[False, False]]),
+    )
+    assert x.tolist() == [[False, True]]
+
+    # Collision recovery remains invalid.
+    x = update_crossing_attempt_invalid(
+        x,
+        torch.tensor([[False, False]]),
+        torch.tensor([[False, False]]),
+    )
+    assert x.tolist() == [[False, True]]
+
+    # Safe lower-support replant permits a new swing.
+    x = update_crossing_attempt_invalid(
+        x,
+        torch.tensor([[False, False]]),
+        torch.tensor([[False, True]]),
+    )
+    assert x.tolist() == [[False, False]]
+
+
+def test_crossing_attempt_strike_wins_over_replant():
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        update_crossing_attempt_invalid,
+    )
+
+    x = update_crossing_attempt_invalid(
+        torch.tensor([[False, True]]),
+        torch.tensor([[False, True]]),
+        torch.tensor([[False, True]]),
+    )
+    assert x.tolist() == [[False, True]]
