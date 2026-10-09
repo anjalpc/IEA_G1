@@ -153,14 +153,27 @@ simulated source while the physical MID-360 driver is publishing.
 `g1_robot_description` owns the fixed `torso_link -> mid360_link`
 transform.
 
-### Physical waist joint-state source
+### Physical LowState source
 
-On PC2, `g1_hardware_bridge` owns the read-only physical source for
-the three movable waist joints. The isolated native helper subscribes
-to Unitree `rt/lowstate` on DDS domain `0`; it creates no command
-publisher and never writes robot state. The supervising ROS node runs
-on application domain `42` and publishes standard
-`sensor_msgs/msg/JointState` messages on `/joint_states`.
+On PC2, `g1_hardware_bridge` owns one read-only physical source for measured
+waist and pelvis IMU state. The isolated native helper subscribes once to
+Unitree `rt/lowstate` on DDS domain `0`; it creates no command publisher and
+never writes robot state.
+
+Each accepted native tick produces one atomic sample containing:
+
+- waist yaw, roll, and pitch positions;
+- pelvis IMU quaternion in Unitree `wxyz` order;
+- pelvis angular velocity;
+- pelvis linear acceleration.
+
+The supervising `g1_hardware_state` ROS node runs on application domain `42`.
+It converts the quaternion to ROS `xyzw` order and publishes:
+
+| Topic | Type | Frame | QoS |
+|---|---|---|---|
+| `/joint_states` | `sensor_msgs/msg/JointState` | standard joint names | reliable, volatile, depth one |
+| `/g1/state/imu_raw` | `sensor_msgs/msg/Imu` | `imu_in_pelvis` | best effort, volatile, depth one |
 
 The hardware indices for mode-machine `5` are:
 
@@ -170,16 +183,26 @@ The hardware indices for mode-machine `5` are:
 | 13 | `waist_roll_joint` |
 | 14 | `waist_pitch_joint` |
 
-The output order is yaw, roll, then pitch. Samples must have an
-advancing native tick and three finite measured positions. Publication
-is rate-limited to 50 Hz and uses volatile, reliable, depth-one QoS.
-There are no default, commanded, interpolated, or replayed values.
+Joint output order is yaw, roll, then pitch. All motor and IMU values must be
+finite, the quaternion must have unit length within the declared tolerance,
+and the native tick must advance. Invalid IMU data rejects the entire atomic
+sample rather than releasing partial joint state.
 
-The native helper is deliberately separated from application ROS so
-Unitree DDS domain `0` cannot collide with ROS application domain
-`42`. `g1_bringup/event_interaction.launch.py` supervises the parent
-node as required: loss of this state source shuts down the supported
-physical stack instead of leaving navigation with frozen joints.
+Publication is rate-limited to 50 Hz. Both messages from one callback use the
+same supervising-node receipt timestamp. There are no default, commanded,
+interpolated, integrated, or replayed values.
+
+Physical IMU covariance has not been measured. The raw IMU therefore publishes
+zero covariance arrays to mean unknown covariance. `g1_state_estimation`
+continues rejecting that raw source as `COVARIANCE_REQUIRED`; physical
+calibration or estimator-specific covariance qualification is required before
+physical navigation may consume it.
+
+The native helper is deliberately separated from application ROS so Unitree
+DDS domain `0` cannot collide with ROS application domain `42`.
+`g1_bringup/event_interaction.launch.py` supervises the parent node as
+required: helper loss shuts down the supported physical stack instead of
+leaving downstream consumers with frozen state.
 
 ### Physical navigation-state probe
 

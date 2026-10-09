@@ -27,8 +27,8 @@ setup(
         "console_scripts": [
             "hardware_bridge = g1_hardware_bridge.hardware_bridge_node:main",
             (
-                "hardware_joint_state = "
-                "g1_hardware_bridge.joint_state.node:main"
+                "hardware_state = "
+                "g1_hardware_bridge.low_state.node:main"
             ),
             (
                 "physical_state_probe = "

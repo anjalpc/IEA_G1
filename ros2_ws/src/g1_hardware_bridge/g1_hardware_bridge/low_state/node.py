@@ -1,4 +1,4 @@
-"""Publish validated physical waist state on application ROS."""
+"""Publish validated physical LowState on application ROS."""
 
 import math
 import signal
@@ -17,12 +17,12 @@ from rclpy.qos import (
     QoSProfile,
     ReliabilityPolicy,
 )
-from sensor_msgs.msg import JointState
+from sensor_msgs.msg import Imu, JointState
 
-from g1_hardware_bridge.joint_state.monitor import (
-    JointStateMonitor,
+from g1_hardware_bridge.low_state.monitor import (
+    LowStateMonitor,
 )
-from g1_hardware_bridge.joint_state.protocol import (
+from g1_hardware_bridge.low_state.protocol import (
     JOINT_NAMES,
 )
 from g1_hardware_bridge.native_runtime import (
@@ -32,6 +32,8 @@ from g1_hardware_bridge.native_runtime import (
 
 
 JOINT_STATES_TOPIC = "/joint_states"
+IMU_TOPIC = "/g1/state/imu_raw"
+IMU_FRAME = "imu_in_pelvis"
 
 
 def joint_state_qos():
@@ -40,6 +42,16 @@ def joint_state_qos():
         history=HistoryPolicy.KEEP_LAST,
         depth=1,
         reliability=ReliabilityPolicy.RELIABLE,
+        durability=DurabilityPolicy.VOLATILE,
+    )
+
+
+def imu_qos():
+    """Return the physical raw-IMU publisher QoS."""
+    return QoSProfile(
+        history=HistoryPolicy.KEEP_LAST,
+        depth=1,
+        reliability=ReliabilityPolicy.BEST_EFFORT,
         durability=DurabilityPolicy.VOLATILE,
     )
 
@@ -53,17 +65,49 @@ def build_joint_state_message(sample, stamp):
     return message
 
 
-class HardwareJointStateNode(Node):
-    """Bridge validated native waist telemetry to application ROS."""
+def build_imu_message(sample, stamp):
+    """Build one raw measured pelvis Imu message."""
+    message = Imu()
+    message.header.stamp = stamp
+    message.header.frame_id = IMU_FRAME
+
+    w, x, y, z = sample["orientation_wxyz"]
+    message.orientation.x = x
+    message.orientation.y = y
+    message.orientation.z = z
+    message.orientation.w = w
+
+    angular_x, angular_y, angular_z = (
+        sample["angular_velocity_xyz"]
+    )
+    message.angular_velocity.x = angular_x
+    message.angular_velocity.y = angular_y
+    message.angular_velocity.z = angular_z
+
+    linear_x, linear_y, linear_z = (
+        sample["linear_acceleration_xyz"]
+    )
+    message.linear_acceleration.x = linear_x
+    message.linear_acceleration.y = linear_y
+    message.linear_acceleration.z = linear_z
+
+    message.orientation_covariance = [0.0] * 9
+    message.angular_velocity_covariance = [0.0] * 9
+    message.linear_acceleration_covariance = [0.0] * 9
+    return message
+
+
+class HardwareStateNode(Node):
+    """Bridge validated native LowState telemetry to application ROS."""
 
     def __init__(
         self,
         *,
-        monitor_factory=JointStateMonitor,
+        monitor_factory=LowStateMonitor,
         environment_factory=native_dds_environment,
         shutdown_callback=rclpy.shutdown,
     ):
-        super().__init__("g1_hardware_joint_state")
+        super().__init__("g1_hardware_state")
 
         self._shutdown_callback = shutdown_callback
 
@@ -72,7 +116,7 @@ class HardwareJointStateNode(Node):
             network_interface(),
         )
         self.declare_parameter(
-            "joint_state_publish_period_s",
+            "state_publish_period_s",
             0.02,
         )
 
@@ -83,7 +127,7 @@ class HardwareJointStateNode(Node):
         )
         period_seconds = float(
             self.get_parameter(
-                "joint_state_publish_period_s"
+                "state_publish_period_s"
             ).value
         )
 
@@ -96,7 +140,7 @@ class HardwareJointStateNode(Node):
             or period_seconds <= 0.0
         ):
             raise ValueError(
-                "joint_state_publish_period_s must be "
+                "state_publish_period_s must be "
                 "finite and positive"
             )
 
@@ -106,6 +150,11 @@ class HardwareJointStateNode(Node):
                 JOINT_STATES_TOPIC,
                 joint_state_qos(),
             )
+        )
+        self._imu_publisher = self.create_publisher(
+            Imu,
+            IMU_TOPIC,
+            imu_qos(),
         )
 
         self._monitor = monitor_factory(
@@ -120,25 +169,34 @@ class HardwareJointStateNode(Node):
         self._monitor.start()
 
         self.get_logger().warning(
-            "Physical waist joint-state source ready"
+            "Physical LowState source ready"
         )
 
     def _publish_sample(self, sample):
         stamp = self.get_clock().now().to_msg()
-        message = build_joint_state_message(
+        joint_message = build_joint_state_message(
             sample,
             stamp,
         )
-        self._joint_state_publisher.publish(message)
+        imu_message = build_imu_message(
+            sample,
+            stamp,
+        )
+        self._joint_state_publisher.publish(
+            joint_message
+        )
+        self._imu_publisher.publish(
+            imu_message
+        )
 
     def _source_availability_changed(self, available):
         if available:
             self.get_logger().info(
-                "Physical joint-state helper available"
+                "Physical LowState helper available"
             )
         else:
             self.get_logger().error(
-                "Physical joint-state helper unavailable"
+                "Physical LowState helper unavailable"
             )
             self._shutdown_callback()
 
@@ -158,7 +216,7 @@ def main(args=None):
             signal_handler_options=SignalHandlerOptions.NO,
         )
 
-    node = HardwareJointStateNode()
+    node = HardwareStateNode()
     stop_requested = threading.Event()
 
     def request_stop(_signum, _frame):

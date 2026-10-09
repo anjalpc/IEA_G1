@@ -1,16 +1,16 @@
-"""Supervise the isolated native physical joint-state helper."""
+"""Supervise the isolated native physical LowState helper."""
 
 import json
 import subprocess
 import sys
 import threading
 
-from g1_hardware_bridge.joint_state.protocol import (
+from g1_hardware_bridge.low_state.protocol import (
     decode_sample,
 )
 
 
-class JointStateMonitor:
+class LowStateMonitor:
     """Forward validated helper samples to the application ROS node."""
 
     def __init__(
@@ -53,14 +53,14 @@ class JointStateMonitor:
                 and self._process.poll() is None
             ):
                 raise RuntimeError(
-                    "joint-state helper is already running"
+                    "LowState helper is already running"
                 )
 
             process = self.process_factory(
                 [
                     sys.executable,
                     "-m",
-                    "g1_hardware_bridge.joint_state.helper",
+                    "g1_hardware_bridge.low_state.helper",
                     self.interface,
                     "--period-seconds",
                     str(self.period_seconds),
@@ -75,14 +75,14 @@ class JointStateMonitor:
             if process.stdout is None:
                 process.terminate()
                 raise RuntimeError(
-                    "joint-state helper has no output pipe"
+                    "LowState helper has no output pipe"
                 )
 
             self._process = process
             self._reader = threading.Thread(
                 target=self._read_output,
                 args=(process,),
-                name="unitree-joint-state-reader",
+                name="unitree-low-state-reader",
                 daemon=True,
             )
             reader = self._reader

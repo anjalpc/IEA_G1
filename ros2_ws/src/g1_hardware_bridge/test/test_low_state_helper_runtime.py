@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from g1_hardware_bridge.joint_state import helper
-from g1_hardware_bridge.joint_state.protocol import (
+from g1_hardware_bridge.low_state import helper
+from g1_hardware_bridge.low_state.protocol import (
     decode_sample,
 )
 
@@ -40,6 +40,11 @@ def low_state():
     return SimpleNamespace(
         tick=123,
         motor_state=motors,
+        imu_state=SimpleNamespace(
+            quaternion=[1.0, 0.0, 0.0, 0.0],
+            gyroscope=[0.1, -0.2, 0.3],
+            accelerometer=[0.4, 0.5, 9.6],
+        ),
     )
 
 
@@ -78,6 +83,9 @@ def test_initializes_read_only_domain_zero_subscriber():
     assert decode_sample(lines[0]) == {
         "tick": 123,
         "positions": [0.12, 0.13, 0.14],
+        "orientation_wxyz": [1.0, 0.0, 0.0, 0.0],
+        "angular_velocity_xyz": [0.1, -0.2, 0.3],
+        "linear_acceleration_xyz": [0.4, 0.5, 9.6],
     }
 
 

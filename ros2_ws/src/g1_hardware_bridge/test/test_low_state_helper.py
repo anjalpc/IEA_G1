@@ -1,16 +1,16 @@
-"""Hardware-free tests for the native joint-state helper."""
+"""Hardware-free tests for the native LowState helper."""
 
 import io
 import math
 from pathlib import Path
 from types import SimpleNamespace
 
-from g1_hardware_bridge.joint_state.helper import (
+from g1_hardware_bridge.low_state.helper import (
     ERROR_PREFIX,
     LowStateReader,
 )
-from g1_hardware_bridge.joint_state.protocol import (
-    JointStateGate,
+from g1_hardware_bridge.low_state.protocol import (
+    LowStateGate,
     decode_sample,
 )
 
@@ -22,6 +22,9 @@ def low_state(
     yaw=0.12,
     roll=-0.13,
     pitch=0.14,
+    quaternion=(1.0, 0.0, 0.0, 0.0),
+    gyroscope=(0.1, -0.2, 0.3),
+    accelerometer=(0.4, 0.5, 9.6),
 ):
     motors = [
         SimpleNamespace(q=0.01 * index)
@@ -34,13 +37,18 @@ def low_state(
     return SimpleNamespace(
         tick=tick,
         motor_state=motors,
+        imu_state=SimpleNamespace(
+            quaternion=list(quaternion),
+            gyroscope=list(gyroscope),
+            accelerometer=list(accelerometer),
+        ),
     )
 
 
 def test_emits_valid_minimal_protocol_line():
     lines = []
     reader = LowStateReader(
-        gate=JointStateGate(
+        gate=LowStateGate(
             monotonic=lambda: 1.0
         ),
         emit=lines.append,
@@ -52,6 +60,9 @@ def test_emits_valid_minimal_protocol_line():
     assert decode_sample(lines[0]) == {
         "tick": 123,
         "positions": [0.12, -0.13, 0.14],
+        "orientation_wxyz": [1.0, 0.0, 0.0, 0.0],
+        "angular_velocity_xyz": [0.1, -0.2, 0.3],
+        "linear_acceleration_xyz": [0.4, 0.5, 9.6],
     }
 
 
@@ -59,7 +70,7 @@ def test_repeated_and_rate_limited_samples_do_not_emit():
     times = iter((1.0, 1.01, 1.02))
     lines = []
     reader = LowStateReader(
-        gate=JointStateGate(
+        gate=LowStateGate(
             period_seconds=0.02,
             monotonic=lambda: next(times),
         ),
@@ -96,6 +107,9 @@ def test_invalid_native_samples_are_suppressed():
     invalid = (
         low_state(count=28),
         low_state(roll=math.nan),
+        low_state(
+            gyroscope=(math.nan, 0.0, 0.0),
+        ),
         SimpleNamespace(
             tick=123,
             motor_state=None,
@@ -107,7 +121,7 @@ def test_invalid_native_samples_are_suppressed():
 
     assert lines == []
     error_lines = errors.getvalue().splitlines()
-    assert len(error_lines) == 3
+    assert len(error_lines) == 4
     assert all(
         line == ERROR_PREFIX + "invalid sample"
         for line in error_lines
@@ -118,7 +132,7 @@ def test_helper_source_is_read_only():
     source = (
         Path(__file__).parents[1]
         / "g1_hardware_bridge"
-        / "joint_state"
+        / "low_state"
         / "helper.py"
     ).read_text(encoding="utf-8")
 

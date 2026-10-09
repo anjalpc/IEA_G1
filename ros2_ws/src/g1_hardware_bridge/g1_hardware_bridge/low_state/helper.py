@@ -1,4 +1,4 @@
-"""Read physical G1 waist state from native Unitree telemetry."""
+"""Read physical G1 joint and IMU state from Unitree LowState."""
 
 import argparse
 import signal
@@ -6,17 +6,17 @@ import sys
 import threading
 import time
 
-from g1_hardware_bridge.joint_state.protocol import (
-    JointStateGate,
+from g1_hardware_bridge.low_state.protocol import (
+    LowStateGate,
     encode_sample,
 )
 
 
-ERROR_PREFIX = "JOINT_STATE_ERROR="
+ERROR_PREFIX = "LOW_STATE_ERROR="
 
 
 class LowStateReader:
-    """Convert native LowState callbacks into minimal protocol lines."""
+    """Convert native LowState callbacks into atomic protocol lines."""
 
     def __init__(
         self,
@@ -25,7 +25,7 @@ class LowStateReader:
         emit=None,
         error_stream=sys.stderr,
     ):
-        self.gate = gate or JointStateGate()
+        self.gate = gate or LowStateGate()
         self.emit = emit or self._emit_stdout
         self.error_stream = error_stream
 
@@ -40,9 +40,13 @@ class LowStateReader:
                 motor.q
                 for motor in message.motor_state
             ]
+            imu = message.imu_state
             sample = self.gate.offer(
-                message.tick,
-                motor_positions,
+                tick=message.tick,
+                motor_positions=motor_positions,
+                orientation_wxyz=imu.quaternion,
+                angular_velocity_xyz=imu.gyroscope,
+                linear_acceleration_xyz=imu.accelerometer,
             )
         except (AttributeError, TypeError, ValueError):
             print(
@@ -110,7 +114,7 @@ def run_native(
             "network interface must not be empty"
         )
 
-    gate = JointStateGate(
+    gate = LowStateGate(
         period_seconds=period_seconds,
         monotonic=monotonic,
     )

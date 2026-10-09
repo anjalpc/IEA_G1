@@ -1,12 +1,12 @@
-"""Contract for the physical joint-state helper monitor."""
+"""Contract for the physical LowState helper monitor."""
 
 import io
 import subprocess
 
 import pytest
 
-from g1_hardware_bridge.joint_state.monitor import (
-    JointStateMonitor,
+from g1_hardware_bridge.low_state.monitor import (
+    LowStateMonitor,
 )
 
 
@@ -57,7 +57,7 @@ def monitor(**overrides):
         "sample_callback": lambda sample: None,
     }
     options.update(overrides)
-    return JointStateMonitor(**options)
+    return LowStateMonitor(**options)
 
 
 def test_valid_line_reaches_sample_callback():
@@ -67,7 +67,11 @@ def test_valid_line_reaches_sample_callback():
     )
 
     accepted = instance.consume_line(
-        'JOINT_STATE={"positions":[0.1,-0.2,0.3],'
+        'LOW_STATE={'
+        '"angular_velocity_xyz":[0.4,0.5,0.6],'
+        '"linear_acceleration_xyz":[0.7,0.8,9.6],'
+        '"orientation_wxyz":[1.0,0.0,0.0,0.0],'
+        '"positions":[0.1,-0.2,0.3],'
         '"tick":7}\n'
     )
 
@@ -75,6 +79,9 @@ def test_valid_line_reaches_sample_callback():
     assert samples == [{
         "tick": 7,
         "positions": [0.1, -0.2, 0.3],
+        "orientation_wxyz": [1.0, 0.0, 0.0, 0.0],
+        "angular_velocity_xyz": [0.4, 0.5, 0.6],
+        "linear_acceleration_xyz": [0.7, 0.8, 9.6],
     }]
 
 
@@ -82,10 +89,10 @@ def test_valid_line_reaches_sample_callback():
     "line",
     [
         "native startup log\n",
-        "JOINT_STATE=not-json\n",
-        "JOINT_STATE={}\n",
+        "LOW_STATE=not-json\n",
+        "LOW_STATE={}\n",
         (
-            'JOINT_STATE={"tick":1,'
+            'LOW_STATE={"tick":1,'
             '"positions":[0.0,0.0]}\n'
         ),
     ],
@@ -119,7 +126,7 @@ def test_start_uses_isolated_helper_command():
     command, options = calls[0]
     assert command[1:3] == [
         "-m",
-        "g1_hardware_bridge.joint_state.helper",
+        "g1_hardware_bridge.low_state.helper",
     ]
     assert command[3:] == [
         "eth-test",

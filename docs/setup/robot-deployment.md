@@ -108,7 +108,7 @@ A healthy result includes:
 
 - BrainCo server and both hands ready;
 - the ROS launch and all required nodes;
-- `/g1_hardware_joint_state` publishing measured waist state;
+- `/g1_hardware_state` publishing measured waist and pelvis IMU state;
 - `event_gateway.py` and `/tmp/g1_event_control.sock`;
 - handshake and card ROS services on domain 42.
 
@@ -119,7 +119,7 @@ cd /home/unitree/IEA_G1
 ./scripts/start.sh stop
 ```
 
-## Verify physical waist state
+## Verify physical LowState
 
 On PC2, with the supported stack running:
 
@@ -129,9 +129,11 @@ source /home/unitree/IEA_G1/ros2_ws/install/setup.bash
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 export ROS_DOMAIN_ID=42
 
-ros2 node list | grep '^/g1_hardware_joint_state$'
+ros2 node list | grep '^/g1_hardware_state$'
 ros2 topic info /joint_states --verbose
 ros2 topic echo --once /joint_states
+ros2 topic info /g1/state/imu_raw --verbose
+ros2 topic echo --once /g1/state/imu_raw
 ```
 
 The message must contain exactly these measured names in order:
@@ -142,8 +144,18 @@ waist_roll_joint
 waist_pitch_joint
 ```
 
-The topic must have one physical publisher with reliable, volatile,
-depth-one QoS. Do not start a second physical joint-state source.
+`/joint_states` must have one physical publisher with reliable, volatile,
+depth-one QoS.
+
+`/g1/state/imu_raw` must have one physical publisher with best-effort,
+volatile, depth-one QoS. Its frame must be `imu_in_pelvis`. The message
+contains measured orientation, angular velocity, and linear acceleration from
+the same accepted LowState tick as the waist positions. All covariance arrays
+are zero to represent unknown covariance; no sensor accuracy is invented.
+
+The validated-state boundary intentionally rejects this unknown covariance
+until physical calibration or estimator-specific qualification is completed.
+Do not start a second physical LowState source.
 
 On the workstation, use the same reachable ROS network, application
 domain, and RMW implementation. In the development container:

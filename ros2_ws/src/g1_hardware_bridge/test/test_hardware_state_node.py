@@ -8,12 +8,16 @@ from rclpy.qos import (
     ReliabilityPolicy,
 )
 
-from g1_hardware_bridge.joint_state import (
-    node as joint_state_node,
+from g1_hardware_bridge.low_state import (
+    node as hardware_state_node,
 )
-from g1_hardware_bridge.joint_state.node import (
+from g1_hardware_bridge.low_state.node import (
+    IMU_FRAME,
+    IMU_TOPIC,
     JOINT_STATES_TOPIC,
+    build_imu_message,
     build_joint_state_message,
+    imu_qos,
     joint_state_qos,
 )
 
@@ -53,6 +57,53 @@ def test_uses_reliable_volatile_depth_one_qos():
     assert qos.history == HistoryPolicy.KEEP_LAST
     assert qos.depth == 1
     assert qos.reliability == ReliabilityPolicy.RELIABLE
+    assert qos.durability == DurabilityPolicy.VOLATILE
+
+
+def test_builds_raw_pelvis_imu_message():
+    stamp = Time(
+        sec=12,
+        nanosec=345678901,
+    )
+    message = build_imu_message(
+        {
+            "orientation_wxyz": [
+                0.182574,
+                0.365148,
+                0.547723,
+                0.730297,
+            ],
+            "angular_velocity_xyz": [0.1, -0.2, 0.3],
+            "linear_acceleration_xyz": [0.4, 0.5, 9.6],
+        },
+        stamp,
+    )
+
+    assert message.header.stamp == stamp
+    assert message.header.frame_id == "imu_in_pelvis"
+    assert message.orientation.x == 0.365148
+    assert message.orientation.y == 0.547723
+    assert message.orientation.z == 0.730297
+    assert message.orientation.w == 0.182574
+    assert message.angular_velocity.x == 0.1
+    assert message.angular_velocity.y == -0.2
+    assert message.angular_velocity.z == 0.3
+    assert message.linear_acceleration.x == 0.4
+    assert message.linear_acceleration.y == 0.5
+    assert message.linear_acceleration.z == 9.6
+    assert list(message.orientation_covariance) == [0.0] * 9
+    assert list(message.angular_velocity_covariance) == [0.0] * 9
+    assert list(message.linear_acceleration_covariance) == [0.0] * 9
+
+
+def test_uses_best_effort_volatile_depth_one_imu_qos():
+    qos = imu_qos()
+
+    assert IMU_TOPIC == "/g1/state/imu_raw"
+    assert IMU_FRAME == "imu_in_pelvis"
+    assert qos.history == HistoryPolicy.KEEP_LAST
+    assert qos.depth == 1
+    assert qos.reliability == ReliabilityPolicy.BEST_EFFORT
     assert qos.durability == DurabilityPolicy.VOLATILE
 
 
@@ -103,7 +154,7 @@ def test_node_supervises_monitor_and_publishes_callbacks(
     rclpy.init()
     node = None
     try:
-        node = joint_state_node.HardwareJointStateNode(
+        node = hardware_state_node.HardwareStateNode(
             monitor_factory=RecordingMonitor,
             environment_factory=lambda: {
                 "ROS_DOMAIN_ID": "0",
@@ -137,27 +188,46 @@ def test_node_supervises_monitor_and_publishes_callbacks(
             node._joint_state_publisher.topic_name
             == JOINT_STATES_TOPIC
         )
+        assert (
+            node._imu_publisher.topic_name
+            == IMU_TOPIC
+        )
 
-        recorder = PublisherRecorder()
-        node._joint_state_publisher = recorder
+        joint_recorder = PublisherRecorder()
+        imu_recorder = PublisherRecorder()
+        node._joint_state_publisher = joint_recorder
+        node._imu_publisher = imu_recorder
         node.get_clock = lambda: FixedClock()
 
         monitor.options["sample_callback"]({
             "tick": 123,
             "positions": [0.12, -0.13, 0.14],
+            "orientation_wxyz": [1.0, 0.0, 0.0, 0.0],
+            "angular_velocity_xyz": [0.1, -0.2, 0.3],
+            "linear_acceleration_xyz": [0.4, 0.5, 9.6],
         })
 
-        assert len(recorder.messages) == 1
-        message = recorder.messages[0]
-        assert message.header.stamp == Time(
+        assert len(joint_recorder.messages) == 1
+        assert len(imu_recorder.messages) == 1
+
+        joint_message = joint_recorder.messages[0]
+        imu_message = imu_recorder.messages[0]
+
+        expected_stamp = Time(
             sec=7,
             nanosec=8000000,
         )
-        assert list(message.position) == [
+        assert joint_message.header.stamp == expected_stamp
+        assert imu_message.header.stamp == expected_stamp
+        assert list(joint_message.position) == [
             0.12,
             -0.13,
             0.14,
         ]
+        assert imu_message.header.frame_id == IMU_FRAME
+        assert imu_message.orientation.w == 1.0
+        assert imu_message.angular_velocity.x == 0.1
+        assert imu_message.linear_acceleration.z == 9.6
 
         node.stop_monitor()
         assert monitor.stopped is True

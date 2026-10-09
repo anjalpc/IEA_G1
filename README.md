@@ -78,9 +78,9 @@ It contains:
 - `arm/`: Unitree arm ownership, command validation, motion execution, state monitoring, and safe release;
 - `hand/`: BrainCo hand commands and state helpers;
 - `camera/`: Unitree RGB shared-memory access and RealSense depth-camera access;
-- `joint_state/`: isolates read-only Unitree `rt/lowstate` access and publishes measured waist positions on `/joint_states`;
+- `low_state/`: isolates one read-only Unitree `rt/lowstate` subscriber and publishes measured waist and pelvis-IMU state;
 - `hardware_bridge`: translates validated ROS commands into physical arm/hand operations;
-- `hardware_joint_state`: supervises the isolated physical waist-state helper;
+- `hardware_state`: supervises the isolated physical LowState helper;
 - `camera_bridge`: publishes camera data used by the interaction detectors;
 - `rgb_helper`: isolates access to the Unitree RGB camera;
 - `config/hardware.yaml` and `config/camera.yaml`: physical limits and device settings.

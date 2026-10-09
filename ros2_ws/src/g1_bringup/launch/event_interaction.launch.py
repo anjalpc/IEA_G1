@@ -68,10 +68,10 @@ def generate_launch_description():
         sigkill_timeout="5.0",
     )
 
-    joint_state_node = Node(
+    hardware_state_node = Node(
         package="g1_hardware_bridge",
-        executable="hardware_joint_state",
-        name="g1_hardware_joint_state",
+        executable="hardware_state",
+        name="g1_hardware_state",
         output="screen",
         parameters=[hardware_configuration],
     )
@@ -110,7 +110,7 @@ def generate_launch_description():
 
     required_nodes = [
         (hardware_node, "hardware bridge exited"),
-        (joint_state_node, "hardware joint-state source exited"),
+        (hardware_state_node, "hardware state source exited"),
         (handshake_node, "handshake node exited"),
         (rgb_helper, "RGB helper exited"),
         (camera_bridge, "camera bridge exited"),
@@ -137,7 +137,7 @@ def generate_launch_description():
         rgb_helper,
         camera_bridge,
         hardware_node,
-        joint_state_node,
+        hardware_state_node,
         handshake_node,
         presence_node,
         card_presence_node,
