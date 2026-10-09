@@ -104,6 +104,7 @@ def test_rejects_invalid_field_shapes(fields):
             fields=fields,
         )
 
+
 def observation(progress, value=0.1):
     return normalize_observation(
         topic="rt/lowstate",
@@ -241,4 +242,3 @@ def test_rejects_extra_summary_fields():
 
     with pytest.raises(ValueError, match="fields"):
         encode_summary(result)
-

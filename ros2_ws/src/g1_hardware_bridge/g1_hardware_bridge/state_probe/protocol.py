@@ -76,6 +76,7 @@ def normalize_observation(topic, progress, fields):
         "finite": True,
     }
 
+
 _TOPIC_FIELDS = {
     "available",
     "sample_count",
@@ -251,6 +252,7 @@ class ProbeSummary:
             },
         }
 
+
 def _validated_summary(summary):
     if not isinstance(summary, dict):
         raise TypeError("state-probe summary must be a mapping")
@@ -284,4 +286,3 @@ def encode_summary(summary):
         separators=(",", ":"),
         sort_keys=True,
     )
-
