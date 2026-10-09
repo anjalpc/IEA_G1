@@ -1,0 +1,28 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_fresh_stageA_mixed04_bootstrap300.yaml
+  resolved_config_required: true
+
+experiment:
+  id: g1_fresh_stageA2_randomized04_bootstrap150
+  purpose: >
+    Clean official-Unitree-prior Stage-A diagnostic. Restore the approach-pose
+    diversity used by the successful historical clean bootstrap while keeping
+    the current collision/contact fixes, mature arm guard, and Stage-A reward
+    contract unchanged.
+
+execution:
+  maximum_iterations: 150
+
+reset_randomization:
+  enabled: true
+  distance_before_first_riser_m:
+    - 0.3
+    - 1.0
+  lateral_offset_m:
+    - -0.05
+    - 0.05
+  yaw_offset_rad:
+    - -0.0872664626
+    - 0.0872664626
