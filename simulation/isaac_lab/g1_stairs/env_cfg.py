@@ -982,16 +982,17 @@ class StairRewardsCfg:
         weight=0.0,
         params={
             "unload_force_n": 15.0,
+            "opposite_support_force_n": 30.0,
             "touchdown_force_n": 30.0,
             "lift_clearance_m": 0.030,
             "riser_clearance_margin_m": 0.015,
-            "clearance_window_m": 0.050,
             "top_height_tolerance_m": 0.025,
             "lift_value": 0.15,
             "clearance_value": 0.35,
-            "acquisition_value": 1.00,
+            "success_value": 1.50,
             "replant_value": -0.10,
             "wrong_foot_value": -0.10,
+            "unresolved_end_value": -0.10,
         },
     )
 

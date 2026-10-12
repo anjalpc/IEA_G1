@@ -1883,17 +1883,22 @@ class preferred_old_tread_replant(ManagerTermBase):
 
 
 class preferred_transition_milestones(ManagerTermBase):
-    """Dense one-shot shaping for genuine alternating stair transitions.
+    """Escrowed dense shaping for alternating stair acquisition.
 
-    After a unique stair acquisition, the opposite foot becomes preferred.
-    Positive milestones are paid for:
-      1. supported lift,
-      2. clearing the next riser,
-      3. preferred-foot acquisition of the next stair.
+    After a unique acquisition of stair k, the opposite foot is preferred for
+    stair k+1.
 
-    A replant on the old tread or acquisition by the wrong foot resolves the
-    transition with a small penalty. Ordinary stair rewards remain unchanged
-    for both feet.
+    Provisional milestones:
+      supported preferred-foot lift       +0.15
+      full-sole next-riser clearance      +0.35
+
+    Terminal transition totals:
+      preferred foot acquires next stair  +1.50
+      preferred foot replants old tread   -0.10
+      wrong foot acquires next stair      -0.10
+      episode ends unresolved             -0.10
+
+    Previously paid milestone credit is clawed back at every terminal outcome.
     """
 
     def __init__(self, cfg, env: "ManagerBasedRLEnv"):
@@ -1908,8 +1913,13 @@ class preferred_transition_milestones(ManagerTermBase):
             (n,), -1, dtype=torch.long, device=device
         )
         self._preferred = torch.full_like(self._old_target, -1)
+
         self._lifted = torch.zeros_like(self._active)
         self._cleared = torch.zeros_like(self._active)
+
+        self._credit_paid = torch.zeros(
+            n, dtype=torch.float32, device=device
+        )
 
     def reset(self, env_ids: Sequence[int] | None = None) -> None:
         if env_ids is None:
@@ -1920,21 +1930,23 @@ class preferred_transition_milestones(ManagerTermBase):
         self._preferred[env_ids] = -1
         self._lifted[env_ids] = False
         self._cleared[env_ids] = False
+        self._credit_paid[env_ids] = 0.0
 
     def __call__(
         self,
         env: "ManagerBasedRLEnv",
         unload_force_n: float = 15.0,
+        opposite_support_force_n: float = 30.0,
         touchdown_force_n: float = 30.0,
         lift_clearance_m: float = 0.030,
         riser_clearance_margin_m: float = 0.015,
-        clearance_window_m: float = 0.050,
         top_height_tolerance_m: float = 0.025,
         lift_value: float = 0.15,
         clearance_value: float = 0.35,
-        acquisition_value: float = 1.00,
+        success_value: float = 1.50,
         replant_value: float = -0.10,
         wrong_foot_value: float = -0.10,
+        unresolved_end_value: float = -0.10,
     ) -> torch.Tensor:
         runtime = self.runtime
 
@@ -1991,12 +2003,27 @@ class preferred_transition_milestones(ManagerTermBase):
         ].clamp_min(0.0)
 
         pref_idx = self._preferred.clamp(0, 1)
-        gather1 = pref_idx[:, None]
+        opp_idx = 1 - pref_idx
 
-        pref_bottom = sole_bottom.gather(1, gather1).squeeze(1)
-        pref_rear = rear_x.gather(1, gather1).squeeze(1)
-        pref_front = front_x.gather(1, gather1).squeeze(1)
-        pref_force = vertical_force.gather(1, gather1).squeeze(1)
+        gather_pref = pref_idx[:, None]
+        gather_opp = opp_idx[:, None]
+
+        pref_bottom = sole_bottom.gather(
+            1, gather_pref
+        ).squeeze(1)
+        pref_rear = rear_x.gather(
+            1, gather_pref
+        ).squeeze(1)
+        pref_front = front_x.gather(
+            1, gather_pref
+        ).squeeze(1)
+        pref_force = vertical_force.gather(
+            1, gather_pref
+        ).squeeze(1)
+
+        opposite_force = vertical_force.gather(
+            1, gather_opp
+        ).squeeze(1)
 
         valid = (
             self._active
@@ -2018,9 +2045,15 @@ class preferred_transition_milestones(ManagerTermBase):
         next_end = next_start + tread
         next_top = (old_f + 2.0) * riser_height
 
+        # Supported single-foot lift: preferred foot unloaded while the
+        # opposite foot provides real support.
         clear_lift = (
             valid
             & (pref_force <= float(unload_force_n))
+            & (
+                opposite_force
+                >= float(opposite_support_force_n)
+            )
             & (
                 pref_bottom
                 >= old_top + float(lift_clearance_m)
@@ -2029,17 +2062,22 @@ class preferred_transition_milestones(ManagerTermBase):
 
         lifted_now = self._lifted | clear_lift
 
+        # Full-sole crossing: rear edge is beyond the next riser plane.
+        # This prevents receiving clearance for merely lifting high in front
+        # of the riser.
         clear_riser = (
             valid
             & lifted_now
+            & (pref_force <= float(unload_force_n))
+            & (
+                opposite_force
+                >= float(opposite_support_force_n)
+            )
             & (
                 pref_bottom
                 >= next_top + float(riser_clearance_margin_m)
             )
-            & (
-                pref_front
-                >= next_start - float(clearance_window_m)
-            )
+            & (pref_rear >= next_start)
             & (pref_rear <= next_end)
         )
 
@@ -2084,59 +2122,110 @@ class preferred_transition_milestones(ManagerTermBase):
             & (pref_rear <= old_end)
         )
 
-        # Acquisition wins if acquisition and contact predicates coincide.
+        # An acquisition event on the same sample has priority.
         replant = old_contact & ~acquisition
 
-        terminal = (
-            preferred_acquisition
-            | wrong_foot
-            | replant
+        episode_end = (
+            env.termination_manager.terminated
+            | env.termination_manager.time_outs
         )
 
-        # Do not pay a newly discovered intermediate milestone on a terminal
-        # sample. Previously earned milestones remain earned.
-        new_lift = (
-            clear_lift
-            & ~self._lifted
-            & ~terminal
+        unresolved_end = (
+            valid
+            & episode_end
+            & ~acquisition
+            & ~replant
         )
 
-        new_clearance = (
-            clear_riser
-            & ~self._cleared
-            & ~terminal
-        )
-
-        reward = torch.zeros(
+        base_reward = torch.zeros(
             env.num_envs,
             dtype=foot_pos.dtype,
             device=env.device,
         )
 
-        reward += new_lift.to(reward.dtype) * float(lift_value)
-        reward += (
-            new_clearance.to(reward.dtype)
-            * float(clearance_value)
+        event_code = torch.zeros(
+            env.num_envs,
+            dtype=torch.long,
+            device=env.device,
         )
-        reward += (
-            preferred_acquisition.to(reward.dtype)
-            * float(acquisition_value)
+
+        base_reward = torch.where(
+            preferred_acquisition,
+            torch.full_like(base_reward, float(success_value)),
+            base_reward,
         )
-        reward += (
-            replant.to(reward.dtype)
-            * float(replant_value)
+        event_code = torch.where(
+            preferred_acquisition,
+            torch.ones_like(event_code),
+            event_code,
         )
-        reward += (
-            wrong_foot.to(reward.dtype)
-            * float(wrong_foot_value)
+
+        base_reward = torch.where(
+            replant,
+            torch.full_like(base_reward, float(replant_value)),
+            base_reward,
         )
+        event_code = torch.where(
+            replant,
+            torch.full_like(event_code, 2),
+            event_code,
+        )
+
+        base_reward = torch.where(
+            wrong_foot,
+            torch.full_like(
+                base_reward, float(wrong_foot_value)
+            ),
+            base_reward,
+        )
+        event_code = torch.where(
+            wrong_foot,
+            torch.full_like(event_code, 3),
+            event_code,
+        )
+
+        base_reward = torch.where(
+            unresolved_end,
+            torch.full_like(
+                base_reward, float(unresolved_end_value)
+            ),
+            base_reward,
+        )
+        event_code = torch.where(
+            unresolved_end,
+            torch.full_like(event_code, 4),
+            event_code,
+        )
+
+        # escrowed_transition_reward suppresses new milestone payment on a
+        # terminal sample and subtracts all previously paid milestone credit.
+        new_lift = clear_lift & ~self._lifted
+        new_clearance = clear_riser & ~self._cleared
+
+        reward, credit_paid = escrowed_transition_reward(
+            base_reward,
+            event_code,
+            new_lift,
+            new_clearance,
+            self._credit_paid,
+            lift_milestone_value=float(lift_value),
+            clearance_milestone_value=float(clearance_value),
+        )
+
+        terminal = event_code != 0
 
         active_after = self._active & ~terminal
         lifted_after = lifted_now & active_after
         cleared_after = cleared_now & active_after
 
-        # Every unique acquisition initializes the following transition.
-        # Stair 1 therefore remains free-choice.
+        credit_after = torch.where(
+            terminal,
+            torch.zeros_like(credit_paid),
+            credit_paid,
+        )
+
+        # Any unique acquisition starts the following transition from the
+        # actual acquiring foot. Stair 1 remains unconstrained/free-choice.
         start_new = (
             runtime.step_acquired_event
             & unique
@@ -2189,8 +2278,15 @@ class preferred_transition_milestones(ManagerTermBase):
             )
         )
 
-        return reward / float(env.step_dt)
+        self._credit_paid.copy_(
+            torch.where(
+                start_new,
+                torch.zeros_like(credit_after),
+                credit_after,
+            )
+        )
 
+        return reward / float(env.step_dt)
 
 
 class acquisition_step_over_transition(ManagerTermBase):
