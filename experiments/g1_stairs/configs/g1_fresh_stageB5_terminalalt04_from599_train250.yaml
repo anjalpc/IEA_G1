@@ -1,0 +1,24 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_fresh_stageB4_escrowalt04_from599_train250.yaml
+  resolved_config_required: true
+
+experiment:
+  id: g1_fresh_stageB5_terminalalt04_from599_train250
+  purpose: >-
+    Test acquisition-level alternating gait using terminal-only transition
+    reward. Remove provisional lift and clearance rewards while retaining
+    strong preferred-foot acquisition reward and weak bounded failure costs.
+
+execution:
+  maximum_iterations: 250
+
+reward_parameters:
+  preferred_transition_milestones:
+    lift_value: 0.0
+    clearance_value: 0.0
+    success_value: 1.50
+    replant_value: -0.10
+    wrong_foot_value: -0.10
+    unresolved_end_value: -0.10
