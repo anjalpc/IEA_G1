@@ -1,0 +1,15 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_fresh_stageB1_alt04_from599_train600.yaml
+  resolved_config_required: true
+
+experiment:
+  id: g1_fresh_stageB1_alt04_from599_smoke1
+  purpose: >
+    One-iteration runtime qualification of Stage B1 dynamic alternation from
+    the untouched Stage A3 model599 checkpoint.
+  meaningful_stair_training: false
+
+execution:
+  maximum_iterations: 1

@@ -1,0 +1,29 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_fresh_stageA3_attemptsafe04_bootstrap600.yaml
+  resolved_config_required: true
+
+experiment:
+  id: g1_fresh_stageB1_alt04_from599_train600
+  purpose: >
+    Continue the verified clean 4 cm stair primitive from model599 and teach
+    acquisition-level alternating stair gait. Preserve Stage A3 mechanics,
+    attempt-safe shaping, arm guard, flat retention, randomized approach,
+    platform finish, PPO, and all existing reward weights.
+  meaningful_stair_training: true
+
+execution:
+  maximum_iterations: 600
+
+policy_initialization:
+  type: rsl_rl_training_resume
+  source:
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/g1_fresh_stageA3_attemptsafe04_bootstrap600_20261009_160342/model_599.pt
+    sha256: 781306bb035065468fb234f128f7890e41538aaf7717f3713dec9f9c5b2cbd57
+  critic_initialization: restored
+  optimizer_initialization: restored
+
+acquisition_credit:
+  global_stair_acquisition: true
+  dynamic_alternating_rewards: true
