@@ -436,6 +436,12 @@ def apply_geometry_episode_contract(env_cfg, resolved, *, promote=None):
         env_cfg.dynamic_alternating_rewards = bool(
             acquisition.get("dynamic_alternating_rewards", False)
         )
+        env_cfg.dynamic_alternating_reward_gating = bool(
+            acquisition.get(
+                "dynamic_alternating_reward_gating",
+                env_cfg.dynamic_alternating_rewards,
+            )
+        )
         if (
             env_cfg.dynamic_alternating_rewards
             and not env_cfg.global_stair_acquisition

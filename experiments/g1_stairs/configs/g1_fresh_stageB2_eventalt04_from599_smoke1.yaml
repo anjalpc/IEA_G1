@@ -1,0 +1,15 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_fresh_stageB2_eventalt04_from599_diag100.yaml
+  resolved_config_required: true
+
+experiment:
+  id: g1_fresh_stageB2_eventalt04_from599_smoke1
+  purpose: >
+    One-iteration qualification of B2 event-only alternation from Stage A3
+    model599.
+  meaningful_stair_training: false
+
+execution:
+  maximum_iterations: 1

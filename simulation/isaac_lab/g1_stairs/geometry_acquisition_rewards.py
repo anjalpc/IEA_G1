@@ -186,6 +186,21 @@ class GeometryAcquisitionRuntime:
         self.dynamic_alternating_rewards = bool(
             getattr(env.cfg, "dynamic_alternating_rewards", False)
         )
+        self.dynamic_alternating_reward_gating = bool(
+            getattr(
+                env.cfg,
+                "dynamic_alternating_reward_gating",
+                self.dynamic_alternating_rewards,
+            )
+        )
+        if (
+            self.dynamic_alternating_reward_gating
+            and not self.dynamic_alternating_rewards
+        ):
+            raise ValueError(
+                "dynamic_alternating_reward_gating requires "
+                "dynamic_alternating_rewards"
+            )
         if (
             self.dynamic_alternating_rewards
             and not self.global_stair_acquisition
@@ -654,7 +669,7 @@ class GeometryAcquisitionRuntime:
         )
         swing_gate = support_swing_gate * approach_gate
 
-        if self.dynamic_alternating_rewards:
+        if self.dynamic_alternating_reward_gating:
             preferred_gate = alternating_foot_gate(
                 self.preferred_foot
             )
@@ -1603,7 +1618,7 @@ class anticipatory_clearance_progress(ManagerTermBase):
         )
         support_advantage = opposite_force - vertical_force
 
-        if runtime.dynamic_alternating_rewards:
+        if runtime.dynamic_alternating_reward_gating:
             preferred_gate = alternating_foot_gate(runtime.preferred_foot)
         else:
             preferred_gate = torch.ones_like(valid_target, dtype=torch.bool)
