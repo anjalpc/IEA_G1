@@ -1880,6 +1880,258 @@ class preferred_old_tread_replant(ManagerTermBase):
 
 
 
+
+class acquisition_step_over_transition(ManagerTermBase):
+    """One-shot acquisition-level alternating step-over transition event.
+
+    After stair k is uniquely acquired, the opposite foot becomes preferred.
+    The transition resolves on the first meaningful outcome:
+
+    - preferred foot acquires stair k+1: success
+    - preferred foot lifts then replants stair k: replant failure
+    - another foot acquires stair k+1: wrong-foot failure
+
+    Contact with the next tread alone is not success; verified physical
+    acquisition is required.
+    """
+
+    def __init__(self, cfg, env: "ManagerBasedRLEnv"):
+        super().__init__(cfg, env)
+        self.runtime = _runtime(env)
+
+        n = env.num_envs
+        device = env.device
+
+        self._active = torch.zeros(n, dtype=torch.bool, device=device)
+        self._old_target = torch.full(
+            (n,), -1, dtype=torch.long, device=device
+        )
+        self._preferred = torch.full_like(self._old_target, -1)
+        self._lifted = torch.zeros_like(self._active)
+
+    def reset(self, env_ids: Sequence[int] | None = None) -> None:
+        if env_ids is None:
+            env_ids = slice(None)
+
+        self._active[env_ids] = False
+        self._old_target[env_ids] = -1
+        self._preferred[env_ids] = -1
+        self._lifted[env_ids] = False
+
+    def __call__(
+        self,
+        env: "ManagerBasedRLEnv",
+        unload_force_n: float = 15.0,
+        touchdown_force_n: float = 30.0,
+        lift_clearance_m: float = 0.030,
+        top_height_tolerance_m: float = 0.025,
+        success_value: float = 0.50,
+        replant_value: float = -0.25,
+        wrong_foot_value: float = -0.25,
+    ) -> torch.Tensor:
+        runtime = self.runtime
+
+        if runtime.last_step != int(env.common_step_counter):
+            raise RuntimeError(
+                "acquisition_step_over_transition must run after "
+                "terrain_relative_clearance/forward_insertion"
+            )
+
+        if not runtime.global_stair_acquisition:
+            raise RuntimeError(
+                "acquisition_step_over_transition requires "
+                "global stair acquisition"
+            )
+
+        if unload_force_n < 0.0:
+            raise ValueError("unload_force_n cannot be negative")
+        if touchdown_force_n <= unload_force_n:
+            raise ValueError(
+                "touchdown_force_n must exceed unload_force_n"
+            )
+
+        cfg = stair_cfg(env)
+        tread = float(cfg.tread_depth)
+        first_riser = float(cfg.start_clearance)
+        step_count = int(cfg.step_count)
+        riser_height = riser_height_per_env(env)
+
+        data = runtime.robot.data
+        foot_pos = (
+            data.body_pos_w[:, runtime.robot_foot_ids]
+            - env.scene.env_origins[:, None, :]
+        )
+        foot_quat = data.body_quat_w[:, runtime.robot_foot_ids]
+
+        offsets = runtime.sole_centres.to(dtype=foot_pos.dtype)[
+            None, None
+        ].expand(env.num_envs, 2, -1, -1)
+
+        quaternions = foot_quat.unsqueeze(2).expand(
+            -1, -1, offsets.shape[2], -1
+        )
+
+        sole_points = (
+            foot_pos.unsqueeze(2)
+            + _quat_rotate_wxyz(quaternions, offsets)
+        )
+
+        radius = float(G1_SOLE_SPHERE_RADIUS_M)
+        sole_bottom = (
+            sole_points[..., 2] - radius
+        ).amin(dim=2)
+        rear_x = sole_points[..., 0].amin(dim=2) - radius
+        front_x = sole_points[..., 0].amax(dim=2) + radius
+
+        vertical_force = runtime.sensor.data.net_forces_w[
+            :, runtime.sensor_foot_ids, 2
+        ].clamp_min(0.0)
+
+        preferred_idx = self._preferred.clamp(0, 1)
+        gather1 = preferred_idx[:, None]
+
+        pref_rear = rear_x.gather(1, gather1).squeeze(1)
+        pref_front = front_x.gather(1, gather1).squeeze(1)
+        pref_bottom = sole_bottom.gather(1, gather1).squeeze(1)
+        pref_force = vertical_force.gather(1, gather1).squeeze(1)
+
+        valid = (
+            self._active
+            & (self._preferred >= 0)
+            & (self._old_target >= 0)
+            & (self._old_target < step_count - 1)
+        )
+
+        old_index = self._old_target.clamp(
+            min=0, max=max(step_count - 1, 0)
+        )
+        old_f = old_index.to(foot_pos.dtype)
+
+        old_start = first_riser + old_f * tread
+        old_end = old_start + tread
+        old_top = (old_f + 1.0) * riser_height
+
+        clear_lift = (
+            valid
+            & (pref_force <= float(unload_force_n))
+            & (
+                pref_bottom
+                >= old_top + float(lift_clearance_m)
+            )
+        )
+
+        lifted_now = self._lifted | clear_lift
+
+        loaded = pref_force >= float(touchdown_force_n)
+
+        old_contact = (
+            valid
+            & lifted_now
+            & loaded
+            & (
+                (pref_bottom - old_top).abs()
+                <= float(top_height_tolerance_m)
+            )
+            & (pref_front >= old_start)
+            & (pref_rear <= old_end)
+        )
+
+        acquisition = (
+            valid
+            & runtime.step_acquired_event
+            & (
+                runtime.acquired_target_index
+                == self._old_target + 1
+            )
+        )
+
+        physical = runtime.physical_touchdown_event
+        acquisition_count = physical.to(torch.long).sum(dim=1)
+        unique = acquisition_count == 1
+        acquirer = physical.to(torch.long).argmax(dim=1)
+
+        preferred_acquisition = (
+            acquisition
+            & unique
+            & (acquirer == self._preferred)
+        )
+
+        # Acquisition has priority if both predicates appear on one sample.
+        replant = old_contact & ~acquisition
+        success = preferred_acquisition & ~replant
+        wrong_foot = (
+            acquisition
+            & ~preferred_acquisition
+            & ~replant
+        )
+
+        reward = torch.zeros(
+            env.num_envs,
+            dtype=foot_pos.dtype,
+            device=env.device,
+        )
+
+        reward = reward + success.to(reward.dtype) * float(
+            success_value
+        )
+        reward = reward + replant.to(reward.dtype) * float(
+            replant_value
+        )
+        reward = reward + wrong_foot.to(reward.dtype) * float(
+            wrong_foot_value
+        )
+
+        resolved = success | replant | wrong_foot
+        active_after = self._active & ~resolved
+        lifted_after = lifted_now & active_after
+
+        # Every unique acquisition can initialize the following transition,
+        # including one that just resolved the previous transition.
+        start_new = (
+            runtime.step_acquired_event
+            & unique
+            & (runtime.acquired_target_index >= 0)
+            & (runtime.acquired_target_index < step_count - 1)
+        )
+
+        next_preferred = 1 - acquirer
+
+        self._active.copy_(
+            torch.where(
+                start_new,
+                torch.ones_like(active_after),
+                active_after,
+            )
+        )
+
+        self._old_target.copy_(
+            torch.where(
+                start_new,
+                runtime.acquired_target_index,
+                self._old_target,
+            )
+        )
+
+        self._preferred.copy_(
+            torch.where(
+                start_new,
+                next_preferred,
+                self._preferred,
+            )
+        )
+
+        self._lifted.copy_(
+            torch.where(
+                start_new,
+                torch.zeros_like(lifted_after),
+                lifted_after,
+            )
+        )
+
+        return reward / float(env.step_dt)
+
+
+
 class step_over_transition_contract(ManagerTermBase):
     """Reward only complete clean step-over transitions.
 

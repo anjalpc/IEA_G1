@@ -977,6 +977,20 @@ class StairRewardsCfg:
         },
     )
 
+    acquisition_step_over_transition = RewTerm(
+        func=geometry_acquisition_rewards.acquisition_step_over_transition,
+        weight=0.0,
+        params={
+            "unload_force_n": 15.0,
+            "touchdown_force_n": 30.0,
+            "lift_clearance_m": 0.030,
+            "top_height_tolerance_m": 0.025,
+            "success_value": 0.50,
+            "replant_value": -0.25,
+            "wrong_foot_value": -0.25,
+        },
+    )
+
     step_over_transition_contract = RewTerm(
         func=geometry_acquisition_rewards.step_over_transition_contract,
         weight=0.0,
