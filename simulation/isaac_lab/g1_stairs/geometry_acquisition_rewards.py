@@ -49,6 +49,7 @@ from .reward_math import (
     discounted_potential_shaping,
     update_alternating_preferred_foot,
     classify_clean_step_over_transition,
+    clean_step_over_potential_shaping,
     clean_step_over_sequence_update,
     clean_step_over_sequence_reward,
 )
@@ -1962,6 +1963,8 @@ class preferred_transition_milestones(ManagerTermBase):
         wrong_foot_value: float = -0.10,
         unresolved_end_value: float = -0.10,
         sequence_clean_step_over: bool = False,
+        sequence_potential_value: float = 0.0,
+        sequence_potential_gamma: float = 1.0,
     ) -> torch.Tensor:
         runtime = self.runtime
 
@@ -2222,7 +2225,17 @@ class preferred_transition_milestones(ManagerTermBase):
         # Existing B4/B5 behavior is unchanged unless this flag is true.
         # Positive alternation reward is possible only after two consecutive
         # canonical DIRECT_ACQUISITION transitions.
+        sequence_potential_shaping = torch.zeros_like(base_reward)
+
         if sequence_clean_step_over:
+            if sequence_potential_value < 0.0:
+                raise ValueError(
+                    "sequence_potential_value cannot be negative"
+                )
+            if not 0.0 < sequence_potential_gamma <= 1.0:
+                raise ValueError(
+                    "sequence_potential_gamma must be in (0, 1]"
+                )
             event_code = classify_clean_step_over_transition(
                 self._active,
                 acquisition,
@@ -2269,6 +2282,8 @@ class preferred_transition_milestones(ManagerTermBase):
                 b6_base_reward,
             )
 
+            first_direct_before = self._first_direct.clone()
+
             (
                 self._sequence_active,
                 self._first_direct,
@@ -2283,6 +2298,29 @@ class preferred_transition_milestones(ManagerTermBase):
                 self._active,
                 self._old_target,
                 event_code,
+            )
+
+            (
+                sequence_phi_current,
+                sequence_phi,
+                sequence_potential_shaping,
+            ) = clean_step_over_potential_shaping(
+                first_direct_before,
+                self._first_direct,
+                gamma=float(sequence_potential_gamma),
+                potential_value=float(sequence_potential_value),
+            )
+            sequence_potential_shaping = (
+                sequence_potential_shaping.to(dtype=base_reward.dtype)
+            )
+
+            clean_step_over_reward = torch.where(
+                sequence_signal > 0,
+                torch.full_like(
+                    base_reward,
+                    float(success_value),
+                ),
+                torch.zeros_like(base_reward),
             )
 
             # sequence_failed dominates forever until reset.
@@ -2305,6 +2343,13 @@ class preferred_transition_milestones(ManagerTermBase):
             runtime.clean_step_over_sequence_failed = (
                 self._sequence_failed.clone()
             )
+            runtime.sequence_phi = sequence_phi.clone()
+            runtime.sequence_potential_shaping = (
+                sequence_potential_shaping.clone()
+            )
+            runtime.clean_step_over_reward = (
+                clean_step_over_reward.clone()
+            )
 
         reward, credit_paid = escrowed_transition_reward(
             base_reward,
@@ -2315,6 +2360,9 @@ class preferred_transition_milestones(ManagerTermBase):
             lift_milestone_value=float(lift_value),
             clearance_milestone_value=float(clearance_value),
         )
+
+        if sequence_clean_step_over:
+            reward = reward + sequence_potential_shaping
 
         terminal = event_code != 0
 

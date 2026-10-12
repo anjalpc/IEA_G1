@@ -1854,6 +1854,48 @@ def clean_step_over_sequence_update(
     )
 
 
+
+def clean_step_over_potential_shaping(
+    first_direct_current: torch.Tensor,
+    first_direct_next: torch.Tensor,
+    *,
+    gamma: float,
+    potential_value: float,
+) -> tuple[
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+]:
+    """Discount-correct B7 sequence potential shaping.
+
+    F_t = gamma * Phi_{t+1} - Phi_t
+
+    Phi is non-zero only while the episode has completed the first
+    verified DIRECT acquisition and is waiting for the second DIRECT.
+    """
+    if first_direct_current.shape != first_direct_next.shape:
+        raise ValueError(
+            "first_direct_current and first_direct_next must match"
+        )
+    if not 0.0 < gamma <= 1.0:
+        raise ValueError("gamma must be in (0, 1]")
+    if potential_value < 0.0:
+        raise ValueError("potential_value cannot be negative")
+
+    phi_current = (
+        first_direct_current.to(dtype=torch.float32)
+        * float(potential_value)
+    )
+    phi_next = (
+        first_direct_next.to(dtype=torch.float32)
+        * float(potential_value)
+    )
+
+    shaping = float(gamma) * phi_next - phi_current
+
+    return phi_current, phi_next, shaping
+
+
 def clean_step_over_sequence_reward(
     sequence_signal: torch.Tensor,
     event_code: torch.Tensor,

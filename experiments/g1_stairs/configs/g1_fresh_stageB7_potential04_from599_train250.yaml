@@ -1,0 +1,28 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_fresh_stageB6_cleanseq04_from599_train250.yaml
+  resolved_config_required: true
+
+experiment:
+  id: g1_fresh_stageB7_potential04_from599_train250
+  purpose: >-
+    Discount-correct sequence shaping for CLEAN_STEP_OVER.
+    Preserve B6 canonical transition semantics and +3.0 CLEAN reward.
+    Add Phi=0.5 after the first verified DIRECT transition and no
+    additional alternation-specific failure penalty.
+
+execution:
+  maximum_iterations: 250
+
+reward_parameters:
+  preferred_transition_milestones:
+    lift_value: 0.0
+    clearance_value: 0.0
+    success_value: 3.0
+    replant_value: 0.0
+    wrong_foot_value: 0.0
+    unresolved_end_value: 0.0
+    sequence_clean_step_over: true
+    sequence_potential_value: 0.5
+    sequence_potential_gamma: 0.99

@@ -1709,3 +1709,110 @@ def test_b6_failed_state_can_never_emit_positive_reward():
 
     assert state[2].item()
     assert not state[3].item()
+
+
+def test_b7_sequence_potential_exact_values():
+    import torch
+
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        clean_step_over_potential_shaping,
+    )
+
+    gamma = 0.99
+    p = 0.5
+
+    false = torch.tensor([False])
+    true = torch.tensor([True])
+
+    # DIRECT1: Phi 0 -> 0.5
+    _, _, value = clean_step_over_potential_shaping(
+        false,
+        true,
+        gamma=gamma,
+        potential_value=p,
+    )
+    assert torch.allclose(value, torch.tensor([0.495]))
+
+    # Waiting: Phi 0.5 -> 0.5
+    _, _, value = clean_step_over_potential_shaping(
+        true,
+        true,
+        gamma=gamma,
+        potential_value=p,
+    )
+    assert torch.allclose(value, torch.tensor([-0.005]), atol=1e-7)
+
+    # Failure or CLEAN: Phi 0.5 -> 0
+    _, _, value = clean_step_over_potential_shaping(
+        true,
+        false,
+        gamma=gamma,
+        potential_value=p,
+    )
+    assert torch.allclose(value, torch.tensor([-0.5]))
+
+    # Outside the sequence: Phi 0 -> 0
+    _, _, value = clean_step_over_potential_shaping(
+        false,
+        false,
+        gamma=gamma,
+        potential_value=p,
+    )
+    assert torch.allclose(value, torch.tensor([0.0]))
+
+
+def test_b7_sequence_potential_discounted_telescoping():
+    import torch
+
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        clean_step_over_potential_shaping,
+    )
+
+    gamma = 0.99
+    p = 0.5
+
+    false = torch.tensor([False])
+    true = torch.tensor([True])
+
+    _, _, direct1 = clean_step_over_potential_shaping(
+        false, true, gamma=gamma, potential_value=p
+    )
+    _, _, waiting = clean_step_over_potential_shaping(
+        true, true, gamma=gamma, potential_value=p
+    )
+    _, _, failure = clean_step_over_potential_shaping(
+        true, false, gamma=gamma, potential_value=p
+    )
+
+    discounted = (
+        direct1
+        + gamma * waiting
+        + (gamma ** 2) * failure
+    )
+
+    assert torch.allclose(
+        discounted,
+        torch.zeros_like(discounted),
+        atol=1e-7,
+    )
+
+
+def test_b7_zero_potential_reproduces_b6_shaping():
+    import torch
+
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        clean_step_over_potential_shaping,
+    )
+
+    false = torch.tensor([False, True, True])
+    nxt = torch.tensor([True, True, False])
+
+    _, _, shaping = clean_step_over_potential_shaping(
+        false,
+        nxt,
+        gamma=0.99,
+        potential_value=0.0,
+    )
+
+    assert torch.count_nonzero(shaping) == 0
+

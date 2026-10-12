@@ -994,6 +994,8 @@ class StairRewardsCfg:
             "wrong_foot_value": -0.10,
             "unresolved_end_value": -0.10,
             "sequence_clean_step_over": False,
+            "sequence_potential_value": 0.0,
+            "sequence_potential_gamma": 1.0,
         },
     )
 

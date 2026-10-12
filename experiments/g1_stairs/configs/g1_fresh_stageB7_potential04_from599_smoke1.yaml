@@ -1,0 +1,12 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_fresh_stageB7_potential04_from599_train250.yaml
+  resolved_config_required: true
+
+experiment:
+  id: g1_fresh_stageB7_potential04_from599_smoke1
+  purpose: One-iteration B7 discount-correct sequence-shaping integration smoke
+
+execution:
+  maximum_iterations: 1
