@@ -1,0 +1,40 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_fresh_stageA3_attemptsafe04_bootstrap600.yaml
+  resolved_config_required: true
+
+experiment:
+  id: g1_fresh_stageB4_milestonealt04_from599_smoke1
+  purpose: >
+    Test acquisition-level alternating gait from clean Stage A3 model599.
+    Use synchronized global stair progression and opposite-foot tracking,
+    but do not gate normal clearance, insertion, or touchdown shaping by
+    preferred foot. Penalize only a verified nonpreferred stair acquisition.
+  meaningful_stair_training: true
+
+execution:
+  maximum_iterations: 1
+
+policy_initialization:
+  type: rsl_rl_training_resume
+  source:
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/g1_fresh_stageA3_attemptsafe04_bootstrap600_20261009_160342/model_599.pt
+    sha256: 781306bb035065468fb234f128f7890e41538aaf7717f3713dec9f9c5b2cbd57
+  critic_initialization: restored
+  optimizer_initialization: restored
+
+acquisition_credit:
+  global_stair_acquisition: true
+  dynamic_alternating_rewards: true
+  dynamic_alternating_reward_gating: false
+
+reward_experiment:
+  rewards:
+    stage_plan:
+      geometry_locomotion_stage_a_bootstrap:
+        nonpreferred_stair_acquisition: 0.0
+        preferred_old_tread_replant: 0.0
+        acquisition_step_over_transition: 0.0
+        preferred_transition_milestones: 1.0
+        step_over_transition_contract: 0.0

@@ -977,6 +977,24 @@ class StairRewardsCfg:
         },
     )
 
+    preferred_transition_milestones = RewTerm(
+        func=geometry_acquisition_rewards.preferred_transition_milestones,
+        weight=0.0,
+        params={
+            "unload_force_n": 15.0,
+            "touchdown_force_n": 30.0,
+            "lift_clearance_m": 0.030,
+            "riser_clearance_margin_m": 0.015,
+            "clearance_window_m": 0.050,
+            "top_height_tolerance_m": 0.025,
+            "lift_value": 0.15,
+            "clearance_value": 0.35,
+            "acquisition_value": 1.00,
+            "replant_value": -0.10,
+            "wrong_foot_value": -0.10,
+        },
+    )
+
     acquisition_step_over_transition = RewTerm(
         func=geometry_acquisition_rewards.acquisition_step_over_transition,
         weight=0.0,
