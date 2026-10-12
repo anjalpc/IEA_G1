@@ -32,7 +32,7 @@ acquisition_credit:
 reward_experiment:
   rewards:
     stage_plan:
-      geometry_locomotion_clean:
+      geometry_locomotion_stage_a_bootstrap:
         nonpreferred_stair_acquisition: -0.25
         preferred_old_tread_replant: 0.0
         step_over_transition_contract: 0.0
