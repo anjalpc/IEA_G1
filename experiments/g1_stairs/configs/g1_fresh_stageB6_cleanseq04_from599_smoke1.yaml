@@ -1,0 +1,12 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_fresh_stageB6_cleanseq04_from599_train250.yaml
+  resolved_config_required: true
+
+experiment:
+  id: g1_fresh_stageB6_cleanseq04_from599_smoke1
+  purpose: One-iteration validation of B6 CLEAN_STEP_OVER sequence contract.
+
+execution:
+  maximum_iterations: 1

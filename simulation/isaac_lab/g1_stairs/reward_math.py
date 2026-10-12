@@ -1621,3 +1621,299 @@ def weighted_arm_family_excess_cost(
         raise ValueError("arm family weights must sum positive")
 
     return cost / denominator
+
+
+def classify_clean_step_over_transition(
+    transition_active: torch.Tensor,
+    acquisition_event: torch.Tensor,
+    unique_acquisition: torch.Tensor,
+    preferred_acquisition: torch.Tensor,
+    old_tread_replant: torch.Tensor,
+    episode_end: torch.Tensor,
+) -> torch.Tensor:
+    """Canonical B6 acquisition-level transition classification.
+
+    Event codes:
+      0 = none
+      1 = DIRECT_ACQUISITION
+      2 = REPLANT_OLD
+      3 = WRONG_FOOT_ACQUISITION
+      4 = UNRESOLVED
+      5 = AMBIGUOUS_ACQUISITION
+
+    Priority:
+      ambiguous > replant > wrong-foot > direct > unresolved.
+    """
+    shape = transition_active.shape
+    tensors = (
+        acquisition_event,
+        unique_acquisition,
+        preferred_acquisition,
+        old_tread_replant,
+        episode_end,
+    )
+    if any(t.shape != shape for t in tensors):
+        raise ValueError("clean step-over classifier tensors must share shape")
+
+    active = transition_active
+
+    ambiguous = active & acquisition_event & ~unique_acquisition
+
+    replant = (
+        active
+        & old_tread_replant
+        & ~ambiguous
+    )
+
+    wrong_foot = (
+        active
+        & acquisition_event
+        & unique_acquisition
+        & ~preferred_acquisition
+        & ~replant
+        & ~ambiguous
+    )
+
+    direct = (
+        active
+        & acquisition_event
+        & unique_acquisition
+        & preferred_acquisition
+        & ~replant
+        & ~ambiguous
+    )
+
+    unresolved = (
+        active
+        & episode_end
+        & ~ambiguous
+        & ~replant
+        & ~wrong_foot
+        & ~direct
+    )
+
+    event_code = torch.zeros_like(
+        acquisition_event,
+        dtype=torch.long,
+    )
+
+    event_code = torch.where(
+        unresolved,
+        torch.full_like(event_code, 4),
+        event_code,
+    )
+    event_code = torch.where(
+        direct,
+        torch.full_like(event_code, 1),
+        event_code,
+    )
+    event_code = torch.where(
+        wrong_foot,
+        torch.full_like(event_code, 3),
+        event_code,
+    )
+    event_code = torch.where(
+        replant,
+        torch.full_like(event_code, 2),
+        event_code,
+    )
+    event_code = torch.where(
+        ambiguous,
+        torch.full_like(event_code, 5),
+        event_code,
+    )
+
+    return event_code
+
+
+def clean_step_over_sequence_update(
+    sequence_active: torch.Tensor,
+    first_direct: torch.Tensor,
+    sequence_failed: torch.Tensor,
+    clean_paid: torch.Tensor,
+    transition_active: torch.Tensor,
+    transition_target: torch.Tensor,
+    event_code: torch.Tensor,
+) -> tuple[
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+    torch.Tensor,
+]:
+    """Advance the B6 two-transition CLEAN_STEP_OVER episode state.
+
+    signal:
+      -1 = newly latched sequence failure
+       0 = no sequence reward
+      +1 = newly completed CLEAN_STEP_OVER
+
+    sequence_failed is sticky until environment reset.
+    """
+    shape = sequence_active.shape
+
+    for name, value in (
+        ("first_direct", first_direct),
+        ("sequence_failed", sequence_failed),
+        ("clean_paid", clean_paid),
+        ("transition_active", transition_active),
+        ("transition_target", transition_target),
+        ("event_code", event_code),
+    ):
+        if value.shape != shape:
+            raise ValueError(
+                f"{name} must match sequence_active shape"
+            )
+
+    # Start exactly after stair-1 acquisition, represented by the
+    # first active transition: stair1 -> stair2, target index 0.
+    start = (
+        transition_active
+        & (transition_target == 0)
+        & ~sequence_active
+        & ~sequence_failed
+        & ~clean_paid
+    )
+
+    active = sequence_active | start
+
+    eligible = (
+        active
+        & ~sequence_failed
+        & ~clean_paid
+    )
+
+    direct = event_code == 1
+    failure = event_code >= 2
+
+    # First clean transition: stair1 -> stair2.
+    first_direct_now = (
+        eligible
+        & direct
+        & (transition_target == 0)
+        & ~first_direct
+    )
+
+    # Second consecutive clean transition: stair2 -> stair3.
+    clean_now = (
+        eligible
+        & direct
+        & (transition_target == 1)
+        & first_direct
+    )
+
+    failure_now = (
+        eligible
+        & failure
+        & (
+            (transition_target == 0)
+            | (transition_target == 1)
+        )
+    )
+
+    first_direct_next = first_direct | first_direct_now
+    first_direct_next = torch.where(
+        failure_now | clean_now,
+        torch.zeros_like(first_direct_next),
+        first_direct_next,
+    )
+
+    sequence_failed_next = (
+        sequence_failed | failure_now
+    )
+
+    clean_paid_next = clean_paid | clean_now
+
+    sequence_active_next = (
+        active
+        & ~failure_now
+        & ~clean_now
+    )
+
+    signal = torch.zeros_like(
+        event_code,
+        dtype=torch.long,
+    )
+    signal = torch.where(
+        failure_now,
+        torch.full_like(signal, -1),
+        signal,
+    )
+    signal = torch.where(
+        clean_now,
+        torch.full_like(signal, 1),
+        signal,
+    )
+
+    return (
+        sequence_active_next,
+        first_direct_next,
+        sequence_failed_next,
+        clean_paid_next,
+        signal,
+    )
+
+
+def clean_step_over_sequence_reward(
+    sequence_signal: torch.Tensor,
+    event_code: torch.Tensor,
+    *,
+    success_value: float = 3.0,
+    replant_value: float = -0.10,
+    wrong_foot_value: float = -0.10,
+    unresolved_value: float = -0.10,
+) -> torch.Tensor:
+    """Map canonical B6 sequence outcomes to exact one-shot rewards.
+
+    sequence_signal:
+      -1 = newly failed sequence
+       0 = no sequence event
+      +1 = newly completed CLEAN_STEP_OVER
+
+    event_code:
+       1 = DIRECT_ACQUISITION
+       2 = REPLANT_OLD
+       3 = WRONG_FOOT_ACQUISITION
+       4 = UNRESOLVED
+       5 = AMBIGUOUS_ACQUISITION
+    """
+    if sequence_signal.shape != event_code.shape:
+        raise ValueError(
+            "sequence_signal and event_code must share shape"
+        )
+
+    reward = torch.zeros_like(
+        sequence_signal,
+        dtype=torch.float32,
+    )
+
+    failure_value = torch.zeros_like(reward)
+
+    failure_value = torch.where(
+        event_code == 2,
+        torch.full_like(reward, float(replant_value)),
+        failure_value,
+    )
+    failure_value = torch.where(
+        (event_code == 3) | (event_code == 5),
+        torch.full_like(reward, float(wrong_foot_value)),
+        failure_value,
+    )
+    failure_value = torch.where(
+        event_code == 4,
+        torch.full_like(reward, float(unresolved_value)),
+        failure_value,
+    )
+
+    reward = torch.where(
+        sequence_signal < 0,
+        failure_value,
+        reward,
+    )
+    reward = torch.where(
+        sequence_signal > 0,
+        torch.full_like(reward, float(success_value)),
+        reward,
+    )
+
+    return reward

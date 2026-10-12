@@ -48,6 +48,9 @@ from .reward_math import (
     escrowed_transition_reward,
     discounted_potential_shaping,
     update_alternating_preferred_foot,
+    classify_clean_step_over_transition,
+    clean_step_over_sequence_update,
+    clean_step_over_sequence_reward,
 )
 
 if TYPE_CHECKING:
@@ -1921,6 +1924,12 @@ class preferred_transition_milestones(ManagerTermBase):
             n, dtype=torch.float32, device=device
         )
 
+        # B6 episode-level CLEAN_STEP_OVER state.
+        self._sequence_active = torch.zeros_like(self._active)
+        self._first_direct = torch.zeros_like(self._active)
+        self._sequence_failed = torch.zeros_like(self._active)
+        self._clean_paid = torch.zeros_like(self._active)
+
     def reset(self, env_ids: Sequence[int] | None = None) -> None:
         if env_ids is None:
             env_ids = slice(None)
@@ -1931,6 +1940,11 @@ class preferred_transition_milestones(ManagerTermBase):
         self._lifted[env_ids] = False
         self._cleared[env_ids] = False
         self._credit_paid[env_ids] = 0.0
+
+        self._sequence_active[env_ids] = False
+        self._first_direct[env_ids] = False
+        self._sequence_failed[env_ids] = False
+        self._clean_paid[env_ids] = False
 
     def __call__(
         self,
@@ -1947,6 +1961,7 @@ class preferred_transition_milestones(ManagerTermBase):
         replant_value: float = -0.10,
         wrong_foot_value: float = -0.10,
         unresolved_end_value: float = -0.10,
+        sequence_clean_step_over: bool = False,
     ) -> torch.Tensor:
         runtime = self.runtime
 
@@ -2201,6 +2216,95 @@ class preferred_transition_milestones(ManagerTermBase):
         # terminal sample and subtracts all previously paid milestone credit.
         new_lift = clear_lift & ~self._lifted
         new_clearance = clear_riser & ~self._cleared
+
+        # B6 canonical sequence-level override.
+        #
+        # Existing B4/B5 behavior is unchanged unless this flag is true.
+        # Positive alternation reward is possible only after two consecutive
+        # canonical DIRECT_ACQUISITION transitions.
+        if sequence_clean_step_over:
+            event_code = classify_clean_step_over_transition(
+                self._active,
+                acquisition,
+                unique,
+                preferred_acquisition,
+                old_contact,
+                episode_end,
+            )
+
+            # Rebuild terminal failure values from the canonical classifier.
+            b6_base_reward = torch.zeros_like(base_reward)
+            b6_base_reward = torch.where(
+                event_code == 2,
+                torch.full_like(
+                    b6_base_reward,
+                    float(replant_value),
+                ),
+                b6_base_reward,
+            )
+            b6_base_reward = torch.where(
+                event_code == 3,
+                torch.full_like(
+                    b6_base_reward,
+                    float(wrong_foot_value),
+                ),
+                b6_base_reward,
+            )
+            b6_base_reward = torch.where(
+                event_code == 4,
+                torch.full_like(
+                    b6_base_reward,
+                    float(unresolved_end_value),
+                ),
+                b6_base_reward,
+            )
+            # Ambiguous/simultaneous acquisition is a sequence failure and
+            # uses the same bounded cost as wrong-foot acquisition.
+            b6_base_reward = torch.where(
+                event_code == 5,
+                torch.full_like(
+                    b6_base_reward,
+                    float(wrong_foot_value),
+                ),
+                b6_base_reward,
+            )
+
+            (
+                self._sequence_active,
+                self._first_direct,
+                self._sequence_failed,
+                self._clean_paid,
+                sequence_signal,
+            ) = clean_step_over_sequence_update(
+                self._sequence_active,
+                self._first_direct,
+                self._sequence_failed,
+                self._clean_paid,
+                self._active,
+                self._old_target,
+                event_code,
+            )
+
+            # sequence_failed dominates forever until reset.
+            # First DIRECT pays zero. Only the second consecutive DIRECT
+            # produces the full +success_value.
+            sequence_reward = clean_step_over_sequence_reward(
+                sequence_signal,
+                event_code,
+                success_value=float(success_value),
+                replant_value=float(replant_value),
+                wrong_foot_value=float(wrong_foot_value),
+                unresolved_value=float(unresolved_end_value),
+            )
+
+            base_reward = sequence_reward
+
+            # Canonical runtime outputs for diagnostics/evaluation hooks.
+            runtime.preferred_transition_event_code = event_code.clone()
+            runtime.clean_step_over_event = sequence_signal > 0
+            runtime.clean_step_over_sequence_failed = (
+                self._sequence_failed.clone()
+            )
 
         reward, credit_paid = escrowed_transition_reward(
             base_reward,

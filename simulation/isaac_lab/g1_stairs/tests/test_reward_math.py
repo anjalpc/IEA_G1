@@ -1301,3 +1301,411 @@ def test_crossing_attempt_strike_wins_over_replant():
         torch.tensor([[False, True]]),
     )
     assert x.tolist() == [[False, True]]
+
+
+def test_b6_clean_step_over_direct_direct_only_positive():
+    import torch
+
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        clean_step_over_sequence_update,
+    )
+
+    active = torch.tensor([False])
+    first = torch.tensor([False])
+    failed = torch.tensor([False])
+    paid = torch.tensor([False])
+
+    # stair1 -> stair2 DIRECT: no reward yet.
+    active, first, failed, paid, signal = (
+        clean_step_over_sequence_update(
+            active,
+            first,
+            failed,
+            paid,
+            torch.tensor([True]),
+            torch.tensor([0]),
+            torch.tensor([1]),
+        )
+    )
+
+    assert signal.item() == 0
+    assert first.item()
+    assert not failed.item()
+    assert not paid.item()
+
+    # stair2 -> stair3 DIRECT: exactly one clean completion.
+    active, first, failed, paid, signal = (
+        clean_step_over_sequence_update(
+            active,
+            first,
+            failed,
+            paid,
+            torch.tensor([True]),
+            torch.tensor([1]),
+            torch.tensor([1]),
+        )
+    )
+
+    assert signal.item() == 1
+    assert not active.item()
+    assert not first.item()
+    assert not failed.item()
+    assert paid.item()
+
+
+def test_b6_sequence_failure_is_latched_and_cannot_recover():
+    import torch
+
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        clean_step_over_sequence_update,
+    )
+
+    active = torch.tensor([False])
+    first = torch.tensor([False])
+    failed = torch.tensor([False])
+    paid = torch.tensor([False])
+
+    # Transition 1 failure.
+    active, first, failed, paid, signal = (
+        clean_step_over_sequence_update(
+            active,
+            first,
+            failed,
+            paid,
+            torch.tensor([True]),
+            torch.tensor([0]),
+            torch.tensor([3]),
+        )
+    )
+
+    assert signal.item() == -1
+    assert failed.item()
+
+    # Later DIRECT must never recover.
+    active, first, failed, paid, signal = (
+        clean_step_over_sequence_update(
+            active,
+            first,
+            failed,
+            paid,
+            torch.tensor([True]),
+            torch.tensor([1]),
+            torch.tensor([1]),
+        )
+    )
+
+    assert signal.item() == 0
+    assert failed.item()
+    assert not paid.item()
+
+
+def test_b6_first_direct_then_failure_cannot_later_pay():
+    import torch
+
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        clean_step_over_sequence_update,
+    )
+
+    active = torch.tensor([False])
+    first = torch.tensor([False])
+    failed = torch.tensor([False])
+    paid = torch.tensor([False])
+
+    active, first, failed, paid, signal = (
+        clean_step_over_sequence_update(
+            active,
+            first,
+            failed,
+            paid,
+            torch.tensor([True]),
+            torch.tensor([0]),
+            torch.tensor([1]),
+        )
+    )
+    assert signal.item() == 0
+    assert first.item()
+
+    active, first, failed, paid, signal = (
+        clean_step_over_sequence_update(
+            active,
+            first,
+            failed,
+            paid,
+            torch.tensor([True]),
+            torch.tensor([1]),
+            torch.tensor([2]),
+        )
+    )
+    assert signal.item() == -1
+    assert failed.item()
+    assert not first.item()
+
+    active, first, failed, paid, signal = (
+        clean_step_over_sequence_update(
+            active,
+            first,
+            failed,
+            paid,
+            torch.tensor([True]),
+            torch.tensor([1]),
+            torch.tensor([1]),
+        )
+    )
+    assert signal.item() == 0
+    assert failed.item()
+    assert not paid.item()
+
+
+def test_b6_transition_classifier_priority():
+    import torch
+
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        classify_clean_step_over_transition,
+    )
+
+    # direct, replant-over-direct, wrong, unresolved, ambiguous-over-replant
+    code = classify_clean_step_over_transition(
+        transition_active=torch.tensor(
+            [True, True, True, True, True]
+        ),
+        acquisition_event=torch.tensor(
+            [True, True, True, False, True]
+        ),
+        unique_acquisition=torch.tensor(
+            [True, True, True, True, False]
+        ),
+        preferred_acquisition=torch.tensor(
+            [True, True, False, False, False]
+        ),
+        old_tread_replant=torch.tensor(
+            [False, True, False, False, True]
+        ),
+        episode_end=torch.tensor(
+            [False, False, False, True, False]
+        ),
+    )
+
+    assert code.tolist() == [1, 2, 3, 4, 5]
+
+
+def _b6_test_step(state, target, event_code):
+    import torch
+
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        clean_step_over_sequence_reward,
+        clean_step_over_sequence_update,
+    )
+
+    active, first, failed, paid = state
+
+    (
+        active,
+        first,
+        failed,
+        paid,
+        signal,
+    ) = clean_step_over_sequence_update(
+        active,
+        first,
+        failed,
+        paid,
+        torch.tensor([True]),
+        torch.tensor([target]),
+        torch.tensor([event_code]),
+    )
+
+    reward = clean_step_over_sequence_reward(
+        signal,
+        torch.tensor([event_code]),
+        success_value=3.0,
+        replant_value=-0.10,
+        wrong_foot_value=-0.10,
+        unresolved_value=-0.10,
+    )
+
+    return (active, first, failed, paid), reward.item()
+
+
+def _b6_initial_state():
+    import torch
+
+    return (
+        torch.tensor([False]),  # sequence_active
+        torch.tensor([False]),  # first_direct
+        torch.tensor([False]),  # sequence_failed
+        torch.tensor([False]),  # clean_paid
+    )
+
+
+def test_b6_direct_direct_pays_three_once_only():
+    state = _b6_initial_state()
+
+    state, r1 = _b6_test_step(state, 0, 1)
+    state, r2 = _b6_test_step(state, 1, 1)
+    state, r3 = _b6_test_step(state, 1, 1)
+
+    assert r1 == 0.0
+    assert r2 == 3.0
+    assert r3 == 0.0
+
+    active, first, failed, paid = state
+    assert not active.item()
+    assert not first.item()
+    assert not failed.item()
+    assert paid.item()
+
+
+def test_b6_first_transition_replant_latches_failure():
+    state = _b6_initial_state()
+
+    state, r1 = _b6_test_step(state, 0, 2)
+    state, r2 = _b6_test_step(state, 0, 1)
+    state, r3 = _b6_test_step(state, 1, 1)
+
+    assert abs(r1 - (-0.10)) < 1.0e-6
+    assert r2 == 0.0
+    assert r3 == 0.0
+
+    assert state[2].item()
+    assert not state[3].item()
+
+
+def test_b6_wrong_foot_first_transition_latches_failure():
+    state = _b6_initial_state()
+
+    state, reward = _b6_test_step(state, 0, 3)
+
+    assert abs(reward - (-0.10)) < 1.0e-6
+    assert state[2].item()
+    assert not state[3].item()
+
+
+def test_b6_ambiguous_acquisition_latches_failure():
+    import torch
+
+    from simulation.isaac_lab.g1_stairs.reward_math import (
+        classify_clean_step_over_transition,
+    )
+
+    code = classify_clean_step_over_transition(
+        transition_active=torch.tensor([True]),
+        acquisition_event=torch.tensor([True]),
+        unique_acquisition=torch.tensor([False]),
+        preferred_acquisition=torch.tensor([False]),
+        old_tread_replant=torch.tensor([False]),
+        episode_end=torch.tensor([False]),
+    )
+
+    assert code.item() == 5
+
+    state = _b6_initial_state()
+    state, reward = _b6_test_step(
+        state,
+        0,
+        code.item(),
+    )
+
+    assert abs(reward - (-0.10)) < 1.0e-6
+    assert state[2].item()
+    assert not state[3].item()
+
+
+def test_b6_direct_then_canonical_replant_never_pays_clean():
+    state = _b6_initial_state()
+
+    # First transition is genuinely DIRECT.
+    state, r1 = _b6_test_step(state, 0, 1)
+
+    # This is REPLANT_OLD only because the canonical classifier
+    # has already classified the physical event as such.
+    state, r2 = _b6_test_step(state, 1, 2)
+
+    # A later apparently clean acquisition cannot recover.
+    state, r3 = _b6_test_step(state, 1, 1)
+
+    assert r1 == 0.0
+    assert abs(r2 - (-0.10)) < 1.0e-6
+    assert r3 == 0.0
+
+    assert state[2].item()
+    assert not state[3].item()
+
+
+def test_b6_failed_sequence_can_never_restart_same_episode():
+    state = _b6_initial_state()
+
+    state, r1 = _b6_test_step(state, 0, 3)
+
+    # Even an apparently perfect later pair cannot restart B6.
+    state, r2 = _b6_test_step(state, 0, 1)
+    state, r3 = _b6_test_step(state, 1, 1)
+
+    assert abs(r1 - (-0.10)) < 1.0e-6
+    assert r2 == 0.0
+    assert r3 == 0.0
+
+    assert state[2].item()
+    assert not state[3].item()
+
+
+def test_b6_fresh_episode_state_allows_clean_after_previous_failure():
+    # Previous episode fails.
+    state = _b6_initial_state()
+    state, reward = _b6_test_step(state, 0, 3)
+
+    assert abs(reward - (-0.10)) < 1.0e-6
+    assert state[2].item()
+
+    # Environment reset contract: all B6 latches return false.
+    state = _b6_initial_state()
+
+    active, first, failed, paid = state
+    assert not active.item()
+    assert not first.item()
+    assert not failed.item()
+    assert not paid.item()
+
+    # A new episode may legitimately complete CLEAN_STEP_OVER.
+    state, r1 = _b6_test_step(state, 0, 1)
+    state, r2 = _b6_test_step(state, 1, 1)
+
+    assert r1 == 0.0
+    assert r2 == 3.0
+    assert state[3].item()
+
+
+def test_b6_positive_reward_implies_clean_paid():
+    state = _b6_initial_state()
+
+    state, r1 = _b6_test_step(state, 0, 1)
+    assert r1 == 0.0
+    assert not state[3].item()
+
+    state, r2 = _b6_test_step(state, 1, 1)
+
+    assert r2 == 3.0
+    assert state[3].item()
+
+
+def test_b6_failed_state_can_never_emit_positive_reward():
+    state = _b6_initial_state()
+
+    state, _ = _b6_test_step(state, 0, 2)
+
+    assert state[2].item()
+
+    for target, code in (
+        (0, 1),
+        (1, 1),
+        (0, 1),
+        (1, 1),
+    ):
+        state, reward = _b6_test_step(
+            state,
+            target,
+            code,
+        )
+        assert reward <= 0.0
+
+    assert state[2].item()
+    assert not state[3].item()

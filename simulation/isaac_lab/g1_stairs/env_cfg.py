@@ -993,6 +993,7 @@ class StairRewardsCfg:
             "replant_value": -0.10,
             "wrong_foot_value": -0.10,
             "unresolved_end_value": -0.10,
+            "sequence_clean_step_over": False,
         },
     )
 

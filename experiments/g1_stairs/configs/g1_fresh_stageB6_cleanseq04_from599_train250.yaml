@@ -1,0 +1,26 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_fresh_stageB5_terminalalt04_from599_train250.yaml
+  resolved_config_required: true
+
+experiment:
+  id: g1_fresh_stageB6_cleanseq04_from599_train250
+  purpose: >-
+    Reward only complete two-transition CLEAN_STEP_OVER sequences.
+    Transition 1 DIRECT pays zero; transition 2 consecutive DIRECT pays +3.0.
+    Any ambiguous acquisition, replant, wrong-foot acquisition, or unresolved
+    transition latches sequence failure for the remainder of the episode.
+
+execution:
+  maximum_iterations: 250
+
+reward_parameters:
+  preferred_transition_milestones:
+    lift_value: 0.0
+    clearance_value: 0.0
+    success_value: 3.0
+    replant_value: -0.10
+    wrong_foot_value: -0.10
+    unresolved_end_value: -0.10
+    sequence_clean_step_over: true
