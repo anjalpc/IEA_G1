@@ -7,6 +7,7 @@ import math
 import torch
 from isaaclab.managers import SceneEntityCfg
 
+from .contracts import G1_SOLE_SPHERE_RADIUS_M
 from .terrain_state import riser_height_per_env, stair_cfg
 
 
@@ -14,14 +15,25 @@ def stair_geometry(
     env,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
 ) -> torch.Tensor:
-    """Return five normalized physical stair-state features.
+    """Return deployable local stair observations.
 
-    Features:
+    Base geometry:
       0 stairs ahead
-      1 actual per-environment riser height
-      2 tread depth
+      1 normalized riser height
+      2 normalized tread depth
       3 relative staircase yaw
-      4 distance to next riser
+      4 distance to next geometric riser
+
+    C1 optionally appends:
+      5 preferred-left
+      6 preferred-right
+
+    C2 optionally appends:
+      7 preferred-foot rear-edge error to desired next-tread foothold
+      8 preferred-foot sole-height error to next-tread surface
+
+    C1/C2 transition features are zero before the first verified stair
+    acquisition and after the final stair acquisition.
     """
 
     robot = env.scene[asset_cfg.name]
@@ -43,9 +55,6 @@ def stair_geometry(
         + step_count * tread_depth
     )
 
-    # Flat rows use a zero riser and must advertise no staircase. This
-    # makes the five explicit geometry features causally different from
-    # the stair rows instead of presenting a fictitious zero-height stair.
     has_stairs = (
         riser_height > 1.0e-8
     ).to(root_x.dtype)
@@ -120,9 +129,9 @@ def stair_geometry(
         dim=1,
     )
 
-    # C1: expose only the locally preferred next swing foot.
-    # This is independent of absolute stair count and therefore scales
-    # to arbitrary-length staircases once the acquisition runtime does.
+    # --------------------------------------------------------
+    # C1: preferred next swing-foot identity
+    # --------------------------------------------------------
     if not bool(
         getattr(
             env.cfg,
@@ -138,7 +147,30 @@ def stair_geometry(
         device=root_x.device,
     )
 
-    runtime = getattr(env, "_g1_v04_acquisition", None)
+    runtime = getattr(
+        env,
+        "_g1_v04_acquisition",
+        None,
+    )
+
+    valid = torch.zeros(
+        env.num_envs,
+        dtype=torch.bool,
+        device=root_x.device,
+    )
+
+    preferred = torch.full(
+        (env.num_envs,),
+        -1,
+        dtype=torch.long,
+        device=root_x.device,
+    )
+
+    current_target = torch.zeros(
+        env.num_envs,
+        dtype=torch.long,
+        device=root_x.device,
+    )
 
     if (
         runtime is not None
@@ -154,16 +186,178 @@ def stair_geometry(
             & (riser_height > 1.0e-8)
         )
 
-        # Runtime foot ordering is [left, right].
         transition[:, 0] = (
             valid & (preferred == 0)
         ).to(root_x.dtype)
+
         transition[:, 1] = (
             valid & (preferred == 1)
         ).to(root_x.dtype)
 
-    return torch.cat((geometry, transition), dim=1)
+    c1 = torch.cat(
+        (geometry, transition),
+        dim=1,
+    )
 
+    # --------------------------------------------------------
+    # C2: preferred-foot next-tread foothold error
+    # --------------------------------------------------------
+    if not bool(
+        getattr(
+            env.cfg,
+            "preferred_foothold_observation",
+            False,
+        )
+    ):
+        return c1
+
+    foothold = torch.zeros(
+        (env.num_envs, 2),
+        dtype=root_x.dtype,
+        device=root_x.device,
+    )
+
+    if runtime is not None:
+        data = runtime.robot.data
+
+        foot_pos = (
+            data.body_pos_w[:, runtime.robot_foot_ids]
+            - env.scene.env_origins[:, None, :]
+        )
+
+        foot_quat = data.body_quat_w[
+            :, runtime.robot_foot_ids
+        ]
+
+        offsets = runtime.sole_centres.to(
+            dtype=foot_pos.dtype
+        )[None, None].expand(
+            env.num_envs,
+            2,
+            -1,
+            -1,
+        )
+
+        quaternions = foot_quat.unsqueeze(2).expand(
+            -1,
+            -1,
+            offsets.shape[2],
+            -1,
+        )
+
+        # WXYZ quaternion rotation of sole-sphere centres.
+        q_xyz = quaternions[..., 1:]
+        uv = torch.cross(
+            q_xyz,
+            offsets,
+            dim=-1,
+        )
+
+        rotated = (
+            offsets
+            + 2.0
+            * (
+                quaternions[..., :1] * uv
+                + torch.cross(
+                    q_xyz,
+                    uv,
+                    dim=-1,
+                )
+            )
+        )
+
+        sole_points = (
+            foot_pos.unsqueeze(2)
+            + rotated
+        )
+
+        radius = float(
+            G1_SOLE_SPHERE_RADIUS_M
+        )
+
+        rear_x = (
+            sole_points[..., 0].amin(dim=2)
+            - radius
+        )
+
+        sole_bottom = (
+            sole_points[..., 2].amin(dim=2)
+            - radius
+        )
+
+        preferred_index = preferred.clamp(
+            min=0,
+            max=1,
+        )
+
+        gather = preferred_index[:, None]
+
+        preferred_rear = rear_x.gather(
+            1,
+            gather,
+        ).squeeze(1)
+
+        preferred_bottom = sole_bottom.gather(
+            1,
+            gather,
+        ).squeeze(1)
+
+        target_float = current_target.to(
+            root_x.dtype
+        )
+
+        target_riser_x = (
+            first_riser
+            + target_float * tread_depth
+        )
+
+        # Current B7/A3 safe insertion contract:
+        # tread margin 15 mm + insertion target 40 mm.
+        target_rear_x = (
+            target_riser_x
+            + 0.015
+            + 0.040
+        )
+
+        target_tread_height = (
+            target_float + 1.0
+        ) * riser_height
+
+        dx = (
+            target_rear_x
+            - preferred_rear
+        ) / max(tread_depth, 1.0e-6)
+
+        # Flat rows are masked by `valid`; clamp denominator
+        # only to avoid division by zero before masking.
+        dz_normalizer = riser_height.clamp_min(
+            0.040
+        )
+
+        dz = (
+            target_tread_height
+            - preferred_bottom
+        ) / dz_normalizer
+
+        dx = dx.clamp(-1.0, 1.0)
+        dz = dz.clamp(-1.0, 1.0)
+
+        foothold[:, 0] = torch.where(
+            valid,
+            dx,
+            torch.zeros_like(dx),
+        )
+
+        foothold[:, 1] = torch.where(
+            valid,
+            dz,
+            torch.zeros_like(dz),
+        )
+
+    return torch.cat(
+        (c1, foothold),
+        dim=1,
+    )
 
 def stair_velocity_command(
     env,

@@ -121,6 +121,22 @@ def apply_resolved_replay_config(env_cfg, path: Path) -> AppliedReplayConfig:
         )
     )
 
+    env_cfg.preferred_foothold_observation = bool(
+        observations.get(
+            "preferred_foothold",
+            False,
+        )
+    )
+
+    if (
+        env_cfg.preferred_foothold_observation
+        and not env_cfg.preferred_transition_foot_observation
+    ):
+        raise ValueError(
+            "preferred_foothold observation requires "
+            "preferred_transition_foot"
+        )
+
     if observations.get(
         "actor_height_scan",
         True,

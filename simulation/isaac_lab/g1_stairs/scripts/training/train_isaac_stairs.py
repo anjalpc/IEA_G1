@@ -636,6 +636,27 @@ def main() -> None:
         flush=True,
     )
 
+    foothold_obs_enabled = bool(
+        resolved_config.get("observations", {}).get(
+            "preferred_foothold",
+            False,
+        )
+    )
+    if foothold_obs_enabled and not transition_obs_enabled:
+        raise ValueError(
+            "preferred_foothold observation requires "
+            "preferred_transition_foot"
+        )
+
+    env_cfg.preferred_foothold_observation = (
+        foothold_obs_enabled
+    )
+    print(
+        "[INFO] Preferred foothold observation:",
+        foothold_obs_enabled,
+        flush=True,
+    )
+
     active_rewards = apply_resolved_rewards(env_cfg, resolved_config)
     print("[INFO] Active reward stage:", resolved_config["reward_experiment"]["active_stage"], flush=True)
     print("[INFO] Active rewards:", active_rewards, flush=True)
