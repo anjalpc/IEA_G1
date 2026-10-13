@@ -1,0 +1,49 @@
+schema_version: 1
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_fresh_stageC1_transitionobs04_continue300.yaml
+  resolved_config_required: true
+experiment:
+  id: c3_learned_train300
+  purpose: C3 learned cadence smoke from C1 model309. Preserve B7 rewards and add
+    phase swing-contact shaping.
+execution:
+  maximum_iterations: 300
+observations:
+  preferred_transition_foot: true
+  preferred_foothold: false
+  preferred_foothold_ablation: false
+  gait_phase: true
+  actor_height_scan: false
+  critic_height_scan: true
+actions:
+  dimension: 30
+  physical_joint_dimension: 29
+acceptance:
+  action_dimension: 30
+gait:
+  enabled: true
+  frequency_std: 0.1
+  mode: learned
+policy_initialization:
+  type: rsl_rl_checkpoint_actor_transfer
+  source:
+    task: C1_model309_expanded_for_C3
+    path: /workspace/IEA_G1/experiments/g1_stairs/outputs/initialization/c3_model309_actor489_actions30.pt
+    sha256: 9b719a2864e35ef7d3fd01c2a53a741d83eaa8107f541778fe93613298a55baf
+  locomotion_observations: 480
+  terrain_observations: 0
+  actor_height_scan_observations: 0
+  explicit_geometry_observations: 5
+  transition_state_observations: 2
+  gait_phase_observations: 2
+  stair_observations: 489
+  actions: 30
+  new_observation_initialization: zero
+  critic_initialization: fresh
+  optimizer_initialization: fresh
+  pretrained_actor_trainable: true
+reward_experiment:
+  rewards:
+    stage_plan:
+      geometry_locomotion_stage_a_bootstrap:
+        phase_swing_contact: -0.1
