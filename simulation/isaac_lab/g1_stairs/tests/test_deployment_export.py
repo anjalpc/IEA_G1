@@ -62,8 +62,19 @@ class TestDeploymentExport(unittest.TestCase):
             )
             path = Path(log_dir) / "params" / "deploy.yaml"
             path.parent.mkdir(parents=True, exist_ok=True)
+            # Mirror Unitree's exporter: yaml.dump may emit Python-specific
+            # tuple tags (for example from action clip/range fields).
             path.write_text(
-                yaml.safe_dump({"actions": {"JointPositionAction": {}}}),
+                yaml.dump(
+                    {
+                        "actions": {
+                            "JointPositionAction": {
+                                "clip": (-1.0, 1.0),
+                            }
+                        }
+                    },
+                    sort_keys=False,
+                ),
                 encoding="utf-8",
             )
 
@@ -77,7 +88,7 @@ class TestDeploymentExport(unittest.TestCase):
                 env, temp, resolved, fake_unitree_exporter
             )
 
-            deploy = yaml.safe_load(
+            deploy = yaml.full_load(
                 (Path(temp) / "params" / "deploy.yaml").read_text()
             )
             self.assertEqual(list(deploy["actions"]), ["JointPositionAction"])

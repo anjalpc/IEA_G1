@@ -142,7 +142,7 @@ def export_deploy_cfg_compatible(
     if not deploy_path.is_file():
         raise RuntimeError("Unitree exporter did not create params/deploy.yaml")
     with deploy_path.open("r", encoding="utf-8") as stream:
-        deploy_cfg = yaml.safe_load(stream) or {}
+        deploy_cfg = yaml.full_load(stream) or {}
     exported_actions = deploy_cfg.get("actions", {})
     if list(exported_actions) != [_PHYSICAL_ACTION_TERM]:
         raise RuntimeError(
