@@ -344,7 +344,10 @@ def main():
                             i for i, name in enumerate(names)
                             if any(token in name for token in ("_shoulder_", "_elbow_", "_wrist_"))
                         ]
-                        if len(arm_ids) != 14 or actor.std.shape != (len(names),):
+                        expected_actions = len(names) + int(
+                            getattr(env.unwrapped.cfg, "gait_phase_enabled", False)
+                        )
+                        if len(arm_ids) != 14 or actor.std.shape != (expected_actions,):
                             raise ValueError("Unexpected arm selection or policy std shape")
                         if not bool(torch.isfinite(actor.std).all() and (actor.std > 0).all()):
                             raise ValueError("Policy std must be finite and positive")

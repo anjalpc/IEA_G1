@@ -329,6 +329,10 @@ def stair_geometry(
         dim=1,
     )
 
+    if getattr(env.cfg, "gait_phase_enabled", False):
+        clock = env.action_manager.get_term("gait_frequency").observation()
+        return torch.cat((c1, clock), dim=1)
+
     # --------------------------------------------------------
     # C2: preferred-foot next-tread foothold error
     # --------------------------------------------------------

@@ -306,6 +306,10 @@ class InstrumentedRslRlVecEnvWrapper:
         import torch
 
         result = self._wrapped.step(actions)
+        if getattr(self.unwrapped.cfg, "gait_phase_enabled", False):
+            if actions.shape[-1] != 30:
+                raise RuntimeError("C3 metrics expected 30 policy actions")
+            actions = actions[:, :len(BODY_JOINTS)]
 
         executed_actions = getattr(
             self._wrapped,

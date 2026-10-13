@@ -266,7 +266,15 @@ def apply_resolved_rewards(
     resolved: dict[str, Any],
 ) -> dict[str, float]:
     """Make the runtime reward set exactly match the resolved experiment."""
+    if resolved.get("gait", {}).get("enabled", False):
+        from .gait_runtime import configure_gait
+        configure_gait(env_cfg, resolved)
     weights = active_reward_weights(resolved)
+    if resolved.get("gait", {}).get("enabled", False):
+        if weights.get("phase_swing_contact") != -0.10:
+            raise ValueError("C3 requires phase_swing_contact=-0.10")
+        if not weights.get("terrain_relative_clearance"):
+            raise ValueError("C3 requires the existing acquisition update")
 
     if _strict_runtime_reward_set_enabled(resolved):
         _apply_strict_runtime_reward_set(env_cfg.rewards, weights)

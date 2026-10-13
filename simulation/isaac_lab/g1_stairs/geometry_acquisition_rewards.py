@@ -1153,6 +1153,11 @@ class GeometryAcquisitionRuntime:
                 )
             )
 
+        if getattr(env.cfg, "gait_phase_enabled", False):
+            env.action_manager.get_term("gait_frequency").finish_step(
+                self, touchdown_force_n
+            )
+
         # Activation / progress diagnostics.
         self.candidate_samples += valid_target.sum()
         self.clearance_active_samples += (

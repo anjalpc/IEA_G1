@@ -80,8 +80,26 @@ class GeometryTrace:
             "joint_vel_rad_s": self.values(data.joint_vel[0]),
             "applied_torque_nm": self.values(data.applied_torque[0]),
             "joint_pos_target_rad": self.values(data.joint_pos_target[0]),
-            "action": self.values(env.action_manager.action[0]),
+            "action": self.values(
+                env.action_manager.action[0, :29]
+                if getattr(env.cfg, "gait_phase_enabled", False)
+                else env.action_manager.action[0]
+            ),
         }
+        if getattr(env.cfg, "gait_phase_enabled", False):
+            gait = env.action_manager.get_term("gait_frequency")
+            clock = gait.observation()[0]
+            row.update({
+                "raw_frequency_action": self.values(gait.raw_actions[0, 0]),
+                "frequency_hz": self.values(gait.processed_actions[0, 0]),
+                "phase": self.values(gait.phase[0]),
+                "sin_phase": self.values(clock[0]),
+                "cos_phase": self.values(clock[1]),
+                "gait_active": self.values(gait.active[0]),
+                "gait_reward_phase": self.values(gait.reward_phase[0]),
+                "gait_reward_active": self.values(gait.reward_active[0]),
+                "phase_swing_contact_loss": self.values(gait.contact_loss[0]),
+            })
         if reward is not None:
             row.update({
                 "terminated": bool(env.termination_manager.terminated[0].item()),
