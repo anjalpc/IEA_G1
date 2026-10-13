@@ -109,7 +109,7 @@ def stair_geometry(
         torch.cos(-yaw),
     ) / math.pi
 
-    return torch.stack(
+    geometry = torch.stack(
         (
             active,
             active * (riser_height / 0.20),
@@ -119,6 +119,50 @@ def stair_geometry(
         ),
         dim=1,
     )
+
+    # C1: expose only the locally preferred next swing foot.
+    # This is independent of absolute stair count and therefore scales
+    # to arbitrary-length staircases once the acquisition runtime does.
+    if not bool(
+        getattr(
+            env.cfg,
+            "preferred_transition_foot_observation",
+            False,
+        )
+    ):
+        return geometry
+
+    transition = torch.zeros(
+        (env.num_envs, 2),
+        dtype=root_x.dtype,
+        device=root_x.device,
+    )
+
+    runtime = getattr(env, "_g1_v04_acquisition", None)
+
+    if (
+        runtime is not None
+        and bool(runtime.dynamic_alternating_rewards)
+    ):
+        preferred = runtime.preferred_foot
+        current_target = runtime.target_step[:, 0]
+
+        valid = (
+            (preferred >= 0)
+            & (current_target > 0)
+            & (current_target < step_count)
+            & (riser_height > 1.0e-8)
+        )
+
+        # Runtime foot ordering is [left, right].
+        transition[:, 0] = (
+            valid & (preferred == 0)
+        ).to(root_x.dtype)
+        transition[:, 1] = (
+            valid & (preferred == 1)
+        ).to(root_x.dtype)
+
+    return torch.cat((geometry, transition), dim=1)
 
 
 def stair_velocity_command(

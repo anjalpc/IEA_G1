@@ -621,6 +621,21 @@ def main() -> None:
             flush=True,
         )
 
+    transition_obs_enabled = bool(
+        resolved_config.get("observations", {}).get(
+            "preferred_transition_foot",
+            False,
+        )
+    )
+    env_cfg.preferred_transition_foot_observation = (
+        transition_obs_enabled
+    )
+    print(
+        "[INFO] Preferred transition-foot observation:",
+        transition_obs_enabled,
+        flush=True,
+    )
+
     active_rewards = apply_resolved_rewards(env_cfg, resolved_config)
     print("[INFO] Active reward stage:", resolved_config["reward_experiment"]["active_stage"], flush=True)
     print("[INFO] Active rewards:", active_rewards, flush=True)
