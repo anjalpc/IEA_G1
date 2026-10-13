@@ -63,13 +63,15 @@ class TestDeploymentExport(unittest.TestCase):
             path = Path(log_dir) / "params" / "deploy.yaml"
             path.parent.mkdir(parents=True, exist_ok=True)
             # Mirror Unitree's exporter: yaml.dump may emit Python-specific
-            # tuple tags (for example from action clip/range fields).
+            # tags, including both tuple and slice objects. The compatibility
+            # wrapper must not need to parse these back in.
             path.write_text(
                 yaml.dump(
                     {
                         "actions": {
                             "JointPositionAction": {
                                 "clip": (-1.0, 1.0),
+                                "joint_ids": slice(None),
                             }
                         }
                     },
@@ -88,10 +90,11 @@ class TestDeploymentExport(unittest.TestCase):
                 env, temp, resolved, fake_unitree_exporter
             )
 
-            deploy = yaml.full_load(
-                (Path(temp) / "params" / "deploy.yaml").read_text()
-            )
-            self.assertEqual(list(deploy["actions"]), ["JointPositionAction"])
+            deploy_text = (Path(temp) / "params" / "deploy.yaml").read_text()
+            self.assertIn("JointPositionAction:", deploy_text)
+            self.assertIn("python/tuple", deploy_text)
+            self.assertIn("python/object/apply:builtins.slice", deploy_text)
+            self.assertNotIn("gait_frequency", deploy_text)
 
             gait = yaml.safe_load(
                 (Path(temp) / "params" / "gait.yaml").read_text()
@@ -103,7 +106,6 @@ class TestDeploymentExport(unittest.TestCase):
             self.assertEqual(gait["frequency_max_hz"], 1.3)
             self.assertEqual(gait["phase_offset"], 0.5)
             self.assertEqual(gait["phase_observation"], ["sin", "cos"])
-            self.assertNotIn("gait_frequency", deploy["actions"])
 
         self.assertIs(env.action_manager, original_manager)
         self.assertEqual(

@@ -141,13 +141,21 @@ def export_deploy_cfg_compatible(
     deploy_path = Path(log_dir) / "params" / "deploy.yaml"
     if not deploy_path.is_file():
         raise RuntimeError("Unitree exporter did not create params/deploy.yaml")
-    with deploy_path.open("r", encoding="utf-8") as stream:
-        deploy_cfg = yaml.full_load(stream) or {}
-    exported_actions = deploy_cfg.get("actions", {})
-    if list(exported_actions) != [_PHYSICAL_ACTION_TERM]:
+
+    # Do not parse Unitree's deploy.yaml here. The upstream exporter uses
+    # yaml.dump() on objects that may contain Python-specific tags such as
+    # tuples and slices. Re-loading that file in this compatibility wrapper is
+    # unnecessary and makes training depend on PyYAML constructor support.
+    # The export view above already guarantees that Unitree sees only the
+    # physical joint action term. Keep only fail-closed textual sanity checks.
+    deploy_text = deploy_path.read_text(encoding="utf-8")
+    if f"{_PHYSICAL_ACTION_TERM}:" not in deploy_text:
         raise RuntimeError(
-            "deploy.yaml must contain only the physical joint action; got "
-            f"{list(exported_actions)}"
+            "deploy.yaml is missing the physical joint action term"
+        )
+    if _INTERNAL_GAIT_TERM in deploy_text:
+        raise RuntimeError(
+            "deploy.yaml unexpectedly contains the internal gait-frequency term"
         )
 
     _write_gait_metadata(log_dir, resolved_config)
