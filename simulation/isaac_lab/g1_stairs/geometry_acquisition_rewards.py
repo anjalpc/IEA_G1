@@ -2449,6 +2449,25 @@ class preferred_transition_milestones(ManagerTermBase):
                 rear_progress_potential_shaping.clone()
             )
 
+            # Diagnostic-only transition state. These tensors are not consumed
+            # by the policy, reward, termination, or acquisition detector.
+            runtime.preferred_transition_active = valid.clone()
+            runtime.preferred_transition_lifted = lifted_now.clone()
+            runtime.preferred_transition_new_lift = new_lift.clone()
+
+            runtime.sequence_active = self._sequence_active.clone()
+            runtime.sequence_first_direct = self._first_direct.clone()
+            runtime.sequence_failed = self._sequence_failed.clone()
+            runtime.sequence_clean_paid = self._clean_paid.clone()
+
+            runtime.rear_progress_relative_m = rear_relative.clone()
+            runtime.rear_progress_local_fraction = (
+                rear_local_fraction.clone()
+            )
+            runtime.rear_progress_eligible = (
+                rear_progress_eligible.clone()
+            )
+
         reward, credit_paid = escrowed_transition_reward(
             base_reward,
             event_code,

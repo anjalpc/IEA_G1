@@ -191,6 +191,41 @@ def recover_raw_reward_step(weighted_rate, dt: float, weight: float):
     return weighted_rate / weight
 
 
+TRANSITION_DIAGNOSTIC_NAMES = (
+    "preferred_transition_active_fraction",
+    "preferred_transition_lifted_fraction",
+    "preferred_transition_new_lift_fraction",
+
+    "preferred_transition_direct_fraction",
+    "preferred_transition_replant_fraction",
+    "preferred_transition_wrong_fraction",
+    "preferred_transition_unresolved_fraction",
+    "preferred_transition_ambiguous_fraction",
+
+    "sequence_active_fraction",
+    "sequence_first_direct_fraction",
+    "sequence_failed_fraction",
+    "sequence_clean_paid_fraction",
+    "clean_step_over_event_fraction",
+
+    "sequence_phi",
+    "sequence_potential_shaping_event",
+    "clean_step_over_reward_event",
+
+    "rear_progress_relative_m",
+    "rear_progress_absolute_fraction",
+    "rear_progress_baseline_fraction",
+    "rear_progress_local_fraction",
+    "rear_progress_eligible_fraction",
+    "rear_progress_phi",
+    "rear_progress_potential_shaping_event",
+
+    "rear_progress_shaping_nonzero_fraction",
+    "rear_progress_shaping_positive_fraction",
+    "rear_progress_shaping_negative_fraction",
+)
+
+
 class InstrumentedRslRlVecEnvWrapper:
     """Proxy an RSL-RL wrapper while accumulating rollout diagnostics."""
 
@@ -262,6 +297,9 @@ class InstrumentedRslRlVecEnvWrapper:
         )
         self._posture_distribution = NamedTensorStatsAccumulator(
             POSTURE_DIAGNOSTIC_NAMES
+        )
+        self._transition_distribution = NamedTensorStatsAccumulator(
+            TRANSITION_DIAGNOSTIC_NAMES
         )
 
     def step(self, actions):
@@ -390,6 +428,155 @@ class InstrumentedRslRlVecEnvWrapper:
 
             self._reward_distribution.update(
                 values
+            )
+
+        # B7/B8 transition diagnostics are captured after RewardManager has
+        # evaluated preferred_transition_milestones for this policy step.
+        transition_runtime = getattr(
+            env,
+            "_g1_v04_acquisition",
+            None,
+        )
+
+        if (
+            transition_runtime is not None
+            and hasattr(
+                transition_runtime,
+                "rear_progress_potential_shaping",
+            )
+        ):
+            required_transition_fields = (
+                "preferred_transition_event_code",
+                "preferred_transition_active",
+                "preferred_transition_lifted",
+                "preferred_transition_new_lift",
+                "sequence_active",
+                "sequence_first_direct",
+                "sequence_failed",
+                "sequence_clean_paid",
+                "clean_step_over_event",
+                "sequence_phi",
+                "sequence_potential_shaping",
+                "clean_step_over_reward",
+                "rear_progress_relative_m",
+                "rear_progress_absolute_fraction",
+                "rear_progress_baseline",
+                "rear_progress_local_fraction",
+                "rear_progress_eligible",
+                "rear_progress_phi",
+                "rear_progress_potential_shaping",
+            )
+
+            missing = [
+                name
+                for name in required_transition_fields
+                if not hasattr(transition_runtime, name)
+            ]
+
+            if missing:
+                raise RuntimeError(
+                    "B8 transition diagnostics are incomplete: "
+                    + ", ".join(missing)
+                )
+
+            shaping = (
+                transition_runtime
+                .rear_progress_potential_shaping
+            )
+            dtype = shaping.dtype
+
+            event_code = (
+                transition_runtime
+                .preferred_transition_event_code
+            )
+
+            transition_values = torch.stack(
+                (
+                    transition_runtime
+                    .preferred_transition_active
+                    .to(dtype=dtype),
+
+                    transition_runtime
+                    .preferred_transition_lifted
+                    .to(dtype=dtype),
+
+                    transition_runtime
+                    .preferred_transition_new_lift
+                    .to(dtype=dtype),
+
+                    (event_code == 1).to(dtype=dtype),
+                    (event_code == 2).to(dtype=dtype),
+                    (event_code == 3).to(dtype=dtype),
+                    (event_code == 4).to(dtype=dtype),
+                    (event_code == 5).to(dtype=dtype),
+
+                    transition_runtime
+                    .sequence_active
+                    .to(dtype=dtype),
+
+                    transition_runtime
+                    .sequence_first_direct
+                    .to(dtype=dtype),
+
+                    transition_runtime
+                    .sequence_failed
+                    .to(dtype=dtype),
+
+                    transition_runtime
+                    .sequence_clean_paid
+                    .to(dtype=dtype),
+
+                    transition_runtime
+                    .clean_step_over_event
+                    .to(dtype=dtype),
+
+                    transition_runtime.sequence_phi.to(
+                        dtype=dtype
+                    ),
+
+                    transition_runtime
+                    .sequence_potential_shaping
+                    .to(dtype=dtype),
+
+                    transition_runtime
+                    .clean_step_over_reward
+                    .to(dtype=dtype),
+
+                    transition_runtime
+                    .rear_progress_relative_m
+                    .to(dtype=dtype),
+
+                    transition_runtime
+                    .rear_progress_absolute_fraction
+                    .to(dtype=dtype),
+
+                    transition_runtime
+                    .rear_progress_baseline
+                    .to(dtype=dtype),
+
+                    transition_runtime
+                    .rear_progress_local_fraction
+                    .to(dtype=dtype),
+
+                    transition_runtime
+                    .rear_progress_eligible
+                    .to(dtype=dtype),
+
+                    transition_runtime
+                    .rear_progress_phi
+                    .to(dtype=dtype),
+
+                    shaping,
+
+                    (shaping != 0.0).to(dtype=dtype),
+                    (shaping > 0.0).to(dtype=dtype),
+                    (shaping < 0.0).to(dtype=dtype),
+                ),
+                dim=1,
+            )
+
+            self._transition_distribution.update(
+                transition_values
             )
 
         if teacher_actions is not None:
@@ -1106,6 +1293,7 @@ class InstrumentedRslRlVecEnvWrapper:
         diagnostic_snapshots = {
             **self._stair_distribution.snapshot(),
             **self._posture_distribution.snapshot(),
+            **self._transition_distribution.snapshot(),
         }
         stair_diagnostics = {
             name: {
