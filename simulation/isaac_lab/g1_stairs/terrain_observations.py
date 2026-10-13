@@ -11,6 +11,136 @@ from .contracts import G1_SOLE_SPHERE_RADIUS_M
 from .terrain_state import riser_height_per_env, stair_cfg
 
 
+def _preferred_foothold_features(
+    *,
+    preferred: torch.Tensor,
+    current_target: torch.Tensor,
+    riser_height: torch.Tensor,
+    rear_x: torch.Tensor,
+    front_x: torch.Tensor,
+    sole_bottom: torch.Tensor,
+    first_riser: float,
+    tread_depth: float,
+    step_count: int,
+    tread_margin_m: float,
+):
+    """Return count-independent preferred-foot foothold errors."""
+
+    if tread_depth <= 0.0:
+        raise ValueError("tread_depth must be positive")
+    if tread_margin_m <= 0.0:
+        raise ValueError("tread_margin_m must be positive")
+    if not 2.0 * tread_margin_m < tread_depth:
+        raise ValueError("tread margin leaves no safe landing interval")
+
+    valid = (
+        (preferred >= 0)
+        & (current_target > 0)
+        & (current_target < int(step_count))
+        & (riser_height > 1.0e-8)
+    )
+
+    pref_idx = preferred.clamp(0, 1)[:, None]
+
+    pref_rear = rear_x.gather(1, pref_idx).squeeze(1)
+    pref_front = front_x.gather(1, pref_idx).squeeze(1)
+    pref_bottom = sole_bottom.gather(1, pref_idx).squeeze(1)
+
+    # Current X projection changes with foot orientation.
+    projected_span = (
+        pref_front - pref_rear
+    ).clamp_min(0.0)
+
+    target_f = current_target.to(pref_rear.dtype)
+
+    # Use acquisition runtime target, not base/root "next riser".
+    target_riser_x = (
+        float(first_riser)
+        + target_f * float(tread_depth)
+    )
+
+    safe_start = (
+        target_riser_x
+        + float(tread_margin_m)
+    )
+
+    safe_end = (
+        target_riser_x
+        + float(tread_depth)
+        - float(tread_margin_m)
+    )
+
+    # Complete current oriented sole must fit inside the tread.
+    max_safe_rear = (
+        safe_end - projected_span
+    )
+
+    feasible = (
+        valid
+        & (max_safe_rear >= safe_start)
+    )
+
+    # Midpoint of feasible rear-edge interval.
+    target_rear = 0.5 * (
+        safe_start + max_safe_rear
+    )
+
+    target_tread_z = (
+        target_f + 1.0
+    ) * riser_height
+
+    zero = torch.zeros_like(pref_rear)
+
+    # Mask BEFORE division.
+    dx_raw = torch.where(
+        feasible,
+        target_rear - pref_rear,
+        zero,
+    )
+
+    dz_raw = torch.where(
+        feasible,
+        target_tread_z - pref_bottom,
+        zero,
+    )
+
+    # Geometry-derived scaling:
+    # 2*tread + current preferred-foot projected X span.
+    dx_scale = (
+        2.0 * float(tread_depth)
+        + projected_span
+    ).clamp_min(1.0e-6)
+
+    # Never divide flat / invalid rows by zero.
+    dz_scale = torch.where(
+        feasible,
+        riser_height,
+        torch.ones_like(riser_height),
+    )
+
+    dx = dx_raw / dx_scale
+    dz = dz_raw / dz_scale
+
+    features = torch.stack(
+        (dx, dz),
+        dim=1,
+    )
+
+    if not torch.isfinite(features).all():
+        raise RuntimeError(
+            "non-finite preferred foothold observation"
+        )
+
+    return (
+        features,
+        feasible,
+        target_rear,
+        safe_start,
+        safe_end,
+        projected_span,
+    )
+
+
 def stair_geometry(
     env,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
@@ -202,13 +332,29 @@ def stair_geometry(
     # --------------------------------------------------------
     # C2: preferred-foot next-tread foothold error
     # --------------------------------------------------------
-    if not bool(
+    foothold_enabled = bool(
         getattr(
             env.cfg,
             "preferred_foothold_observation",
             False,
         )
-    ):
+    )
+
+    foothold_ablation = bool(
+        getattr(
+            env.cfg,
+            "preferred_foothold_observation_ablation",
+            False,
+        )
+    )
+
+    if foothold_enabled and foothold_ablation:
+        raise RuntimeError(
+            "preferred foothold observation and ablation "
+            "cannot both be enabled"
+        )
+
+    if not foothold_enabled and not foothold_ablation:
         return c1
 
     foothold = torch.zeros(
@@ -245,8 +391,8 @@ def stair_geometry(
             -1,
         )
 
-        # WXYZ quaternion rotation of sole-sphere centres.
         q_xyz = quaternions[..., 1:]
+
         uv = torch.cross(
             q_xyz,
             offsets,
@@ -280,79 +426,46 @@ def stair_geometry(
             - radius
         )
 
+        front_x = (
+            sole_points[..., 0].amax(dim=2)
+            + radius
+        )
+
         sole_bottom = (
             sole_points[..., 2].amin(dim=2)
             - radius
         )
 
-        preferred_index = preferred.clamp(
-            min=0,
-            max=1,
+        (
+            foothold,
+            _feasible,
+            _target_rear,
+            _safe_start,
+            _safe_end,
+            _projected_span,
+        ) = _preferred_foothold_features(
+            preferred=preferred,
+            current_target=current_target,
+            riser_height=riser_height,
+            rear_x=rear_x,
+            front_x=front_x,
+            sole_bottom=sole_bottom,
+            first_riser=first_riser,
+            tread_depth=tread_depth,
+            step_count=step_count,
+            tread_margin_m=float(
+                getattr(
+                    env.cfg,
+                    "preferred_foothold_tread_margin_m",
+                    0.015,
+                )
+            ),
         )
 
-        gather = preferred_index[:, None]
-
-        preferred_rear = rear_x.gather(
-            1,
-            gather,
-        ).squeeze(1)
-
-        preferred_bottom = sole_bottom.gather(
-            1,
-            gather,
-        ).squeeze(1)
-
-        target_float = current_target.to(
-            root_x.dtype
-        )
-
-        target_riser_x = (
-            first_riser
-            + target_float * tread_depth
-        )
-
-        # Current B7/A3 safe insertion contract:
-        # tread margin 15 mm + insertion target 40 mm.
-        target_rear_x = (
-            target_riser_x
-            + 0.015
-            + 0.040
-        )
-
-        target_tread_height = (
-            target_float + 1.0
-        ) * riser_height
-
-        dx = (
-            target_rear_x
-            - preferred_rear
-        ) / max(tread_depth, 1.0e-6)
-
-        # Flat rows are masked by `valid`; clamp denominator
-        # only to avoid division by zero before masking.
-        dz_normalizer = riser_height.clamp_min(
-            0.040
-        )
-
-        dz = (
-            target_tread_height
-            - preferred_bottom
-        ) / dz_normalizer
-
-        dx = dx.clamp(-1.0, 1.0)
-        dz = dz.clamp(-1.0, 1.0)
-
-        foothold[:, 0] = torch.where(
-            valid,
-            dx,
-            torch.zeros_like(dx),
-        )
-
-        foothold[:, 1] = torch.where(
-            valid,
-            dz,
-            torch.zeros_like(dz),
-        )
+    # Matched model309 continuation:
+    # retain identical 489-D architecture but zero C2 information.
+    if foothold_ablation:
+        foothold.zero_()
 
     return torch.cat(
         (c1, foothold),

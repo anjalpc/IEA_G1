@@ -636,24 +636,64 @@ def main() -> None:
         flush=True,
     )
 
+    observation_cfg = resolved_config.get(
+        "observations",
+        {},
+    )
+
     foothold_obs_enabled = bool(
-        resolved_config.get("observations", {}).get(
+        observation_cfg.get(
             "preferred_foothold",
             False,
         )
     )
-    if foothold_obs_enabled and not transition_obs_enabled:
+
+    foothold_ablation = bool(
+        observation_cfg.get(
+            "preferred_foothold_ablation",
+            False,
+        )
+    )
+
+    if foothold_obs_enabled and foothold_ablation:
         raise ValueError(
-            "preferred_foothold observation requires "
+            "preferred_foothold and "
+            "preferred_foothold_ablation are mutually exclusive"
+        )
+
+    if (
+        (foothold_obs_enabled or foothold_ablation)
+        and not transition_obs_enabled
+    ):
+        raise ValueError(
+            "preferred foothold channels require "
             "preferred_transition_foot"
         )
 
     env_cfg.preferred_foothold_observation = (
         foothold_obs_enabled
     )
+
+    env_cfg.preferred_foothold_observation_ablation = (
+        foothold_ablation
+    )
+
+    env_cfg.preferred_foothold_tread_margin_m = float(
+        observation_cfg.get(
+            "preferred_foothold_tread_margin_m",
+            0.015,
+        )
+    )
+
     print(
         "[INFO] Preferred foothold observation:",
         foothold_obs_enabled,
+        flush=True,
+    )
+
+    print(
+        "[INFO] Preferred foothold ablation:",
+        foothold_ablation,
         flush=True,
     )
 

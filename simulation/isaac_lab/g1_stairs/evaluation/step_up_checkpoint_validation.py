@@ -128,14 +128,40 @@ def apply_resolved_replay_config(env_cfg, path: Path) -> AppliedReplayConfig:
         )
     )
 
+    env_cfg.preferred_foothold_observation_ablation = bool(
+        observations.get(
+            "preferred_foothold_ablation",
+            False,
+        )
+    )
+
     if (
         env_cfg.preferred_foothold_observation
+        and env_cfg.preferred_foothold_observation_ablation
+    ):
+        raise ValueError(
+            "preferred_foothold and "
+            "preferred_foothold_ablation are mutually exclusive"
+        )
+
+    if (
+        (
+            env_cfg.preferred_foothold_observation
+            or env_cfg.preferred_foothold_observation_ablation
+        )
         and not env_cfg.preferred_transition_foot_observation
     ):
         raise ValueError(
-            "preferred_foothold observation requires "
+            "preferred foothold channels require "
             "preferred_transition_foot"
         )
+
+    env_cfg.preferred_foothold_tread_margin_m = float(
+        observations.get(
+            "preferred_foothold_tread_margin_m",
+            0.015,
+        )
+    )
 
     if observations.get(
         "actor_height_scan",

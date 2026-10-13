@@ -1,0 +1,33 @@
+schema_version: 1
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_fresh_stageC1_transitionobs04_continue300.yaml
+  resolved_config_required: true
+experiment:
+  id: g1_fresh_stageC2_geometryobs04_from309_smoke1
+  purpose: Add preferred-foot next-tread foothold error observations while preserving
+    model309 actor behavior and the existing B7 reward contract.
+execution:
+  maximum_iterations: 1
+observations:
+  preferred_transition_foot: true
+  preferred_foothold: true
+  preferred_foothold_ablation: false
+  preferred_foothold_tread_margin_m: 0.015
+policy_initialization:
+  type: rsl_rl_checkpoint_actor_transfer
+  source:
+    task: g1_fresh_stageC1_transitionobs04_continue300
+    path: /workspace/IEA_G1/experiments/g1_stairs/outputs/initialization/c1_model309_actor489_footholdobs.pt
+    sha256: 83808b323efd07c9f44aab1839f258acc04d285da225fcd024b5232cfe18be59
+  locomotion_observations: 480
+  terrain_observations: 0
+  actor_height_scan_observations: 0
+  explicit_geometry_observations: 5
+  transition_state_observations: 2
+  foothold_observations: 2
+  stair_observations: 489
+  actions: 29
+  new_observation_initialization: zero
+  critic_initialization: fresh
+  optimizer_initialization: fresh
+  pretrained_actor_trainable: true
