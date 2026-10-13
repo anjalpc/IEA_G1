@@ -1,0 +1,29 @@
+schema_version: 1
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_fresh_stageB7_potential04_from599_train250.yaml
+  resolved_config_required: true
+experiment:
+  id: g1_fresh_stageC1_transitionobs04_continue300
+  purpose: Expose preferred next swing-foot identity while preserving the B7 reward
+    contract and A3 model599 actor behavior at initialization.
+execution:
+  maximum_iterations: 300
+observations:
+  preferred_transition_foot: true
+policy_initialization:
+  type: rsl_rl_training_resume
+  source:
+    task: g1_fresh_stageC1_transitionobs04_from599_diag10
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/g1_fresh_stageC1_transitionobs04_from599_diag10_20261013_105407/model_9.pt
+    sha256: 3bbf0f929be1198c646c257c03b679ca52d10cb5e8e6df4ec28482bb6bc5c794
+  locomotion_observations: 480
+  terrain_observations: 0
+  actor_height_scan_observations: 0
+  explicit_geometry_observations: 5
+  transition_state_observations: 2
+  stair_observations: 487
+  actions: 29
+  new_observation_initialization: zero
+  critic_initialization: restored
+  optimizer_initialization: restored
+  pretrained_actor_trainable: true
