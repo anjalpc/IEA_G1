@@ -23,6 +23,7 @@ acceptance:
 gait:
   enabled: true
   frequency_std: 0.1
+  mode: fixed
 policy_initialization:
   type: rsl_rl_checkpoint_actor_transfer
   source:

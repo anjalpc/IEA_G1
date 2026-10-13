@@ -230,12 +230,16 @@ def main():
         assert effective["execution"]["environments"] == base["execution"]["environments"]
         assert effective["observations"]["preferred_foothold"] is False
 
-    fixed_compare = deep_merge({}, configs["fixed"])
-    learned_compare = deep_merge({}, configs["learned"])
+    from copy import deepcopy
+    fixed_compare = deepcopy(configs["fixed"])
+    learned_compare = deepcopy(configs["learned"])
     for config in (fixed_compare, learned_compare):
         config.pop("experiment")
         config["gait"].pop("mode")
     assert fixed_compare == learned_compare
+
+    assert configs["fixed"]["gait"]["mode"] == "fixed"
+    assert configs["learned"]["gait"]["mode"] == "learned"
 
     for mode, path in config_paths.items():
         with path.open("x") as stream:
