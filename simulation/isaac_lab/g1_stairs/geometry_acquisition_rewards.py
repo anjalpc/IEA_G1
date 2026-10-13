@@ -1931,6 +1931,14 @@ class preferred_transition_milestones(ManagerTermBase):
         self._sequence_failed = torch.zeros_like(self._active)
         self._clean_paid = torch.zeros_like(self._active)
 
+        # B8 lift-baselined preferred rear-edge progression potential.
+        self._rear_progress_baseline = torch.zeros(
+            n, dtype=torch.float32, device=device
+        )
+        self._rear_progress_phi = torch.zeros(
+            n, dtype=torch.float32, device=device
+        )
+
     def reset(self, env_ids: Sequence[int] | None = None) -> None:
         if env_ids is None:
             env_ids = slice(None)
@@ -1946,6 +1954,9 @@ class preferred_transition_milestones(ManagerTermBase):
         self._first_direct[env_ids] = False
         self._sequence_failed[env_ids] = False
         self._clean_paid[env_ids] = False
+
+        self._rear_progress_baseline[env_ids] = 0.0
+        self._rear_progress_phi[env_ids] = 0.0
 
     def __call__(
         self,
@@ -1965,6 +1976,10 @@ class preferred_transition_milestones(ManagerTermBase):
         sequence_clean_step_over: bool = False,
         sequence_potential_value: float = 0.0,
         sequence_potential_gamma: float = 1.0,
+        rear_progress_potential_value: float = 0.0,
+        rear_progress_start_m: float = -0.40,
+        rear_progress_end_m: float = 0.0,
+        rear_progress_potential_gamma: float = 1.0,
     ) -> torch.Tensor:
         runtime = self.runtime
 
@@ -2226,6 +2241,9 @@ class preferred_transition_milestones(ManagerTermBase):
         # Positive alternation reward is possible only after two consecutive
         # canonical DIRECT_ACQUISITION transitions.
         sequence_potential_shaping = torch.zeros_like(base_reward)
+        rear_progress_potential_shaping = torch.zeros_like(base_reward)
+        rear_progress_phi = self._rear_progress_phi
+        rear_progress_baseline = self._rear_progress_baseline
 
         if sequence_clean_step_over:
             if sequence_potential_value < 0.0:
@@ -2236,12 +2254,25 @@ class preferred_transition_milestones(ManagerTermBase):
                 raise ValueError(
                     "sequence_potential_gamma must be in (0, 1]"
                 )
+            if rear_progress_potential_value < 0.0:
+                raise ValueError(
+                    "rear_progress_potential_value cannot be negative"
+                )
+            if rear_progress_end_m <= rear_progress_start_m:
+                raise ValueError(
+                    "rear_progress_end_m must exceed rear_progress_start_m"
+                )
+            if not 0.0 < rear_progress_potential_gamma <= 1.0:
+                raise ValueError(
+                    "rear_progress_potential_gamma must be in (0, 1]"
+                )
+
             event_code = classify_clean_step_over_transition(
                 self._active,
                 acquisition,
                 unique,
                 preferred_acquisition,
-                old_contact,
+                replant,
                 episode_end,
             )
 
@@ -2314,6 +2345,63 @@ class preferred_transition_milestones(ManagerTermBase):
                 sequence_potential_shaping.to(dtype=base_reward.dtype)
             )
 
+            # B8: preferred rear-edge progression after a qualified lift.
+            #
+            # The absolute coordinate is normalized over a geometry-derived
+            # pre-crossing window, but the value at lift is captured as the
+            # baseline. Therefore a late lift receives no instantaneous
+            # reward; only subsequent rear-edge forward progression changes
+            # the local potential.
+            rear_relative = pref_rear - next_start
+
+            rear_absolute_fraction = (
+                (
+                    rear_relative - float(rear_progress_start_m)
+                )
+                / float(
+                    rear_progress_end_m
+                    - rear_progress_start_m
+                )
+            ).clamp(0.0, 1.0)
+
+            rear_progress_baseline = torch.where(
+                new_lift,
+                rear_absolute_fraction,
+                rear_progress_baseline,
+            )
+
+            rear_local_fraction = (
+                rear_absolute_fraction
+                - rear_progress_baseline
+            ).clamp(0.0, 1.0)
+
+            rear_progress_eligible = (
+                self._sequence_active
+                & ~self._sequence_failed
+                & ~self._clean_paid
+                & valid
+                & lifted_now
+            )
+
+            rear_progress_current = torch.where(
+                rear_progress_eligible,
+                rear_local_fraction
+                * float(rear_progress_potential_value),
+                torch.zeros_like(base_reward),
+            )
+
+            (
+                rear_progress_potential_shaping,
+                rear_progress_phi,
+            ) = discounted_potential_shaping(
+                self._rear_progress_phi,
+                rear_progress_current,
+                event_code != 0,
+                discount_gamma=float(
+                    rear_progress_potential_gamma
+                ),
+            )
+
             clean_step_over_reward = torch.where(
                 sequence_signal > 0,
                 torch.full_like(
@@ -2350,6 +2438,16 @@ class preferred_transition_milestones(ManagerTermBase):
             runtime.clean_step_over_reward = (
                 clean_step_over_reward.clone()
             )
+            runtime.rear_progress_absolute_fraction = (
+                rear_absolute_fraction.clone()
+            )
+            runtime.rear_progress_baseline = (
+                rear_progress_baseline.clone()
+            )
+            runtime.rear_progress_phi = rear_progress_phi.clone()
+            runtime.rear_progress_potential_shaping = (
+                rear_progress_potential_shaping.clone()
+            )
 
         reward, credit_paid = escrowed_transition_reward(
             base_reward,
@@ -2363,6 +2461,7 @@ class preferred_transition_milestones(ManagerTermBase):
 
         if sequence_clean_step_over:
             reward = reward + sequence_potential_shaping
+            reward = reward + rear_progress_potential_shaping
 
         terminal = event_code != 0
 
@@ -2389,6 +2488,34 @@ class preferred_transition_milestones(ManagerTermBase):
         )
 
         next_preferred = 1 - acquirer
+
+        rear_progress_baseline_after = torch.where(
+            terminal,
+            torch.zeros_like(rear_progress_baseline),
+            rear_progress_baseline,
+        )
+
+        rear_progress_phi_after = torch.where(
+            terminal,
+            torch.zeros_like(rear_progress_phi),
+            rear_progress_phi,
+        )
+
+        self._rear_progress_baseline.copy_(
+            torch.where(
+                start_new,
+                torch.zeros_like(rear_progress_baseline_after),
+                rear_progress_baseline_after,
+            )
+        )
+
+        self._rear_progress_phi.copy_(
+            torch.where(
+                start_new,
+                torch.zeros_like(rear_progress_phi_after),
+                rear_progress_phi_after,
+            )
+        )
 
         self._active.copy_(
             torch.where(

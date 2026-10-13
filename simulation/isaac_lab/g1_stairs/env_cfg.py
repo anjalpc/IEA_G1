@@ -996,6 +996,10 @@ class StairRewardsCfg:
             "sequence_clean_step_over": False,
             "sequence_potential_value": 0.0,
             "sequence_potential_gamma": 1.0,
+            "rear_progress_potential_value": 0.0,
+            "rear_progress_start_m": -0.40,
+            "rear_progress_end_m": 0.0,
+            "rear_progress_potential_gamma": 1.0,
         },
     )
 

@@ -1,0 +1,22 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/g1_fresh_stageB7_potential04_from599_train250.yaml
+  resolved_config_required: true
+
+experiment:
+  id: g1_fresh_stageB8_rearprogress04_from599_train250
+  purpose: >-
+    Add lift-baselined discount-correct preferred rear-edge pre-crossing
+    progression to B7 while preserving the B7 CLEAN_STEP_OVER sequence reward,
+    A3 shaping, and clean A3 model599 initialization.
+
+execution:
+  maximum_iterations: 250
+
+reward_parameters:
+  preferred_transition_milestones:
+    rear_progress_potential_value: 0.5
+    rear_progress_start_m: -0.40
+    rear_progress_end_m: 0.0
+    rear_progress_potential_gamma: 0.99
