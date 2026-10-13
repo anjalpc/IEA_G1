@@ -42,12 +42,18 @@ def main() -> None:
     from isaaclab.envs import DirectMARLEnv, multi_agent_to_single_agent
     from isaaclab.utils.io import dump_yaml
     from isaaclab_rl.rsl_rl import RslRlVecEnvWrapper
-    from unitree_rl_lab.utils.export_deploy_cfg import export_deploy_cfg
+    from unitree_rl_lab.utils.export_deploy_cfg import (
+        export_deploy_cfg as unitree_export_deploy_cfg,
+    )
     from unitree_rl_lab.utils.parser_cfg import parse_env_cfg
 
     from simulation.isaac_lab.g1_stairs.evaluation.isaac_training_metrics import (
         InstrumentedRslRlVecEnvWrapper,
         MetricsOnPolicyRunnerMixin,
+    )
+
+    from simulation.isaac_lab.g1_stairs.deployment_export import (
+        export_deploy_cfg_compatible,
     )
 
     from simulation.isaac_lab.g1_stairs.policy_initialization import (
@@ -959,7 +965,12 @@ def main() -> None:
     params_dir.mkdir(parents=True, exist_ok=True)
     dump_yaml(str(params_dir / "env.yaml"), env_cfg)
     dump_yaml(str(params_dir / "agent.yaml"), agent_cfg)
-    export_deploy_cfg(env.unwrapped, str(log_dir))
+    export_deploy_cfg_compatible(
+        env.unwrapped,
+        str(log_dir),
+        resolved_config,
+        unitree_export_deploy_cfg,
+    )
     shutil.copy(
         inspect.getfile(env_cfg.__class__),
         params_dir / Path(inspect.getfile(env_cfg.__class__)).name,

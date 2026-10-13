@@ -4,11 +4,18 @@ import math
 import torch
 
 
+FREQUENCY_MIN_HZ = 0.7
+FREQUENCY_NOMINAL_HZ = 1.0
+FREQUENCY_MAX_HZ = 1.3
+PHASE_OFFSET = 0.5
+
+
 def gait_frequency(raw_action, *, learned=True):
     """Unfiltered frequency; zero mean action gives 1 Hz."""
     if not learned:
-        return torch.ones_like(raw_action)
-    return 1.0 + 0.3 * torch.tanh(raw_action)
+        return torch.full_like(raw_action, FREQUENCY_NOMINAL_HZ)
+    amplitude = FREQUENCY_MAX_HZ - FREQUENCY_NOMINAL_HZ
+    return FREQUENCY_NOMINAL_HZ + amplitude * torch.tanh(raw_action)
 
 
 def advance_gait_phase(phase, frequency, active, acquired_foot, dt):
@@ -27,7 +34,7 @@ def advance_gait_phase(phase, frequency, active, acquired_foot, dt):
         torch.zeros_like(phase),
         torch.where(
             acquired_foot == 1,
-            torch.full_like(phase, 0.5),
+            torch.full_like(phase, PHASE_OFFSET),
             advanced,
         ),
     )
