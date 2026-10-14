@@ -1,0 +1,14 @@
+schema_version: 1
+inheritance:
+  base_config: experiments/g1_stairs/configs/c6_2_train500.yaml
+  resolved_config_required: true
+
+experiment:
+  id: c6_4_centered_shaping
+  purpose: Preserve C6.2 acquisition envelope while moving full insertion shaping target to neutral tread center.
+
+reward_parameters:
+  terrain_relative_clearance:
+    insertion_target_m: 0.020
+  forward_insertion:
+    insertion_target_m: 0.020
