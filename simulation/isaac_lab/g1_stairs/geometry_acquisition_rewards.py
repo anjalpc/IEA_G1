@@ -423,6 +423,7 @@ class GeometryAcquisitionRuntime:
         self.riser_face_strike_sample.zero_()
         self.riser_strike_force_x.zero_()
         self.sample_target_index.copy_(self.target_step[:, 0])
+        self.sample_preferred_foot = self.preferred_foot.clone()
 
         if activation_distance_m <= 0.0:
             raise ValueError("activation_distance_m must be positive")

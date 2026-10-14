@@ -151,8 +151,14 @@ class GaitFrequencyAction(ActionTerm):
             contacts.to(torch.int64).argmax(dim=1),
             torch.full_like(target, -1),
         )
+        advance = advance_gait_phase
+        if getattr(env.cfg, "coordinated_motion_enabled", False):
+            from .motion_reference import advance_reference_phase
+            advance = lambda phase, frequency, active, acquired, dt: advance_reference_phase(
+                phase, frequency, active, acquired, dt, runtime.sample_preferred_foot
+            )
         self.phase.copy_(
-            advance_gait_phase(
+            advance(
                 self.phase,
                 self._frequency[:, 0],
                 valid,
@@ -212,6 +218,23 @@ def configure_gait(env_cfg, resolved):
     if resolved.get("ppo", {}).get("observation_normalization", False):
         raise ValueError("C3 preserves unnormalized observations")
 
+    if options.get("coordinated_motion", False):
+        if mode != "fixed":
+            raise ValueError("C4 first experiment requires fixed cadence")
+        from .coordinated_motion import CoordinatedMotion
+        env_cfg.coordinated_motion_enabled = True
+        insertion = resolved["reward_parameters"]["forward_insertion"]
+        env_cfg.coordinated_landing_rear_margin_m = (
+            float(insertion["tread_margin_m"]) + float(insertion["insertion_target_m"])
+        )
+        env_cfg.rewards.coordinated_motion = RewardTermCfg(
+            func=CoordinatedMotion, weight=-1.0,
+            params=dict(swing_weight=.50, stance_weight=.15,
+                        placement_weight=.25, transfer_weight=.15,
+                        lateral_weight=.10, arm_weight=.15, finish_weight=.15,
+                        clearance_m=.03, position_scale_m=.06,
+                        arm_amplitude_rad=.20),
+        )
     env_cfg.gait_phase_enabled = True
     env_cfg.actions.gait_frequency = GaitFrequencyActionCfg(
         learned=(mode == "learned")

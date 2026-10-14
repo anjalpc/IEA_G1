@@ -12,6 +12,8 @@ class GeometryTrace:
         from simulation.isaac_lab.g1_stairs.terrain_state import (
             stair_cfg, riser_height_per_env,
         )
+        from simulation.isaac_lab.g1_stairs.motion_reference import sole_state
+        self.sole_state = sole_state
         self.env = env
         self.robot = env.scene["robot"]
         self.sensor = env.scene.sensors["contact_forces"]
@@ -32,6 +34,9 @@ class GeometryTrace:
             "foot_names": self.feet,
             "knee_names": self.knees,
             "joint_names": list(self.robot.joint_names),
+            "default_joint_pos_rad": self.values(self.robot.data.default_joint_pos[0]),
+            "diagnostic_schema_version": 2,
+            "sole_geometry_semantics": "collision-sphere envelope, not measured contact-patch area",
             "contact_body_names": list(self.sensor.body_names),
             "reward_names": list(self.manager.active_terms),
             "sole_sphere_centres_body_m": G1_SOLE_SPHERE_CENTRES_M,
@@ -86,6 +91,29 @@ class GeometryTrace:
                 else env.action_manager.action[0]
             ),
         }
+        centre, bounds, surface_velocity = self.sole_state(
+            data.body_pos_w[0:1, self.foot_ids] - env.scene.env_origins[0:1, None],
+            data.body_quat_w[0:1, self.foot_ids],
+            data.body_lin_vel_w[0:1, self.foot_ids],
+            data.body_ang_vel_w[0:1, self.foot_ids],
+        )
+        row["motion_geometry"] = {
+            "sole_centre_local": self.values(centre[0]),
+            "sole_bounds_local": self.values(bounds[0]),
+            "surface_velocity_w": self.values(surface_velocity[0]),
+            "surface_speed_mps": self.values(surface_velocity.norm(dim=-1).amax(-1)[0]),
+            "surface_slip_mps": self.values(surface_velocity[..., :2].norm(dim=-1).amax(-1)[0]),
+        }
+        row["knee_ang_vel_w"] = self.values(data.body_ang_vel_w[0, self.knee_ids])
+        row["knee_quat_w"] = self.values(data.body_quat_w[0, self.knee_ids])
+        history = getattr(self.sensor.data, "net_forces_w_history", None)
+        if history is not None:
+            row["contact_force_history_w"] = self.values(history[0])
+        motion = getattr(env, "_g1_coordinated_motion", None)
+        if motion is not None and reward is not None:
+            row["coordinated_motion"] = {
+                key: self.values(value[0]) for key, value in motion.trace.items()
+            }
         if getattr(env.cfg, "gait_phase_enabled", False):
             gait = env.action_manager.get_term("gait_frequency")
             clock = gait.observation()[0]
@@ -120,6 +148,10 @@ class GeometryTrace:
                 )
 
             row.update({
+                "sample_target_index": trace_value("sample_target_index"),
+                "sample_preferred_foot": trace_value("sample_preferred_foot"),
+                "target_step_after_update": trace_value("target_step"),
+                "preferred_foot_after_update": trace_value("preferred_foot"),
                 "step_over_target": trace_value(
                     "step_over_trace_target"
                 ),
@@ -128,6 +160,36 @@ class GeometryTrace:
                 ),
                 "step_over_event_code": trace_value(
                     "step_over_trace_event_code"
+                ),
+                "preferred_transition_event_code": trace_value(
+                    "preferred_transition_event_code"
+                ),
+                "preferred_transition_active": trace_value(
+                    "preferred_transition_active"
+                ),
+                "preferred_transition_lifted": trace_value(
+                    "preferred_transition_lifted"
+                ),
+                "preferred_transition_new_lift": trace_value(
+                    "preferred_transition_new_lift"
+                ),
+                "clean_step_over_event": trace_value(
+                    "clean_step_over_event"
+                ),
+                "clean_step_over_sequence_failed": trace_value(
+                    "clean_step_over_sequence_failed"
+                ),
+                "sequence_active": trace_value(
+                    "sequence_active"
+                ),
+                "sequence_first_direct": trace_value(
+                    "sequence_first_direct"
+                ),
+                "sequence_failed": trace_value(
+                    "sequence_failed"
+                ),
+                "sequence_clean_paid": trace_value(
+                    "sequence_clean_paid"
                 ),
                 "step_over_lifted": trace_value(
                     "step_over_trace_lifted"

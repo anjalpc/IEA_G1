@@ -1,0 +1,30 @@
+schema_version: 1
+inheritance:
+  base_config: experiments/g1_stairs/configs/c3_fixed_train300.yaml
+  resolved_config_required: true
+experiment:
+  id: c4_smoke
+  purpose: C4 coordinated reference contract smoke. Mixed flat/4cm diagnostic; not
+    20cm qualification.
+execution:
+  environments: 32
+  maximum_iterations: 2
+gait:
+  coordinated_motion: true
+  mode: fixed
+reward_experiment:
+  rewards:
+    stage_plan:
+      geometry_locomotion_stage_a_bootstrap:
+        coordinated_motion: -1.0
+        phase_swing_contact: 0.0
+        posture_envelope_guard: 0.0
+reward_parameters:
+  terrain_relative_clearance:
+    escrow_clearance_until_riser_crossing: true
+  forward_insertion:
+    escrow_clearance_until_riser_crossing: true
+  preferred_transition_milestones:
+    replant_value: -0.25
+    wrong_foot_value: -0.5
+    unresolved_end_value: -0.25

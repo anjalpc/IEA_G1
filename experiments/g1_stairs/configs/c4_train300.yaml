@@ -1,0 +1,13 @@
+schema_version: 1
+inheritance:
+  base_config: experiments/g1_stairs/configs/c4_smoke.yaml
+  resolved_config_required: true
+experiment:
+  id: c4_train300
+  purpose: C4 coordinated motion objective from the same C1-expanded initialization
+    as C3; mixed flat/4cm diagnostic.
+execution:
+  environments: 2048
+  maximum_iterations: 300
+checkpointing:
+  interval_iterations: 50

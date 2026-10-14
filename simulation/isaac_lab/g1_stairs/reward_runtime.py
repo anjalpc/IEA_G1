@@ -271,8 +271,12 @@ def apply_resolved_rewards(
         configure_gait(env_cfg, resolved)
     weights = active_reward_weights(resolved)
     if resolved.get("gait", {}).get("enabled", False):
-        if weights.get("phase_swing_contact") != -0.10:
-            raise ValueError("C3 requires phase_swing_contact=-0.10")
+        c4 = resolved.get("gait", {}).get("coordinated_motion", False)
+        expected_contact_weight = 0.0 if c4 else -0.10
+        if weights.get("phase_swing_contact") != expected_contact_weight:
+            raise ValueError("phase_swing_contact weight disagrees with C3/C4 mode")
+        if c4 and weights.get("coordinated_motion") != -1.0:
+            raise ValueError("C4 requires coordinated_motion=-1.0")
         if not weights.get("terrain_relative_clearance"):
             raise ValueError("C3 requires the existing acquisition update")
 

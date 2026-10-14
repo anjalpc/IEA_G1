@@ -1,0 +1,153 @@
+"""Tensor lifecycle checks with an isolated ManagerTermBase stub; no Kit."""
+import importlib.util
+from pathlib import Path
+import types
+import unittest
+from unittest.mock import patch
+import torch
+from simulation.isaac_lab.g1_stairs.contracts import BODY_JOINTS
+
+stub = types.ModuleType('isaaclab.managers')
+class Base:
+    def __init__(self, cfg, env):
+        pass
+stub.ManagerTermBase = Base
+stub.ActionTerm = Base
+stub.ActionTermCfg = type('ActionTermCfg', (), {})
+stub.RewardTermCfg = types.SimpleNamespace
+utils = types.ModuleType('isaaclab.utils')
+utils.configclass = lambda cls: cls
+spec = importlib.util.spec_from_file_location(
+    'simulation.isaac_lab.g1_stairs._c4_test_adapter',
+    Path(__file__).parents[1]/'coordinated_motion.py')
+module = importlib.util.module_from_spec(spec)
+with patch.dict('sys.modules', {'isaaclab.managers':stub, 'isaaclab.utils':utils}):
+    spec.loader.exec_module(module)
+    gait_spec = importlib.util.spec_from_file_location(
+        'simulation.isaac_lab.g1_stairs._c4_gait_test_adapter',
+        Path(__file__).parents[1]/'gait_runtime.py')
+    gait_module = importlib.util.module_from_spec(gait_spec)
+    gait_spec.loader.exec_module(gait_module)
+
+
+def fixture():
+    NS = types.SimpleNamespace
+    n = 2
+    zeros = torch.zeros(n, 29)
+    data = NS(body_pos_w=torch.tensor([[[1.09,.12,.075],[.80,-.12,.035]]]*n),
+              body_quat_w=torch.tensor([1.,0.,0.,0.]).expand(n,2,4).clone(),
+              body_lin_vel_w=torch.zeros(n,2,3), body_ang_vel_w=torch.zeros(n,2,3),
+              root_pos_w=torch.tensor([[1.,0.,.8]]*n),root_lin_vel_w=torch.zeros(n,3),
+              root_ang_vel_w=torch.zeros(n,3),default_joint_pos=zeros.clone(),
+              joint_pos=zeros.clone(),joint_pos_target=zeros.clone())
+    robot=NS(data=data,joint_names=BODY_JOINTS)
+    sensor=NS(data=NS(net_forces_w=torch.tensor([[[0.,0.,200.],[0.,0.,100.]]]*n)))
+    cfg=NS(size=(6.,1.2),approach_length=2.,start_clearance=1.,tread_depth=.25,
+           step_count=3,riser_heights=None,riser_height_range=(.04,.04))
+    class Scene(dict): pass
+    scene=Scene(robot=robot)
+    scene.env_origins=torch.zeros(n,3)
+    scene.terrain=NS(cfg=NS(terrain_generator=NS(sub_terrains={'three_step_ascent':cfg})))
+    gait=NS(processed_actions=torch.ones(n,1),reward_phase=torch.zeros(n),phase=torch.zeros(n))
+    runtime=NS(last_step=1,robot=robot,robot_foot_ids=[0,1],sensor=sensor,sensor_foot_ids=[0,1],
+               target_step=torch.ones(n,2,dtype=torch.long),preferred_foot=torch.ones(n,dtype=torch.long),
+               step_acquired_event=torch.ones(n,dtype=torch.bool),
+               physical_touchdown_event=torch.tensor([[True,False]]*n))
+    env=NS(num_envs=n,device='cpu',scene=scene,common_step_counter=1,step_dt=.02,
+           cfg=NS(coordinated_motion_enabled=True,coordinated_landing_rear_margin_m=.055),
+           command_manager=NS(get_command=lambda name: torch.tensor([[.35,0.,0.]]*n)),
+           action_manager=NS(get_term=lambda name:gait),_g1_v04_acquisition=runtime)
+    real = gait_module.GaitFrequencyAction.__new__(gait_module.GaitFrequencyAction)
+    real._env, real.cfg = env, NS(learned=False)
+    real._raw = torch.zeros(n,1)
+    real._frequency = torch.ones(n,1)
+    real.phase = torch.zeros(n)
+    real.active = torch.zeros(n,dtype=torch.bool)
+    real.aligned = torch.zeros(n,dtype=torch.bool)
+    real.reward_phase = torch.zeros(n)
+    real.reward_active = torch.zeros(n,dtype=torch.bool)
+    real.contact_loss = torch.zeros(n)
+    real.last_finished_step = -1
+    real._checked_contract = True
+    runtime.dynamic_alternating_rewards = True
+    runtime.global_stair_acquisition = True
+    runtime.sample_preferred_foot = torch.full((n,),-1,dtype=torch.long)
+    env.action_manager.get_term = lambda name: real
+    return env,runtime,real
+
+
+def run_step(env, runtime, gait, term):
+    # Production ordering: action snapshot -> acquisition/clock -> reward -> obs.
+    gait.process_actions(torch.zeros(env.num_envs,1))
+    gait.finish_step(runtime,30.)
+    next_phase = gait.phase.clone()
+    result = term(env)
+    torch.testing.assert_close(gait.phase,next_phase)
+    return result
+
+
+
+class TestCoordinatedMotion(unittest.TestCase):
+    def test_same_step_phase_order_and_endpoint_hold(self):
+        env,runtime,gait=fixture()
+        term=module.CoordinatedMotion(None,env)
+        run_step(env,runtime,gait,term)
+        self.assertFalse(bool(term.trace['reference_active'].any()))
+        self.assertAlmostEqual(float(term.landing[0,0]),1.395,places=5)
+        runtime.step_acquired_event.zero_()
+        runtime.physical_touchdown_event.zero_()
+        runtime.sample_preferred_foot.fill_(1)
+        for i in range(2,35):
+            env.common_step_counter=runtime.last_step=i
+            before = gait.phase.clone()
+            run_step(env,runtime,gait,term)
+            torch.testing.assert_close(gait.reward_phase,before)
+            torch.testing.assert_close(term.trace['swing_progress']/2,gait.phase)
+            expected = torch.stack((torch.sin(2*torch.pi*gait.phase),
+                                    torch.cos(2*torch.pi*gait.phase)),-1)
+            torch.testing.assert_close(gait.observation(),expected)
+        torch.testing.assert_close(term.progress,torch.ones(2))
+        torch.testing.assert_close(term.trace['desired_sole_centre_local'],term.landing)
+
+    def test_acquisition_scores_old_foot_then_observes_new_clock(self):
+        env,runtime,gait=fixture()
+        term=module.CoordinatedMotion(None,env)
+        run_step(env,runtime,gait,term)
+        env.common_step_counter=runtime.last_step=2
+        runtime.sample_preferred_foot.fill_(1)
+        runtime.preferred_foot.fill_(0)
+        runtime.target_step.fill_(2)
+        runtime.physical_touchdown_event[:]=torch.tensor([False,True])
+        run_step(env,runtime,gait,term)
+        self.assertEqual(term.trace['reference_target'].tolist(),[1,1])
+        self.assertEqual(term.trace['reference_foot'].tolist(),[1,1])
+        self.assertEqual(term.target.tolist(),[2,2])
+        torch.testing.assert_close(gait.phase,torch.full((2,),.5))
+
+    def test_partial_reset_same_step_neutralizes_only_reset_cache(self):
+        env,runtime,gait=fixture()
+        runtime.robot.data.joint_pos[:,11:] = 1.
+        term=module.CoordinatedMotion(None,env)
+        first=run_step(env,runtime,gait,term).clone()
+        self.assertGreater(float(first[0]),0.)
+        term.reset(torch.tensor([0]))
+        unchanged_target=term.target[1].clone()
+        repeated=term(env)
+        self.assertEqual(float(repeated[0]),0.)
+        torch.testing.assert_close(repeated[1],first[1])
+        torch.testing.assert_close(term.target[1],unchanged_target)
+        self.assertEqual(term.target.tolist(),[-1,1])
+        self.assertFalse(bool(term.trace['reference_active'][0]))
+        term.reset()
+        torch.testing.assert_close(term(env),torch.zeros(2))
+
+    def test_ambiguous_acquisition_cannot_start_reference(self):
+        env,runtime,gait=fixture()
+        runtime.physical_touchdown_event.fill_(True)
+        term=module.CoordinatedMotion(None,env)
+        run_step(env,runtime,gait,term)
+        self.assertEqual(term.target.tolist(),[-1,-1])
+
+
+if __name__ == '__main__':
+    unittest.main()
