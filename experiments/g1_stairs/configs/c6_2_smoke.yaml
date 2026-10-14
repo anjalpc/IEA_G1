@@ -1,0 +1,15 @@
+schema_version: 1
+inheritance:
+  base_config: experiments/g1_stairs/configs/c6_1_smoke.yaml
+  resolved_config_required: true
+
+experiment:
+  id: c6_2_smoke
+  purpose: Gate geometric stair shaping to the preferred alternating foot so WRONG acquisition cannot cash terrain-relative clearance escrow. Mixed flat/4cm diagnostic; not 20cm qualification.
+
+execution:
+  environments: 32
+  maximum_iterations: 2
+
+environment:
+  dynamic_alternating_reward_gating: true
