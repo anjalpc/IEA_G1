@@ -1,0 +1,14 @@
+schema_version: 1
+inheritance:
+  base_config: experiments/g1_stairs/configs/c6_1_train300.yaml
+  resolved_config_required: true
+
+experiment:
+  id: c6_2_train500
+  purpose: Train C6.2 with preferred-foot-gated geometric shaping after verified incentive audit. Diagnostic/curriculum training; not 20cm qualification.
+
+execution:
+  maximum_iterations: 500
+
+acquisition_credit:
+  dynamic_alternating_reward_gating: true
