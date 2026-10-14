@@ -5,11 +5,11 @@ inheritance:
 
 experiment:
   id: c6_2_smoke
-  purpose: Gate geometric stair shaping to the preferred alternating foot so WRONG acquisition cannot cash terrain-relative clearance escrow. Mixed flat/4cm diagnostic; not 20cm qualification.
+  purpose: Preferred-foot-gated geometric stair shaping so WRONG acquisition cannot cash clearance/insertion shaping. Mixed flat/4cm diagnostic; not 20cm qualification.
 
 execution:
   environments: 32
   maximum_iterations: 2
 
-environment:
+acquisition_credit:
   dynamic_alternating_reward_gating: true
