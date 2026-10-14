@@ -1,0 +1,22 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/c6_3_foothold_centered.yaml
+  resolved_config_required: true
+
+experiment:
+  id: c6_3_foothold_centered_fullresume_diag50
+  purpose: >
+    Controlled full-training-state resume from C6.2 model499 testing the
+    stricter centered foothold qualification contract.
+
+execution:
+  maximum_iterations: 50
+
+policy_initialization:
+  type: rsl_rl_training_resume
+  source:
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/c6_2_train500_20261014_125210/model_499.pt
+    sha256: 5de0be063190a700a7d747fa56f73b5818156c3b7789c0bfaec2584d88e6fc3b
+  critic_initialization: restored
+  optimizer_initialization: restored
