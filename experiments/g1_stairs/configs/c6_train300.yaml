@@ -1,0 +1,12 @@
+schema_version: 1
+inheritance:
+  base_config: experiments/g1_stairs/configs/c6_smoke.yaml
+  resolved_config_required: true
+experiment:
+  id: c6_train300
+  purpose: Test whether adaptive timing plus target-qualified smooth swing guidance converts REPLANT into DIRECT while preserving traversal competence.
+execution:
+  environments: 2048
+  maximum_iterations: 300
+checkpointing:
+  interval_iterations: 50

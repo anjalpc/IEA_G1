@@ -6,7 +6,7 @@ import torch
 
 from simulation.isaac_lab.g1_stairs.gait_phase import (
     advance_gait_phase,
-    gait_frequency,
+    gait_frequency, smooth_gait_frequency,
     gait_phase_observation,
     phase_swing_contact_loss,
 )
@@ -26,6 +26,19 @@ class TestGaitPhase(unittest.TestCase):
         torch.testing.assert_close(
             differentiable.grad, torch.tensor([0.3])
         )
+
+
+    def test_smoothed_frequency_is_bounded_and_rate_limited(self):
+        previous = torch.tensor([1.0, 1.0])
+        raw = torch.tensor([-100.0, 100.0])
+        first = smooth_gait_frequency(previous, raw, dt=.02, tau_s=.20, learned=True)
+        self.assertTrue(bool(((first >= .7) & (first <= 1.3)).all()))
+        self.assertGreater(float(first[0]), .7)
+        self.assertLess(float(first[1]), 1.3)
+        current = previous
+        for _ in range(200):
+            current = smooth_gait_frequency(current, raw, dt=.02, tau_s=.20, learned=True)
+        torch.testing.assert_close(current, torch.tensor([.7,1.3]), atol=1e-4, rtol=0.)
 
     def test_phase_advance_and_half_cycle_offset(self):
         phase = torch.tensor([0.875, 0.125])

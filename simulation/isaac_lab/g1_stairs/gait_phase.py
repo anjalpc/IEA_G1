@@ -18,6 +18,19 @@ def gait_frequency(raw_action, *, learned=True):
     return FREQUENCY_NOMINAL_HZ + amplitude * torch.tanh(raw_action)
 
 
+
+def smooth_gait_frequency(previous, raw_action, *, dt, tau_s, learned=True):
+    """Bounded first-order cadence filter; zero raw action targets 1 Hz."""
+    if not math.isfinite(dt) or dt <= 0:
+        raise ValueError("dt must be finite and positive")
+    if not math.isfinite(tau_s) or tau_s <= 0:
+        raise ValueError("tau_s must be finite and positive")
+    target = gait_frequency(raw_action, learned=learned)
+    alpha = 1.0 - math.exp(-dt / tau_s)
+    filtered = previous + alpha * (target-previous)
+    return filtered.clamp(FREQUENCY_MIN_HZ, FREQUENCY_MAX_HZ)
+
+
 def advance_gait_phase(phase, frequency, active, acquired_foot, dt):
     """Advance once per control step, then realign on unique acquisition.
 

@@ -1,0 +1,18 @@
+schema_version: 1
+inheritance:
+  base_config: experiments/g1_stairs/configs/c4_smoke.yaml
+  resolved_config_required: true
+experiment:
+  id: c6_smoke
+  purpose: Adaptive coordinated stair motion with liftoff-timed smooth reference, target-qualified support, first-step guidance, and DIRECT-only quality escrow. Mixed flat/4cm diagnostic; not 20cm qualification.
+execution:
+  environments: 32
+  maximum_iterations: 2
+gait:
+  coordinated_motion: true
+  outcome_conditioned_motion: true
+  direct_quality_weight: 0.5
+  ascent_only_auxiliary: true
+  adaptive_timing: true
+  frequency_smoothing_tau_s: 0.20
+  mode: learned

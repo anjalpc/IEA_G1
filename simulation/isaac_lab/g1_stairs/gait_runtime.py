@@ -8,6 +8,7 @@ from .contracts import BODY_JOINTS
 from .gait_phase import (
     advance_gait_phase,
     gait_frequency,
+    smooth_gait_frequency,
     gait_phase_observation,
     phase_swing_contact_loss,
 )
@@ -42,6 +43,12 @@ class GaitFrequencyAction(ActionTerm):
         self.reward_phase = torch.zeros_like(self.phase)
         self.reward_active = torch.zeros_like(self.active)
         self.contact_loss = torch.zeros_like(self.phase)
+        self.swing_started = torch.zeros_like(self.active)
+        self.reference_expired = torch.zeros_like(self.active)
+        self.endpoint_hold_s = torch.zeros_like(self.phase)
+        self.approach_preferred_foot = torch.full(
+            (env.num_envs,), -1, dtype=torch.long, device=env.device
+        )
         self.last_finished_step = -1
         self._checked_contract = False
 
@@ -79,9 +86,20 @@ class GaitFrequencyAction(ActionTerm):
             self._checked_contract = True
 
         self._raw.copy_(actions)
-        self._frequency.copy_(
-            gait_frequency(actions, learned=self.cfg.learned)
-        )
+        if float(self.cfg.smoothing_tau_s) > 0:
+            filtered = smooth_gait_frequency(
+                self._frequency, actions, dt=float(self._env.step_dt),
+                tau_s=float(self.cfg.smoothing_tau_s), learned=self.cfg.learned,
+            )
+            if self.cfg.adaptive_transition_clock:
+                # Frequency is not part of the actor observation; avoid a hidden
+                # preloaded filter state while the gait clock is inactive.
+                filtered = torch.where(self.active[:, None], filtered, torch.ones_like(filtered))
+            self._frequency.copy_(filtered)
+        else:
+            self._frequency.copy_(
+                gait_frequency(actions, learned=self.cfg.learned)
+            )
         # Snapshot the phase seen when this action was chosen.
         self.reward_phase.copy_(self.phase)
         self.reward_active.copy_(self.active)
@@ -100,6 +118,10 @@ class GaitFrequencyAction(ActionTerm):
         self.reward_phase[ids] = 0.0
         self.reward_active[ids] = False
         self.contact_loss[ids] = 0.0
+        self.swing_started[ids] = False
+        self.reference_expired[ids] = False
+        self.endpoint_hold_s[ids] = 0.0
+        self.approach_preferred_foot[ids] = -1
 
     def finish_step(self, runtime, touchdown_force_n):
         """Score old phase, then advance/realign for the next observation."""
@@ -116,57 +138,122 @@ class GaitFrequencyAction(ActionTerm):
         event = runtime.step_acquired_event
         contacts = runtime.physical_touchdown_event
         unique = event & (contacts.sum(dim=1) == 1)
-
-        # Ambiguous simultaneous acquisition cannot establish a support foot.
-        self.aligned.copy_(
-            torch.where(event, unique, self.aligned)
-        )
         target = runtime.target_step[:, 0]
-        valid = (
+        height = riser_height_per_env(env)
+        vertical_force = runtime.sensor.data.net_forces_w[
+            :, runtime.sensor_foot_ids, 2
+        ].clamp_min(0.0)
+
+        if not self.cfg.adaptive_transition_clock:
+            self.aligned.copy_(torch.where(event, unique, self.aligned))
+            valid = (
+                self.aligned
+                & (runtime.preferred_foot >= 0)
+                & (runtime.preferred_foot < 2)
+                & (target > 0)
+                & (target < int(cfg.step_count))
+                & (height > 1.0e-8)
+            )
+            self.reward_active.logical_and_(valid)
+            self.contact_loss.copy_(phase_swing_contact_loss(
+                self.reward_phase, self.reward_active, vertical_force,
+                touchdown_force_n=float(touchdown_force_n),
+            ))
+            acquiring_foot = torch.where(
+                unique, contacts.to(torch.int64).argmax(dim=1),
+                torch.full_like(target, -1),
+            )
+            advance = advance_gait_phase
+            if getattr(env.cfg, "coordinated_motion_enabled", False):
+                from .motion_reference import advance_reference_phase
+                advance = lambda phase, frequency, active, acquired, dt: advance_reference_phase(
+                    phase, frequency, active, acquired, dt, runtime.sample_preferred_foot
+                )
+            self.phase.copy_(advance(
+                self.phase, self._frequency[:, 0], valid, acquiring_foot,
+                float(env.step_dt),
+            ))
+            self.active.copy_(valid)
+            self.last_finished_step = step
+            return
+
+        # C6: select the first swing from real unloading near the first riser.
+        root_x = runtime.robot.data.root_pos_w[:, 0] - env.scene.env_origins[:, 0]
+        near_first = root_x >= float(cfg.start_clearance) - float(self.cfg.first_step_activation_distance_m)
+        left_ready = (vertical_force[:, 0] <= float(self.cfg.liftoff_force_n)) & (vertical_force[:, 1] >= float(self.cfg.support_force_n))
+        right_ready = (vertical_force[:, 1] <= float(self.cfg.liftoff_force_n)) & (vertical_force[:, 0] >= float(self.cfg.support_force_n))
+        first_candidate = (target == 0) & (height > 1.0e-8) & near_first & (left_ready ^ right_ready)
+        first_foot = torch.where(left_ready, torch.zeros_like(target), torch.ones_like(target))
+        select_first = first_candidate & (self.approach_preferred_foot < 0)
+        self.approach_preferred_foot.copy_(torch.where(
+            select_first, first_foot, self.approach_preferred_foot
+        ))
+
+        # Canonical acquisition selects the opposite foot for the next tread.
+        self.aligned.copy_(torch.where(event, unique, self.aligned))
+        canonical = (
             self.aligned
             & (runtime.preferred_foot >= 0)
             & (runtime.preferred_foot < 2)
             & (target > 0)
             & (target < int(cfg.step_count))
-            & (riser_height_per_env(env) > 1.0e-8)
+            & (height > 1.0e-8)
         )
+        approach = (target == 0) & (self.approach_preferred_foot >= 0) & (height > 1.0e-8)
+        selected = torch.where(canonical, runtime.preferred_foot, self.approach_preferred_foot)
+        valid = canonical | approach
+        idx = selected.clamp(0, 1)
+        rows = torch.arange(env.num_envs, device=env.device)
+        selected_force = vertical_force[rows, idx]
+        support_force = vertical_force[rows, 1-idx]
+        liftoff = valid & (selected_force <= float(self.cfg.liftoff_force_n)) & (support_force >= float(self.cfg.support_force_n))
+        # A new acquisition starts a new selected transition but its next swing
+        # does not start until that selected foot actually unloads.
+        self.swing_started.copy_(torch.where(event, torch.zeros_like(self.swing_started), self.swing_started | liftoff))
 
-        vertical_force = runtime.sensor.data.net_forces_w[
-            :, runtime.sensor_foot_ids, 2
-        ].clamp_min(0.0)
+        failure_code = getattr(runtime, 'preferred_transition_event_code', torch.zeros_like(target))
+        failed_without_advance = (~event) & (failure_code >= 2) & (failure_code <= 5)
+        self.reference_expired.logical_or_(failed_without_advance)
+        self.reference_expired.copy_(torch.where(event, torch.zeros_like(self.reference_expired), self.reference_expired))
 
-        # No penalty before first acquisition or after final acquisition.
-        self.reward_active.logical_and_(valid)
-        self.contact_loss.copy_(
-            phase_swing_contact_loss(
-                self.reward_phase,
-                self.reward_active,
-                vertical_force,
-                touchdown_force_n=float(touchdown_force_n),
-            )
-        )
+        self.reward_active.logical_and_(valid & self.swing_started & ~self.reference_expired)
+        self.contact_loss.copy_(phase_swing_contact_loss(
+            self.reward_phase, self.reward_active, vertical_force,
+            touchdown_force_n=float(touchdown_force_n),
+        ))
 
         acquiring_foot = torch.where(
-            unique,
-            contacts.to(torch.int64).argmax(dim=1),
+            unique, contacts.to(torch.int64).argmax(dim=1),
             torch.full_like(target, -1),
         )
-        advance = advance_gait_phase
-        if getattr(env.cfg, "coordinated_motion_enabled", False):
-            from .motion_reference import advance_reference_phase
-            advance = lambda phase, frequency, active, acquired, dt: advance_reference_phase(
-                phase, frequency, active, acquired, dt, runtime.sample_preferred_foot
-            )
-        self.phase.copy_(
-            advance(
-                self.phase,
-                self._frequency[:, 0],
-                valid,
-                acquiring_foot,
-                float(env.step_dt),
-            )
+        from .motion_reference import advance_reference_phase
+        preferred_before = torch.where(
+            runtime.sample_preferred_foot >= 0,
+            runtime.sample_preferred_foot,
+            self.approach_preferred_foot,
         )
-        self.active.copy_(valid)
+        proposed = advance_reference_phase(
+            self.phase, self._frequency[:, 0], valid, acquiring_foot,
+            float(env.step_dt), preferred_before,
+            swing_started=self.swing_started, expired=self.reference_expired,
+        )
+        endpoint = torch.where(selected == 0, torch.ones_like(proposed), torch.full_like(proposed, .5))
+        at_endpoint = valid & self.swing_started & ~event & ~self.reference_expired & ((proposed-endpoint).abs() < 1e-6)
+        self.endpoint_hold_s.copy_(torch.where(
+            at_endpoint, self.endpoint_hold_s + float(env.step_dt),
+            torch.zeros_like(self.endpoint_hold_s),
+        ))
+        expired_now = self.endpoint_hold_s > float(self.cfg.touchdown_grace_s)
+        self.reference_expired.logical_or_(expired_now)
+        proposed = torch.where(self.reference_expired, torch.zeros_like(proposed), proposed)
+        self.phase.copy_(proposed)
+        self.active.copy_(valid & ~self.reference_expired)
+        # First acquisition ends approach selection; subsequent preferred foot
+        # comes only from the canonical acquisition state machine.
+        self.approach_preferred_foot.copy_(torch.where(
+            event, torch.full_like(self.approach_preferred_foot, -1),
+            self.approach_preferred_foot,
+        ))
         self.last_finished_step = step
 
     def observation(self):
@@ -178,6 +265,12 @@ class GaitFrequencyActionCfg(ActionTermCfg):
     class_type: type = GaitFrequencyAction
     asset_name: str = "robot"
     learned: bool = True
+    smoothing_tau_s: float = 0.0
+    adaptive_transition_clock: bool = False
+    liftoff_force_n: float = 15.0
+    support_force_n: float = 30.0
+    first_step_activation_distance_m: float = 0.35
+    touchdown_grace_s: float = 0.30
 
 
 def phase_swing_contact(env):
@@ -218,9 +311,25 @@ def configure_gait(env_cfg, resolved):
     if resolved.get("ppo", {}).get("observation_normalization", False):
         raise ValueError("C3 preserves unnormalized observations")
 
+    outcome_conditioned = bool(options.get("outcome_conditioned_motion", False))
+    direct_quality_weight = float(options.get("direct_quality_weight", 0.0))
+    ascent_only_auxiliary = bool(options.get("ascent_only_auxiliary", False))
+    adaptive_timing = bool(options.get("adaptive_timing", False))
+    smoothing_tau_s = float(options.get("frequency_smoothing_tau_s", 0.0))
+    if outcome_conditioned and not options.get("coordinated_motion", False):
+        raise ValueError("outcome_conditioned_motion requires coordinated_motion")
+    if direct_quality_weight < 0.0:
+        raise ValueError("gait.direct_quality_weight cannot be negative")
+    if outcome_conditioned and direct_quality_weight <= 0.0:
+        raise ValueError("outcome-conditioned motion requires positive direct_quality_weight")
+    if adaptive_timing and mode != "learned":
+        raise ValueError("adaptive_timing requires gait.mode=learned")
+    if adaptive_timing and smoothing_tau_s <= 0.0:
+        raise ValueError("adaptive_timing requires positive frequency_smoothing_tau_s")
+
     if options.get("coordinated_motion", False):
-        if mode != "fixed":
-            raise ValueError("C4 first experiment requires fixed cadence")
+        if mode != "fixed" and not adaptive_timing:
+            raise ValueError("coordinated motion requires fixed cadence unless adaptive_timing is enabled")
         from .coordinated_motion import CoordinatedMotion
         env_cfg.coordinated_motion_enabled = True
         insertion = resolved["reward_parameters"]["forward_insertion"]
@@ -229,15 +338,20 @@ def configure_gait(env_cfg, resolved):
         )
         env_cfg.rewards.coordinated_motion = RewardTermCfg(
             func=CoordinatedMotion, weight=-1.0,
-            params=dict(swing_weight=.50, stance_weight=.15,
+            params=dict(swing_weight=.35, stance_weight=.15,
                         placement_weight=.25, transfer_weight=.15,
                         lateral_weight=.10, arm_weight=.15, finish_weight=.15,
                         clearance_m=.03, position_scale_m=.06,
-                        arm_amplitude_rad=.20),
+                        arm_amplitude_rad=.20,
+                        direct_quality_weight=direct_quality_weight if outcome_conditioned else 0.0,
+                        ascent_only_auxiliary=ascent_only_auxiliary if outcome_conditioned else False,
+                        adaptive_timing=adaptive_timing),
         )
     env_cfg.gait_phase_enabled = True
     env_cfg.actions.gait_frequency = GaitFrequencyActionCfg(
-        learned=(mode == "learned")
+        learned=(mode == "learned"),
+        smoothing_tau_s=smoothing_tau_s if adaptive_timing else 0.0,
+        adaptive_transition_clock=adaptive_timing,
     )
     for group in (env_cfg.observations.policy, env_cfg.observations.critic):
         if group.last_action.history_length != 5:
