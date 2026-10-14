@@ -1,0 +1,22 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/c6_4_centered_shaping.yaml
+  resolved_config_required: true
+
+experiment:
+  id: c6_4_centered_shaping_fullresume_continue1500
+  purpose: >
+    Continue validated C6.4 centered-insertion shaping from model549 for
+    1500 additional PPO updates using restored actor, critic, and optimizer.
+
+execution:
+  maximum_iterations: 1500
+
+policy_initialization:
+  type: rsl_rl_training_resume
+  source:
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/c6_4_centered_shaping_fullresume_diag50_20261014_144514/model_549.pt
+    sha256: 79bbe8987cc1c241d58a1ea23203041083e2c80455e02dabe5dedea03a30cfa8
+  critic_initialization: restored
+  optimizer_initialization: restored
