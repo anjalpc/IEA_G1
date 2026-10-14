@@ -1,0 +1,15 @@
+schema_version: 1
+inheritance:
+  base_config: experiments/g1_stairs/configs/c6_smoke.yaml
+  resolved_config_required: true
+experiment:
+  id: c6_1_smoke
+  purpose: Close adaptive-timing loopholes with sustained first-step unload, bounded liftoff wait, one-shot reference-miss outcome, and latched no-retry semantics. Mixed flat/4cm diagnostic; not 20cm qualification.
+execution:
+  environments: 32
+  maximum_iterations: 2
+gait:
+  first_step_unload_dwell_s: 0.06
+  liftoff_timeout_s: 0.30
+  touchdown_grace_s: 0.30
+  motion_miss_weight: 0.25

@@ -46,6 +46,12 @@ class GaitFrequencyAction(ActionTerm):
         self.swing_started = torch.zeros_like(self.active)
         self.reference_expired = torch.zeros_like(self.active)
         self.endpoint_hold_s = torch.zeros_like(self.phase)
+        self.selection_wait_s = torch.zeros_like(self.phase)
+        self.approach_unload_dwell_s = torch.zeros((env.num_envs, 2), device=env.device)
+        self.transition_motion_miss = torch.zeros_like(self.active)
+        self.transition_motion_miss_event = torch.zeros_like(self.active)
+        self.transition_motion_miss_reason = torch.zeros(env.num_envs, dtype=torch.long, device=env.device)
+        self.approach_simultaneous_unload = torch.zeros_like(self.active)
         self.approach_preferred_foot = torch.full(
             (env.num_envs,), -1, dtype=torch.long, device=env.device
         )
@@ -121,6 +127,12 @@ class GaitFrequencyAction(ActionTerm):
         self.swing_started[ids] = False
         self.reference_expired[ids] = False
         self.endpoint_hold_s[ids] = 0.0
+        self.selection_wait_s[ids] = 0.0
+        self.approach_unload_dwell_s[ids] = 0.0
+        self.transition_motion_miss[ids] = False
+        self.transition_motion_miss_event[ids] = False
+        self.transition_motion_miss_reason[ids] = 0
+        self.approach_simultaneous_unload[ids] = False
         self.approach_preferred_foot[ids] = -1
 
     def finish_step(self, runtime, touchdown_force_n):
@@ -177,16 +189,45 @@ class GaitFrequencyAction(ActionTerm):
             self.last_finished_step = step
             return
 
-        # C6: select the first swing from real unloading near the first riser.
+        # C6.1: first-step selection requires sustained asymmetric unloading
+        # while the base is in the local pre-riser window. A one-sample contact
+        # dropout or simultaneous unloading cannot select a foot.
+        self.transition_motion_miss_event.zero_()
         root_x = runtime.robot.data.root_pos_w[:, 0] - env.scene.env_origins[:, 0]
-        near_first = root_x >= float(cfg.start_clearance) - float(self.cfg.first_step_activation_distance_m)
-        left_ready = (vertical_force[:, 0] <= float(self.cfg.liftoff_force_n)) & (vertical_force[:, 1] >= float(self.cfg.support_force_n))
-        right_ready = (vertical_force[:, 1] <= float(self.cfg.liftoff_force_n)) & (vertical_force[:, 0] >= float(self.cfg.support_force_n))
-        first_candidate = (target == 0) & (height > 1.0e-8) & near_first & (left_ready ^ right_ready)
-        first_foot = torch.where(left_ready, torch.zeros_like(target), torch.ones_like(target))
-        select_first = first_candidate & (self.approach_preferred_foot < 0)
+        first_riser_x = float(cfg.start_clearance)
+        near_first = (
+            (root_x >= first_riser_x - float(self.cfg.first_step_activation_distance_m))
+            & (root_x <= first_riser_x)
+        )
+        left_unloaded = vertical_force[:, 0] <= float(self.cfg.liftoff_force_n)
+        right_unloaded = vertical_force[:, 1] <= float(self.cfg.liftoff_force_n)
+        left_ready = left_unloaded & (vertical_force[:, 1] >= float(self.cfg.support_force_n))
+        right_ready = right_unloaded & (vertical_force[:, 0] >= float(self.cfg.support_force_n))
+        first_open = (target == 0) & (height > 1.0e-8) & near_first & (self.approach_preferred_foot < 0)
+        self.approach_simultaneous_unload.copy_(first_open & left_unloaded & right_unloaded)
+        left_dwell = torch.where(
+            first_open & left_ready & ~right_ready,
+            self.approach_unload_dwell_s[:, 0] + float(env.step_dt),
+            torch.zeros_like(self.approach_unload_dwell_s[:, 0]),
+        )
+        right_dwell = torch.where(
+            first_open & right_ready & ~left_ready,
+            self.approach_unload_dwell_s[:, 1] + float(env.step_dt),
+            torch.zeros_like(self.approach_unload_dwell_s[:, 1]),
+        )
+        self.approach_unload_dwell_s[:, 0].copy_(left_dwell)
+        self.approach_unload_dwell_s[:, 1].copy_(right_dwell)
+        dwell = float(self.cfg.first_step_unload_dwell_s)
+        left_selected = first_open & (left_dwell >= dwell)
+        right_selected = first_open & (right_dwell >= dwell)
+        select_first = left_selected ^ right_selected
+        first_foot = torch.where(left_selected, torch.zeros_like(target), torch.ones_like(target))
         self.approach_preferred_foot.copy_(torch.where(
             select_first, first_foot, self.approach_preferred_foot
+        ))
+        self.approach_unload_dwell_s.copy_(torch.where(
+            select_first[:, None], torch.zeros_like(self.approach_unload_dwell_s),
+            self.approach_unload_dwell_s,
         ))
 
         # Canonical acquisition selects the opposite foot for the next tread.
@@ -209,12 +250,39 @@ class GaitFrequencyAction(ActionTerm):
         liftoff = valid & (selected_force <= float(self.cfg.liftoff_force_n)) & (support_force >= float(self.cfg.support_force_n))
         # A new acquisition starts a new selected transition but its next swing
         # does not start until that selected foot actually unloads.
-        self.swing_started.copy_(torch.where(event, torch.zeros_like(self.swing_started), self.swing_started | liftoff))
+        next_swing_started = torch.where(
+            event, torch.zeros_like(self.swing_started), self.swing_started
+        ) | liftoff
+        self.swing_started.copy_(next_swing_started)
 
         failure_code = getattr(runtime, 'preferred_transition_event_code', torch.zeros_like(target))
         failed_without_advance = (~event) & (failure_code >= 2) & (failure_code <= 5)
         self.reference_expired.logical_or_(failed_without_advance)
         self.reference_expired.copy_(torch.where(event, torch.zeros_like(self.reference_expired), self.reference_expired))
+        self.transition_motion_miss.copy_(torch.where(
+            event, torch.zeros_like(self.transition_motion_miss), self.transition_motion_miss
+        ))
+        self.transition_motion_miss_reason.copy_(torch.where(
+            event, torch.zeros_like(self.transition_motion_miss_reason), self.transition_motion_miss_reason
+        ))
+
+        waiting = valid & ~self.swing_started & ~self.reference_expired & ~event
+        self.selection_wait_s.copy_(torch.where(
+            waiting, self.selection_wait_s + float(env.step_dt),
+            torch.zeros_like(self.selection_wait_s),
+        ))
+        liftoff_timeout_now = (
+            waiting
+            & (self.selection_wait_s >= float(self.cfg.liftoff_timeout_s))
+            & ~self.transition_motion_miss
+        )
+        self.transition_motion_miss_event.logical_or_(liftoff_timeout_now)
+        self.transition_motion_miss.logical_or_(liftoff_timeout_now)
+        self.transition_motion_miss_reason.copy_(torch.where(
+            liftoff_timeout_now, torch.ones_like(self.transition_motion_miss_reason),
+            self.transition_motion_miss_reason,
+        ))
+        self.reference_expired.logical_or_(liftoff_timeout_now)
 
         self.reward_active.logical_and_(valid & self.swing_started & ~self.reference_expired)
         self.contact_loss.copy_(phase_swing_contact_loss(
@@ -244,6 +312,15 @@ class GaitFrequencyAction(ActionTerm):
             torch.zeros_like(self.endpoint_hold_s),
         ))
         expired_now = self.endpoint_hold_s > float(self.cfg.touchdown_grace_s)
+        touchdown_timeout_now = (
+            expired_now & ~event & ~self.reference_expired & ~self.transition_motion_miss
+        )
+        self.transition_motion_miss_event.logical_or_(touchdown_timeout_now)
+        self.transition_motion_miss.logical_or_(touchdown_timeout_now)
+        self.transition_motion_miss_reason.copy_(torch.where(
+            touchdown_timeout_now, torch.full_like(self.transition_motion_miss_reason, 2),
+            self.transition_motion_miss_reason,
+        ))
         self.reference_expired.logical_or_(expired_now)
         proposed = torch.where(self.reference_expired, torch.zeros_like(proposed), proposed)
         self.phase.copy_(proposed)
@@ -270,6 +347,8 @@ class GaitFrequencyActionCfg(ActionTermCfg):
     liftoff_force_n: float = 15.0
     support_force_n: float = 30.0
     first_step_activation_distance_m: float = 0.35
+    first_step_unload_dwell_s: float = 0.06
+    liftoff_timeout_s: float = 0.30
     touchdown_grace_s: float = 0.30
 
 
@@ -316,6 +395,10 @@ def configure_gait(env_cfg, resolved):
     ascent_only_auxiliary = bool(options.get("ascent_only_auxiliary", False))
     adaptive_timing = bool(options.get("adaptive_timing", False))
     smoothing_tau_s = float(options.get("frequency_smoothing_tau_s", 0.0))
+    first_step_unload_dwell_s = float(options.get("first_step_unload_dwell_s", 0.06))
+    liftoff_timeout_s = float(options.get("liftoff_timeout_s", 0.30))
+    touchdown_grace_s = float(options.get("touchdown_grace_s", 0.30))
+    motion_miss_weight = float(options.get("motion_miss_weight", 0.25))
     if outcome_conditioned and not options.get("coordinated_motion", False):
         raise ValueError("outcome_conditioned_motion requires coordinated_motion")
     if direct_quality_weight < 0.0:
@@ -326,6 +409,10 @@ def configure_gait(env_cfg, resolved):
         raise ValueError("adaptive_timing requires gait.mode=learned")
     if adaptive_timing and smoothing_tau_s <= 0.0:
         raise ValueError("adaptive_timing requires positive frequency_smoothing_tau_s")
+    if adaptive_timing and (first_step_unload_dwell_s <= 0.0 or liftoff_timeout_s <= 0.0 or touchdown_grace_s <= 0.0):
+        raise ValueError("adaptive_timing requires positive dwell/timeout/grace values")
+    if motion_miss_weight < 0.0:
+        raise ValueError("gait.motion_miss_weight cannot be negative")
 
     if options.get("coordinated_motion", False):
         if mode != "fixed" and not adaptive_timing:
@@ -344,6 +431,7 @@ def configure_gait(env_cfg, resolved):
                         clearance_m=.03, position_scale_m=.06,
                         arm_amplitude_rad=.20,
                         direct_quality_weight=direct_quality_weight if outcome_conditioned else 0.0,
+                        motion_miss_weight=motion_miss_weight if adaptive_timing else 0.0,
                         ascent_only_auxiliary=ascent_only_auxiliary if outcome_conditioned else False,
                         adaptive_timing=adaptive_timing),
         )
@@ -352,6 +440,9 @@ def configure_gait(env_cfg, resolved):
         learned=(mode == "learned"),
         smoothing_tau_s=smoothing_tau_s if adaptive_timing else 0.0,
         adaptive_transition_clock=adaptive_timing,
+        first_step_unload_dwell_s=first_step_unload_dwell_s,
+        liftoff_timeout_s=liftoff_timeout_s,
+        touchdown_grace_s=touchdown_grace_s,
     )
     for group in (env_cfg.observations.policy, env_cfg.observations.critic):
         if group.last_action.history_length != 5:

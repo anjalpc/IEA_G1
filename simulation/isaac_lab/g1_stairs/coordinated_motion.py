@@ -76,10 +76,11 @@ class CoordinatedMotion(ManagerTermBase):
                  lateral_weight=.10, arm_weight=.15, finish_weight=.15,
                  clearance_m=.03, position_scale_m=.06,
                  arm_amplitude_rad=.20, direct_quality_weight=0.0,
-                 ascent_only_auxiliary=False, adaptive_timing=False):
+                 motion_miss_weight=.25, ascent_only_auxiliary=False, adaptive_timing=False):
         values = (swing_weight, stance_weight, placement_weight, transfer_weight,
                   lateral_weight, arm_weight, finish_weight, clearance_m,
-                  position_scale_m, arm_amplitude_rad, direct_quality_weight)
+                  position_scale_m, arm_amplitude_rad, direct_quality_weight,
+                  motion_miss_weight)
         if any(not math.isfinite(x) or x < 0 for x in values) or position_scale_m <= 0:
             raise ValueError('C6 parameters must be finite/nonnegative; scale positive')
         runtime = getattr(env, '_g1_v04_acquisition', None)
@@ -235,6 +236,11 @@ class CoordinatedMotion(ManagerTermBase):
         weights = (swing_weight, stance_weight, placement_weight, transfer_weight,
                    lateral_weight, arm_weight, finish_weight)
         dense_cost = sum(w*c for w,c in zip(weights, costs.values()))
+        motion_miss = (
+            gait.transition_motion_miss_event.to(foot.dtype)
+            if adaptive_timing else torch.zeros_like(dense_cost)
+        )
+        dense_cost = dense_cost + motion_miss_weight * motion_miss
 
         event_code = getattr(runtime, 'preferred_transition_event_code', None)
         sequence_failed = getattr(runtime, 'clean_step_over_sequence_failed', None)
@@ -279,6 +285,12 @@ class CoordinatedMotion(ManagerTermBase):
                       'transition_quality_samples': self.quality_count.clone(),
                       'direct_quality_credit': direct_quality,
                       'direct_terminal_quality': terminal_quality,
+                      'transition_motion_miss_event': motion_miss,
+                      'transition_motion_miss_latched': gait.transition_motion_miss.clone() if adaptive_timing else torch.zeros_like(selected),
+                      'transition_motion_miss_reason': gait.transition_motion_miss_reason.clone() if adaptive_timing else torch.zeros_like(self.target),
+                      'selection_wait_s': gait.selection_wait_s.clone() if adaptive_timing else torch.zeros_like(self.progress),
+                      'approach_unload_dwell_s': gait.approach_unload_dwell_s.clone() if adaptive_timing else torch.zeros(env.num_envs, 2, device=env.device),
+                      'approach_simultaneous_unload': gait.approach_simultaneous_unload.clone() if adaptive_timing else torch.zeros_like(selected),
                       'foothold_center_cost': foothold_center_cost,
                       'target_support_valid': on_target_support,
                       'reference_target': self.target.clone(),

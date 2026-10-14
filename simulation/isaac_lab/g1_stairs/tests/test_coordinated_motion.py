@@ -63,7 +63,8 @@ def fixture():
     real._env, real.cfg = env, NS(
         learned=False, smoothing_tau_s=0.0, adaptive_transition_clock=False,
         liftoff_force_n=15.0, support_force_n=30.0,
-        first_step_activation_distance_m=.35, touchdown_grace_s=.30)
+        first_step_activation_distance_m=.35, first_step_unload_dwell_s=.06,
+        liftoff_timeout_s=.30, touchdown_grace_s=.30)
     real._raw = torch.zeros(n,1)
     real._frequency = torch.ones(n,1)
     real.phase = torch.zeros(n)
@@ -75,6 +76,12 @@ def fixture():
     real.swing_started = torch.zeros(n,dtype=torch.bool)
     real.reference_expired = torch.zeros(n,dtype=torch.bool)
     real.endpoint_hold_s = torch.zeros(n)
+    real.selection_wait_s = torch.zeros(n)
+    real.approach_unload_dwell_s = torch.zeros(n,2)
+    real.transition_motion_miss = torch.zeros(n,dtype=torch.bool)
+    real.transition_motion_miss_event = torch.zeros(n,dtype=torch.bool)
+    real.transition_motion_miss_reason = torch.zeros(n,dtype=torch.long)
+    real.approach_simultaneous_unload = torch.zeros(n,dtype=torch.bool)
     real.approach_preferred_foot = torch.full((n,),-1,dtype=torch.long)
     real.last_finished_step = -1
     real._checked_contract = True
@@ -170,8 +177,10 @@ class TestCoordinatedMotion(unittest.TestCase):
         runtime.sensor.data.net_forces_w[:,0,2]=0.
         runtime.sensor.data.net_forces_w[:,1,2]=100.
         term=module.CoordinatedMotion(None,env)
-        run_step(env,runtime,gait,term, adaptive_timing=True,
-                 direct_quality_weight=.5, ascent_only_auxiliary=True)
+        for i in range(1,4):
+            env.common_step_counter=runtime.last_step=i
+            run_step(env,runtime,gait,term, adaptive_timing=True,
+                     direct_quality_weight=.5, ascent_only_auxiliary=True)
         self.assertEqual(gait.approach_preferred_foot.tolist(),[0,0])
         self.assertTrue(bool(gait.swing_started.all()))
         self.assertEqual(term.target.tolist(),[0,0])
@@ -242,6 +251,108 @@ class TestCoordinatedMotion(unittest.TestCase):
                  direct_quality_weight=.5, ascent_only_auxiliary=True)
         self.assertFalse(bool(term.trace['target_support_valid'].any()))
         self.assertTrue(bool((term.trace['cost_transfer'] >= 0).all()))
+
+    def test_c61_first_step_requires_sustained_asymmetric_unloading(self):
+        env,runtime,gait=fixture()
+        gait.cfg.adaptive_transition_clock=True
+        runtime.target_step.zero_(); runtime.preferred_foot.fill_(-1)
+        runtime.step_acquired_event.zero_(); runtime.physical_touchdown_event.zero_()
+        runtime.sensor.data.net_forces_w[:,0,2]=0.; runtime.sensor.data.net_forces_w[:,1,2]=100.
+        term=module.CoordinatedMotion(None,env)
+        for i in range(1,3):
+            env.common_step_counter=runtime.last_step=i
+            run_step(env,runtime,gait,term, adaptive_timing=True,
+                     direct_quality_weight=.5, ascent_only_auxiliary=True)
+            self.assertEqual(gait.approach_preferred_foot.tolist(),[-1,-1])
+        env.common_step_counter=runtime.last_step=3
+        run_step(env,runtime,gait,term, adaptive_timing=True,
+                 direct_quality_weight=.5, ascent_only_auxiliary=True)
+        self.assertEqual(gait.approach_preferred_foot.tolist(),[0,0])
+
+    def test_c61_simultaneous_unloading_resets_first_step_dwell(self):
+        env,runtime,gait=fixture()
+        gait.cfg.adaptive_transition_clock=True
+        runtime.target_step.zero_(); runtime.preferred_foot.fill_(-1)
+        runtime.step_acquired_event.zero_(); runtime.physical_touchdown_event.zero_()
+        term=module.CoordinatedMotion(None,env)
+        runtime.sensor.data.net_forces_w[:,0,2]=0.; runtime.sensor.data.net_forces_w[:,1,2]=100.
+        env.common_step_counter=runtime.last_step=1
+        run_step(env,runtime,gait,term, adaptive_timing=True, direct_quality_weight=.5, ascent_only_auxiliary=True)
+        runtime.sensor.data.net_forces_w[:,:,2]=0.
+        env.common_step_counter=runtime.last_step=2
+        run_step(env,runtime,gait,term, adaptive_timing=True, direct_quality_weight=.5, ascent_only_auxiliary=True)
+        self.assertTrue(bool(gait.approach_simultaneous_unload.all()))
+        torch.testing.assert_close(gait.approach_unload_dwell_s,torch.zeros_like(gait.approach_unload_dwell_s))
+        self.assertEqual(gait.approach_preferred_foot.tolist(),[-1,-1])
+
+    def test_c61_selected_foot_must_liftoff_before_deadline(self):
+        env,runtime,gait=fixture()
+        gait.cfg.adaptive_transition_clock=True
+        gait.cfg.liftoff_timeout_s=.04
+        term=module.CoordinatedMotion(None,env)
+        run_step(env,runtime,gait,term, adaptive_timing=True, direct_quality_weight=.5, ascent_only_auxiliary=True)
+        runtime.step_acquired_event.zero_(); runtime.physical_touchdown_event.zero_(); runtime.sample_preferred_foot.fill_(1)
+        runtime.sensor.data.net_forces_w[:,:,2]=100.
+        seen=0
+        for i in range(2,6):
+            env.common_step_counter=runtime.last_step=i
+            run_step(env,runtime,gait,term, adaptive_timing=True, direct_quality_weight=.5, ascent_only_auxiliary=True)
+            seen += int(gait.transition_motion_miss_event.sum())
+        self.assertTrue(bool(gait.reference_expired.all()))
+        self.assertTrue(bool(gait.transition_motion_miss.all()))
+        self.assertEqual(gait.transition_motion_miss_reason.tolist(),[1,1])
+        self.assertEqual(seen,2)
+
+    def test_c61_endpoint_expiry_emits_one_shot_miss_and_stays_latched(self):
+        env,runtime,gait=fixture()
+        gait.cfg.adaptive_transition_clock=True; gait.cfg.touchdown_grace_s=.04
+        term=module.CoordinatedMotion(None,env)
+        run_step(env,runtime,gait,term, adaptive_timing=True, direct_quality_weight=.5, ascent_only_auxiliary=True)
+        runtime.step_acquired_event.zero_(); runtime.physical_touchdown_event.zero_(); runtime.sample_preferred_foot.fill_(1)
+        runtime.sensor.data.net_forces_w[:,1,2]=0.; runtime.sensor.data.net_forces_w[:,0,2]=100.
+        gait.phase.fill_(.5); gait.swing_started.fill_(True)
+        seen=0
+        for i in range(2,8):
+            env.common_step_counter=runtime.last_step=i
+            run_step(env,runtime,gait,term, adaptive_timing=True, direct_quality_weight=.5, ascent_only_auxiliary=True)
+            seen += int(gait.transition_motion_miss_event.sum())
+        self.assertEqual(seen,2)
+        self.assertEqual(gait.transition_motion_miss_reason.tolist(),[2,2])
+        self.assertTrue(bool(gait.transition_motion_miss.all()))
+        self.assertFalse(bool(term.trace['reference_active'].any()))
+        torch.testing.assert_close(term.trace['direct_quality_credit'],torch.zeros(2))
+
+    def test_c61_late_direct_after_motion_miss_cannot_release_escrow(self):
+        env,runtime,gait=fixture()
+        gait.cfg.adaptive_transition_clock=True; gait.cfg.liftoff_timeout_s=.02
+        term=module.CoordinatedMotion(None,env)
+        run_step(env,runtime,gait,term, adaptive_timing=True, direct_quality_weight=.5, ascent_only_auxiliary=True)
+        runtime.step_acquired_event.zero_(); runtime.physical_touchdown_event.zero_(); runtime.sample_preferred_foot.fill_(1)
+        runtime.sensor.data.net_forces_w[:,:,2]=100.
+        env.common_step_counter=runtime.last_step=2
+        run_step(env,runtime,gait,term, adaptive_timing=True, direct_quality_weight=.5, ascent_only_auxiliary=True)
+        self.assertTrue(bool(gait.transition_motion_miss.all()))
+        runtime.step_acquired_event.fill_(True)
+        runtime.physical_touchdown_event[:]=torch.tensor([False,True])
+        runtime.preferred_transition_event_code.fill_(1)
+        runtime.target_step.fill_(2)
+        runtime.preferred_foot.fill_(0)
+        env.common_step_counter=runtime.last_step=3
+        run_step(env,runtime,gait,term, adaptive_timing=True, direct_quality_weight=.5, ascent_only_auxiliary=True)
+        torch.testing.assert_close(term.trace['direct_quality_credit'],torch.zeros(2))
+
+    def test_c61_reset_clears_wait_miss_and_first_step_dwell(self):
+        env,runtime,gait=fixture()
+        gait.selection_wait_s.fill_(1); gait.approach_unload_dwell_s.fill_(1)
+        gait.transition_motion_miss.fill_(True); gait.transition_motion_miss_event.fill_(True)
+        gait.transition_motion_miss_reason.fill_(2); gait.approach_simultaneous_unload.fill_(True)
+        gait.reset(torch.tensor([0]))
+        self.assertEqual(float(gait.selection_wait_s[0]),0.)
+        torch.testing.assert_close(gait.approach_unload_dwell_s[0],torch.zeros(2))
+        self.assertFalse(bool(gait.transition_motion_miss[0]))
+        self.assertFalse(bool(gait.transition_motion_miss_event[0]))
+        self.assertEqual(int(gait.transition_motion_miss_reason[0]),0)
+        self.assertFalse(bool(gait.approach_simultaneous_unload[0]))
 
 
 if __name__ == '__main__':
