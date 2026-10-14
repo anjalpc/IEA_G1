@@ -1,0 +1,11 @@
+schema_version: 1
+inheritance:
+  base_config: experiments/g1_stairs/configs/c6_3_foothold_centered.yaml
+  resolved_config_required: true
+
+experiment:
+  id: c6_3_foothold_centered_diag50
+  purpose: Short continuation diagnostic for centered foothold contract. Diagnostic/curriculum; not 20cm qualification.
+
+execution:
+  maximum_iterations: 50

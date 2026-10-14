@@ -1,0 +1,16 @@
+schema_version: 1
+inheritance:
+  base_config: experiments/g1_stairs/configs/c6_2_train500.yaml
+  resolved_config_required: true
+
+experiment:
+  id: c6_3_foothold_centered
+  purpose: Center stair footholds by tightening safe sole margins and aligning insertion shaping with the feasible centered placement. Diagnostic/curriculum; no other C6.2 changes.
+
+reward_parameters:
+  terrain_relative_clearance:
+    tread_margin_m: 0.025
+    insertion_target_m: 0.010
+  forward_insertion:
+    tread_margin_m: 0.025
+    insertion_target_m: 0.010
