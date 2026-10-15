@@ -1,0 +1,23 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/c7_activation070_runtime_diag.yaml
+  resolved_config_required: true
+
+experiment:
+  id: c7_activation070_potential_runtime_diag
+  purpose: >
+    Frozen model0 control comparison using reversible discounted clearance
+    potential only; trajectory, weights, activation distance, and acquisition
+    contract unchanged.
+
+reward_parameters:
+  terrain_relative_clearance:
+    escrow_clearance_until_riser_crossing: false
+    reversible_clearance_potential: true
+    clearance_potential_discount_gamma: 0.99
+
+  forward_insertion:
+    escrow_clearance_until_riser_crossing: false
+    reversible_clearance_potential: true
+    clearance_potential_discount_gamma: 0.99

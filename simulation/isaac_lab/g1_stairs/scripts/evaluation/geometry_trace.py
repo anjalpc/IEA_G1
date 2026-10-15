@@ -239,6 +239,9 @@ class GeometryTrace:
                 "riser_strike_force_x": self.values(
                     acquisition.riser_strike_force_x[0]
                 ),
+                "clearance_potential": trace_value(
+                    "clearance_potential"
+                ),
             })
 
         runtime = getattr(env, "_g1_geometry_episode", None)

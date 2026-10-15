@@ -257,6 +257,9 @@ class GeometryAcquisitionRuntime:
         # Clearance progress remains provisional until the complete sole
         # has safely crossed the current target riser.
         self.pending_clearance = torch.zeros_like(self.best_clearance)
+        # Reversible potential used only when potential-based clearance
+        # accounting is explicitly enabled.
+        self.clearance_potential = torch.zeros_like(self.best_clearance)
 
         # Previous forward foot velocity is used only to reject static/support
         # contact when identifying a forward riser-face impact.
@@ -375,8 +378,13 @@ class GeometryAcquisitionRuntime:
         self.best_clearance[env_ids] = 0.0
         self.best_insertion[env_ids] = 0.0
         self.pending_clearance[env_ids] = 0.0
+        self.clearance_potential[env_ids] = 0.0
         self.previous_foot_vx[env_ids] = 0.0
         self.previous_foot_vx_initialized[env_ids] = False
+        # Keep the same-step update guard intact, but clear cached reward outputs
+        # so a post-reset repeated reward read cannot replay the prior debit.
+        self.clearance_reward[env_ids] = 0.0
+        self.insertion_reward[env_ids] = 0.0
         self.first_touchdown_placement_reward[env_ids] = 0.0
         self.nonpreferred_acquisition_reward[env_ids] = 0.0
         self.physical_touchdown_event[env_ids] = False
@@ -410,6 +418,8 @@ class GeometryAcquisitionRuntime:
         diagnostic_contact_threshold_n: float,
         suppress_riser_face_clearance_credit: bool = False,
         escrow_clearance_until_riser_crossing: bool = False,
+        reversible_clearance_potential: bool = False,
+        clearance_potential_discount_gamma: float = 0.99,
         riser_face_band_m: float = 0.025,
         riser_below_top_margin_m: float = 0.005,
         riser_minimum_horizontal_force_n: float = 30.0,
@@ -452,6 +462,16 @@ class GeometryAcquisitionRuntime:
             raise ValueError(
                 "riser_minimum_previous_forward_speed_mps cannot be negative"
             )
+        if reversible_clearance_potential:
+            if escrow_clearance_until_riser_crossing:
+                raise ValueError(
+                    "reversible clearance potential and clearance escrow are "
+                    "mutually exclusive"
+                )
+            if not 0.0 < clearance_potential_discount_gamma <= 1.0:
+                raise ValueError(
+                    "clearance_potential_discount_gamma must be in (0, 1]"
+                )
 
         cfg = stair_cfg(env)
         riser_height = riser_height_per_env(env)
@@ -739,37 +759,42 @@ class GeometryAcquisitionRuntime:
             clearance_score,
         )
 
-        clearance_delta = (
-            new_clearance_peak - self.best_clearance
-        ).clamp_min(0.0)
+        if reversible_clearance_potential:
+            # Deferred until touchdown/acquisition is known below.  This is
+            # required so a target change terminalizes Phi before state reset.
+            clearance_delta = torch.zeros_like(clearance_score)
+        else:
+            clearance_delta = (
+                new_clearance_peak - self.best_clearance
+            ).clamp_min(0.0)
 
-        if suppress_riser_face_clearance_credit:
-            clearance_delta = torch.where(
-                riser_face_strike_sample,
-                torch.zeros_like(clearance_delta),
-                clearance_delta,
-            )
-
-        if escrow_clearance_until_riser_crossing:
-            # Accumulate bounded monotonic progress without paying it yet.
-            self.pending_clearance.add_(clearance_delta)
-
-            # A target-riser strike invalidates all provisional clearance
-            # accumulated for this foot/current target.
-            self.pending_clearance.copy_(
-                torch.where(
+            if suppress_riser_face_clearance_credit:
+                clearance_delta = torch.where(
                     riser_face_strike_sample,
-                    torch.zeros_like(self.pending_clearance),
-                    self.pending_clearance,
+                    torch.zeros_like(clearance_delta),
+                    clearance_delta,
                 )
-            )
 
-            # Keep provisional clearance credit withheld. It is released
-            # only after verified touchdown/support on the current target
-            # tread below.
-            clearance_delta = torch.zeros_like(clearance_delta)
+            if escrow_clearance_until_riser_crossing:
+                # Accumulate bounded monotonic progress without paying it yet.
+                self.pending_clearance.add_(clearance_delta)
 
-        # Advance the potential even on a strike so credit cannot be paid later.
+                # A target-riser strike invalidates all provisional clearance
+                # accumulated for this foot/current target.
+                self.pending_clearance.copy_(
+                    torch.where(
+                        riser_face_strike_sample,
+                        torch.zeros_like(self.pending_clearance),
+                        self.pending_clearance,
+                    )
+                )
+
+                # Keep provisional clearance credit withheld. It is released
+                # only after verified touchdown/support on the current target
+                # tread below.
+                clearance_delta = torch.zeros_like(clearance_delta)
+
+        # Retain the historical peak only for diagnostics/legacy accounting.
         self.best_clearance.copy_(new_clearance_peak)
 
         # Insertion begins only once substantial clearance has been achieved.
@@ -1050,6 +1075,35 @@ class GeometryAcquisitionRuntime:
         # not replace the dense geometric forward-insertion shaping computed
         # above; otherwise insertion becomes effectively touchdown-only.
 
+        if reversible_clearance_potential:
+            # True terminations zero Phi. Time-limit truncations do not: PPO
+            # bootstraps them, so preserving Phi is required for discount-
+            # consistent potential shaping. A target acquisition is a local
+            # boundary and must debit the old target potential before reset.
+            if self.global_stair_acquisition:
+                target_boundary = physical_touchdown.any(
+                    dim=1, keepdim=True
+                ).expand_as(clearance_score)
+            else:
+                target_boundary = physical_touchdown
+
+            terminated = env.termination_manager.terminated[:, None].expand_as(
+                clearance_score
+            )
+            potential_boundary = terminated | target_boundary
+
+            clearance_delta, next_clearance_potential = (
+                discounted_potential_shaping(
+                    self.clearance_potential,
+                    clearance_score,
+                    potential_boundary,
+                    discount_gamma=float(
+                        clearance_potential_discount_gamma
+                    ),
+                )
+            )
+            self.clearance_potential.copy_(next_clearance_potential)
+
         if escrow_clearance_until_riser_crossing:
             # Verified touchdown is the acquisition event. A foot that only
             # crosses the riser geometrically cannot cash provisional credit.
@@ -1192,6 +1246,13 @@ class GeometryAcquisitionRuntime:
                     reset_mask,
                     torch.zeros_like(self.pending_clearance),
                     self.pending_clearance,
+                )
+            )
+            self.clearance_potential.copy_(
+                torch.where(
+                    reset_mask,
+                    torch.zeros_like(self.clearance_potential),
+                    self.clearance_potential,
                 )
             )
             self.crossing_attempt_invalid.copy_(
@@ -1436,6 +1497,8 @@ class terrain_relative_clearance(ManagerTermBase):
         diagnostic_contact_threshold_n: float = 1.0,
         suppress_riser_face_clearance_credit: bool = False,
         escrow_clearance_until_riser_crossing: bool = False,
+        reversible_clearance_potential: bool = False,
+        clearance_potential_discount_gamma: float = 0.99,
         riser_face_band_m: float = 0.025,
         riser_below_top_margin_m: float = 0.005,
         riser_minimum_horizontal_force_n: float = 30.0,
@@ -1459,6 +1522,8 @@ class terrain_relative_clearance(ManagerTermBase):
             diagnostic_contact_threshold_n=diagnostic_contact_threshold_n,
             suppress_riser_face_clearance_credit=suppress_riser_face_clearance_credit,
             escrow_clearance_until_riser_crossing=escrow_clearance_until_riser_crossing,
+            reversible_clearance_potential=reversible_clearance_potential,
+            clearance_potential_discount_gamma=clearance_potential_discount_gamma,
             riser_face_band_m=riser_face_band_m,
             riser_below_top_margin_m=riser_below_top_margin_m,
             riser_minimum_horizontal_force_n=riser_minimum_horizontal_force_n,
@@ -1502,6 +1567,8 @@ class forward_insertion(ManagerTermBase):
         diagnostic_contact_threshold_n: float = 1.0,
         suppress_riser_face_clearance_credit: bool = False,
         escrow_clearance_until_riser_crossing: bool = False,
+        reversible_clearance_potential: bool = False,
+        clearance_potential_discount_gamma: float = 0.99,
         riser_face_band_m: float = 0.025,
         riser_below_top_margin_m: float = 0.005,
         riser_minimum_horizontal_force_n: float = 30.0,
@@ -1525,6 +1592,8 @@ class forward_insertion(ManagerTermBase):
             diagnostic_contact_threshold_n=diagnostic_contact_threshold_n,
             suppress_riser_face_clearance_credit=suppress_riser_face_clearance_credit,
             escrow_clearance_until_riser_crossing=escrow_clearance_until_riser_crossing,
+            reversible_clearance_potential=reversible_clearance_potential,
+            clearance_potential_discount_gamma=clearance_potential_discount_gamma,
             riser_face_band_m=riser_face_band_m,
             riser_below_top_margin_m=riser_below_top_margin_m,
             riser_minimum_horizontal_force_n=riser_minimum_horizontal_force_n,

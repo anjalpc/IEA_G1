@@ -2,6 +2,7 @@ import torch
 
 from simulation.isaac_lab.g1_stairs.reward_math import (
     discounted_potential_shaping,
+    global_stair_target_update,
 )
 
 
@@ -79,3 +80,77 @@ def test_lift_drop_cycle_has_zero_discounted_return():
         atol=1.0e-6,
         rtol=0.0,
     )
+
+
+def test_target_change_debits_potential_once():
+    gamma = 0.99
+    previous = torch.tensor([0.40])
+
+    debit, previous = discounted_potential_shaping(
+        previous,
+        torch.tensor([0.35]),
+        torch.tensor([True]),
+        discount_gamma=gamma,
+    )
+    repeated, previous = discounted_potential_shaping(
+        previous,
+        torch.tensor([0.0]),
+        torch.tensor([False]),
+        discount_gamma=gamma,
+    )
+
+    torch.testing.assert_close(debit, torch.tensor([-0.40]))
+    torch.testing.assert_close(repeated, torch.tensor([0.0]))
+    torch.testing.assert_close(previous, torch.tensor([0.0]))
+
+
+def test_truncation_keeps_nonterminal_potential_for_bootstrap():
+    gamma = 0.99
+    shaping, next_potential = discounted_potential_shaping(
+        torch.tensor([0.40]),
+        torch.tensor([0.40]),
+        torch.tensor([False]),
+        discount_gamma=gamma,
+    )
+
+    torch.testing.assert_close(
+        shaping, torch.tensor([gamma * 0.40 - 0.40])
+    )
+    torch.testing.assert_close(next_potential, torch.tensor([0.40]))
+
+
+def test_qualified_global_acquisition_debits_old_target_once_and_advances_target():
+    gamma = 0.99
+    target_step = torch.tensor([[0, 0]], dtype=torch.long)
+    physical_touchdown = torch.tensor([[True, False]])
+
+    old_target, acquired, next_target = global_stair_target_update(
+        target_step,
+        physical_touchdown,
+        step_count=3,
+    )
+
+    assert old_target.item() == 0
+    assert acquired.item() is True
+    torch.testing.assert_close(next_target, torch.tensor([[1, 1]]))
+
+    previous = torch.tensor([[0.40, 0.25]])
+    current = torch.tensor([[0.35, 0.20]])
+    target_boundary = physical_touchdown.any(dim=1, keepdim=True).expand_as(current)
+
+    debit, next_potential = discounted_potential_shaping(
+        previous,
+        current,
+        target_boundary,
+        discount_gamma=gamma,
+    )
+    repeated, next_potential = discounted_potential_shaping(
+        next_potential,
+        torch.zeros_like(current),
+        torch.zeros_like(target_boundary),
+        discount_gamma=gamma,
+    )
+
+    torch.testing.assert_close(debit, -previous)
+    torch.testing.assert_close(repeated, torch.zeros_like(repeated))
+    torch.testing.assert_close(next_potential, torch.zeros_like(next_potential))

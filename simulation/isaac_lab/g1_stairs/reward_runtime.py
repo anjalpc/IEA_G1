@@ -287,6 +287,53 @@ def apply_resolved_rewards(
             weights,
             resolved,
         )
+
+        # Potential-based clearance must use the exact PPO discount. Both
+        # acquisition terms share one runtime update, so their accounting
+        # parameters must agree regardless of reward-manager evaluation order.
+        clearance_term = getattr(
+            env_cfg.rewards, "terrain_relative_clearance", None
+        )
+        insertion_term = getattr(
+            env_cfg.rewards, "forward_insertion", None
+        )
+        if (
+            clearance_term is not None
+            and clearance_term.params.get(
+                "reversible_clearance_potential", False
+            )
+        ):
+            gamma = resolved.get("ppo", {}).get("discount_gamma")
+            if gamma is None:
+                raise ValueError(
+                    "reversible clearance potential requires "
+                    "ppo.discount_gamma"
+                )
+            gamma = float(gamma)
+            for name, term in (
+                ("terrain_relative_clearance", clearance_term),
+                ("forward_insertion", insertion_term),
+            ):
+                if term is None:
+                    raise ValueError(
+                        "reversible clearance potential requires both "
+                        "acquisition reward terms"
+                    )
+                if not term.params.get(
+                    "reversible_clearance_potential", False
+                ):
+                    raise ValueError(
+                        f"{name} must enable reversible_clearance_potential"
+                    )
+                configured_gamma = float(
+                    term.params["clearance_potential_discount_gamma"]
+                )
+                if abs(configured_gamma - gamma) > 1.0e-12:
+                    raise ValueError(
+                        f"{name} clearance potential gamma "
+                        f"{configured_gamma} != PPO gamma {gamma}"
+                    )
+
         return weights
 
     rewards_cfg = env_cfg.rewards
