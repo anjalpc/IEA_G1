@@ -67,6 +67,7 @@ reward_experiment:
         first_touchdown_placement: 0.5
         preferred_transition_milestones: 1.0
         coordinated_motion: -1.0
+        phase_swing_contact: 0.0
 
 reward_parameters:
   track_stair_axis_velocity:
