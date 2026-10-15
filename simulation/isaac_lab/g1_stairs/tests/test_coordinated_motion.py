@@ -54,7 +54,10 @@ def fixture():
                step_acquired_event=torch.ones(n,dtype=torch.bool),
                physical_touchdown_event=torch.tensor([[True,False]]*n),
                preferred_transition_event_code=torch.zeros(n,dtype=torch.long),
-               clean_step_over_sequence_failed=torch.zeros(n,dtype=torch.bool))
+               clean_step_over_sequence_failed=torch.zeros(n,dtype=torch.bool),
+               first_step_transition_committed=torch.zeros(n,dtype=torch.bool),
+               first_step_transition_preferred=torch.full((n,),-1,dtype=torch.long),
+               first_step_transition_failed_event=torch.zeros(n,dtype=torch.bool))
     env=NS(num_envs=n,device='cpu',scene=scene,common_step_counter=1,step_dt=.02,
            cfg=NS(coordinated_motion_enabled=True,coordinated_landing_rear_margin_m=.055),
            command_manager=NS(get_command=lambda name: torch.tensor([[.35,0.,0.]]*n)),
@@ -83,6 +86,7 @@ def fixture():
     real.transition_motion_miss_reason = torch.zeros(n,dtype=torch.long)
     real.approach_simultaneous_unload = torch.zeros(n,dtype=torch.bool)
     real.approach_preferred_foot = torch.full((n,),-1,dtype=torch.long)
+    real.first_step_clear_pending = torch.zeros(n,dtype=torch.bool)
     real.last_finished_step = -1
     real._checked_contract = True
     runtime.dynamic_alternating_rewards = True
@@ -183,9 +187,20 @@ class TestCoordinatedMotion(unittest.TestCase):
                      direct_quality_weight=.5, ascent_only_auxiliary=True)
         self.assertEqual(gait.approach_preferred_foot.tolist(),[0,0])
         self.assertTrue(bool(gait.swing_started.all()))
+        # Selection is preview only. No stair reference is active until the
+        # physical step-over contract commits a supported local lift.
+        self.assertEqual(term.target.tolist(),[-1,-1])
+        self.assertEqual(term.preferred.tolist(),[-1,-1])
+        self.assertFalse(bool(term.trace['reference_selected'].any()))
+
+        runtime.first_step_transition_committed.fill_(True)
+        runtime.first_step_transition_preferred.zero_()
+        env.common_step_counter=runtime.last_step=4
+        run_step(env,runtime,gait,term, adaptive_timing=True,
+                 direct_quality_weight=.5, ascent_only_auxiliary=True)
         self.assertEqual(term.target.tolist(),[0,0])
         self.assertEqual(term.preferred.tolist(),[0,0])
-        self.assertTrue(bool(term.trace['reference_selected'].all()))
+        self.assertTrue(bool(term.trace['reference_active'].all()))
         # first step is guided but cannot earn canonical DIRECT escrow credit.
         torch.testing.assert_close(term.trace['direct_quality_credit'],torch.zeros(2))
 
@@ -296,7 +311,7 @@ class TestCoordinatedMotion(unittest.TestCase):
             )
 
         self.assertEqual(gait.approach_preferred_foot.tolist(),[0,0])
-        self.assertEqual(term.preferred.tolist(),[0,0])
+        self.assertEqual(term.preferred.tolist(),[-1,-1])
 
         # Left lands again before the riser while right becomes the next
         # genuine swing. The stale left reference must be invalidated.
@@ -325,9 +340,64 @@ class TestCoordinatedMotion(unittest.TestCase):
             )
 
         self.assertEqual(gait.approach_preferred_foot.tolist(),[1,1])
-        self.assertEqual(term.target.tolist(),[0,0])
-        self.assertEqual(term.preferred.tolist(),[1,1])
+        self.assertEqual(term.target.tolist(),[-1,-1])
+        self.assertEqual(term.preferred.tolist(),[-1,-1])
 
+
+
+    def test_c7_committed_pre_riser_replant_scores_before_clearing(self):
+        env,runtime,gait=fixture()
+        gait.cfg.adaptive_transition_clock=True
+        runtime.target_step.zero_()
+        runtime.preferred_foot.fill_(-1)
+        runtime.step_acquired_event.zero_()
+        runtime.physical_touchdown_event.zero_()
+
+        runtime.robot.data.body_pos_w[:,0,0]=.82
+        runtime.robot.data.body_pos_w[:,1,0]=.62
+        runtime.sensor.data.net_forces_w[:,0,2]=0.
+        runtime.sensor.data.net_forces_w[:,1,2]=100.
+        term=module.CoordinatedMotion(None,env)
+
+        # Preview first.
+        for i in range(1,4):
+            env.common_step_counter=runtime.last_step=i
+            run_step(env,runtime,gait,term, adaptive_timing=True,
+                     direct_quality_weight=.5, ascent_only_auxiliary=True)
+        self.assertEqual(gait.approach_preferred_foot.tolist(),[0,0])
+        self.assertEqual(term.target.tolist(),[-1,-1])
+
+        # Existing physical step-over contract commits this swing.
+        runtime.first_step_transition_committed.fill_(True)
+        runtime.first_step_transition_preferred.zero_()
+        env.common_step_counter=runtime.last_step=4
+        run_step(env,runtime,gait,term, adaptive_timing=True,
+                 direct_quality_weight=.5, ascent_only_auxiliary=True)
+        self.assertEqual(term.target.tolist(),[0,0])
+        self.assertTrue(bool(term.trace['reference_active'].all()))
+
+        # The committed foot replants wholly before the riser. The final sample
+        # must still be scored, then the reference/selection clear exactly once.
+        runtime.sensor.data.net_forces_w[:,0,2]=100.
+        runtime.first_step_transition_failed_event.fill_(True)
+        env.common_step_counter=runtime.last_step=5
+        run_step(env,runtime,gait,term, adaptive_timing=True,
+                 direct_quality_weight=.5, ascent_only_auxiliary=True)
+        self.assertTrue(bool(term.trace['reference_active'].all()))
+        self.assertTrue(bool(term.trace['first_step_failed_event'].all()))
+        self.assertEqual(term.target.tolist(),[-1,-1])
+        self.assertEqual(term.preferred.tolist(),[-1,-1])
+        self.assertEqual(gait.approach_preferred_foot.tolist(),[0,0])
+        self.assertTrue(bool(gait.first_step_clear_pending.all()))
+
+        runtime.first_step_transition_committed.zero_()
+        runtime.first_step_transition_preferred.fill_(-1)
+        runtime.first_step_transition_failed_event.zero_()
+        env.common_step_counter=runtime.last_step=6
+        run_step(env,runtime,gait,term, adaptive_timing=True,
+                 direct_quality_weight=.5, ascent_only_auxiliary=True)
+        self.assertEqual(gait.approach_preferred_foot.tolist(),[-1,-1])
+        self.assertFalse(bool(gait.first_step_clear_pending.any()))
 
     def test_c7_first_step_reference_not_invalidated_at_riser(self):
         env,runtime,gait=fixture()
@@ -351,6 +421,15 @@ class TestCoordinatedMotion(unittest.TestCase):
             )
 
         self.assertEqual(gait.approach_preferred_foot.tolist(),[0,0])
+        runtime.first_step_transition_committed.fill_(True)
+        runtime.first_step_transition_preferred.zero_()
+        env.common_step_counter=runtime.last_step=4
+        run_step(
+            env,runtime,gait,term,
+            adaptive_timing=True, direct_quality_weight=.5,
+            ascent_only_auxiliary=True,
+        )
+        self.assertEqual(term.target.tolist(),[0,0])
 
         # Put selected sole across/at the first-riser region, then reload it.
         # This is no longer an ordinary pre-riser approach replant, so the
@@ -358,7 +437,7 @@ class TestCoordinatedMotion(unittest.TestCase):
         runtime.robot.data.body_pos_w[:,0,0]=1.02
         runtime.sensor.data.net_forces_w[:,0,2]=100.
         runtime.sensor.data.net_forces_w[:,1,2]=100.
-        env.common_step_counter=runtime.last_step=4
+        env.common_step_counter=runtime.last_step=5
         run_step(
             env,runtime,gait,term,
             adaptive_timing=True,

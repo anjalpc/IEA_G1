@@ -57,6 +57,7 @@ class GaitFrequencyAction(ActionTerm):
         self.approach_preferred_foot = torch.full(
             (env.num_envs,), -1, dtype=torch.long, device=env.device
         )
+        self.first_step_clear_pending = torch.zeros_like(self.active)
         self.last_finished_step = -1
         self._checked_contract = False
 
@@ -142,9 +143,32 @@ class GaitFrequencyAction(ActionTerm):
         self.transition_motion_miss_reason[ids] = 0
         self.approach_simultaneous_unload[ids] = False
         self.approach_preferred_foot[ids] = -1
+        self.first_step_clear_pending[ids] = False
+
+    def clear_first_step_selection(self, mask):
+        """Clear first-step preview/clock state for selected environments."""
+        self.approach_preferred_foot.copy_(torch.where(
+            mask, torch.full_like(self.approach_preferred_foot, -1),
+            self.approach_preferred_foot,
+        ))
+        self.swing_started.copy_(torch.where(mask, torch.zeros_like(self.swing_started), self.swing_started))
+        self.active.copy_(torch.where(mask, torch.zeros_like(self.active), self.active))
+        self.phase.copy_(torch.where(mask, torch.zeros_like(self.phase), self.phase))
+        self.reference_expired.copy_(torch.where(mask, torch.zeros_like(self.reference_expired), self.reference_expired))
+        self.endpoint_hold_s.copy_(torch.where(mask, torch.zeros_like(self.endpoint_hold_s), self.endpoint_hold_s))
+        self.selection_wait_s.copy_(torch.where(mask, torch.zeros_like(self.selection_wait_s), self.selection_wait_s))
+        self.transition_motion_miss.copy_(torch.where(mask, torch.zeros_like(self.transition_motion_miss), self.transition_motion_miss))
+        self.transition_motion_miss_reason.copy_(torch.where(mask, torch.zeros_like(self.transition_motion_miss_reason), self.transition_motion_miss_reason))
 
     def finish_step(self, runtime, touchdown_force_n):
         """Score old phase, then advance/realign for the next observation."""
+        if bool(self.first_step_clear_pending.any()):
+            pending = self.first_step_clear_pending.clone()
+            self.clear_first_step_selection(pending)
+            self.first_step_clear_pending.copy_(torch.where(
+                pending, torch.zeros_like(self.first_step_clear_pending),
+                self.first_step_clear_pending,
+            ))
         env = self._env
         step = int(env.common_step_counter)
         if self.last_finished_step == step:
@@ -240,52 +264,15 @@ class GaitFrequencyAction(ActionTerm):
             & (approach_force >= float(self.cfg.support_force_n))
             & (approach_front_x < first_riser_x)
         )
+        # Preview contacts remain legal. Once the physical step-over contract
+        # has committed this first swing, keep ownership through this sample so
+        # CoordinatedMotion can score the final state before clearing it.
+        committed_before_step = getattr(
+            runtime, "first_step_transition_committed",
+            torch.zeros_like(pre_riser_replant),
+        )
+        self.clear_first_step_selection(pre_riser_replant & ~committed_before_step)
 
-        self.approach_preferred_foot.copy_(torch.where(
-            pre_riser_replant,
-            torch.full_like(self.approach_preferred_foot, -1),
-            self.approach_preferred_foot,
-        ))
-        self.swing_started.copy_(torch.where(
-            pre_riser_replant,
-            torch.zeros_like(self.swing_started),
-            self.swing_started,
-        ))
-        self.active.copy_(torch.where(
-            pre_riser_replant,
-            torch.zeros_like(self.active),
-            self.active,
-        ))
-        self.phase.copy_(torch.where(
-            pre_riser_replant,
-            torch.zeros_like(self.phase),
-            self.phase,
-        ))
-        self.reference_expired.copy_(torch.where(
-            pre_riser_replant,
-            torch.zeros_like(self.reference_expired),
-            self.reference_expired,
-        ))
-        self.endpoint_hold_s.copy_(torch.where(
-            pre_riser_replant,
-            torch.zeros_like(self.endpoint_hold_s),
-            self.endpoint_hold_s,
-        ))
-        self.selection_wait_s.copy_(torch.where(
-            pre_riser_replant,
-            torch.zeros_like(self.selection_wait_s),
-            self.selection_wait_s,
-        ))
-        self.transition_motion_miss.copy_(torch.where(
-            pre_riser_replant,
-            torch.zeros_like(self.transition_motion_miss),
-            self.transition_motion_miss,
-        ))
-        self.transition_motion_miss_reason.copy_(torch.where(
-            pre_riser_replant,
-            torch.zeros_like(self.transition_motion_miss_reason),
-            self.transition_motion_miss_reason,
-        ))
 
         first_open = (
             (target == 0)

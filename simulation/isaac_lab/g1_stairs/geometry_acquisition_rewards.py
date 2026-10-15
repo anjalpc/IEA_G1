@@ -3025,6 +3025,10 @@ class step_over_transition_contract(ManagerTermBase):
         self._milestone_credit_paid[env_ids] = 0.0
         self._vertical_clearance_potential[env_ids] = 0.0
         self.last_event_code[env_ids] = 0
+        if hasattr(self.runtime, "first_step_transition_committed"):
+            self.runtime.first_step_transition_committed[env_ids] = False
+            self.runtime.first_step_transition_preferred[env_ids] = -1
+            self.runtime.first_step_transition_failed_event[env_ids] = False
 
     def __call__(
         self,
@@ -3186,6 +3190,24 @@ class step_over_transition_contract(ManagerTermBase):
         self._preferred.copy_(
             torch.where(commit_now, chosen, self._preferred)
         )
+        # Shared first-step commitment telemetry. CoordinatedMotion runs later
+        # in the reward pass and uses this physical contract to distinguish a
+        # previewed approach swing from an active stair swing.
+        first_step_committed_sample = (
+            self._active
+            & (self._target == 0)
+            & (self._preferred >= 0)
+            & ~self._resolved
+        )
+        runtime.first_step_transition_committed = first_step_committed_sample.clone()
+        runtime.first_step_transition_preferred = torch.where(
+            first_step_committed_sample,
+            self._preferred,
+            torch.full_like(self._preferred, -1),
+        )
+        runtime.first_step_transition_failed_event = torch.zeros_like(
+            first_step_committed_sample
+        )
 
         preferred_idx = self._preferred.clamp(0, 1)
         gather1 = preferred_idx[:, None]
@@ -3333,6 +3355,10 @@ class step_over_transition_contract(ManagerTermBase):
                 float(strike_failure_severity_scale)
             ),
         )
+        runtime.first_step_transition_failed_event = (
+            first_step_committed_sample & (event_code >= 2)
+        )
+
         # Any transition-contract failure is sticky for the episode so it
         # cannot be paid once and followed by further stair/finish rewards.
         if not hasattr(runtime, "step_over_contract_violation"):
