@@ -31,6 +31,7 @@ def stair_platform_levels(
     platform_margin_m: float = 0.10,
     minimum_upright_gravity_z: float = 0.75,
     minimum_base_clearance_m: float = 0.55,
+    require_episode_success: bool = False,
 ) -> dict[str, float]:
     """Promote only after a physically credible platform traversal.
 
@@ -49,6 +50,8 @@ def stair_platform_levels(
         )
     if minimum_base_clearance_m <= 0.0:
         raise ValueError("minimum_base_clearance_m must be > 0")
+    if not isinstance(require_episode_success, bool):
+        raise ValueError("require_episode_success must be boolean")
 
     if len(env_ids) == 0:
         terrain = env.scene.terrain
@@ -103,6 +106,14 @@ def stair_platform_levels(
         & rose_with_terrain
         & upright
     )
+    if require_episode_success:
+        runtime = getattr(env, "_g1_geometry_episode", None)
+        if runtime is None:
+            raise RuntimeError(
+                "strict curriculum promotion requires geometry episode runtime"
+            )
+        from .geometry_episode import Result
+        success &= runtime.tracker.reason[env_ids] == Result.SUCCESS
 
     level_count = int(terrain.max_terrain_level)
     attempts, successes = _counter_buffers(

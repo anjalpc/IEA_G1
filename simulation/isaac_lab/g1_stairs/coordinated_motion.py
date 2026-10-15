@@ -57,27 +57,26 @@ class CoordinatedMotion(ManagerTermBase):
 
     def _landing_target(self, cfg, height, target, lane, dtype, device):
         land = torch.zeros((target.shape[0], 3), dtype=dtype, device=device)
-        rear_margin = float(self._env.cfg.coordinated_landing_rear_margin_m)
         neutral_span = (max(p[0] for p in G1_SOLE_SPHERE_CENTRES_M)
                         - min(p[0] for p in G1_SOLE_SPHERE_CENTRES_M)
                         + 2*G1_SOLE_SPHERE_RADIUS_M)
-        low = rear_margin + neutral_span/2
-        high = float(cfg.tread_depth)-.015-neutral_span/2
-        if low > high+1e-6:
-            raise ValueError('C6 tread cannot fit the full sole and configured insertion margins')
+        free = float(cfg.tread_depth) - neutral_span
+        if free < 0.05 - 1e-6:
+            raise ValueError('coordinated foothold needs at least 2.5 cm sole margin per edge')
         land[:, 0] = (float(cfg.start_clearance)
-                      + target.to(dtype)*float(cfg.tread_depth) + (low+high)/2)
+                      + target.to(dtype)*float(cfg.tread_depth)
+                      + 0.5*float(cfg.tread_depth))
         land[:, 1] = lane
         land[:, 2] = (target+1).to(dtype)*height
         return land
 
     def __call__(self, env, swing_weight=.35, stance_weight=.15,
-                 placement_weight=.25, transfer_weight=.15,
+                 prelift_weight=.20, placement_weight=.25, transfer_weight=.15,
                  lateral_weight=.10, arm_weight=.15, finish_weight=.15,
                  clearance_m=.03, position_scale_m=.06,
                  arm_amplitude_rad=.20, direct_quality_weight=0.0,
                  motion_miss_weight=.25, ascent_only_auxiliary=False, adaptive_timing=False):
-        values = (swing_weight, stance_weight, placement_weight, transfer_weight,
+        values = (swing_weight, stance_weight, prelift_weight, placement_weight, transfer_weight,
                   lateral_weight, arm_weight, finish_weight, clearance_m,
                   position_scale_m, arm_amplitude_rad, direct_quality_weight,
                   motion_miss_weight)
@@ -164,17 +163,18 @@ class CoordinatedMotion(ManagerTermBase):
         support_idx = 1-idx
         support_force = force[rows, support_idx]
         support_slip = surface_velocity[rows, support_idx, :, :2].norm(dim=-1).amax(-1)
+        prelift_active = valid & ~swing_started
+        prelift = (
+            (force[rows, idx] / 30.0).clamp(0, 1)
+            + (1.0 - support_force / 30.0).clamp(0, 1)
+        ) * 0.5 * prelift_active
         swing_contact = (((self.progress > .10) & (self.progress < .90)).to(foot.dtype)
                          * (force[rows, idx]/30.).clamp(0, 1))
         stance = (bounded_square(support_slip, .10)
                   + (1-support_force/30.).clamp(0, 1) + swing_contact)/3*tracking_active
 
         tread_start = float(cfg.start_clearance) + self.target.to(foot.dtype)*float(cfg.tread_depth)
-        tread_end = torch.where(
-            self.target == int(cfg.step_count)-1,
-            torch.full_like(tread_start, float(cfg.size[0])-float(cfg.approach_length)+float(cfg.start_clearance)),
-            tread_start+float(cfg.tread_depth),
-        )
+        tread_end = tread_start + float(cfg.tread_depth)
         tread_top = (self.target+1).to(foot.dtype)*height
         selected_bounds = bounds[rows, idx]
         margins = torch.stack((selected_bounds[:, 0]-tread_start,
@@ -182,15 +182,18 @@ class CoordinatedMotion(ManagerTermBase):
                                selected_bounds[:, 2]+float(cfg.size[1])/2,
                                float(cfg.size[1])/2-selected_bounds[:, 3]), -1)
         landing_gate = ((self.progress-.65)/.35).clamp(0, 1)*tracking_active
-        edge_cost = bounded_square((.015-margins).clamp_min(0), .03).mean(-1)
+        edge_cost = bounded_square((.025-margins).clamp_min(0), .025).mean(-1)
+        centre_error_xy = (actual[:, :2] - self.landing[:, :2]).norm(dim=-1)
+        centre_cost = bounded_square(centre_error_xy, position_scale_m)
         up = rotate(quat, foot.new_tensor([0., 0., 1.]).expand_as(foot))
         tilt = torch.acos(up[..., 2].clamp(-1, 1))
         forward = rotate(quat, foot.new_tensor([1., 0., 0.]).expand_as(foot))
         yaw = torch.atan2(forward[..., 1], forward[..., 0])
         surface_speed = surface_velocity.norm(dim=-1).amax(-1)
-        placement_raw = (edge_cost + bounded_square(tilt[rows, idx], .15)
+        placement_raw = (centre_cost + edge_cost
+                         + bounded_square(tilt[rows, idx], .15)
                          + bounded_square(yaw[rows, idx], .20)
-                         + bounded_square(surface_speed[rows, idx], .20))/4
+                         + bounded_square(surface_speed[rows, idx], .20))/5
         placement = landing_gate*placement_raw
 
         load_ratio = force / force.sum(-1, keepdim=True).clamp_min(1.)
@@ -231,10 +234,11 @@ class CoordinatedMotion(ManagerTermBase):
             arm = arm * (selected | (finish_gate > 0)).to(foot.dtype)
         finish = braking*(bounded_square(data.root_lin_vel_w[:, :2]-command[:, :2], .15).mean(-1)
                          + bounded_square(data.root_ang_vel_w, .30).mean(-1))*.5
-        costs = {'swing': swing, 'stance': stance, 'placement': placement,
-                 'transfer': transfer, 'lateral': lateral, 'arm': arm, 'finish': finish}
-        weights = (swing_weight, stance_weight, placement_weight, transfer_weight,
-                   lateral_weight, arm_weight, finish_weight)
+        costs = {'swing': swing, 'stance': stance, 'prelift': prelift,
+                 'placement': placement, 'transfer': transfer, 'lateral': lateral,
+                 'arm': arm, 'finish': finish}
+        weights = (swing_weight, stance_weight, prelift_weight, placement_weight,
+                   transfer_weight, lateral_weight, arm_weight, finish_weight)
         dense_cost = sum(w*c for w,c in zip(weights, costs.values()))
         motion_miss = (
             gait.transition_motion_miss_event.to(foot.dtype)
@@ -251,9 +255,11 @@ class CoordinatedMotion(ManagerTermBase):
         if sequence_failed is None:
             sequence_failed = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
         transition_weight = (swing_weight + stance_weight + lateral_weight
+                             + prelift_weight*prelift_active.to(foot.dtype)
                              + placement_weight*landing_gate
                              + transfer_weight*(self.progress >= .80).to(foot.dtype))
-        transition_cost = (swing_weight*swing + stance_weight*stance + lateral_weight*lateral
+        transition_cost = (swing_weight*swing + stance_weight*stance
+                           + prelift_weight*prelift + lateral_weight*lateral
                            + placement_weight*placement + transfer_weight*transfer)
         transition_quality = torch.where(
             tracking_active & (transition_weight > 0),

@@ -109,7 +109,7 @@ class TestCoordinatedMotion(unittest.TestCase):
         term=module.CoordinatedMotion(None,env)
         run_step(env,runtime,gait,term)
         self.assertFalse(bool(term.trace['reference_active'].any()))
-        self.assertAlmostEqual(float(term.landing[0,0]),1.395,places=5)
+        self.assertAlmostEqual(float(term.landing[0,0]),1.375,places=5)
         runtime.step_acquired_event.zero_()
         runtime.physical_touchdown_event.zero_()
         runtime.sample_preferred_foot.fill_(1)

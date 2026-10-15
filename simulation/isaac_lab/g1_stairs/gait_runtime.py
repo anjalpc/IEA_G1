@@ -85,10 +85,16 @@ class GaitFrequencyAction(ActionTerm):
             if manager.total_action_dim != 30:
                 raise RuntimeError("C3 requires exactly 30 policy outputs")
             dimensions = self._env.observation_manager.group_obs_dim
-            if tuple(dimensions["policy"]) != (489,):
-                raise RuntimeError(f"C3 actor dimensions: {dimensions['policy']}")
-            if tuple(dimensions["critic"]) != (691,):
-                raise RuntimeError(f"C3 critic dimensions: {dimensions['critic']}")
+            expected_policy = int(self.cfg.policy_observation_dim)
+            expected_critic = int(self.cfg.critic_observation_dim)
+            if tuple(dimensions["policy"]) != (expected_policy,):
+                raise RuntimeError(
+                    f"gait actor dimensions: {dimensions['policy']} != {(expected_policy,)}"
+                )
+            if tuple(dimensions["critic"]) != (expected_critic,):
+                raise RuntimeError(
+                    f"gait critic dimensions: {dimensions['critic']} != {(expected_critic,)}"
+                )
             self._checked_contract = True
 
         self._raw.copy_(actions)
@@ -350,6 +356,8 @@ class GaitFrequencyActionCfg(ActionTermCfg):
     first_step_unload_dwell_s: float = 0.06
     liftoff_timeout_s: float = 0.30
     touchdown_grace_s: float = 0.30
+    policy_observation_dim: int = 489
+    critic_observation_dim: int = 691
 
 
 def phase_swing_contact(env):
@@ -376,15 +384,22 @@ def configure_gait(env_cfg, resolved):
         observations.get("preferred_foothold", False)
         or observations.get("preferred_foothold_ablation", False)
     ):
-        raise ValueError("C3 cannot include either C2 foothold mode")
+        raise ValueError("gait mode cannot include legacy C2 foothold channels")
+    coordinated_foothold_xyz = bool(
+        observations.get("coordinated_foothold_xyz", False)
+    )
     if observations.get("actor_height_scan", True):
         raise ValueError("C3 requires actor_height_scan=false")
     if not observations.get("critic_height_scan", False):
         raise ValueError("C3 requires critic_height_scan=true")
 
     initialization = resolved.get("policy_initialization", {})
-    if initialization.get("stair_observations") != 489:
-        raise ValueError("C3 initialization must declare 489 actor inputs")
+    expected_policy_dim = 489 + (3 if coordinated_foothold_xyz else 0)
+    expected_critic_dim = 691 + (3 if coordinated_foothold_xyz else 0)
+    if initialization.get("stair_observations") != expected_policy_dim:
+        raise ValueError(
+            f"gait initialization must declare {expected_policy_dim} actor inputs"
+        )
     if initialization.get("actions") != 30:
         raise ValueError("C3 initialization must declare 30 policy outputs")
     if resolved.get("ppo", {}).get("observation_normalization", False):
@@ -399,6 +414,18 @@ def configure_gait(env_cfg, resolved):
     liftoff_timeout_s = float(options.get("liftoff_timeout_s", 0.30))
     touchdown_grace_s = float(options.get("touchdown_grace_s", 0.30))
     motion_miss_weight = float(options.get("motion_miss_weight", 0.25))
+    coordinated_weights = {
+        "swing_weight": float(options.get("swing_weight", 0.35)),
+        "stance_weight": float(options.get("stance_weight", 0.15)),
+        "prelift_weight": float(options.get("prelift_weight", 0.20)),
+        "placement_weight": float(options.get("placement_weight", 0.25)),
+        "transfer_weight": float(options.get("transfer_weight", 0.15)),
+        "lateral_weight": float(options.get("lateral_weight", 0.10)),
+        "arm_weight": float(options.get("arm_weight", 0.15)),
+        "finish_weight": float(options.get("finish_weight", 0.15)),
+    }
+    if any(value < 0.0 for value in coordinated_weights.values()):
+        raise ValueError("coordinated-motion weights cannot be negative")
     if outcome_conditioned and not options.get("coordinated_motion", False):
         raise ValueError("outcome_conditioned_motion requires coordinated_motion")
     if direct_quality_weight < 0.0:
@@ -425,9 +452,7 @@ def configure_gait(env_cfg, resolved):
         )
         env_cfg.rewards.coordinated_motion = RewardTermCfg(
             func=CoordinatedMotion, weight=-1.0,
-            params=dict(swing_weight=.35, stance_weight=.15,
-                        placement_weight=.25, transfer_weight=.15,
-                        lateral_weight=.10, arm_weight=.15, finish_weight=.15,
+            params=dict(**coordinated_weights,
                         clearance_m=.03, position_scale_m=.06,
                         arm_amplitude_rad=.20,
                         direct_quality_weight=direct_quality_weight if outcome_conditioned else 0.0,
@@ -443,6 +468,8 @@ def configure_gait(env_cfg, resolved):
         first_step_unload_dwell_s=first_step_unload_dwell_s,
         liftoff_timeout_s=liftoff_timeout_s,
         touchdown_grace_s=touchdown_grace_s,
+        policy_observation_dim=expected_policy_dim,
+        critic_observation_dim=expected_critic_dim,
     )
     for group in (env_cfg.observations.policy, env_cfg.observations.critic):
         if group.last_action.history_length != 5:

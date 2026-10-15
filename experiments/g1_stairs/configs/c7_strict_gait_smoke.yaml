@@ -1,0 +1,32 @@
+schema_version: 1
+inheritance:
+  base_config: experiments/g1_stairs/configs/c7_strict_gait_base.yaml
+  resolved_config_required: true
+experiment:
+  id: c7_strict_gait_smoke
+  purpose: C7 strict-gait runtime smoke at fixed 4 cm; no learning claim.
+execution:
+  environments: 32
+  maximum_iterations: 2
+terrain:
+  riser_heights_m:
+  - 0.04
+  curriculum:
+    enabled: false
+policy_initialization:
+  type: rsl_rl_checkpoint_actor_transfer
+  source:
+    task: C6.4_model2049_expanded_for_C7
+    path: /workspace/IEA_G1/experiments/g1_stairs/outputs/initialization/c7_model2049_actor492_actions30.pt
+    sha256: 99ce5fcdea362c10041602a8bf5d0545f9b1c706b157eab093057643f523cca8
+  locomotion_observations: 480
+  explicit_geometry_observations: 5
+  transition_state_observations: 2
+  coordinated_foothold_observations: 3
+  gait_phase_observations: 2
+  stair_observations: 492
+  actions: 30
+  new_observation_initialization: zero
+  critic_initialization: fresh
+  optimizer_initialization: fresh
+  pretrained_actor_trainable: true

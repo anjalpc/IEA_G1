@@ -36,6 +36,15 @@ class GeometryEpisodeRuntime:
             course_end=cfg.size[0] - start_x_in_tile,
             half_width=cfg.size[1] / 2, dt=env.step_dt,
         )
+        self.strict_gait = None
+        if self.contract.strict_stair_gait:
+            from .strict_stair_gait import StrictStairGait
+            self.strict_gait = StrictStairGait(
+                env.num_envs, env.device,
+                first_riser=cfg.start_clearance, tread=cfg.tread_depth,
+                steps=cfg.step_count, half_width=cfg.size[1] / 2,
+                dt=env.step_dt,
+            )
         self.heights = tuple(cfg.riser_heights or (cfg.riser_height_range[0],))
         self.counts = torch.zeros((len(self.heights), len(Result)), dtype=torch.long, device=env.device)
         self.phase_failures = torch.zeros((len(self.heights), 3), dtype=torch.long, device=env.device)
@@ -69,18 +78,21 @@ class GeometryEpisodeRuntime:
         cross = 2 * torch.cross(qv, v, dim=-1)
         rotated = v + fq[:, :, None, :1] * cross + torch.cross(qv, cross, dim=-1)
         finish_state = {}
-        if self.contract.stable_finish:
+        sole_bounds = None
+        if self.contract.stable_finish or self.strict_gait is not None:
             centres = feet[:, :, None, :] + rotated
             radius = G1_SOLE_SPHERE_RADIUS_M
+            sole_bounds = torch.stack((
+                centres[..., 0].amin(-1) - radius,
+                centres[..., 0].amax(-1) + radius,
+                centres[..., 1].amin(-1) - radius,
+                centres[..., 1].amax(-1) + radius,
+                centres[..., 2].amin(-1) - radius,
+                centres[..., 2].amax(-1) - radius,
+            ), dim=-1)
+        if self.contract.stable_finish:
             finish_state = {
-                "sole_bounds": torch.stack((
-                    centres[..., 0].amin(-1) - radius,
-                    centres[..., 0].amax(-1) + radius,
-                    centres[..., 1].amin(-1) - radius,
-                    centres[..., 1].amax(-1) + radius,
-                    centres[..., 2].amin(-1) - radius,
-                    centres[..., 2].amax(-1) - radius,
-                ), dim=-1),
+                "sole_bounds": sole_bounds,
                 "body_linear_velocity": data.root_lin_vel_w,
                 "body_angular_velocity": data.root_ang_vel_w,
                 "foot_linear_velocity": data.body_lin_vel_w[:, self.robot_feet],
@@ -129,6 +141,33 @@ class GeometryEpisodeRuntime:
         if step_over_contract_violation is None:
             step_over_contract_violation = torch.zeros_like(invalid)
 
+        strict_complete = None
+        if self.strict_gait is not None:
+            from .motion_reference import rotate
+            surface_velocity = (
+                data.body_lin_vel_w[:, self.robot_feet, None, :]
+                + torch.cross(
+                    data.body_ang_vel_w[:, self.robot_feet, None, :].expand_as(rotated),
+                    rotated,
+                    dim=-1,
+                )
+            )
+            up = rotate(
+                fq, fq.new_tensor([0.0, 0.0, 1.0]).expand(env.num_envs, 2, 3)
+            )
+            forward = rotate(
+                fq, fq.new_tensor([1.0, 0.0, 0.0]).expand(env.num_envs, 2, 3)
+            )
+            violation, strict_complete = self.strict_gait.update(
+                sole_bounds,
+                forces[:, self.sensor_feet],
+                surface_velocity.norm(dim=-1).amax(-1),
+                torch.acos(up[..., 2].clamp(-1, 1)),
+                torch.atan2(forward[..., 1], forward[..., 0]),
+                riser_height_per_env(env),
+            )
+            step_over_contract_violation = step_over_contract_violation | violation
+
         reason = self.tracker.update(
             position=position, roll_pitch=torch.stack((roll, pitch), -1),
             riser_height=riser_height_per_env(env), foot_position=feet,
@@ -139,6 +178,7 @@ class GeometryEpisodeRuntime:
             torque_limit=(data.applied_torque.abs() > data.joint_effort_limits + 1.e-3).any(-1),
             timed_out=env.episode_length_buf >= env.max_episode_length,
             step_over_contract_violation=step_over_contract_violation,
+            strict_gait_complete=strict_complete,
             **finish_state,
         )
         self._record_joint_limit_diagnostics(env, data, limits, reason)
@@ -368,6 +408,9 @@ def finish_geometry_episodes(
             ids, move_up=move_up, move_down=move_down
         )
     tracker.reset(ids)
+    strict_gait = getattr(runtime, "strict_gait", None)
+    if strict_gait is not None:
+        strict_gait.reset(ids)
     return float(success.float().mean().item())
 
 

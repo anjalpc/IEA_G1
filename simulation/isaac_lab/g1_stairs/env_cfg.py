@@ -386,6 +386,7 @@ class StairRewardsCfg:
             "target_velocity_mps": FIXED_FORWARD_COMMAND_MPS,
             "std_mps": 0.25,
             "command_name": None,
+            "ascent_scale": 1.0,
         },
     )
     stair_centerline_error = RewTerm(

@@ -246,6 +246,17 @@ class GeometryTrace:
             float(runtime.tracker.dwell[0].item())
             if runtime is not None else None
         )
+        episode_runtime = getattr(env, "_g1_geometry_episode", None)
+        strict = getattr(episode_runtime, "strict_gait", None)
+        if strict is not None:
+            row["strict_stair_gait"] = {
+                "acquisitions": int(strict.count[0].item()),
+                "last_foot": int(strict.last_foot[0].item()),
+                "failed": bool(strict.failed[0].item()),
+                "reason": int(strict.reason[0].item()),
+                "pending_foot": int(strict.pending[0].item()),
+                "support_dwell_s": float(strict.dwell[0].item()),
+            }
         self.stream.write(json.dumps(row, allow_nan=False) + "\n")
 
     def compute(self, dt):

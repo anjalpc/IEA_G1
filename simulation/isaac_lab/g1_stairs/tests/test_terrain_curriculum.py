@@ -198,5 +198,54 @@ class TerrainCurriculumTests(unittest.TestCase):
         )
 
 
+    def test_strict_promotion_requires_episode_success(self):
+        from simulation.isaac_lab.g1_stairs import terrain_curriculum
+        from simulation.isaac_lab.g1_stairs.geometry_episode import Result
+
+        terrain = types.SimpleNamespace(
+            terrain_levels=torch.tensor([0, 0], dtype=torch.long),
+            max_terrain_level=2,
+        )
+        def update_env_origins(env_ids, move_up, move_down):
+            terrain.terrain_levels[env_ids] += (
+                move_up.to(torch.long) - move_down.to(torch.long)
+            )
+        terrain.update_env_origins = update_env_origins
+        terrain.cfg = types.SimpleNamespace(
+            terrain_generator=types.SimpleNamespace(
+                sub_terrains={
+                    "three_step_ascent": types.SimpleNamespace(
+                        riser_heights=(0.04, 0.08),
+                        start_clearance=1.0, step_count=3, tread_depth=0.25,
+                    )
+                }
+            )
+        )
+        robot = types.SimpleNamespace(
+            data=types.SimpleNamespace(
+                root_pos_w=torch.tensor([[1.90, 0.0, 0.80], [1.90, 0.0, 0.80]]),
+                projected_gravity_b=torch.tensor([[0.0, 0.0, -1.0], [0.0, 0.0, -1.0]]),
+            )
+        )
+        class Scene(types.SimpleNamespace):
+            def __getitem__(self, name):
+                return robot
+        tracker = types.SimpleNamespace(
+            reason=torch.tensor([Result.SUCCESS, Result.STEP_OVER_CONTRACT], dtype=torch.long)
+        )
+        env = types.SimpleNamespace(
+            scene=Scene(terrain=terrain, env_origins=torch.zeros((2, 3))),
+            num_envs=2,
+            episode_length_buf=torch.tensor([100, 100], dtype=torch.long),
+            _g1_geometry_episode=types.SimpleNamespace(tracker=tracker),
+        )
+
+        result = terrain_curriculum.stair_platform_levels(
+            env, torch.tensor([0, 1]), require_episode_success=True,
+        )
+
+        self.assertEqual(terrain.terrain_levels.tolist(), [1, 0])
+        self.assertAlmostEqual(result["reset_success_rate"], 0.5)
+
 if __name__ == "__main__":
     unittest.main()

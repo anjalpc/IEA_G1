@@ -162,8 +162,15 @@ def stair_geometry(
       7 preferred-foot rear-edge error to desired next-tread foothold
       8 preferred-foot sole-height error to next-tread surface
 
-    C1/C2 transition features are zero before the first verified stair
-    acquisition and after the final stair acquisition.
+    C7 coordinated foothold mode preserves the existing C3/C6 prefix:
+      7 gait phase sin
+      8 gait phase cos
+    and appends:
+      9 preferred-foot X error to the active coordinated landing target
+      10 preferred-foot Y error to the active coordinated landing target
+      11 preferred-foot Z error to the active coordinated landing target
+
+    Transition/foothold features are zero when no stair target is active.
     """
 
     robot = env.scene[asset_cfg.name]
@@ -329,9 +336,61 @@ def stair_geometry(
         dim=1,
     )
 
-    if getattr(env.cfg, "gait_phase_enabled", False):
-        clock = env.action_manager.get_term("gait_frequency").observation()
-        return torch.cat((c1, clock), dim=1)
+    # --------------------------------------------------------
+    # C7: exact coordinated landing-target error (X/Y/Z)
+    # --------------------------------------------------------
+    coordinated_xyz = bool(
+        getattr(env.cfg, "coordinated_foothold_observation", False)
+    )
+    if coordinated_xyz:
+        foothold_xyz = torch.zeros(
+            (env.num_envs, 3), dtype=root_x.dtype, device=root_x.device
+        )
+        motion = getattr(env, "_g1_coordinated_motion", None)
+        if motion is not None and runtime is not None:
+            from .motion_reference import sole_state
+
+            data = runtime.robot.data
+            foot_pos = (
+                data.body_pos_w[:, runtime.robot_foot_ids]
+                - env.scene.env_origins[:, None, :]
+            )
+            foot_quat = data.body_quat_w[:, runtime.robot_foot_ids]
+            centre, _bounds, _surface_velocity = sole_state(
+                foot_pos, foot_quat,
+                data.body_lin_vel_w[:, runtime.robot_foot_ids],
+                data.body_ang_vel_w[:, runtime.robot_foot_ids],
+            )
+            rows = torch.arange(env.num_envs, device=root_x.device)
+            preferred_motion = motion.preferred
+            target_motion = motion.target
+            idx = preferred_motion.clamp(0, 1)
+            actual = centre[rows, idx]
+            valid_motion = (
+                (preferred_motion >= 0)
+                & (target_motion >= 0)
+                & (target_motion < step_count)
+                & (riser_height > 1.0e-8)
+            )
+            delta = motion.landing - actual
+            scales = torch.stack((
+                torch.full_like(riser_height, tread_depth),
+                torch.full_like(riser_height, max(tread_depth, 0.25)),
+                torch.where(
+                    riser_height > 1.0e-8,
+                    riser_height,
+                    torch.ones_like(riser_height),
+                ),
+            ), dim=1)
+            normalized = (delta / scales.clamp_min(1.0e-6)).clamp(-1.0, 1.0)
+            foothold_xyz = torch.where(
+                valid_motion[:, None], normalized, foothold_xyz
+            )
+            if not torch.isfinite(foothold_xyz).all():
+                raise RuntimeError("non-finite coordinated foothold observation")
+        coordinated_features = foothold_xyz
+    else:
+        coordinated_features = None
 
     # --------------------------------------------------------
     # C2: preferred-foot next-tread foothold error
@@ -358,8 +417,21 @@ def stair_geometry(
             "cannot both be enabled"
         )
 
+    if coordinated_xyz and (foothold_enabled or foothold_ablation):
+        raise RuntimeError(
+            "coordinated foothold observation cannot be combined with C2 foothold modes"
+        )
+
     if not foothold_enabled and not foothold_ablation:
-        return c1
+        result = c1
+        if getattr(env.cfg, "gait_phase_enabled", False):
+            clock = env.action_manager.get_term("gait_frequency").observation()
+            result = torch.cat((result, clock), dim=1)
+        # Preserve the complete 489-D C3/C6 actor prefix. New C7 foothold
+        # channels are appended so zero-column actor expansion is exact.
+        if coordinated_features is not None:
+            result = torch.cat((result, coordinated_features), dim=1)
+        return result
 
     foothold = torch.zeros(
         (env.num_envs, 2),
@@ -471,10 +543,11 @@ def stair_geometry(
     if foothold_ablation:
         foothold.zero_()
 
-    return torch.cat(
-        (c1, foothold),
-        dim=1,
-    )
+    result = torch.cat((c1, foothold), dim=1)
+    if getattr(env.cfg, "gait_phase_enabled", False):
+        clock = env.action_manager.get_term("gait_frequency").observation()
+        result = torch.cat((result, clock), dim=1)
+    return result
 
 def stair_velocity_command(
     env,

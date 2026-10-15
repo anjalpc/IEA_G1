@@ -44,6 +44,7 @@ def track_stair_axis_velocity(
     std_mps: float = 0.25,
     asset_cfg=None,
     command_name: str | None = None,
+    ascent_scale: float = 1.0,
 ) -> torch.Tensor:
     """Reward world/stair-frame +X velocity while suppressing lateral speed."""
 
@@ -51,6 +52,8 @@ def track_stair_axis_velocity(
         raise ValueError("target_velocity_mps must be in [0.0, 0.50]")
     if std_mps <= 0.0:
         raise ValueError("std_mps must be positive")
+    if not 0.0 <= ascent_scale <= 1.0:
+        raise ValueError("ascent_scale must be in [0, 1]")
 
     asset_name = "robot" if asset_cfg is None else asset_cfg.name
     robot = env.scene[asset_name]
@@ -63,11 +66,28 @@ def track_stair_axis_velocity(
         torch.square(velocity[:, 0] - target)
         + torch.square(velocity[:, 1])
     )
-    return exp_tracking_score(
+    score = exp_tracking_score(
         squared_error,
         std_mps * std_mps,
         zero_centered=False,
     )
+    if ascent_scale < 1.0:
+        from .terrain_state import riser_height_per_env, stair_cfg
+        cfg = stair_cfg(env)
+        local_x = robot.data.root_pos_w[:, 0] - env.scene.env_origins[:, 0]
+        platform_start = float(cfg.start_clearance) + int(cfg.step_count) * float(cfg.tread_depth)
+        on_stairs = (
+            (riser_height_per_env(env) > 1.0e-8)
+            & (local_x >= float(cfg.start_clearance) - 0.10)
+            & (local_x < platform_start)
+        )
+        scale = torch.where(
+            on_stairs,
+            torch.full_like(score, float(ascent_scale)),
+            torch.ones_like(score),
+        )
+        score = score * scale
+    return score
 
 
 def stair_centerline_error(

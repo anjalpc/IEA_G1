@@ -219,6 +219,11 @@ def main() -> None:
                             "minimum_base_clearance_m", 0.55
                         )
                     ),
+                    "require_episode_success": bool(
+                        curriculum_cfg.get(
+                            "require_strict_success_for_promotion", False
+                        )
+                    ),
                 },
             )
         else:
@@ -684,6 +689,15 @@ def main() -> None:
         foothold_ablation
     )
 
+    coordinated_foothold_xyz = bool(
+        observation_cfg.get("coordinated_foothold_xyz", False)
+    )
+    if coordinated_foothold_xyz and (foothold_obs_enabled or foothold_ablation):
+        raise ValueError(
+            "coordinated_foothold_xyz cannot be combined with C2 foothold modes"
+        )
+    env_cfg.coordinated_foothold_observation = coordinated_foothold_xyz
+
     env_cfg.preferred_foothold_tread_margin_m = float(
         observation_cfg.get(
             "preferred_foothold_tread_margin_m",
@@ -700,6 +714,11 @@ def main() -> None:
     print(
         "[INFO] Preferred foothold ablation:",
         foothold_ablation,
+        flush=True,
+    )
+    print(
+        "[INFO] Coordinated foothold XYZ observation:",
+        coordinated_foothold_xyz,
         flush=True,
     )
 

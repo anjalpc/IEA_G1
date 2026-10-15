@@ -41,6 +41,7 @@ class EpisodeContract:
     progress_epsilon_m: float = 0.02
     wrong_direction_tolerance_m: float = 0.25
 
+    strict_stair_gait: bool = False
     stable_finish: bool = False
     finish_sole_margin_m: float = 0.05
     finish_max_linear_speed_mps: float = 0.15
@@ -49,10 +50,12 @@ class EpisodeContract:
     finish_max_roll_pitch_rad: float = 0.20
 
     def __post_init__(self):
+        if not isinstance(self.strict_stair_gait, bool):
+            raise ValueError("strict_stair_gait must be a boolean")
         if not isinstance(self.stable_finish, bool):
             raise ValueError("stable_finish must be a boolean")
         for name, value in vars(self).items():
-            if name == "stable_finish":
+            if name in ("strict_stair_gait", "stable_finish"):
                 continue
             if not math.isfinite(value) or value <= 0:
                 raise ValueError(f"episode_contract.{name} must be finite and positive")
@@ -112,7 +115,7 @@ class EpisodeTracker:
     def update(self, *, position, roll_pitch, riser_height, foot_position,
                foot_force_z, forbidden_contact, invalid_state, joint_limit,
                velocity_limit, torque_limit, timed_out,
-               step_over_contract_violation=None,
+               step_over_contract_violation=None, strict_gait_complete=None,
                sole_bounds=None, body_linear_velocity=None,
                body_angular_velocity=None, foot_linear_velocity=None):
         active = self.reason == Result.RUNNING
@@ -211,9 +214,21 @@ class EpisodeTracker:
 
         supported_platform = (x >= self.platform_start) & support & upright & clearance_ok
         valid = active & ~invalid_state & ~forbidden_contact & ~boundary
+        # Keep physical platform diagnostics independent of the strict gait
+        # success gate. A robot that reaches the platform with bad gait must
+        # remain visible as physical traversal, not disappear from metrics.
         self.platform_contact_seen |= valid & upper_platform_contact
         self.platform_seen |= valid & supported_platform
         self.entered_stairs |= active & (x >= self.first_riser) & (riser_height > 0)
+        success_valid = valid
+        if self.cfg.strict_stair_gait:
+            if strict_gait_complete is None:
+                raise ValueError("strict stair success requires physical gait evidence")
+            if strict_gait_complete.shape != active.shape:
+                raise ValueError("strict_gait_complete must match episode shape")
+            success_valid = success_valid & strict_gait_complete.to(
+                device=active.device, dtype=torch.bool
+            )
         # Phase is diagnostic. Reaching a load-bearing upper-platform contact
         # is enough to classify a later failure as a platform failure even if
         # the strict V05 settling predicate was never satisfied.
@@ -221,7 +236,7 @@ class EpisodeTracker:
             self.platform_contact_seen, 2,
             torch.where(x >= self.first_riser, 1, 0),
         )
-        dwelling = valid & supported_platform & (x >= self.completion_x)
+        dwelling = success_valid & supported_platform & (x >= self.completion_x)
         self.dwell = torch.where(active, torch.where(dwelling, self.dwell + self.dt, 0.0), self.dwell)
         new_best_dwell = torch.maximum(self.best_dwell, self.dwell)
         self.dwell_peak_increment = torch.where(
