@@ -1,0 +1,12 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/c7_clearance_bootstrap_diag50.yaml
+  resolved_config_required: true
+
+experiment:
+  id: c7_clearance_dwell002_runtime_diag
+  purpose: Frozen-actor diagnostic of first-step unload dwell 0.02 s versus 0.06 s.
+
+gait:
+  first_step_unload_dwell_s: 0.02

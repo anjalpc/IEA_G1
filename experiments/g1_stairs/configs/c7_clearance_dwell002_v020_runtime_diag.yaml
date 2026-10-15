@@ -1,0 +1,12 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/c7_clearance_dwell002_runtime_diag.yaml
+  resolved_config_required: true
+
+experiment:
+  id: c7_clearance_dwell002_v020_runtime_diag
+  purpose: Frozen C7 actor diagnostic with 0.20 m/s forward command.
+
+command:
+  forward_velocity_mps: 0.20

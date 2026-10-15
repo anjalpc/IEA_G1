@@ -1,0 +1,13 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/c7_clearance_dwell002_runtime_diag.yaml
+  resolved_config_required: true
+
+experiment:
+  id: c7_near_riser035_runtime_diag
+  purpose: Frozen-actor diagnostic with first riser 0.35 m ahead so stair-transition eligibility exists from episode start.
+
+specialist_stair:
+  staging:
+    distance_before_riser_m: [0.35, 0.35]

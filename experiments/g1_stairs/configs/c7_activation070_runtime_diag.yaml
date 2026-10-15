@@ -1,0 +1,12 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/c7_clearance_dwell002_runtime_diag.yaml
+  resolved_config_required: true
+
+experiment:
+  id: c7_activation070_runtime_diag
+  purpose: Frozen model0 diagnostic with earlier first-step activation only.
+
+gait:
+  first_step_activation_distance_m: 0.70

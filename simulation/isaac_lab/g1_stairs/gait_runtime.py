@@ -1,5 +1,6 @@
 """Opt-in C3 internal cadence action; physical joint control is unchanged."""
 
+import math
 import torch
 from isaaclab.managers import ActionTerm, ActionTermCfg, RewardTermCfg
 from isaaclab.utils import configclass
@@ -509,6 +510,11 @@ def configure_gait(env_cfg, resolved):
     ascent_only_auxiliary = bool(options.get("ascent_only_auxiliary", False))
     adaptive_timing = bool(options.get("adaptive_timing", False))
     smoothing_tau_s = float(options.get("frequency_smoothing_tau_s", 0.0))
+    first_step_activation_distance_m = float(
+        options.get("first_step_activation_distance_m", 0.35)
+    )
+    if not math.isfinite(first_step_activation_distance_m) or first_step_activation_distance_m <= 0.0:
+        raise ValueError("gait.first_step_activation_distance_m must be finite and positive")
     first_step_unload_dwell_s = float(options.get("first_step_unload_dwell_s", 0.06))
     liftoff_timeout_s = float(options.get("liftoff_timeout_s", 0.30))
     touchdown_grace_s = float(options.get("touchdown_grace_s", 0.30))
@@ -564,6 +570,7 @@ def configure_gait(env_cfg, resolved):
         learned=(mode == "learned"),
         smoothing_tau_s=smoothing_tau_s if adaptive_timing else 0.0,
         adaptive_transition_clock=adaptive_timing,
+        first_step_activation_distance_m=first_step_activation_distance_m,
         first_step_unload_dwell_s=first_step_unload_dwell_s,
         liftoff_timeout_s=liftoff_timeout_s,
         touchdown_grace_s=touchdown_grace_s,
