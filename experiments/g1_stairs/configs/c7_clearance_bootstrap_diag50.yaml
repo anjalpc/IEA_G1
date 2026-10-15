@@ -1,0 +1,56 @@
+schema_version: 1
+inheritance:
+  base_config: experiments/g1_stairs/configs/c7_strict_gait_base.yaml
+  resolved_config_required: true
+experiment:
+  id: c7_clearance_bootstrap_diag50
+  purpose: C7 strict alternating stair curriculum 4/8/12/16/20 cm from C6.4 model2049
+    actor.
+execution:
+  maximum_iterations: 50
+terrain:
+  riser_heights_m:
+    - 0.00
+    - 0.04
+    - 0.08
+    - 0.12
+    - 0.16
+    - 0.20
+  curriculum:
+    enabled: true
+    initial_max_level: 1
+    platform_margin_m: 0.1
+    minimum_upright_gravity_z: 0.75
+    minimum_base_clearance_m: 0.55
+    minimum_nonflat_env_fraction: 0.75
+    require_strict_success_for_promotion: true
+policy_initialization:
+  type: rsl_rl_checkpoint_actor_transfer
+  source:
+    task: C6.4_model2049_expanded_for_C7
+    path: /workspace/IEA_G1/experiments/g1_stairs/outputs/initialization/c7_model2049_actor492_actions30.pt
+    sha256: 99ce5fcdea362c10041602a8bf5d0545f9b1c706b157eab093057643f523cca8
+  locomotion_observations: 480
+  explicit_geometry_observations: 5
+  transition_state_observations: 2
+  coordinated_foothold_observations: 3
+  gait_phase_observations: 2
+  stair_observations: 492
+  actions: 30
+  new_observation_initialization: zero
+  critic_initialization: fresh
+  optimizer_initialization: fresh
+  pretrained_actor_trainable: true
+
+reward_experiment:
+  active_stage: geometry_locomotion_c7_strict
+  rewards:
+    stage_plan:
+      geometry_locomotion_c7_strict:
+        first_touchdown_placement: 0.0
+
+reward_parameters:
+  terrain_relative_clearance:
+    escrow_clearance_until_riser_crossing: false
+  forward_insertion:
+    escrow_clearance_until_riser_crossing: false
