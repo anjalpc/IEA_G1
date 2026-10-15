@@ -106,36 +106,34 @@ class CoordinatedMotion(ManagerTermBase):
         rows = torch.arange(env.num_envs, device=env.device)
         gait = env.action_manager.get_term('gait_frequency')
 
-        # First-step selection is preview only. The stair reference becomes
-        # active only when the existing physical step-over contract commits a
-        # supported local lift.
+        # C6 first-step guidance: once the gait runtime observes a real unloaded
+        # approach foot near the first riser, install target 0. No canonical
+        # sequence credit is available for this bootstrap transition.
         if adaptive_timing:
-            first_committed = getattr(
-                runtime, "first_step_transition_committed",
-                torch.zeros(env.num_envs, dtype=torch.bool, device=env.device),
-            )
-            committed_foot = getattr(
-                runtime, "first_step_transition_preferred",
-                torch.full((env.num_envs,), -1, dtype=torch.long, device=env.device),
-            )
+            approach_foot = gait.approach_preferred_foot
 
+            # gait_runtime may invalidate a provisional first-step reference
+            # after that foot makes an ordinary pre-riser approach landing.
+            # Drop the matching motion reference before selecting the next swing.
             invalidate_first = (
                 (self.target == 0)
                 & (runtime.target_step[:, 0] == 0)
-                & ~first_committed
-                & ~getattr(
-                    runtime, "first_step_transition_failed_event",
-                    torch.zeros_like(first_committed),
-                )
+                & (approach_foot < 0)
             )
             self.target.copy_(torch.where(
-                invalidate_first, torch.full_like(self.target, -1), self.target
+                invalidate_first,
+                torch.full_like(self.target, -1),
+                self.target,
             ))
             self.preferred.copy_(torch.where(
-                invalidate_first, torch.full_like(self.preferred, -1), self.preferred
+                invalidate_first,
+                torch.full_like(self.preferred, -1),
+                self.preferred,
             ))
             self.progress.copy_(torch.where(
-                invalidate_first, torch.zeros_like(self.progress), self.progress
+                invalidate_first,
+                torch.zeros_like(self.progress),
+                self.progress,
             ))
             self.previous_reference_velocity.copy_(torch.where(
                 invalidate_first[:, None],
@@ -143,14 +141,9 @@ class CoordinatedMotion(ManagerTermBase):
                 self.previous_reference_velocity,
             ))
 
-            install_first = (
-                (self.target < 0)
-                & (runtime.target_step[:, 0] == 0)
-                & first_committed
-                & (committed_foot >= 0)
-                & (height > 1e-8)
-            )
-            first_idx = committed_foot.clamp(0, 1)
+            install_first = ((self.target < 0) & (runtime.target_step[:, 0] == 0)
+                             & (approach_foot >= 0) & (height > 1e-8))
+            first_idx = approach_foot.clamp(0, 1)
             first_start = centre[rows, first_idx]
             first_target = torch.zeros_like(self.target)
             first_land = self._landing_target(
@@ -159,9 +152,8 @@ class CoordinatedMotion(ManagerTermBase):
             self.start.copy_(torch.where(install_first[:, None], first_start, self.start))
             self.landing.copy_(torch.where(install_first[:, None], first_land, self.landing))
             self.target.copy_(torch.where(install_first, first_target, self.target))
-            self.preferred.copy_(torch.where(install_first, committed_foot, self.preferred))
+            self.preferred.copy_(torch.where(install_first, approach_foot, self.preferred))
             self.progress.copy_(torch.where(install_first, torch.zeros_like(self.progress), self.progress))
-
 
         idx = self.preferred.clamp(0, 1)
         actual = centre[rows, idx]
@@ -373,33 +365,6 @@ class CoordinatedMotion(ManagerTermBase):
                       'foot_load_ratio': load_ratio, 'finish_gate': finish_gate,
                       'braking_gate': braking, 'arm_reference_rad': arm_reference[:, self.arm_ids],
                       'arm_error_rad': arm_error, 'arm_target_error_rad': target_error}
-
-        first_step_failed = (
-            getattr(
-                runtime, "first_step_transition_failed_event",
-                torch.zeros(env.num_envs, dtype=torch.bool, device=env.device),
-            )
-            if adaptive_timing else torch.zeros_like(selected)
-        )
-        self.trace['first_step_failed_event'] = first_step_failed.clone()
-        # Preserve the failed committed swing through all scoring above, then
-        # clear both motion-reference and preview state exactly once.
-        if adaptive_timing and bool(first_step_failed.any()):
-            self.target.copy_(torch.where(
-                first_step_failed, torch.full_like(self.target, -1), self.target
-            ))
-            self.preferred.copy_(torch.where(
-                first_step_failed, torch.full_like(self.preferred, -1), self.preferred
-            ))
-            self.progress.copy_(torch.where(
-                first_step_failed, torch.zeros_like(self.progress), self.progress
-            ))
-            self.previous_reference_velocity.copy_(torch.where(
-                first_step_failed[:, None],
-                torch.zeros_like(self.previous_reference_velocity),
-                self.previous_reference_velocity,
-            ))
-            gait.first_step_clear_pending.logical_or_(first_step_failed)
 
         # Score the OLD transition before installing the next canonical target.
         event = runtime.step_acquired_event
