@@ -322,6 +322,37 @@ class TestCoordinatedMotion(unittest.TestCase):
         self.assertFalse(bool(term.trace['reference_active'].any()))
         torch.testing.assert_close(term.trace['direct_quality_credit'],torch.zeros(2))
 
+    def test_one_shot_motion_miss_uses_configured_episode_magnitude(self):
+        env,runtime,gait=fixture()
+        gait.transition_motion_miss_event.fill_(True)
+        term=module.CoordinatedMotion(None,env)
+        value = term(
+            env, swing_weight=0., stance_weight=0., prelift_weight=0.,
+            placement_weight=0., transfer_weight=0., lateral_weight=0.,
+            arm_weight=0., finish_weight=0., direct_quality_weight=0.,
+            motion_miss_weight=.25, adaptive_timing=True,
+        )
+        # RewardManager multiplies this cost by coordinated_motion weight -1
+        # and then dt, yielding a -0.25 one-shot episode contribution.
+        torch.testing.assert_close(value, torch.full((2,), 12.5))
+
+    def test_one_shot_direct_quality_uses_configured_episode_magnitude(self):
+        env,runtime,gait=fixture()
+        term=module.CoordinatedMotion(None,env)
+        with patch.object(
+            module, 'transition_quality_escrow_update',
+            return_value=(torch.zeros(2), torch.zeros(2), torch.ones(2)),
+        ):
+            value = run_step(
+                env, runtime, gait, term,
+                swing_weight=0., stance_weight=0., prelift_weight=0.,
+                placement_weight=0., transfer_weight=0., lateral_weight=0.,
+                arm_weight=0., finish_weight=0., direct_quality_weight=.5,
+            )
+        # CoordinatedMotion has reward weight -1. RewardManager later multiplies
+        # by dt, so -25 here becomes +0.5 episode reward.
+        torch.testing.assert_close(value, torch.full((2,), -25.0))
+
     def test_c61_late_direct_after_motion_miss_cannot_release_escrow(self):
         env,runtime,gait=fixture()
         gait.cfg.adaptive_transition_clock=True; gait.cfg.liftoff_timeout_s=.02

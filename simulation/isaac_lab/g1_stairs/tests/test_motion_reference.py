@@ -4,6 +4,7 @@ import torch
 from simulation.isaac_lab.g1_stairs.motion_reference import (
     sole_state, swing_reference, bounded_square, normalized_huber,
     target_support_mask, transition_quality_escrow_update,
+    strict_tread_landing_mask, riser_contact_masks,
 )
 
 
@@ -84,6 +85,31 @@ class TestMotionReference(unittest.TestCase):
             tread_top=torch.tensor([.04,.04,.04]),
             terrain_half_width=.60, min_force_n=30., height_tolerance_m=.025)
         self.assertEqual(result.tolist(), [True, False, False])
+
+    def test_strict_landing_rejects_final_tread_overrun_and_loose_height(self):
+        bounds = torch.tensor([[1.535, 1.715, -.10, -.03, .12, .12],
+                               [1.535, 1.715, -.10, -.03, .135, .135],
+                               [1.60, 1.78, -.10, -.03, .12, .12]])
+        result = strict_tread_landing_mask(
+            bounds, torch.full((3,), 100.), torch.zeros(3), torch.zeros(3),
+            torch.zeros(3), tread_start=torch.full((3,), 1.50),
+            tread_end=torch.full((3,), 1.75), tread_top=torch.full((3,), .12),
+            lane_target=torch.full((3,), -.065), terrain_half_width=.60,
+            riser_height=torch.full((3,), .04),
+        )
+        self.assertEqual(result.tolist(), [True, False, False])
+
+    def test_riser_strike_detects_below_edge_face_collision(self):
+        # Horizontal force while the whole sole remains below the 4 cm top.
+        bounds = torch.tensor([[[.94, 1.06, -.10, -.03, .005, .030],
+                                [.50, .68, .03, .10, 0., 0.]]])
+        force = torch.tensor([[[60., 0., 5.], [0., 0., 100.]]])
+        strike, bridge = riser_contact_masks(
+            bounds, force, first_riser=1., tread=.25, steps=3,
+            riser_height=torch.tensor([.04]), active=torch.tensor([True]),
+        )
+        self.assertTrue(bool(strike[0]))
+        self.assertFalse(bool(bridge[0]))
 
     def test_quality_escrow_releases_only_direct_and_discards_failures(self):
         z=torch.zeros(2)

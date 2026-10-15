@@ -82,6 +82,26 @@ class StrictGaitTests(unittest.TestCase):
         self.assertTrue(self.g.failed.item())
         self.assertEqual(self.g.reason.item(), StrictStairGait.EDGE_BRIDGE)
 
+    def test_below_edge_riser_strike_is_rejected(self):
+        # Sole is entirely below the first tread top but intersects the riser
+        # plane with substantial horizontal contact force.
+        self.f[0, 0] = torch.tensor([60.0, 0.0, 5.0])
+        self.b[0, 0] = torch.tensor([0.94, 1.06, 0.05, 0.12, 0.005, 0.030])
+        self.update()
+        self.assertTrue(self.g.failed.item())
+        self.assertEqual(self.g.reason.item(), StrictStairGait.RISER_STRIKE)
+
+    def test_approach_landing_consumes_stale_clearance(self):
+        # Clear the first riser during a hop, then land back on the approach.
+        self.f[0, 0, 2] = 0.0
+        self.b[0, 0, [0, 1, 4, 5]] = torch.tensor([0.92, 1.10, 0.06, 0.06])
+        self.update()
+        self.assertTrue(bool(self.g.cleared[0, 0]))
+        self.b[0, 0, [0, 1, 4, 5]] = torch.tensor([-0.10, 0.08, 0.0, 0.0])
+        self.f[0, 0, 2] = 150.0
+        self.update()
+        self.assertFalse(bool(self.g.cleared[0, 0]))
+
     def test_loss_of_opposite_support_during_swing_is_rejected(self):
         self.f[0, 0, 2] = 0.0
         self.f[0, 1, 2] = 0.0

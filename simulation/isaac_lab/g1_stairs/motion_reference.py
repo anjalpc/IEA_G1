@@ -32,6 +32,85 @@ def sole_state(position, quaternion, velocity, omega):
     return bottom.mean(-2), bounds, surface_velocity
 
 
+
+def strict_touchdown_height_tolerance(riser_height):
+    """Shared strict stair touchdown tolerance: 20% of riser, capped at 1 cm."""
+    return torch.minimum(
+        riser_height * 0.20,
+        torch.full_like(riser_height, 0.01),
+    )
+
+
+def strict_tread_landing_mask(
+    bounds, vertical_force, speed, tilt, yaw, *, tread_start, tread_end,
+    tread_top, lane_target, terrain_half_width, riser_height,
+    tread_margin_m=0.025, center_tolerance_m=0.010, lane_tolerance_m=0.050,
+    min_force_n=30.0, max_speed_mps=0.20, max_tilt_rad=0.15, max_yaw_rad=0.20,
+):
+    """Shared physical acceptance definition for one strict tread landing."""
+    center_x = 0.5 * (bounds[..., 0] + bounds[..., 1])
+    center_y = 0.5 * (bounds[..., 2] + bounds[..., 3])
+    tread_center = 0.5 * (tread_start + tread_end)
+    height_tolerance = strict_touchdown_height_tolerance(riser_height)
+    return (
+        (vertical_force >= min_force_n)
+        & (bounds[..., 0] >= tread_start + tread_margin_m)
+        & (bounds[..., 1] <= tread_end - tread_margin_m)
+        & (bounds[..., 2] >= -terrain_half_width + tread_margin_m)
+        & (bounds[..., 3] <= terrain_half_width - tread_margin_m)
+        & ((center_x - tread_center).abs() <= center_tolerance_m)
+        & ((center_y - lane_target).abs() <= lane_tolerance_m)
+        & ((bounds[..., 4] - tread_top).abs() <= height_tolerance)
+        & ((bounds[..., 5] - tread_top).abs() <= height_tolerance)
+        & (speed <= max_speed_mps)
+        & (tilt <= max_tilt_rad)
+        & (yaw.abs() <= max_yaw_rad)
+    )
+
+
+def riser_contact_masks(
+    bounds, force, *, first_riser, tread, steps, riser_height, active,
+    support_force_n=30.0, face_epsilon_m=0.005,
+):
+    """Return per-environment ``(strike, bridge)`` from sole/riser overlap.
+
+    Strike covers collisions anywhere on the vertical riser face, including
+    below-edge impacts. Bridge is reserved for a loaded sole spanning both
+    sides of the upper tread surface.
+    """
+    edge_x = first_riser + torch.arange(
+        steps, device=bounds.device, dtype=bounds.dtype
+    ) * tread
+    idx = torch.arange(steps, device=bounds.device, dtype=bounds.dtype)
+    face_bottom = riser_height[:, None] * idx
+    face_top = riser_height[:, None] * (idx + 1)
+
+    x_overlap = (bounds[..., 0, None] <= edge_x) & (bounds[..., 1, None] >= edge_x)
+    z_face_overlap = (
+        (bounds[..., 4, None] <= face_top[:, None] - face_epsilon_m)
+        & (bounds[..., 5, None] >= face_bottom[:, None] + face_epsilon_m)
+    )
+    horizontal_force = force[..., :2].norm(dim=-1)
+    strike = (
+        x_overlap
+        & z_face_overlap
+        & (horizontal_force[..., None] >= support_force_n)
+        & active[:, None, None]
+    ).any(dim=(-1, -2))
+
+    spans_upper_surface = (
+        x_overlap
+        & (bounds[..., 4, None] < face_top[:, None] - face_epsilon_m)
+        & (bounds[..., 5, None] > face_top[:, None] + face_epsilon_m)
+    )
+    loaded = force[..., 2].clamp_min(0) >= support_force_n
+    bridge = (
+        spans_upper_surface
+        & loaded[..., None]
+        & active[:, None, None]
+    ).any(dim=(-1, -2))
+    return strike, bridge
+
 def smooth(u):
     """Quintic smoothstep with zero velocity and acceleration at both ends."""
     u = u.clamp(0, 1)

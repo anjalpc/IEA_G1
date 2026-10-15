@@ -79,17 +79,13 @@ class GeometryEpisodeRuntime:
         rotated = v + fq[:, :, None, :1] * cross + torch.cross(qv, cross, dim=-1)
         finish_state = {}
         sole_bounds = None
+        sole_surface_velocity = None
         if self.contract.stable_finish or self.strict_gait is not None:
-            centres = feet[:, :, None, :] + rotated
-            radius = G1_SOLE_SPHERE_RADIUS_M
-            sole_bounds = torch.stack((
-                centres[..., 0].amin(-1) - radius,
-                centres[..., 0].amax(-1) + radius,
-                centres[..., 1].amin(-1) - radius,
-                centres[..., 1].amax(-1) + radius,
-                centres[..., 2].amin(-1) - radius,
-                centres[..., 2].amax(-1) - radius,
-            ), dim=-1)
+            from .motion_reference import sole_state
+            _, sole_bounds, sole_surface_velocity = sole_state(
+                feet, fq, data.body_lin_vel_w[:, self.robot_feet],
+                data.body_ang_vel_w[:, self.robot_feet],
+            )
         if self.contract.stable_finish:
             finish_state = {
                 "sole_bounds": sole_bounds,
@@ -144,14 +140,6 @@ class GeometryEpisodeRuntime:
         strict_complete = None
         if self.strict_gait is not None:
             from .motion_reference import rotate
-            surface_velocity = (
-                data.body_lin_vel_w[:, self.robot_feet, None, :]
-                + torch.cross(
-                    data.body_ang_vel_w[:, self.robot_feet, None, :].expand_as(rotated),
-                    rotated,
-                    dim=-1,
-                )
-            )
             up = rotate(
                 fq, fq.new_tensor([0.0, 0.0, 1.0]).expand(env.num_envs, 2, 3)
             )
@@ -161,7 +149,7 @@ class GeometryEpisodeRuntime:
             violation, strict_complete = self.strict_gait.update(
                 sole_bounds,
                 forces[:, self.sensor_feet],
-                surface_velocity.norm(dim=-1).amax(-1),
+                sole_surface_velocity.norm(dim=-1).amax(-1),
                 torch.acos(up[..., 2].clamp(-1, 1)),
                 torch.atan2(forward[..., 1], forward[..., 0]),
                 riser_height_per_env(env),

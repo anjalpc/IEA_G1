@@ -5,6 +5,7 @@ from isaaclab.managers import ManagerTermBase
 from .motion_reference import (
     sole_state, swing_reference, bounded_square, normalized_huber, rotate,
     target_support_mask, transition_quality_escrow_update,
+    strict_tread_landing_mask,
 )
 from .contracts import G1_SOLE_SPHERE_CENTRES_M, G1_SOLE_SPHERE_RADIUS_M
 from .terrain_state import stair_cfg, riser_height_per_env
@@ -197,12 +198,30 @@ class CoordinatedMotion(ManagerTermBase):
         placement = landing_gate*placement_raw
 
         load_ratio = force / force.sum(-1, keepdim=True).clamp_min(1.)
-        on_target_support = target_support_mask(
-            selected_bounds, force[rows, idx], tread_start=tread_start,
-            tread_end=tread_end, tread_top=tread_top,
-            terrain_half_width=float(cfg.size[1])/2, min_force_n=30.,
-            height_tolerance_m=.025,
-        ) & valid
+        episode_runtime = getattr(env, '_g1_geometry_episode', None)
+        strict_gait = getattr(episode_runtime, 'strict_gait', None)
+        if strict_gait is not None:
+            on_target_support = strict_tread_landing_mask(
+                selected_bounds, force[rows, idx], surface_speed[rows, idx],
+                tilt[rows, idx], yaw[rows, idx],
+                tread_start=tread_start, tread_end=tread_end, tread_top=tread_top,
+                lane_target=self.lane[rows, idx],
+                terrain_half_width=float(cfg.size[1]) / 2,
+                riser_height=height, tread_margin_m=strict_gait.TREAD_MARGIN_M,
+                center_tolerance_m=.010,
+                lane_tolerance_m=strict_gait.LANE_TOLERANCE_M,
+                min_force_n=strict_gait.SUPPORT_FORCE_N,
+                max_speed_mps=strict_gait.TOUCHDOWN_SPEED_MPS,
+                max_tilt_rad=strict_gait.MAX_TILT_RAD,
+                max_yaw_rad=strict_gait.MAX_YAW_RAD,
+            ) & valid
+        else:
+            on_target_support = target_support_mask(
+                selected_bounds, force[rows, idx], tread_start=tread_start,
+                tread_end=tread_end, tread_top=tread_top,
+                terrain_half_width=float(cfg.size[1])/2, min_force_n=30.,
+                height_tolerance_m=.025,
+            ) & valid
         load_mechanics = ((1-load_ratio[rows, idx]/.45).clamp(0, 1)
                           + (1-force[rows, idx]/30.).clamp(0, 1))*.5
         # Loading the old tread or another surface can never look like a good
@@ -244,7 +263,10 @@ class CoordinatedMotion(ManagerTermBase):
             gait.transition_motion_miss_event.to(foot.dtype)
             if adaptive_timing else torch.zeros_like(dense_cost)
         )
-        dense_cost = dense_cost + motion_miss_weight * motion_miss
+        # RewardManager multiplies the term by env.step_dt. These are one-shot
+        # events, so convert configured event magnitudes to per-second rates.
+        event_rate = 1.0 / float(env.step_dt)
+        dense_cost = dense_cost + motion_miss_weight * motion_miss * event_rate
 
         event_code = getattr(runtime, 'preferred_transition_event_code', None)
         sequence_failed = getattr(runtime, 'clean_step_over_sequence_failed', None)
@@ -278,7 +300,7 @@ class CoordinatedMotion(ManagerTermBase):
             self.quality_sum, self.quality_count, transition_quality, terminal_quality,
             credit_active, event_code, discard=discard,
         )
-        self.total = dense_cost - direct_quality_weight*direct_quality
+        self.total = dense_cost - direct_quality_weight * direct_quality * event_rate
         self.trace = {**{'cost_'+k: v for k,v in costs.items()},
                       'total_cost': self.total, 'dense_cost': dense_cost,
                       'reference_selected': selected.clone(),

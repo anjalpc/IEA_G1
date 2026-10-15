@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import torch
 
+from .motion_reference import strict_tread_landing_mask, riser_contact_masks
+
 
 class StrictStairGait:
     """Require one alternating, fully supported landing per tread.
@@ -133,49 +135,23 @@ class StrictStairGait:
         )
 
         fresh = self.unloaded & loaded
-        height_tolerance = torch.minimum(
-            height * 0.20,
-            torch.full_like(height, 0.01),
-        )
-        center_x = 0.5 * (bounds[..., 0] + bounds[..., 1])
-        tread_center = 0.5 * (start + end)
-        good = (
-            (bounds[..., 0] >= start[:, None] + self.TREAD_MARGIN_M)
-            & (bounds[..., 1] <= end[:, None] - self.TREAD_MARGIN_M)
-            & (bounds[..., 2] >= -self.width + self.TREAD_MARGIN_M)
-            & (bounds[..., 3] <= self.width - self.TREAD_MARGIN_M)
-            & ((center_x - tread_center[:, None]).abs() <= 0.010)
-            & ((center_y - self.lane).abs() <= self.LANE_TOLERANCE_M)
-            & ((bounds[..., 4] - top[:, None]).abs() <= height_tolerance[:, None])
-            & ((bounds[..., 5] - top[:, None]).abs() <= height_tolerance[:, None])
-            & (speed <= self.TOUCHDOWN_SPEED_MPS)
-            & (tilt <= self.MAX_TILT_RAD)
-            & (yaw.abs() <= self.MAX_YAW_RAD)
-            & loaded
+        good = strict_tread_landing_mask(
+            bounds, fz, speed, tilt, yaw,
+            tread_start=start[:, None], tread_end=end[:, None],
+            tread_top=top[:, None], lane_target=self.lane,
+            terrain_half_width=self.width, riser_height=height[:, None],
+            tread_margin_m=self.TREAD_MARGIN_M,
+            center_tolerance_m=0.010, lane_tolerance_m=self.LANE_TOLERANCE_M,
+            min_force_n=self.SUPPORT_FORCE_N,
+            max_speed_mps=self.TOUCHDOWN_SPEED_MPS,
+            max_tilt_rad=self.MAX_TILT_RAD, max_yaw_rad=self.MAX_YAW_RAD,
         )
 
-        # Loaded contact while the sole spans a height discontinuity is the
-        # heel-on-old/toe-on-new bridge observed in C6.4. Horizontal force on
-        # that span is tracked separately as a conservative riser strike.
-        edge_x = self.first + torch.arange(
-            self.steps, device=height.device, dtype=height.dtype
-        ) * self.tread
-        edge_top = height[:, None] * (
-            torch.arange(self.steps, device=height.device, dtype=height.dtype) + 1
+        strike, bridge = riser_contact_masks(
+            bounds, force, first_riser=self.first, tread=self.tread,
+            steps=self.steps, riser_height=height, active=active,
+            support_force_n=self.SUPPORT_FORCE_N,
         )
-        spans = (
-            (bounds[..., 0, None] <= edge_x)
-            & (bounds[..., 1, None] >= edge_x)
-            & (bounds[..., 4, None] < edge_top[:, None] - 0.005)
-            & (bounds[..., 5, None] > edge_top[:, None] + 0.005)
-        )
-        bridge = (spans.any(-1) & loaded & active[:, None]).any(-1)
-        horizontal_force = force[..., :2].norm(dim=-1)
-        strike = (
-            spans.any(-1)
-            & (horizontal_force >= self.SUPPORT_FORCE_N)
-            & active[:, None]
-        ).any(-1)
 
         # Ignore normal flat approach contacts. Once a foot reaches the first
         # stair region, every fresh landing must acquire exactly the expected
@@ -231,6 +207,10 @@ class StrictStairGait:
         self.count += acquired.long()
         self.pending = torch.where(acquired, -1, self.pending)
         self.dwell = torch.where(acquired, 0.0, self.dwell)
+        # Clearance evidence belongs to exactly one unload->clear->landing
+        # attempt. Any fresh landing consumes it, including an unrelated
+        # approach landing before the first acquisition.
+        self.cleared &= ~fresh
         self.cleared &= ~acquired[:, None]
 
         # A completed landing ends that foot's swing state. Failed rows are

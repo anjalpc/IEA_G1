@@ -31,6 +31,9 @@ from .contracts import (
 )
 from .reward_math import normalized_excess_forward_velocity
 from .terrain_state import riser_height_per_env, stair_cfg
+from .motion_reference import (
+    rotate, sole_state, strict_tread_landing_mask,
+)
 from .reward_math import (
     alternating_foot_gate,
     anticipatory_clearance_target,
@@ -506,10 +509,30 @@ class GeometryAcquisitionRuntime:
             sole_points[..., 0].amax(dim=2) + radius
         )
 
-        if hasattr(data, "body_lin_vel_w"):
-            foot_speed = torch.linalg.vector_norm(
+        sole_bounds = torch.stack(
+            (
+                sole_points[..., 0].amin(dim=2) - radius,
+                sole_points[..., 0].amax(dim=2) + radius,
+                sole_points[..., 1].amin(dim=2) - radius,
+                sole_points[..., 1].amax(dim=2) + radius,
+                sole_bottom_points.amin(dim=2),
+                sole_bottom_points.amax(dim=2),
+            ),
+            dim=-1,
+        )
+        if hasattr(data, "body_lin_vel_w") and hasattr(data, "body_ang_vel_w"):
+            _, shared_bounds, surface_velocity = sole_state(
+                foot_pos, foot_quat,
                 data.body_lin_vel_w[:, self.robot_foot_ids],
-                dim=2,
+                data.body_ang_vel_w[:, self.robot_foot_ids],
+            )
+            # Both paths are the same collision-sphere envelope. Keep the shared
+            # helper as the authoritative contract for speed and bounds.
+            sole_bounds = shared_bounds
+            foot_speed = surface_velocity.norm(dim=-1).amax(dim=-1)
+        elif hasattr(data, "body_lin_vel_w"):
+            foot_speed = torch.linalg.vector_norm(
+                data.body_lin_vel_w[:, self.robot_foot_ids], dim=2,
             )
         else:
             foot_speed = torch.zeros_like(sole_bottom)
@@ -811,17 +834,42 @@ class GeometryAcquisitionRuntime:
 
         self.first_touchdown_placement_reward.zero_()
 
-        # Current complete-sole placement inside the safe tread.
-        # The final tread transitions directly onto the platform, so its
-        # forward edge does not need clearance from another riser.
-        final_target = target_index == (step_count - 1)
-        placement_good = (
-            (rear_x >= safe_start)
-            & (
-                (front_x <= safe_end)
-                | final_target
+        # Current complete-sole placement inside the safe tread. C7 strict
+        # gait reuses the exact physical acceptance definition used by the
+        # episode validator. Older lineages retain their historical semantics.
+        episode_runtime = getattr(env, "_g1_geometry_episode", None)
+        strict_gait = getattr(episode_runtime, "strict_gait", None)
+        if strict_gait is not None:
+            up = rotate(
+                foot_quat,
+                foot_quat.new_tensor([0.0, 0.0, 1.0]).expand_as(foot_quat[..., 1:]),
             )
-        )
+            forward = rotate(
+                foot_quat,
+                foot_quat.new_tensor([1.0, 0.0, 0.0]).expand_as(foot_quat[..., 1:]),
+            )
+            foot_tilt = torch.acos(up[..., 2].clamp(-1.0, 1.0))
+            foot_yaw = torch.atan2(forward[..., 1], forward[..., 0])
+            placement_good = strict_tread_landing_mask(
+                sole_bounds, vertical_force, foot_speed, foot_tilt, foot_yaw,
+                tread_start=next_riser_x, tread_end=next_riser_x + tread,
+                tread_top=target_tread_height, lane_target=strict_gait.lane,
+                terrain_half_width=float(cfg.size[1]) / 2.0,
+                riser_height=riser_height[:, None],
+                tread_margin_m=strict_gait.TREAD_MARGIN_M,
+                center_tolerance_m=0.010,
+                lane_tolerance_m=strict_gait.LANE_TOLERANCE_M,
+                min_force_n=strict_gait.SUPPORT_FORCE_N,
+                max_speed_mps=strict_gait.TOUCHDOWN_SPEED_MPS,
+                max_tilt_rad=strict_gait.MAX_TILT_RAD,
+                max_yaw_rad=strict_gait.MAX_YAW_RAD,
+            ) & valid_target
+        else:
+            final_target = target_index == (step_count - 1)
+            placement_good = (
+                (rear_x >= safe_start)
+                & ((front_x <= safe_end) | final_target)
+            )
 
         if self.require_first_touchdown_placement:
             # A landing attempt begins at the first loaded top-surface contact,
@@ -938,25 +986,20 @@ class GeometryAcquisitionRuntime:
 
         # Physical touchdown controls stair-target progression.
         # First-placement quality controls reward eligibility separately.
-        physical_touchdown = (
-            valid_target
-            & placement_good
-            & (
-                (
-                    sole_bottom_points
-                    - target_tread_height.unsqueeze(2)
-                ).abs().amax(dim=2)
-                <= float(touchdown_height_tolerance_m)
+        if strict_gait is not None:
+            physical_touchdown = placement_good
+        else:
+            physical_touchdown = (
+                valid_target
+                & placement_good
+                & (
+                    (sole_bottom_points - target_tread_height.unsqueeze(2))
+                    .abs().amax(dim=2)
+                    <= float(touchdown_height_tolerance_m)
+                )
+                & (vertical_force >= float(touchdown_force_n))
+                & (foot_speed <= float(touchdown_speed_mps))
             )
-            & (
-                vertical_force
-                >= float(touchdown_force_n)
-            )
-            & (
-                foot_speed
-                <= float(touchdown_speed_mps)
-            )
-        )
 
         physical_touchdown = (
             gate_physical_touchdown_by_first_placement(

@@ -186,6 +186,38 @@ def validate_leaf(path: Path, *, smoke: bool):
     if params["track_stair_axis_velocity"]["ascent_scale"] != 0.25:
         raise AssertionError("C7 ascent velocity gate drifted")
     weights = active_reward_weights(resolved)
+
+    # Mirror reward_runtime.py preconditions before any Isaac launch.
+    c4 = bool(resolved.get("gait", {}).get("coordinated_motion", False))
+    expected_contact_weight = 0.0 if c4 else -0.10
+
+    if weights.get("phase_swing_contact") != expected_contact_weight:
+        raise AssertionError(
+            "C7 phase_swing_contact disagrees with coordinated-motion mode"
+        )
+
+    if c4 and weights.get("coordinated_motion") != -1.0:
+        raise AssertionError(
+            "C7 coordinated_motion must be -1.0"
+        )
+
+    if not weights.get("terrain_relative_clearance"):
+        raise AssertionError(
+            "C7 requires terrain_relative_clearance"
+        )
+
+    overrides = resolved.get("reward_parameters", {}) or {}
+    inactive_overrides = sorted(
+        name
+        for name, params in overrides.items()
+        if params is not None and name not in weights
+    )
+    if inactive_overrides:
+        raise AssertionError(
+            "C7 has reward_parameters for inactive rewards: "
+            + ", ".join(inactive_overrides)
+        )
+
     required = {
         "geometry_failure_termination_event": -1.0,
         "first_touchdown_placement": 0.5,

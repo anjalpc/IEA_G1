@@ -70,6 +70,11 @@ reward_experiment:
         phase_swing_contact: 0.0
 
 reward_parameters:
+  # Inherited from the old arm-guard lineage, but C7 intentionally does not
+  # activate posture_envelope_guard. reward_runtime requires inactive inherited
+  # parameter blocks to be explicitly removed.
+  posture_envelope_guard: null
+
   track_stair_axis_velocity:
     target_velocity_mps: 0.35
     std_mps: 0.25

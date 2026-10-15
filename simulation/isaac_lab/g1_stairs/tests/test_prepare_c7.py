@@ -44,5 +44,43 @@ class PrepareC7Tests(unittest.TestCase):
             expand_actor_observations(state)
 
 
+    def test_c7_resolved_reward_contract(self):
+        import yaml
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+
+        from simulation.isaac_lab.g1_stairs.scripts.training.prepare_c7 import (
+            leaf_config,
+            validate_leaf,
+        )
+
+        with TemporaryDirectory() as tmp:
+            tmp = Path(tmp)
+
+            for smoke in (True, False):
+                path = tmp / (
+                    "c7_smoke.yaml" if smoke else "c7_train.yaml"
+                )
+                cfg = leaf_config(
+                    name=path.stem,
+                    output_hash="0" * 64,
+                    smoke=smoke,
+                )
+
+                # validate_leaf expects a repo-relative inheritance path,
+                # so materialize the generated config under the repo tree.
+                repo_path = Path(
+                    "experiments/g1_stairs/configs/"
+                    + ("_test_c7_smoke.yaml" if smoke else "_test_c7_train.yaml")
+                )
+                try:
+                    repo_path.write_text(
+                        yaml.safe_dump(cfg, sort_keys=False)
+                    )
+                    validate_leaf(repo_path, smoke=smoke)
+                finally:
+                    repo_path.unlink(missing_ok=True)
+
+
 if __name__ == "__main__":
     unittest.main()
