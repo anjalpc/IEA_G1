@@ -82,6 +82,8 @@ def fixture():
     real.transition_motion_miss_event = torch.zeros(n,dtype=torch.bool)
     real.transition_motion_miss_reason = torch.zeros(n,dtype=torch.long)
     real.approach_simultaneous_unload = torch.zeros(n,dtype=torch.bool)
+    real.approach_committed = torch.zeros(n,dtype=torch.bool)
+    real.approach_clear_pending = torch.zeros(n,dtype=torch.bool)
     real.approach_preferred_foot = torch.full((n,),-1,dtype=torch.long)
     real.last_finished_step = -1
     real._checked_contract = True
@@ -370,6 +372,61 @@ class TestCoordinatedMotion(unittest.TestCase):
         self.assertEqual(term.target.tolist(),[0,0])
         self.assertEqual(term.preferred.tolist(),[0,0])
 
+
+    def test_c7_preview_replant_before_commit_remains_legal(self):
+        env,runtime,gait=fixture()
+        gait.cfg.adaptive_transition_clock=True
+        runtime.target_step.zero_(); runtime.preferred_foot.fill_(-1)
+        runtime.step_acquired_event.zero_(); runtime.physical_touchdown_event.zero_()
+        # Selected foot remains more than 5 cm before the riser interaction zone.
+        runtime.robot.data.body_pos_w[:,0,0]=.72
+        runtime.robot.data.body_pos_w[:,1,0]=.52
+        term=module.CoordinatedMotion(None,env)
+        runtime.sensor.data.net_forces_w[:,0,2]=0.; runtime.sensor.data.net_forces_w[:,1,2]=100.
+        for i in range(1,4):
+            env.common_step_counter=runtime.last_step=i
+            run_step(env,runtime,gait,term,adaptive_timing=True,direct_quality_weight=.5,ascent_only_auxiliary=True)
+        self.assertEqual(gait.approach_preferred_foot.tolist(),[0,0])
+        self.assertFalse(bool(gait.approach_committed.any()))
+        runtime.sensor.data.net_forces_w[:,0,2]=100.; runtime.sensor.data.net_forces_w[:,1,2]=0.
+        env.common_step_counter=runtime.last_step=4
+        run_step(env,runtime,gait,term,adaptive_timing=True,direct_quality_weight=.5,ascent_only_auxiliary=True)
+        self.assertEqual(gait.approach_preferred_foot.tolist(),[-1,-1])
+        self.assertFalse(bool(gait.transition_motion_miss_event.any()))
+
+    def test_c7_committed_pre_riser_replant_scores_then_clears_once(self):
+        env,runtime,gait=fixture()
+        gait.cfg.adaptive_transition_clock=True
+        runtime.target_step.zero_(); runtime.preferred_foot.fill_(-1)
+        runtime.step_acquired_event.zero_(); runtime.physical_touchdown_event.zero_()
+        term=module.CoordinatedMotion(None,env)
+        # Select left while it is unloaded with valid right support.
+        runtime.sensor.data.net_forces_w[:,0,2]=0.; runtime.sensor.data.net_forces_w[:,1,2]=100.
+        for i in range(1,4):
+            env.common_step_counter=runtime.last_step=i
+            run_step(env,runtime,gait,term,adaptive_timing=True,direct_quality_weight=.5,ascent_only_auxiliary=True)
+        # Move the still-unloaded selected sole into the existing 5 cm pre-riser interaction zone.
+        runtime.robot.data.body_pos_w[:,0,0]=.85
+        env.common_step_counter=runtime.last_step=4
+        run_step(env,runtime,gait,term,adaptive_timing=True,direct_quality_weight=.5,ascent_only_auxiliary=True)
+        self.assertTrue(bool(gait.approach_committed.all()))
+        self.assertTrue(bool(term.trace['reference_active'].all()))
+        # Replant wholly before the riser after commitment. The current reward
+        # sample must still see the reference and exactly one explicit miss.
+        runtime.sensor.data.net_forces_w[:,0,2]=100.
+        env.common_step_counter=runtime.last_step=5
+        run_step(env,runtime,gait,term,adaptive_timing=True,direct_quality_weight=.5,ascent_only_auxiliary=True)
+        self.assertTrue(bool(gait.transition_motion_miss_event.all()))
+        self.assertEqual(gait.transition_motion_miss_reason.tolist(),[3,3])
+        self.assertTrue(bool(gait.approach_clear_pending.all()))
+        self.assertTrue(bool(term.trace['reference_selected'].all()))
+        # Next step performs the deferred cleanup; the event is one-shot.
+        env.common_step_counter=runtime.last_step=6
+        run_step(env,runtime,gait,term,adaptive_timing=True,direct_quality_weight=.5,ascent_only_auxiliary=True)
+        self.assertFalse(bool(gait.transition_motion_miss_event.any()))
+        self.assertFalse(bool(gait.approach_committed.any()))
+        self.assertFalse(bool(gait.approach_clear_pending.any()))
+        self.assertEqual(gait.approach_preferred_foot.tolist(),[-1,-1])
 
     def test_c61_simultaneous_unloading_resets_first_step_dwell(self):
         env,runtime,gait=fixture()

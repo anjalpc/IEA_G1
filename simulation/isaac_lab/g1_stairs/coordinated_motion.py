@@ -349,6 +349,8 @@ class CoordinatedMotion(ManagerTermBase):
                       'selection_wait_s': gait.selection_wait_s.clone() if adaptive_timing else torch.zeros_like(self.progress),
                       'approach_unload_dwell_s': gait.approach_unload_dwell_s.clone() if adaptive_timing else torch.zeros(env.num_envs, 2, device=env.device),
                       'approach_simultaneous_unload': gait.approach_simultaneous_unload.clone() if adaptive_timing else torch.zeros_like(selected),
+                      'approach_committed': gait.approach_committed.clone() if adaptive_timing else torch.zeros_like(selected),
+                      'approach_clear_pending': gait.approach_clear_pending.clone() if adaptive_timing else torch.zeros_like(selected),
                       'foothold_center_cost': foothold_center_cost,
                       'target_support_valid': on_target_support,
                       'reference_target': self.target.clone(),

@@ -54,6 +54,8 @@ class GaitFrequencyAction(ActionTerm):
         self.transition_motion_miss_event = torch.zeros_like(self.active)
         self.transition_motion_miss_reason = torch.zeros(env.num_envs, dtype=torch.long, device=env.device)
         self.approach_simultaneous_unload = torch.zeros_like(self.active)
+        self.approach_committed = torch.zeros_like(self.active)
+        self.approach_clear_pending = torch.zeros_like(self.active)
         self.approach_preferred_foot = torch.full(
             (env.num_envs,), -1, dtype=torch.long, device=env.device
         )
@@ -141,6 +143,8 @@ class GaitFrequencyAction(ActionTerm):
         self.transition_motion_miss_event[ids] = False
         self.transition_motion_miss_reason[ids] = 0
         self.approach_simultaneous_unload[ids] = False
+        self.approach_committed[ids] = False
+        self.approach_clear_pending[ids] = False
         self.approach_preferred_foot[ids] = -1
 
     def finish_step(self, runtime, touchdown_force_n):
@@ -200,6 +204,35 @@ class GaitFrequencyAction(ActionTerm):
         # C6.1: first-step selection requires sustained asymmetric unloading
         # while the base is in the local pre-riser window. A one-sample contact
         # dropout or simultaneous unloading cannot select a foot.
+        # A committed failed approach is kept alive for one reward sample, then
+        # cleared here on the following step.
+        clear_pending = self.approach_clear_pending.clone()
+        self.approach_preferred_foot.copy_(torch.where(
+            clear_pending, torch.full_like(self.approach_preferred_foot, -1),
+            self.approach_preferred_foot,
+        ))
+        self.swing_started.copy_(torch.where(
+            clear_pending, torch.zeros_like(self.swing_started), self.swing_started
+        ))
+        self.active.copy_(torch.where(
+            clear_pending, torch.zeros_like(self.active), self.active
+        ))
+        self.phase.copy_(torch.where(
+            clear_pending, torch.zeros_like(self.phase), self.phase
+        ))
+        self.reference_expired.copy_(torch.where(
+            clear_pending, torch.zeros_like(self.reference_expired), self.reference_expired
+        ))
+        self.endpoint_hold_s.copy_(torch.where(
+            clear_pending, torch.zeros_like(self.endpoint_hold_s), self.endpoint_hold_s
+        ))
+        self.selection_wait_s.copy_(torch.where(
+            clear_pending, torch.zeros_like(self.selection_wait_s), self.selection_wait_s
+        ))
+        self.approach_committed.copy_(torch.where(
+            clear_pending, torch.zeros_like(self.approach_committed), self.approach_committed
+        ))
+        self.approach_clear_pending.zero_()
         self.transition_motion_miss_event.zero_()
         root_x = runtime.robot.data.root_pos_w[:, 0] - env.scene.env_origins[:, 0]
         first_riser_x = float(cfg.start_clearance)
@@ -230,8 +263,24 @@ class GaitFrequencyAction(ActionTerm):
         approach_idx = self.approach_preferred_foot.clamp(0, 1)
         approach_front_x = sole_bounds[rows, approach_idx, 1]
         approach_force = vertical_force[rows, approach_idx]
+        approach_support_force = vertical_force[rows, 1 - approach_idx]
 
-        pre_riser_replant = (
+        # Commitment is deliberately later than preview selection but earlier
+        # than riser contact. Reuse the same 5 cm pre-riser interaction window
+        # used by the strict clearance contract: the selected foot must already
+        # be unloaded with valid opposite support while physically entering that
+        # zone. Ordinary approach swings farther from the riser remain previews.
+        approach_commit_now = (
+            (target == 0)
+            & (height > 1.0e-8)
+            & (self.approach_preferred_foot >= 0)
+            & (approach_force <= float(self.cfg.liftoff_force_n))
+            & (approach_support_force >= float(self.cfg.support_force_n))
+            & (approach_front_x >= first_riser_x - 0.05)
+        )
+        self.approach_committed.logical_or_(approach_commit_now)
+
+        replant_before_riser = (
             (target == 0)
             & (height > 1.0e-8)
             & (self.approach_preferred_foot >= 0)
@@ -240,6 +289,21 @@ class GaitFrequencyAction(ActionTerm):
             & (approach_force >= float(self.cfg.support_force_n))
             & (approach_front_x < first_riser_x)
         )
+        committed_replant = replant_before_riser & self.approach_committed
+        pre_riser_replant = replant_before_riser & ~self.approach_committed
+
+        # A committed attempt may not silently erase its stair objective. Keep
+        # the reference alive for this reward sample, emit one explicit miss,
+        # and defer cleanup until the next finish_step call.
+        new_committed_miss = committed_replant & ~self.transition_motion_miss
+        self.transition_motion_miss_event.logical_or_(new_committed_miss)
+        self.transition_motion_miss.logical_or_(new_committed_miss)
+        self.transition_motion_miss_reason.copy_(torch.where(
+            new_committed_miss,
+            torch.full_like(self.transition_motion_miss_reason, 3),
+            self.transition_motion_miss_reason,
+        ))
+        self.approach_clear_pending.logical_or_(new_committed_miss)
 
         self.approach_preferred_foot.copy_(torch.where(
             pre_riser_replant,
@@ -285,6 +349,11 @@ class GaitFrequencyAction(ActionTerm):
             pre_riser_replant,
             torch.zeros_like(self.transition_motion_miss_reason),
             self.transition_motion_miss_reason,
+        ))
+        self.approach_committed.copy_(torch.where(
+            pre_riser_replant,
+            torch.zeros_like(self.approach_committed),
+            self.approach_committed,
         ))
 
         first_open = (
@@ -436,6 +505,12 @@ class GaitFrequencyAction(ActionTerm):
         self.approach_preferred_foot.copy_(torch.where(
             event, torch.full_like(self.approach_preferred_foot, -1),
             self.approach_preferred_foot,
+        ))
+        self.approach_committed.copy_(torch.where(
+            event, torch.zeros_like(self.approach_committed), self.approach_committed
+        ))
+        self.approach_clear_pending.copy_(torch.where(
+            event, torch.zeros_like(self.approach_clear_pending), self.approach_clear_pending
         ))
         self.last_finished_step = step
 
