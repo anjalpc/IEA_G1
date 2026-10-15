@@ -212,7 +212,7 @@ class CoordinatedMotion(ManagerTermBase):
                                tread_end-selected_bounds[:, 1],
                                selected_bounds[:, 2]+float(cfg.size[1])/2,
                                float(cfg.size[1])/2-selected_bounds[:, 3]), -1)
-        landing_gate = ((self.progress-.20)/.60).clamp(0, 1)*tracking_active
+        landing_gate = ((self.progress-.65)/.35).clamp(0, 1)*tracking_active
         edge_cost = bounded_square((.025-margins).clamp_min(0), .025).mean(-1)
         centre_error_xy = (actual[:, :2] - self.landing[:, :2]).norm(dim=-1)
         centre_cost = bounded_square(centre_error_xy, position_scale_m)
