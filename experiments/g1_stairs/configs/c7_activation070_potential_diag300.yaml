@@ -1,0 +1,14 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/c7_activation070_potential_runtime_diag.yaml
+  resolved_config_required: true
+
+experiment:
+  id: c7_activation070_potential_diag300
+  purpose: >
+    300-iteration diagnostic of reversible discounted clearance potential
+    using the validated C7 activation-0.70 contract.
+
+execution:
+  maximum_iterations: 300
