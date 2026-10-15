@@ -520,14 +520,21 @@ class GeometryAcquisitionRuntime:
             ),
             dim=-1,
         )
-        if hasattr(data, "body_lin_vel_w") and hasattr(data, "body_ang_vel_w"):
+        episode_runtime = getattr(env, "_g1_geometry_episode", None)
+        strict_gait = getattr(episode_runtime, "strict_gait", None)
+
+        # Preserve historical acquisition semantics outside strict C7. Older
+        # lineages judge touchdown speed from foot-link linear velocity only.
+        if (
+            strict_gait is not None
+            and hasattr(data, "body_lin_vel_w")
+            and hasattr(data, "body_ang_vel_w")
+        ):
             _, shared_bounds, surface_velocity = sole_state(
                 foot_pos, foot_quat,
                 data.body_lin_vel_w[:, self.robot_foot_ids],
                 data.body_ang_vel_w[:, self.robot_foot_ids],
             )
-            # Both paths are the same collision-sphere envelope. Keep the shared
-            # helper as the authoritative contract for speed and bounds.
             sole_bounds = shared_bounds
             foot_speed = surface_velocity.norm(dim=-1).amax(dim=-1)
         elif hasattr(data, "body_lin_vel_w"):
@@ -837,8 +844,6 @@ class GeometryAcquisitionRuntime:
         # Current complete-sole placement inside the safe tread. C7 strict
         # gait reuses the exact physical acceptance definition used by the
         # episode validator. Older lineages retain their historical semantics.
-        episode_runtime = getattr(env, "_g1_geometry_episode", None)
-        strict_gait = getattr(episode_runtime, "strict_gait", None)
         if strict_gait is not None:
             up = rotate(
                 foot_quat,

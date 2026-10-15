@@ -101,7 +101,9 @@ class TestMotionReference(unittest.TestCase):
 
     def test_riser_strike_detects_below_edge_face_collision(self):
         # Horizontal force while the whole sole remains below the 4 cm top.
-        bounds = torch.tensor([[[.94, 1.06, -.10, -.03, .005, .030],
+        # Bottom points stay on the lower floor, but the 5 mm collision
+        # spheres extend upward and can still strike the vertical face.
+        bounds = torch.tensor([[[.94, 1.06, -.10, -.03, 0., 0.],
                                 [.50, .68, .03, .10, 0., 0.]]])
         force = torch.tensor([[[60., 0., 5.], [0., 0., 100.]]])
         strike, bridge = riser_contact_masks(

@@ -106,7 +106,7 @@ def leaf_config(*, name: str, output_hash: str, smoke: bool):
     terrain = (
         {
             "riser_heights_m": [0.04],
-            "curriculum": {"enabled": False},
+            "curriculum": {"enabled": False, "initial_max_level": 0},
         }
         if smoke
         else {
@@ -231,6 +231,15 @@ def validate_leaf(path: Path, *, smoke: bool):
     expected = [0.04] if smoke else [0.04, 0.08, 0.12, 0.16, 0.20]
     if heights != expected:
         raise AssertionError(f"C7 terrain mismatch: {heights}")
+
+    initial = int(resolved["terrain"]["curriculum"]["initial_max_level"])
+    if not 0 <= initial < len(heights):
+        raise AssertionError(
+            f"C7 initial_max_level {initial} invalid for {len(heights)} heights"
+        )
+    if smoke and initial != 0:
+        raise AssertionError("C7 smoke initial_max_level must be 0")
+
     return resolved
 
 

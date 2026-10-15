@@ -86,9 +86,14 @@ def riser_contact_masks(
     face_top = riser_height[:, None] * (idx + 1)
 
     x_overlap = (bounds[..., 0, None] <= edge_x) & (bounds[..., 1, None] >= edge_x)
+    # bounds[..., 4:6] are sphere-bottom heights. Strike detection must use
+    # the physical collision-sphere vertical envelope so a low horizontal toe
+    # can still overlap the riser face.
+    collider_bottom = bounds[..., 4]
+    collider_top = bounds[..., 5] + 2.0 * G1_SOLE_SPHERE_RADIUS_M
     z_face_overlap = (
-        (bounds[..., 4, None] <= face_top[:, None] - face_epsilon_m)
-        & (bounds[..., 5, None] >= face_bottom[:, None] + face_epsilon_m)
+        (collider_bottom[..., None] <= face_top[:, None] - face_epsilon_m)
+        & (collider_top[..., None] >= face_bottom[:, None] + face_epsilon_m)
     )
     horizontal_force = force[..., :2].norm(dim=-1)
     strike = (

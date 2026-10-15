@@ -13,6 +13,7 @@ terrain:
   - 0.04
   curriculum:
     enabled: false
+    initial_max_level: 0
 policy_initialization:
   type: rsl_rl_checkpoint_actor_transfer
   source:
