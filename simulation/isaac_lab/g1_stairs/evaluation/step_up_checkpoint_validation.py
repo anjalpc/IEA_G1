@@ -135,6 +135,31 @@ def apply_resolved_replay_config(env_cfg, path: Path) -> AppliedReplayConfig:
         )
     )
 
+    env_cfg.coordinated_foothold_observation = bool(
+        observations.get(
+            "coordinated_foothold_xyz",
+            False,
+        )
+    )
+
+    coordinated_foothold_xyz = bool(
+        observations.get(
+            "coordinated_foothold_xyz",
+            False,
+        )
+    )
+
+    if coordinated_foothold_xyz and (
+        env_cfg.preferred_foothold_observation
+        or env_cfg.preferred_foothold_observation_ablation
+    ):
+        raise ValueError(
+            "coordinated_foothold_xyz cannot be combined with "
+            "legacy preferred foothold modes"
+        )
+
+    env_cfg.coordinated_foothold_observation = coordinated_foothold_xyz
+
     if (
         env_cfg.preferred_foothold_observation
         and env_cfg.preferred_foothold_observation_ablation

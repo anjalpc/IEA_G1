@@ -13,6 +13,7 @@ from .gait_phase import (
     phase_swing_contact_loss,
 )
 from .terrain_state import stair_cfg, riser_height_per_env
+from .motion_reference import sole_state
 
 
 def physical_last_action(env):
@@ -209,7 +210,88 @@ class GaitFrequencyAction(ActionTerm):
         right_unloaded = vertical_force[:, 1] <= float(self.cfg.liftoff_force_n)
         left_ready = left_unloaded & (vertical_force[:, 1] >= float(self.cfg.support_force_n))
         right_ready = right_unloaded & (vertical_force[:, 0] >= float(self.cfg.support_force_n))
-        first_open = (target == 0) & (height > 1.0e-8) & near_first & (self.approach_preferred_foot < 0)
+
+        # A first-step reference selected from approach unloading is provisional.
+        # If that foot completes an ordinary re-landing wholly before the first
+        # riser, it was only an approach walking step. Re-open first-step
+        # selection so the next genuine swing foot can own tread 1.
+        foot_pos = (
+            runtime.robot.data.body_pos_w[:, runtime.robot_foot_ids]
+            - env.scene.env_origins[:, None]
+        )
+        _, sole_bounds, _ = sole_state(
+            foot_pos,
+            runtime.robot.data.body_quat_w[:, runtime.robot_foot_ids],
+            runtime.robot.data.body_lin_vel_w[:, runtime.robot_foot_ids],
+            runtime.robot.data.body_ang_vel_w[:, runtime.robot_foot_ids],
+        )
+        rows = torch.arange(env.num_envs, device=env.device)
+        approach_idx = self.approach_preferred_foot.clamp(0, 1)
+        approach_front_x = sole_bounds[rows, approach_idx, 1]
+        approach_force = vertical_force[rows, approach_idx]
+
+        pre_riser_replant = (
+            (target == 0)
+            & (height > 1.0e-8)
+            & (self.approach_preferred_foot >= 0)
+            & self.swing_started
+            & ~event
+            & (approach_force >= float(self.cfg.support_force_n))
+            & (approach_front_x < first_riser_x)
+        )
+
+        self.approach_preferred_foot.copy_(torch.where(
+            pre_riser_replant,
+            torch.full_like(self.approach_preferred_foot, -1),
+            self.approach_preferred_foot,
+        ))
+        self.swing_started.copy_(torch.where(
+            pre_riser_replant,
+            torch.zeros_like(self.swing_started),
+            self.swing_started,
+        ))
+        self.active.copy_(torch.where(
+            pre_riser_replant,
+            torch.zeros_like(self.active),
+            self.active,
+        ))
+        self.phase.copy_(torch.where(
+            pre_riser_replant,
+            torch.zeros_like(self.phase),
+            self.phase,
+        ))
+        self.reference_expired.copy_(torch.where(
+            pre_riser_replant,
+            torch.zeros_like(self.reference_expired),
+            self.reference_expired,
+        ))
+        self.endpoint_hold_s.copy_(torch.where(
+            pre_riser_replant,
+            torch.zeros_like(self.endpoint_hold_s),
+            self.endpoint_hold_s,
+        ))
+        self.selection_wait_s.copy_(torch.where(
+            pre_riser_replant,
+            torch.zeros_like(self.selection_wait_s),
+            self.selection_wait_s,
+        ))
+        self.transition_motion_miss.copy_(torch.where(
+            pre_riser_replant,
+            torch.zeros_like(self.transition_motion_miss),
+            self.transition_motion_miss,
+        ))
+        self.transition_motion_miss_reason.copy_(torch.where(
+            pre_riser_replant,
+            torch.zeros_like(self.transition_motion_miss_reason),
+            self.transition_motion_miss_reason,
+        ))
+
+        first_open = (
+            (target == 0)
+            & (height > 1.0e-8)
+            & near_first
+            & (self.approach_preferred_foot < 0)
+        )
         self.approach_simultaneous_unload.copy_(first_open & left_unloaded & right_unloaded)
         left_dwell = torch.where(
             first_open & left_ready & ~right_ready,
@@ -231,6 +313,23 @@ class GaitFrequencyAction(ActionTerm):
         self.approach_preferred_foot.copy_(torch.where(
             select_first, first_foot, self.approach_preferred_foot
         ))
+
+        # The reference clock is foot-relative:
+        # left swing occupies phase 0.5 -> 1.0,
+        # right swing occupies phase 0.0 -> 0.5.
+        # A newly selected first-step foot must start from its own aligned
+        # phase; otherwise a reselected left foot waits half a gait cycle
+        # before coordinated-motion progress can advance.
+        first_phase = torch.where(
+            first_foot == 0,
+            torch.full_like(self.phase, 0.5),
+            torch.zeros_like(self.phase),
+        )
+        self.phase.copy_(torch.where(select_first, first_phase, self.phase))
+        self.reward_phase.copy_(torch.where(
+            select_first, first_phase, self.reward_phase
+        ))
+
         self.approach_unload_dwell_s.copy_(torch.where(
             select_first[:, None], torch.zeros_like(self.approach_unload_dwell_s),
             self.approach_unload_dwell_s,

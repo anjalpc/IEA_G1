@@ -269,6 +269,108 @@ class TestCoordinatedMotion(unittest.TestCase):
                  direct_quality_weight=.5, ascent_only_auxiliary=True)
         self.assertEqual(gait.approach_preferred_foot.tolist(),[0,0])
 
+    def test_c7_first_step_reselects_after_pre_riser_replant(self):
+        env,runtime,gait=fixture()
+        gait.cfg.adaptive_transition_clock=True
+        runtime.target_step.zero_()
+        runtime.preferred_foot.fill_(-1)
+        runtime.step_acquired_event.zero_()
+        runtime.physical_touchdown_event.zero_()
+
+        # Keep both feet wholly before the first riser.
+        runtime.robot.data.body_pos_w[:,0,0]=.72
+        runtime.robot.data.body_pos_w[:,1,0]=.52
+
+        term=module.CoordinatedMotion(None,env)
+
+        # Left unloads first and becomes the provisional tread-1 foot.
+        runtime.sensor.data.net_forces_w[:,0,2]=0.
+        runtime.sensor.data.net_forces_w[:,1,2]=100.
+        for i in range(1,4):
+            env.common_step_counter=runtime.last_step=i
+            run_step(
+                env,runtime,gait,term,
+                adaptive_timing=True,
+                direct_quality_weight=.5,
+                ascent_only_auxiliary=True,
+            )
+
+        self.assertEqual(gait.approach_preferred_foot.tolist(),[0,0])
+        self.assertEqual(term.preferred.tolist(),[0,0])
+
+        # Left lands again before the riser while right becomes the next
+        # genuine swing. The stale left reference must be invalidated.
+        runtime.sensor.data.net_forces_w[:,0,2]=100.
+        runtime.sensor.data.net_forces_w[:,1,2]=0.
+        env.common_step_counter=runtime.last_step=4
+        run_step(
+            env,runtime,gait,term,
+            adaptive_timing=True,
+            direct_quality_weight=.5,
+            ascent_only_auxiliary=True,
+        )
+
+        self.assertEqual(gait.approach_preferred_foot.tolist(),[-1,-1])
+        self.assertEqual(term.target.tolist(),[-1,-1])
+        self.assertEqual(term.preferred.tolist(),[-1,-1])
+
+        # Sustained asymmetric unloading now selects the actual right swing.
+        for i in range(5,7):
+            env.common_step_counter=runtime.last_step=i
+            run_step(
+                env,runtime,gait,term,
+                adaptive_timing=True,
+                direct_quality_weight=.5,
+                ascent_only_auxiliary=True,
+            )
+
+        self.assertEqual(gait.approach_preferred_foot.tolist(),[1,1])
+        self.assertEqual(term.target.tolist(),[0,0])
+        self.assertEqual(term.preferred.tolist(),[1,1])
+
+
+    def test_c7_first_step_reference_not_invalidated_at_riser(self):
+        env,runtime,gait=fixture()
+        gait.cfg.adaptive_transition_clock=True
+        runtime.target_step.zero_()
+        runtime.preferred_foot.fill_(-1)
+        runtime.step_acquired_event.zero_()
+        runtime.physical_touchdown_event.zero_()
+
+        term=module.CoordinatedMotion(None,env)
+
+        runtime.sensor.data.net_forces_w[:,0,2]=0.
+        runtime.sensor.data.net_forces_w[:,1,2]=100.
+        for i in range(1,4):
+            env.common_step_counter=runtime.last_step=i
+            run_step(
+                env,runtime,gait,term,
+                adaptive_timing=True,
+                direct_quality_weight=.5,
+                ascent_only_auxiliary=True,
+            )
+
+        self.assertEqual(gait.approach_preferred_foot.tolist(),[0,0])
+
+        # Put selected sole across/at the first-riser region, then reload it.
+        # This is no longer an ordinary pre-riser approach replant, so the
+        # first-step reference must remain owned by that foot.
+        runtime.robot.data.body_pos_w[:,0,0]=1.02
+        runtime.sensor.data.net_forces_w[:,0,2]=100.
+        runtime.sensor.data.net_forces_w[:,1,2]=100.
+        env.common_step_counter=runtime.last_step=4
+        run_step(
+            env,runtime,gait,term,
+            adaptive_timing=True,
+            direct_quality_weight=.5,
+            ascent_only_auxiliary=True,
+        )
+
+        self.assertEqual(gait.approach_preferred_foot.tolist(),[0,0])
+        self.assertEqual(term.target.tolist(),[0,0])
+        self.assertEqual(term.preferred.tolist(),[0,0])
+
+
     def test_c61_simultaneous_unloading_resets_first_step_dwell(self):
         env,runtime,gait=fixture()
         gait.cfg.adaptive_transition_clock=True
