@@ -1,0 +1,27 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/c7_activation070_potential_diag300.yaml
+  resolved_config_required: true
+
+experiment:
+  id: c7_single_acquisition_nominal_diag
+  purpose: >
+    Fixed-start diagnostic for exactly one strict first-stair acquisition.
+    Uses the existing strict gait acquisition contract and terminates
+    successfully after the first validated acquisition.
+
+reset_randomization:
+  enabled: false
+
+episode_contract:
+  strict_stair_gait: true
+  single_acquisition_success: true
+
+reward_experiment:
+  active_stage: geometry_locomotion_c7_strict
+  strict_runtime_set: true
+  rewards:
+    stage_plan:
+      geometry_locomotion_c7_strict:
+        first_stair_acquisition: 1.0
