@@ -42,6 +42,7 @@ from .reward_math import (
     bounded_anticipatory_attempt_credit,
     first_touchdown_placement_score,
     first_touchdown_reward_event,
+    first_stair_acquisition_event,
     global_stair_target_update,
     nonpreferred_acquisition_event,
     preferred_transition_contact_update,
@@ -1437,6 +1438,31 @@ def _runtime(env: "ManagerBasedRLEnv") -> GeometryAcquisitionRuntime:
         runtime = GeometryAcquisitionRuntime(env)
         env._g1_v04_acquisition = runtime
     return runtime
+
+
+def first_stair_acquisition(
+    env: "ManagerBasedRLEnv",
+) -> torch.Tensor:
+    """One-shot reward for the accepted acquisition of stair 1.
+
+    The shared acquisition runtime already applies the configured touchdown,
+    placement, support-dwell, and target-progression contract.  This term only
+    exposes its accepted stair-0 acquisition event to RewardManager.
+    """
+    runtime = _runtime(env)
+
+    if runtime.last_step != int(env.common_step_counter):
+        raise RuntimeError(
+            "first_stair_acquisition must run after "
+            "terrain_relative_clearance/forward_insertion"
+        )
+
+    event = first_stair_acquisition_event(
+        runtime.step_acquired_event,
+        runtime.acquired_target_index,
+    )
+
+    return event.to(dtype=runtime.clearance_reward.dtype) / float(env.step_dt)
 
 
 _COMMON_DEFAULTS = dict(

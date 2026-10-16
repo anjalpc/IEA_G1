@@ -106,6 +106,23 @@ def normalized_planar_velocity_error(
     ).clamp(0.0, float(maximum_severity))
 
 
+def first_stair_acquisition_event(
+    step_acquired_event: torch.Tensor,
+    acquired_target_index: torch.Tensor,
+) -> torch.Tensor:
+    """Return accepted acquisitions of the first stair only."""
+
+    if step_acquired_event.shape != acquired_target_index.shape:
+        raise ValueError(
+            "step_acquired_event and acquired_target_index must match"
+        )
+
+    return (
+        step_acquired_event.to(dtype=torch.bool)
+        & (acquired_target_index == 0)
+    )
+
+
 def normalized_excess_forward_velocity(
     forward_velocity_mps: torch.Tensor,
     *,

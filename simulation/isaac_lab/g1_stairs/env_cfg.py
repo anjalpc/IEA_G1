@@ -952,6 +952,12 @@ class StairRewardsCfg:
         params={},
     )
 
+    first_stair_acquisition = RewTerm(
+        func=geometry_acquisition_rewards.first_stair_acquisition,
+        weight=0.0,
+        params={},
+    )
+
     anticipatory_clearance_progress = RewTerm(
         func=geometry_acquisition_rewards.anticipatory_clearance_progress,
         weight=0.0,

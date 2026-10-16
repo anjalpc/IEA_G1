@@ -43,6 +43,7 @@ class EpisodeContract:
 
     strict_stair_gait: bool = False
     stable_finish: bool = False
+    single_acquisition_success: bool = False
     finish_sole_margin_m: float = 0.05
     finish_max_linear_speed_mps: float = 0.15
     finish_max_angular_speed_radps: float = 0.30
@@ -54,8 +55,18 @@ class EpisodeContract:
             raise ValueError("strict_stair_gait must be a boolean")
         if not isinstance(self.stable_finish, bool):
             raise ValueError("stable_finish must be a boolean")
+        if not isinstance(self.single_acquisition_success, bool):
+            raise ValueError("single_acquisition_success must be a boolean")
+        if self.single_acquisition_success and not self.strict_stair_gait:
+            raise ValueError(
+                "single_acquisition_success requires strict_stair_gait"
+            )
         for name, value in vars(self).items():
-            if name in ("strict_stair_gait", "stable_finish"):
+            if name in (
+                "strict_stair_gait",
+                "stable_finish",
+                "single_acquisition_success",
+            ):
                 continue
             if not math.isfinite(value) or value <= 0:
                 raise ValueError(f"episode_contract.{name} must be finite and positive")
@@ -116,6 +127,7 @@ class EpisodeTracker:
                foot_force_z, forbidden_contact, invalid_state, joint_limit,
                velocity_limit, torque_limit, timed_out,
                step_over_contract_violation=None, strict_gait_complete=None,
+               strict_first_acquisition=None,
                sole_bounds=None, body_linear_velocity=None,
                body_angular_velocity=None, foot_linear_velocity=None):
         active = self.reason == Result.RUNNING
@@ -221,7 +233,24 @@ class EpisodeTracker:
         self.platform_seen |= valid & supported_platform
         self.entered_stairs |= active & (x >= self.first_riser) & (riser_height > 0)
         success_valid = valid
-        if self.cfg.strict_stair_gait:
+        first_acquisition_success = torch.zeros_like(active)
+
+        if self.cfg.single_acquisition_success:
+            if strict_first_acquisition is None:
+                raise ValueError(
+                    "single acquisition success requires strict gait evidence"
+                )
+            if strict_first_acquisition.shape != active.shape:
+                raise ValueError(
+                    "strict_first_acquisition must match episode shape"
+                )
+            first_acquisition_success = (
+                success_valid
+                & strict_first_acquisition.to(
+                    device=active.device, dtype=torch.bool
+                )
+            )
+        elif self.cfg.strict_stair_gait:
             if strict_gait_complete is None:
                 raise ValueError("strict stair success requires physical gait evidence")
             if strict_gait_complete.shape != active.shape:
@@ -229,6 +258,7 @@ class EpisodeTracker:
             success_valid = success_valid & strict_gait_complete.to(
                 device=active.device, dtype=torch.bool
             )
+
         # Phase is diagnostic. Reaching a load-bearing upper-platform contact
         # is enough to classify a later failure as a platform failure even if
         # the strict V05 settling predicate was never satisfied.
@@ -261,7 +291,12 @@ class EpisodeTracker:
             (Result.TORQUE_LIMIT, torque_limit),
             (Result.WRONG_DIRECTION, x < self.start_x - self.cfg.wrong_direction_tolerance_m),
             (Result.STALL, self.stall_time >= self.cfg.stall_duration_s),
-            (Result.SUCCESS, self.dwell + 1.e-6 >= self.cfg.supported_dwell_s),
+            (
+                Result.SUCCESS,
+                first_acquisition_success
+                if self.cfg.single_acquisition_success
+                else self.dwell + 1.e-6 >= self.cfg.supported_dwell_s,
+            ),
             (Result.TIMEOUT, timed_out),
         )
         for reason, mask in failures:

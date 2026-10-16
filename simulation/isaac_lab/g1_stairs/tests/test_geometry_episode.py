@@ -112,6 +112,44 @@ class GeometryEpisodeTests(unittest.TestCase):
         self.assertAlmostEqual(recycled, 0.20, places=5)
         self.assertAlmostEqual(t.best_dwell.item(), 0.80, places=5)
 
+    def test_single_acquisition_success_uses_strict_gait_evidence(self):
+        t = tracker(
+            strict_stair_gait=True,
+            single_acquisition_success=True,
+        )
+        s = sample(x=.8)
+        s["strict_first_acquisition"] = torch.ones(1, dtype=torch.bool)
+
+        self.assertEqual(t.update(**s).item(), Result.SUCCESS)
+
+    def test_single_acquisition_requires_strict_evidence(self):
+        t = tracker(
+            strict_stair_gait=True,
+            single_acquisition_success=True,
+        )
+        s = sample(x=.8)
+        s["strict_first_acquisition"] = torch.zeros(1, dtype=torch.bool)
+
+        self.assertEqual(t.update(**s).item(), Result.RUNNING)
+
+    def test_failure_overrides_single_acquisition_success(self):
+        t = tracker(
+            strict_stair_gait=True,
+            single_acquisition_success=True,
+        )
+        s = sample(x=.8)
+        s["strict_first_acquisition"] = torch.ones(1, dtype=torch.bool)
+        s["forbidden_contact"][:] = True
+
+        self.assertEqual(
+            t.update(**s).item(),
+            Result.FORBIDDEN_CONTACT,
+        )
+
+    def test_single_acquisition_requires_strict_gait_contract(self):
+        with self.assertRaises(ValueError):
+            EpisodeContract(single_acquisition_success=True)
+
     def test_failure_overrides_success_on_same_step(self):
         t, s = tracker(supported_dwell_s=.02), sample()
         s["forbidden_contact"][:] = True

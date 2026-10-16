@@ -138,6 +138,7 @@ class GeometryEpisodeRuntime:
             step_over_contract_violation = torch.zeros_like(invalid)
 
         strict_complete = None
+        strict_first_acquisition = None
         if self.strict_gait is not None:
             from .motion_reference import rotate
             up = rotate(
@@ -155,6 +156,7 @@ class GeometryEpisodeRuntime:
                 riser_height_per_env(env),
             )
             step_over_contract_violation = step_over_contract_violation | violation
+            strict_first_acquisition = self.strict_gait.count >= 1
 
         reason = self.tracker.update(
             position=position, roll_pitch=torch.stack((roll, pitch), -1),
@@ -167,6 +169,7 @@ class GeometryEpisodeRuntime:
             timed_out=env.episode_length_buf >= env.max_episode_length,
             step_over_contract_violation=step_over_contract_violation,
             strict_gait_complete=strict_complete,
+            strict_first_acquisition=strict_first_acquisition,
             **finish_state,
         )
         self._record_joint_limit_diagnostics(env, data, limits, reason)
