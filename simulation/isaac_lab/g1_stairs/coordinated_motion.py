@@ -115,11 +115,12 @@ class CoordinatedMotion(ManagerTermBase):
 
             # gait_runtime may invalidate a provisional first-step reference
             # after that foot makes an ordinary pre-riser approach landing.
-            # Drop the matching motion reference before selecting the next swing.
+            # Replant and opposite-foot selection can happen in the same update,
+            # without exposing preferred=-1. Replace that old reference too.
             invalidate_first = (
                 (self.target == 0)
                 & (runtime.target_step[:, 0] == 0)
-                & (approach_foot < 0)
+                & ((approach_foot < 0) | (approach_foot != self.preferred))
             )
             self.target.copy_(torch.where(
                 invalidate_first,

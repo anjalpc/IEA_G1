@@ -106,6 +106,35 @@ def run_step(env, runtime, gait, term, **term_kwargs):
 
 
 class TestCoordinatedMotion(unittest.TestCase):
+    def test_first_step_same_tick_replant_and_opposite_selection_replace_reference(self):
+        env,runtime,gait=fixture()
+        gait.cfg.adaptive_transition_clock=True
+        gait.cfg.first_step_unload_dwell_s=.02
+        gait.cfg.first_step_commit_max_travel_m=.35
+        runtime.target_step.zero_(); runtime.preferred_foot.fill_(-1)
+        runtime.step_acquired_event.zero_(); runtime.physical_touchdown_event.zero_()
+        runtime.robot.data.body_pos_w[:,:,0]=.50
+        runtime.sensor.data.net_forces_w[:,:,2]=torch.tensor([[100.,0.],[0.,100.]])
+        term=module.CoordinatedMotion(None,env)
+        run_step(env,runtime,gait,term,adaptive_timing=True)
+        self.assertEqual(term.trace['reference_foot'].tolist(),[1,0])
+        self.assertFalse(bool(gait.approach_committed.any()))
+
+        # The old preview replants while the opposite foot qualifies in the
+        # SAME finish_step call: no intermediate preferred=-1 reaches the reward.
+        runtime.robot.data.body_pos_w[0,0,0]=.80
+        runtime.robot.data.body_pos_w[1,1,0]=.80
+        runtime.sensor.data.net_forces_w[:,:,2]=torch.tensor([[0.,100.],[100.,0.]])
+        env.common_step_counter=runtime.last_step=2
+        run_step(env,runtime,gait,term,adaptive_timing=True)
+        self.assertEqual(gait.approach_preferred_foot.tolist(),[0,1])
+        self.assertEqual(term.trace['reference_foot'].tolist(),[0,1])
+        self.assertTrue(bool(gait.approach_committed.all()))
+        self.assertTrue(bool(term.trace['reference_active'].all()))
+        torch.testing.assert_close(term.trace['swing_progress'],torch.full((2,),.04))
+        torch.testing.assert_close(term.start,term.trace['actual_sole_centre_local'])
+        self.assertFalse(bool(gait.transition_motion_miss_event.any()))
+
     def test_first_step_selection_commit_is_early_and_persists_through_miss(self):
         env,runtime,gait=fixture()
         gait.cfg.adaptive_transition_clock=True
