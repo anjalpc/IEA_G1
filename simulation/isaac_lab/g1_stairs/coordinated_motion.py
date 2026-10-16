@@ -76,11 +76,12 @@ class CoordinatedMotion(ManagerTermBase):
                  lateral_weight=.10, arm_weight=.15, finish_weight=.15,
                  clearance_m=.03, position_scale_m=.06,
                  arm_amplitude_rad=.20, direct_quality_weight=0.0,
-                 motion_miss_weight=.25, ascent_only_auxiliary=False, adaptive_timing=False):
+                 motion_miss_weight=.25, dense_cost_scale=1.0,
+                 ascent_only_auxiliary=False, adaptive_timing=False):
         values = (swing_weight, stance_weight, prelift_weight, placement_weight, transfer_weight,
                   lateral_weight, arm_weight, finish_weight, clearance_m,
                   position_scale_m, arm_amplitude_rad, direct_quality_weight,
-                  motion_miss_weight)
+                  motion_miss_weight, dense_cost_scale)
         if any(not math.isfinite(x) or x < 0 for x in values) or position_scale_m <= 0:
             raise ValueError('C6 parameters must be finite/nonnegative; scale positive')
         runtime = getattr(env, '_g1_v04_acquisition', None)
@@ -323,7 +324,8 @@ class CoordinatedMotion(ManagerTermBase):
                  'arm': arm, 'finish': finish}
         weights = (swing_weight, stance_weight, prelift_weight, placement_weight,
                    transfer_weight, lateral_weight, arm_weight, finish_weight)
-        dense_cost = sum(w*c for w,c in zip(weights, costs.values()))
+        dense_cost_raw = sum(w*c for w,c in zip(weights, costs.values()))
+        dense_cost = dense_cost_scale * dense_cost_raw
         motion_miss = (
             gait.transition_motion_miss_event.to(foot.dtype)
             if adaptive_timing else torch.zeros_like(dense_cost)
@@ -367,7 +369,10 @@ class CoordinatedMotion(ManagerTermBase):
         )
         self.total = dense_cost - direct_quality_weight * direct_quality * event_rate
         self.trace = {**{'cost_'+k: v for k,v in costs.items()},
-                      'total_cost': self.total, 'dense_cost': dense_cost,
+                      'total_cost': self.total,
+                      'dense_cost_raw': dense_cost_raw,
+                      'dense_cost_scaled': dense_cost_scale * dense_cost_raw,
+                      'dense_cost': dense_cost,
                       'reference_selected': selected.clone(),
                       'reference_active': tracking_active.clone(),
                       'reference_expired': expired.clone(),

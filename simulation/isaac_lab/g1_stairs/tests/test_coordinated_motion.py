@@ -548,7 +548,8 @@ class TestCoordinatedMotion(unittest.TestCase):
             env, swing_weight=0., stance_weight=0., prelift_weight=0.,
             placement_weight=0., transfer_weight=0., lateral_weight=0.,
             arm_weight=0., finish_weight=0., direct_quality_weight=0.,
-            motion_miss_weight=.25, adaptive_timing=True,
+            motion_miss_weight=.25, dense_cost_scale=.25,
+            adaptive_timing=True,
         )
         # RewardManager multiplies this cost by coordinated_motion weight -1
         # and then dt, yielding a -0.25 one-shot episode contribution.
@@ -566,6 +567,7 @@ class TestCoordinatedMotion(unittest.TestCase):
                 swing_weight=0., stance_weight=0., prelift_weight=0.,
                 placement_weight=0., transfer_weight=0., lateral_weight=0.,
                 arm_weight=0., finish_weight=0., direct_quality_weight=.5,
+                dense_cost_scale=.25,
             )
         # CoordinatedMotion has reward weight -1. RewardManager later multiplies
         # by dt, so -25 here becomes +0.5 episode reward.

@@ -621,6 +621,10 @@ def configure_gait(env_cfg, resolved):
     if motion_miss_weight < 0.0:
         raise ValueError("gait.motion_miss_weight cannot be negative")
 
+    dense_cost_scale = float(options.get("dense_cost_scale", 1.0))
+    if not 0.0 <= dense_cost_scale <= 1.0:
+        raise ValueError("gait.dense_cost_scale must be in [0, 1]")
+
     if options.get("coordinated_motion", False):
         if mode != "fixed" and not adaptive_timing:
             raise ValueError("coordinated motion requires fixed cadence unless adaptive_timing is enabled")
@@ -637,6 +641,7 @@ def configure_gait(env_cfg, resolved):
                         arm_amplitude_rad=.20,
                         direct_quality_weight=direct_quality_weight if outcome_conditioned else 0.0,
                         motion_miss_weight=motion_miss_weight if adaptive_timing else 0.0,
+                        dense_cost_scale=dense_cost_scale,
                         ascent_only_auxiliary=ascent_only_auxiliary if outcome_conditioned else False,
                         adaptive_timing=adaptive_timing),
         )
