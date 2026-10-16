@@ -253,7 +253,7 @@ class GaitFrequencyAction(ActionTerm):
             runtime.robot.data.body_pos_w[:, runtime.robot_foot_ids]
             - env.scene.env_origins[:, None]
         )
-        _, sole_bounds, _ = sole_state(
+        sole_centre, sole_bounds, _ = sole_state(
             foot_pos,
             runtime.robot.data.body_quat_w[:, runtime.robot_foot_ids],
             runtime.robot.data.body_lin_vel_w[:, runtime.robot_foot_ids],
@@ -278,7 +278,9 @@ class GaitFrequencyAction(ActionTerm):
             & (approach_support_force >= float(self.cfg.support_force_n))
             & (approach_front_x >= first_riser_x - 0.05)
         )
-        self.approach_committed.logical_or_(approach_commit_now)
+        commit_max_travel = getattr(self.cfg, "first_step_commit_max_travel_m", None)
+        if commit_max_travel is None:
+            self.approach_committed.logical_or_(approach_commit_now)
 
         replant_before_riser = (
             (target == 0)
@@ -383,6 +385,20 @@ class GaitFrequencyAction(ActionTerm):
         self.approach_preferred_foot.copy_(torch.where(
             select_first, first_foot, self.approach_preferred_foot
         ))
+
+        if commit_max_travel is not None:
+            # Diagnostic eligibility bound, not a kinematic reach certificate.
+            # Decide once at selection; never convert an ongoing approach
+            # preview into a committed stair swing as it nears the riser.
+            landing_x = first_riser_x + 0.5 * float(cfg.tread_depth)
+            travel_x = landing_x - sole_centre[rows, first_foot, 0]
+            eligible = (
+                select_first
+                & (travel_x > 0.0)
+                & (travel_x <= commit_max_travel)
+                & (sole_bounds[rows, first_foot, 1] < first_riser_x)
+            )
+            self.approach_committed.logical_or_(eligible)
 
         # The reference clock is foot-relative:
         # left swing occupies phase 0.5 -> 1.0,
@@ -528,6 +544,7 @@ class GaitFrequencyActionCfg(ActionTermCfg):
     liftoff_force_n: float = 15.0
     support_force_n: float = 30.0
     first_step_activation_distance_m: float = 0.35
+    first_step_commit_max_travel_m: float | None = None
     first_step_unload_dwell_s: float = 0.06
     liftoff_timeout_s: float = 0.30
     touchdown_grace_s: float = 0.30
@@ -590,6 +607,11 @@ def configure_gait(env_cfg, resolved):
     )
     if not math.isfinite(first_step_activation_distance_m) or first_step_activation_distance_m <= 0.0:
         raise ValueError("gait.first_step_activation_distance_m must be finite and positive")
+    commit_max_travel = options.get("first_step_commit_max_travel_m")
+    if commit_max_travel is not None:
+        commit_max_travel = float(commit_max_travel)
+        if not adaptive_timing or not math.isfinite(commit_max_travel) or commit_max_travel <= 0.0:
+            raise ValueError("gait.first_step_commit_max_travel_m requires adaptive timing and a finite positive distance")
     first_step_unload_dwell_s = float(options.get("first_step_unload_dwell_s", 0.06))
     liftoff_timeout_s = float(options.get("liftoff_timeout_s", 0.30))
     touchdown_grace_s = float(options.get("touchdown_grace_s", 0.30))
@@ -651,6 +673,7 @@ def configure_gait(env_cfg, resolved):
         smoothing_tau_s=smoothing_tau_s if adaptive_timing else 0.0,
         adaptive_transition_clock=adaptive_timing,
         first_step_activation_distance_m=first_step_activation_distance_m,
+        first_step_commit_max_travel_m=commit_max_travel,
         first_step_unload_dwell_s=first_step_unload_dwell_s,
         liftoff_timeout_s=liftoff_timeout_s,
         touchdown_grace_s=touchdown_grace_s,

@@ -1,0 +1,13 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/c7_single_acquisition_from100_dense100_diag100.yaml
+  resolved_config_required: true
+
+experiment:
+  id: c7_liftoff_commit_diag100
+  purpose: Test first-step commitment at natural swing selection within a bounded forward target distance.
+
+gait:
+  # Experimental eligibility bound; not a verified kinematic reach limit.
+  first_step_commit_max_travel_m: 0.35

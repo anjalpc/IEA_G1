@@ -106,6 +106,55 @@ def run_step(env, runtime, gait, term, **term_kwargs):
 
 
 class TestCoordinatedMotion(unittest.TestCase):
+    def test_first_step_selection_commit_is_early_and_persists_through_miss(self):
+        env,runtime,gait=fixture()
+        gait.cfg.adaptive_transition_clock=True
+        gait.cfg.first_step_commit_max_travel_m=.35
+        runtime.target_step.zero_(); runtime.preferred_foot.fill_(-1)
+        runtime.step_acquired_event.zero_(); runtime.physical_touchdown_event.zero_()
+        runtime.robot.data.body_pos_w[:,0,0]=.80
+        runtime.robot.data.body_pos_w[:,1,0]=.50
+        runtime.sensor.data.net_forces_w[:,0,2]=0.
+        runtime.sensor.data.net_forces_w[:,1,2]=100.
+        term=module.CoordinatedMotion(None,env)
+        for i in range(1,4):
+            env.common_step_counter=runtime.last_step=i
+            run_step(env,runtime,gait,term,adaptive_timing=True)
+        self.assertTrue(bool(gait.approach_committed.all()))
+        self.assertTrue(bool((term.trace['sole_bounds_local'][:,0,1] < .95).all()))
+        self.assertTrue(bool((term.trace['swing_progress'] < .1).all()))
+        self.assertTrue(bool((term.trace['dense_cost_scaled'] > 0).any()))
+        runtime.sensor.data.net_forces_w[:,0,2]=100.
+        env.common_step_counter=runtime.last_step=4
+        run_step(env,runtime,gait,term,adaptive_timing=True)
+        self.assertTrue(bool(gait.approach_committed.all()))
+        self.assertEqual(gait.transition_motion_miss_reason.tolist(),[3,3])
+        self.assertTrue(bool(gait.transition_motion_miss_event.all()))
+        env.common_step_counter=runtime.last_step=5
+        run_step(env,runtime,gait,term,adaptive_timing=True)
+        self.assertFalse(bool(gait.approach_committed.any()))
+        self.assertFalse(bool(gait.transition_motion_miss_event.any()))
+
+    def test_first_step_far_preview_cannot_commit_mid_swing(self):
+        env,runtime,gait=fixture()
+        gait.cfg.adaptive_transition_clock=True
+        gait.cfg.first_step_commit_max_travel_m=.35
+        runtime.target_step.zero_(); runtime.preferred_foot.fill_(-1)
+        runtime.step_acquired_event.zero_(); runtime.physical_touchdown_event.zero_()
+        runtime.robot.data.body_pos_w[:,0,0]=.50
+        runtime.sensor.data.net_forces_w[:,0,2]=0.
+        runtime.sensor.data.net_forces_w[:,1,2]=100.
+        term=module.CoordinatedMotion(None,env)
+        for i in range(1,4):
+            env.common_step_counter=runtime.last_step=i
+            run_step(env,runtime,gait,term,adaptive_timing=True)
+        self.assertFalse(bool(gait.approach_committed.any()))
+        runtime.robot.data.body_pos_w[:,0,0]=.85
+        env.common_step_counter=runtime.last_step=4
+        run_step(env,runtime,gait,term,adaptive_timing=True)
+        self.assertFalse(bool(gait.approach_committed.any()))
+        self.assertEqual(int(torch.count_nonzero(term.trace['dense_cost_scaled'])),0)
+
     def test_same_step_phase_order_and_endpoint_hold(self):
         env,runtime,gait=fixture()
         term=module.CoordinatedMotion(None,env)
