@@ -443,6 +443,14 @@ class TestCoordinatedMotion(unittest.TestCase):
         self.assertTrue(
             bool((term.trace['landing_guidance_gate'] > 0).all())
         )
+        expected_gate = torch.maximum(
+            term.trace['landing_spatial_progress'],
+            term.trace['swing_progress'],
+        )
+        self.assertTrue(torch.allclose(
+            term.trace['landing_guidance_gate'],
+            expected_gate,
+        ))
 
 
     def test_c7_committed_pre_riser_replant_scores_then_clears_once(self):

@@ -234,9 +234,17 @@ class CoordinatedMotion(ManagerTermBase):
             & gait.approach_committed
         ) if adaptive_timing else torch.zeros_like(tracking_active)
 
+        # For the committed first step, retain the early spatial-progress
+        # activation while preventing a poorly aimed swing from suppressing
+        # its own landing-quality pressure.  Swing progress provides a floor;
+        # non-first transitions retain the historical phase gate unchanged.
+        committed_first_landing_gate = torch.maximum(
+            spatial_landing_progress,
+            self.progress,
+        )
         landing_gate = torch.where(
             committed_first,
-            spatial_landing_progress,
+            committed_first_landing_gate,
             phase_landing_gate,
         )
 
