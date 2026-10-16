@@ -150,20 +150,15 @@ terrain:
   collision_representation: non_overlapping_trimesh_boxes
   horizontal_resolution_m: 0.05
   vertical_resolution_m: 0.005
-  curriculum_enabled: true
+  curriculum_enabled: false
   riser_height_range_m:
   - 0.04
-  - 0.2
-  riser_heights_m:
-  - 0.0
   - 0.04
-  - 0.08
-  - 0.12
-  - 0.16
-  - 0.2
+  riser_heights_m:
+  - 0.04
   curriculum:
-    enabled: true
-    initial_max_level: 1
+    enabled: false
+    initial_max_level: 0
     platform_margin_m: 0.1
     minimum_upright_gravity_z: 0.75
     minimum_base_clearance_m: 0.55
