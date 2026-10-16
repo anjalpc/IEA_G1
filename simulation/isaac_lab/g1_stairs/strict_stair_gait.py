@@ -4,7 +4,11 @@ from __future__ import annotations
 
 import torch
 
-from .motion_reference import strict_tread_landing_mask, riser_contact_masks
+from .motion_reference import (
+    strict_tread_landing_mask,
+    strict_touchdown_height_tolerance,
+    riser_contact_masks,
+)
 
 
 class StrictStairGait:
@@ -65,6 +69,7 @@ class StrictStairGait:
         self.dwell = torch.zeros(n, device=device)
         self.lane = torch.zeros(n, 2, device=device)
         self.lane_initialized = torch.zeros(n, dtype=torch.bool, device=device)
+        self.trace = {}
 
     def reset(self, ids):
         for value in (
@@ -171,6 +176,75 @@ class StrictStairGait:
         )
         bad = (number > 0) & ~valid_landing
         bad |= (number > 0) & (self.pending >= 0)
+
+        # Read-only diagnostic snapshot of the exact landing decision.
+        # These expressions intentionally mirror strict_tread_landing_mask().
+        selected_bounds = bounds[rows, foot]
+        selected_fz = fz[rows, foot]
+        selected_speed = speed[rows, foot]
+        selected_tilt = tilt[rows, foot]
+        selected_yaw = yaw[rows, foot]
+        selected_lane = self.lane[rows, foot]
+
+        center_x = 0.5 * (selected_bounds[:, 0] + selected_bounds[:, 1])
+        center_y_selected = 0.5 * (
+            selected_bounds[:, 2] + selected_bounds[:, 3]
+        )
+        tread_center = 0.5 * (start + end)
+        height_tolerance = strict_touchdown_height_tolerance(height)
+
+        self.trace = {
+            "fresh": fresh.clone(),
+            "relevant": relevant.clone(),
+            "number": number.clone(),
+            "selected_foot": foot.clone(),
+            "expected": expected.clone(),
+            "good": good[rows, foot].clone(),
+            "cleared": self.cleared[rows, foot].clone(),
+            "support_valid": self.support_valid[rows, foot].clone(),
+            "valid_landing": valid_landing.clone(),
+            "bad_landing": bad.clone(),
+            "vertical_force_n": selected_fz.clone(),
+            "speed_mps": selected_speed.clone(),
+            "tilt_rad": selected_tilt.clone(),
+            "yaw_rad": selected_yaw.clone(),
+            "sole_bounds": selected_bounds.clone(),
+            "good_force": (
+                selected_fz >= self.SUPPORT_FORCE_N
+            ).clone(),
+            "good_front_margin": (
+                selected_bounds[:, 0] >= start + self.TREAD_MARGIN_M
+            ).clone(),
+            "good_rear_margin": (
+                selected_bounds[:, 1] <= end - self.TREAD_MARGIN_M
+            ).clone(),
+            "good_lateral_bounds": (
+                (selected_bounds[:, 2] >= -self.width + self.TREAD_MARGIN_M)
+                & (selected_bounds[:, 3] <= self.width - self.TREAD_MARGIN_M)
+            ).clone(),
+            "good_center_x": (
+                (center_x - tread_center).abs() <= 0.010
+            ).clone(),
+            "good_center_y": (
+                (center_y_selected - selected_lane).abs()
+                <= self.LANE_TOLERANCE_M
+            ).clone(),
+            "good_height_min": (
+                (selected_bounds[:, 4] - top).abs() <= height_tolerance
+            ).clone(),
+            "good_height_max": (
+                (selected_bounds[:, 5] - top).abs() <= height_tolerance
+            ).clone(),
+            "good_speed": (
+                selected_speed <= self.TOUCHDOWN_SPEED_MPS
+            ).clone(),
+            "good_tilt": (
+                selected_tilt <= self.MAX_TILT_RAD
+            ).clone(),
+            "good_yaw": (
+                selected_yaw.abs() <= self.MAX_YAW_RAD
+            ).clone(),
+        }
 
         begin = valid_landing & (self.pending < 0)
         self.pending = torch.where(begin, foot, self.pending)

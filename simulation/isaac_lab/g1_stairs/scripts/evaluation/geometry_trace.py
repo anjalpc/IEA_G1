@@ -262,6 +262,14 @@ class GeometryTrace:
                 "pending_foot": int(strict.pending[0].item()),
                 "support_dwell_s": float(strict.dwell[0].item()),
             }
+
+            decision = getattr(strict, "trace", None)
+            if decision:
+                row["strict_landing_decision"] = {
+                    key: self.values(value[0])
+                    for key, value in decision.items()
+                }
+
         self.stream.write(json.dumps(row, allow_nan=False) + "\n")
 
     def compute(self, dt):

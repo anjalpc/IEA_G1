@@ -114,6 +114,28 @@ class StrictGaitTests(unittest.TestCase):
         self.assertTrue(self.g.failed.item())
         self.assertEqual(self.g.reason.item(), StrictStairGait.BAD_LANDING)
 
+    def test_bad_landing_trace_exposes_speed_failure(self):
+        self.swing(0, 0)
+        self.v[0, 0] = 0.50
+        self.f[0, 0, 2] = 150.0
+        self.update()
+
+        self.assertTrue(self.g.failed.item())
+        self.assertEqual(self.g.reason.item(), StrictStairGait.BAD_LANDING)
+
+        tr = self.g.trace
+        self.assertTrue(bool(tr["fresh"][0, 0]))
+        self.assertTrue(bool(tr["relevant"][0, 0]))
+        self.assertEqual(int(tr["number"][0]), 1)
+        self.assertEqual(int(tr["selected_foot"][0]), 0)
+        self.assertTrue(bool(tr["expected"][0]))
+        self.assertFalse(bool(tr["good"][0]))
+        self.assertTrue(bool(tr["cleared"][0]))
+        self.assertTrue(bool(tr["support_valid"][0]))
+        self.assertFalse(bool(tr["valid_landing"][0]))
+        self.assertTrue(bool(tr["bad_landing"][0]))
+        self.assertFalse(bool(tr["good_speed"][0]))
+
     def test_third_acquisition_must_land_on_third_tread(self):
         self.swing(0, 0); self.land(0)
         self.swing(1, 1); self.land(1)
