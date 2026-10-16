@@ -127,6 +127,8 @@ class GeometryTrace:
                 "gait_reward_phase": self.values(gait.reward_phase[0]),
                 "gait_reward_active": self.values(gait.reward_active[0]),
                 "phase_swing_contact_loss": self.values(gait.contact_loss[0]),
+                "approach_committed": self.values(gait.approach_committed[0]),
+                "approach_clear_pending": self.values(gait.approach_clear_pending[0]),
             })
         if reward is not None:
             row.update({
