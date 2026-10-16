@@ -394,6 +394,57 @@ class TestCoordinatedMotion(unittest.TestCase):
         self.assertEqual(gait.approach_preferred_foot.tolist(),[-1,-1])
         self.assertFalse(bool(gait.transition_motion_miss_event.any()))
 
+    def test_c7_committed_first_step_uses_spatial_landing_guidance_before_phase_gate(self):
+        env,runtime,gait=fixture()
+        gait.cfg.adaptive_transition_clock=True
+        runtime.target_step.zero_()
+        runtime.preferred_foot.fill_(-1)
+        runtime.step_acquired_event.zero_()
+        runtime.physical_touchdown_event.zero_()
+
+        # Begin as an ordinary preview swing well before the first-riser
+        # interaction zone.
+        runtime.robot.data.body_pos_w[:,0,0]=.72
+        runtime.robot.data.body_pos_w[:,1,0]=.52
+
+        term=module.CoordinatedMotion(None,env)
+
+        runtime.sensor.data.net_forces_w[:,0,2]=0.
+        runtime.sensor.data.net_forces_w[:,1,2]=100.
+
+        for i in range(1,4):
+            env.common_step_counter=runtime.last_step=i
+            run_step(
+                env,runtime,gait,term,
+                adaptive_timing=True,
+                direct_quality_weight=.5,
+                ascent_only_auxiliary=True,
+            )
+
+        self.assertFalse(bool(gait.approach_committed.any()))
+
+        # Move the still-unloaded selected foot into the existing first-step
+        # commitment region.  Nominal phase is still far below the historical
+        # 0.65 landing gate, but physical progress toward the tread is real.
+        runtime.robot.data.body_pos_w[:,0,0]=.85
+        env.common_step_counter=runtime.last_step=4
+        run_step(
+            env,runtime,gait,term,
+            adaptive_timing=True,
+            direct_quality_weight=.5,
+            ascent_only_auxiliary=True,
+        )
+
+        self.assertTrue(bool(gait.approach_committed.all()))
+        self.assertTrue(bool((term.trace['swing_progress'] < .65).all()))
+        self.assertTrue(
+            bool((term.trace['landing_spatial_progress'] > 0).all())
+        )
+        self.assertTrue(
+            bool((term.trace['landing_guidance_gate'] > 0).all())
+        )
+
+
     def test_c7_committed_pre_riser_replant_scores_then_clears_once(self):
         env,runtime,gait=fixture()
         gait.cfg.adaptive_transition_clock=True

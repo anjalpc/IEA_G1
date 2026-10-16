@@ -212,7 +212,34 @@ class CoordinatedMotion(ManagerTermBase):
                                tread_end-selected_bounds[:, 1],
                                selected_bounds[:, 2]+float(cfg.size[1])/2,
                                float(cfg.size[1])/2-selected_bounds[:, 3]), -1)
-        landing_gate = ((self.progress-.65)/.35).clamp(0, 1)*tracking_active
+        # C7 first-step landing guidance must follow physical progress, not
+        # wait for the nominal swing clock to reach 65%.  This keeps the
+        # existing swing/clearance reference unchanged while progressively
+        # exposing placement, orientation, and speed costs as the committed
+        # foot closes horizontal distance to its tread target.
+        phase_landing_gate = ((self.progress-.65)/.35).clamp(0, 1)*tracking_active
+        horizontal_remaining_m = (
+            actual[:, :2] - self.landing[:, :2]
+        ).norm(dim=-1)
+        horizontal_span_m = (
+            self.start[:, :2] - self.landing[:, :2]
+        ).norm(dim=-1).clamp_min(1e-6)
+        spatial_landing_progress = (
+            1.0 - horizontal_remaining_m / horizontal_span_m
+        ).clamp(0, 1)
+
+        committed_first = (
+            tracking_active
+            & (self.target == 0)
+            & gait.approach_committed
+        ) if adaptive_timing else torch.zeros_like(tracking_active)
+
+        landing_gate = torch.where(
+            committed_first,
+            spatial_landing_progress,
+            phase_landing_gate,
+        )
+
         edge_cost = bounded_square((.025-margins).clamp_min(0), .025).mean(-1)
         centre_error_xy = (actual[:, :2] - self.landing[:, :2]).norm(dim=-1)
         centre_cost = bounded_square(centre_error_xy, position_scale_m)
@@ -356,6 +383,9 @@ class CoordinatedMotion(ManagerTermBase):
                       'reference_target': self.target.clone(),
                       'reference_foot': self.preferred.clone(),
                       'swing_progress': self.progress.clone(),
+                      'landing_guidance_gate': landing_gate.clone(),
+                      'landing_spatial_progress': spatial_landing_progress.clone(),
+                      'landing_remaining_xy_m': horizontal_remaining_m.clone(),
                       'desired_sole_centre_local': reference,
                       'actual_sole_centre_local': actual,
                       'swing_error_xyz_m': error,
