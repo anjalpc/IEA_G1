@@ -394,6 +394,57 @@ class TestCoordinatedMotion(unittest.TestCase):
         self.assertEqual(gait.approach_preferred_foot.tolist(),[-1,-1])
         self.assertFalse(bool(gait.transition_motion_miss_event.any()))
 
+    def test_c7_first_step_preview_dense_cost_starts_only_after_commit(self):
+        env,runtime,gait=fixture()
+        gait.cfg.adaptive_transition_clock=True
+        runtime.target_step.zero_()
+        runtime.preferred_foot.fill_(-1)
+        runtime.step_acquired_event.zero_()
+        runtime.physical_touchdown_event.zero_()
+
+        # Ordinary first-step preview: selected left foot is still well before
+        # the existing 5 cm commitment region.
+        runtime.robot.data.body_pos_w[:,0,0]=.72
+        runtime.robot.data.body_pos_w[:,1,0]=.52
+        runtime.sensor.data.net_forces_w[:,0,2]=0.
+        runtime.sensor.data.net_forces_w[:,1,2]=100.
+
+        term=module.CoordinatedMotion(None,env)
+
+        for i in range(1,4):
+            env.common_step_counter=runtime.last_step=i
+            run_step(
+                env,runtime,gait,term,
+                adaptive_timing=True,
+                direct_quality_weight=.5,
+                ascent_only_auxiliary=True,
+            )
+
+        self.assertEqual(term.target.tolist(),[0,0])
+        self.assertFalse(bool(gait.approach_committed.any()))
+        self.assertTrue(bool((term.trace['dense_cost_raw'] > 0).any()))
+        self.assertEqual(
+            int(torch.count_nonzero(term.trace['dense_cost_scaled'])),
+            0,
+        )
+
+        # Move the same still-unloaded foot into the existing commitment region.
+        runtime.robot.data.body_pos_w[:,0,0]=.85
+        env.common_step_counter=runtime.last_step=4
+        run_step(
+            env,runtime,gait,term,
+            adaptive_timing=True,
+            direct_quality_weight=.5,
+            ascent_only_auxiliary=True,
+        )
+
+        self.assertTrue(bool(gait.approach_committed.all()))
+        self.assertTrue(bool((term.trace['dense_cost_raw'] > 0).any()))
+        torch.testing.assert_close(
+            term.trace['dense_cost_scaled'],
+            term.trace['dense_cost_raw'],
+        )
+
     def test_c7_committed_first_step_uses_spatial_landing_guidance_before_phase_gate(self):
         env,runtime,gait=fixture()
         gait.cfg.adaptive_transition_clock=True

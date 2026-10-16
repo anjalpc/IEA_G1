@@ -325,7 +325,12 @@ class CoordinatedMotion(ManagerTermBase):
         weights = (swing_weight, stance_weight, prelift_weight, placement_weight,
                    transfer_weight, lateral_weight, arm_weight, finish_weight)
         dense_cost_raw = sum(w*c for w,c in zip(weights, costs.values()))
-        dense_cost = dense_cost_scale * dense_cost_raw
+        dense_cost_gate = torch.ones_like(dense_cost_raw)
+        if adaptive_timing:
+            first_step_preview = (self.target == 0) & ~gait.approach_committed
+            dense_cost_gate = (~first_step_preview).to(foot.dtype)
+        dense_cost_scaled = dense_cost_scale * dense_cost_raw * dense_cost_gate
+        dense_cost = dense_cost_scaled
         motion_miss = (
             gait.transition_motion_miss_event.to(foot.dtype)
             if adaptive_timing else torch.zeros_like(dense_cost)
@@ -371,7 +376,7 @@ class CoordinatedMotion(ManagerTermBase):
         self.trace = {**{'cost_'+k: v for k,v in costs.items()},
                       'total_cost': self.total,
                       'dense_cost_raw': dense_cost_raw,
-                      'dense_cost_scaled': dense_cost_scale * dense_cost_raw,
+                      'dense_cost_scaled': dense_cost_scaled,
                       'dense_cost': dense_cost,
                       'reference_selected': selected.clone(),
                       'reference_active': tracking_active.clone(),
