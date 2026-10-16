@@ -350,10 +350,18 @@ def finish_geometry_episodes(
     runtime.phase_failures.view(-1).scatter_add_(
         0, levels * 3 + tracker.phase[ids], (~success).long(),
     )
-    # Preserve the existing dashboard's curriculum counter keys, but source
-    # them from completed episodes with the shared physical outcome contract.
+
+    # Keep curriculum reporting aligned with the promotion contract.
+    # Strict curricula report verified episode SUCCESS; historical curricula
+    # retain the supported-platform milestone for reproducibility.
+    curriculum_success_counts = (
+        runtime.counts[:, Result.SUCCESS].clone()
+        if require_strict_success_for_promotion
+        else runtime.platform_counts.clone()
+    )
+
     env._g1_stair_curriculum_attempts = runtime.counts.sum(-1)
-    env._g1_stair_curriculum_successes = runtime.platform_counts.clone()
+    env._g1_stair_curriculum_successes = curriculum_success_counts
     if promote:
         move_up = curriculum_success & (levels < len(runtime.heights) - 1)
         move_down = ~curriculum_success & (levels > 0)

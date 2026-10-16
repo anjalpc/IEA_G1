@@ -686,6 +686,7 @@ if "verified_stair_attempts" in extra:
                 "fall", "forbidden_contact", "course_boundary",
                 "joint_limit", "velocity_limit", "torque_limit",
                 "wrong_direction", "stall", "timeout", "invalid_state",
+                "step_over_contract",
             ):
                 count = extra.get(prefix + "_" + name, 0)
                 if count:

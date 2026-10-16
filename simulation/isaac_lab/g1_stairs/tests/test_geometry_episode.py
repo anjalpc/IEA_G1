@@ -303,7 +303,7 @@ class EpisodeAccountingTests(unittest.TestCase):
         )
         self.assertEqual(
             env._g1_stair_curriculum_successes.tolist(),
-            [0, 2, 0],
+            [0, 1, 0],
         )
 
     def test_nonflat_population_floor_limits_level1_demotion(self):
