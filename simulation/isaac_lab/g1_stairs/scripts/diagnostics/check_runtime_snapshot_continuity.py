@@ -30,6 +30,7 @@ parser.add_argument("--seed", type=int, default=42)
 parser.add_argument("--atol", type=float, default=1.0e-6)
 parser.add_argument("--rtol", type=float, default=1.0e-6)
 parser.add_argument("--output-json", type=str, default=None)
+parser.add_argument("--snapshot-output", type=str, default=None)
 cli_args.add_rsl_rl_args(parser)
 AppLauncher.add_app_launcher_args(parser)
 args = parser.parse_args()
@@ -72,6 +73,7 @@ def main() -> None:
         capture_temporal_runtime,
         restore_physics_runtime,
         restore_temporal_runtime,
+        save_single_env_snapshot_artifact,
     )
 
     config_path = Path(args.resolved_config).resolve()
@@ -166,6 +168,8 @@ def main() -> None:
             local_root_x = float(
                 physics.root_link_state[0, 0].item() - raw.scene.env_origins[0, 0].item()
             )
+            if args.snapshot_output is not None:
+                save_single_env_snapshot_artifact(args.snapshot_output, raw, env_id=0)
 
             # V03 intentionally rejects non-terminal episode resets. For this
             # continuity diagnostic only, mark the episode as an initial reset

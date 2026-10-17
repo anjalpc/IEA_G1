@@ -101,6 +101,98 @@ def restore_physics_runtime(env, snapshot: PhysicsRuntimeSnapshot, env_ids=None)
     robot.set_joint_position_target(snapshot.joint_pos_target, env_ids=env_ids)
     env.scene.write_data_to_sim()
 
+
+
+def _single_env_tensor(value: torch.Tensor, env_id: int, num_envs: int, name: str) -> torch.Tensor:
+    if value.ndim == 0 or value.shape[0] != num_envs:
+        raise RuntimeError(
+            f"snapshot tensor {name} is not environment-batched: shape={tuple(value.shape)}"
+        )
+    return value[env_id : env_id + 1].detach().cpu().clone()
+
+
+def build_single_env_snapshot_artifact(env, env_id: int = 0) -> dict:
+    """Build a portable one-environment near-riser snapshot artifact."""
+
+    if not 0 <= env_id < env.num_envs:
+        raise ValueError(f"env_id {env_id} outside [0, {env.num_envs})")
+
+    physics = capture_physics_runtime(
+        env,
+        env_ids=torch.tensor([env_id], dtype=torch.long, device=env.device),
+    )
+    temporal = capture_temporal_runtime(env)
+
+    histories = {}
+    buffers = env.observation_manager._group_obs_term_history_buffer
+    for (group_name, term_name), saved in temporal.observation_history.items():
+        current = buffers[group_name][term_name]
+        if current._buffer is None:
+            raise RuntimeError(f"history buffer is uninitialized: {group_name}/{term_name}")
+        histories[f"{group_name}/{term_name}"] = {
+            "ordered": current.buffer[env_id : env_id + 1].detach().cpu().clone(),
+            "num_pushes": saved.num_pushes[env_id : env_id + 1].detach().cpu().clone(),
+        }
+
+    gait_tensors = {
+        name: _single_env_tensor(value, env_id, env.num_envs, f"gait.{name}")
+        for name, value in temporal.gait.tensors.items()
+    }
+    command_terms = {}
+    for term_name, saved in temporal.command_terms.items():
+        command_terms[term_name] = {
+            name: _single_env_tensor(
+                value, env_id, env.num_envs, f"command.{term_name}.{name}"
+            )
+            for name, value in saved.tensors.items()
+            if value.ndim > 0 and value.shape[0] == env.num_envs
+        }
+
+    acquisition = getattr(env, "_g1_v04_acquisition", None)
+    acquisition_tensors = {}
+    if acquisition is not None:
+        acquisition_tensors = {
+            name: _single_env_tensor(
+                value, env_id, env.num_envs, f"acquisition.{name}"
+            )
+            for name, value in vars(acquisition).items()
+            if isinstance(value, torch.Tensor)
+            and value.ndim > 0
+            and value.shape[0] == env.num_envs
+        }
+
+    return {
+        "format": "iea_g1_c7_near_riser_snapshot",
+        "version": 1,
+        "source_env_origin": env.scene.env_origins[env_id : env_id + 1].detach().cpu().clone(),
+        "episode_length": env.episode_length_buf[env_id : env_id + 1].detach().cpu().clone(),
+        "physics": {
+            "root_link_state": physics.root_link_state.detach().cpu().clone(),
+            "joint_pos": physics.joint_pos.detach().cpu().clone(),
+            "joint_vel": physics.joint_vel.detach().cpu().clone(),
+            "joint_pos_target": physics.joint_pos_target.detach().cpu().clone(),
+        },
+        "temporal": {
+            "action": temporal.action[env_id : env_id + 1].detach().cpu().clone(),
+            "prev_action": temporal.prev_action[env_id : env_id + 1].detach().cpu().clone(),
+            "observation_history": histories,
+            "gait": gait_tensors,
+            "command_terms": command_terms,
+        },
+        "acquisition": acquisition_tensors,
+    }
+
+
+def save_single_env_snapshot_artifact(path, env, env_id: int = 0) -> None:
+    """Write a portable snapshot artifact using tensor-only torch serialization."""
+
+    from pathlib import Path
+
+    destination = Path(path)
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    torch.save(build_single_env_snapshot_artifact(env, env_id=env_id), destination)
+
+
 def capture_temporal_runtime(env) -> TemporalRuntimeSnapshot:
     """Capture manager/runtime state destroyed by an Isaac Lab environment reset."""
 
