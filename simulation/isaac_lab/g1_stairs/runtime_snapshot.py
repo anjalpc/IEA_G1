@@ -161,9 +161,43 @@ def build_single_env_snapshot_artifact(env, env_id: int = 0) -> dict:
             and value.shape[0] == env.num_envs
         }
 
+    geometry_episode = getattr(env, "_g1_geometry_episode", None)
+    geometry_episode_state = {}
+    if geometry_episode is not None:
+        tracker_names = (
+            "reason", "started", "start_x", "best_x", "stall_time",
+            "dwell", "best_dwell", "dwell_peak_increment",
+            "platform_contact_seen", "platform_seen", "entered_stairs", "phase",
+        )
+        geometry_episode_state["tracker"] = {
+            name: _single_env_tensor(
+                getattr(geometry_episode.tracker, name),
+                env_id,
+                env.num_envs,
+                f"geometry_episode.tracker.{name}",
+            )
+            for name in tracker_names
+        }
+        strict = geometry_episode.strict_gait
+        if strict is not None:
+            strict_names = (
+                "count", "last_foot", "failed", "reason", "unloaded",
+                "support_valid", "cleared", "pending", "dwell", "lane",
+                "lane_initialized",
+            )
+            geometry_episode_state["strict_gait"] = {
+                name: _single_env_tensor(
+                    getattr(strict, name),
+                    env_id,
+                    env.num_envs,
+                    f"geometry_episode.strict_gait.{name}",
+                )
+                for name in strict_names
+            }
+
     return {
         "format": "iea_g1_c7_near_riser_snapshot",
-        "version": 1,
+        "version": 2,
         "source_env_origin": env.scene.env_origins[env_id : env_id + 1].detach().cpu().clone(),
         "episode_length": env.episode_length_buf[env_id : env_id + 1].detach().cpu().clone(),
         "physics": {
@@ -180,6 +214,7 @@ def build_single_env_snapshot_artifact(env, env_id: int = 0) -> dict:
             "command_terms": command_terms,
         },
         "acquisition": acquisition_tensors,
+        "geometry_episode": geometry_episode_state,
     }
 
 
@@ -277,9 +312,9 @@ def _validate_single_env_snapshot_artifact(artifact: dict) -> None:
         raise RuntimeError("near-riser snapshot artifact must be a dictionary")
     if artifact.get("format") != "iea_g1_c7_near_riser_snapshot":
         raise RuntimeError(f"unexpected near-riser snapshot format: {artifact.get('format')!r}")
-    if artifact.get("version") != 1:
+    if artifact.get("version") != 2:
         raise RuntimeError(f"unsupported near-riser snapshot version: {artifact.get('version')!r}")
-    for key in ("source_env_origin", "physics", "temporal", "acquisition"):
+    for key in ("source_env_origin", "physics", "temporal", "acquisition", "geometry_episode"):
         if key not in artifact:
             raise RuntimeError(f"near-riser snapshot is missing {key!r}")
 
@@ -412,3 +447,82 @@ def restore_single_env_snapshot_artifact(env, artifact: dict, env_ids) -> None:
             if not isinstance(current, torch.Tensor):
                 raise RuntimeError(f"acquisition.{name} stopped being a tensor")
             _restore_rows(current, ids, saved, f"acquisition.{name}")
+
+    episode_length = artifact["episode_length"]
+    if not isinstance(episode_length, torch.Tensor) or tuple(episode_length.shape) != (1,):
+        raise RuntimeError("snapshot episode_length must have shape (1,)")
+    env.episode_length_buf[ids] = episode_length.to(
+        device=env.episode_length_buf.device,
+        dtype=env.episode_length_buf.dtype,
+    ).expand(ids.numel())
+
+    geometry_state = artifact["geometry_episode"]
+    geometry_episode = getattr(env, "_g1_geometry_episode", None)
+    if geometry_state and geometry_episode is None:
+        raise RuntimeError("snapshot contains geometry episode state but runtime is unavailable")
+    if geometry_episode is not None and geometry_state:
+        for name, saved in geometry_state.get("tracker", {}).items():
+            current = getattr(geometry_episode.tracker, name, None)
+            if not isinstance(current, torch.Tensor):
+                raise RuntimeError(f"geometry_episode.tracker.{name} stopped being a tensor")
+            _restore_rows(current, ids, saved, f"geometry_episode.tracker.{name}")
+
+        strict_saved = geometry_state.get("strict_gait", {})
+        if strict_saved:
+            if geometry_episode.strict_gait is None:
+                raise RuntimeError("snapshot contains strict gait state but runtime is unavailable")
+            for name, saved in strict_saved.items():
+                current = getattr(geometry_episode.strict_gait, name, None)
+                if not isinstance(current, torch.Tensor):
+                    raise RuntimeError(f"geometry_episode.strict_gait.{name} stopped being a tensor")
+                _restore_rows(current, ids, saved, f"geometry_episode.strict_gait.{name}")
+
+        geometry_episode.last_step = int(env.common_step_counter) - 1
+
+
+def apply_near_riser_snapshot_reset_config(env_cfg, resolved: dict, *, project_root) -> dict:
+    """Apply opt-in near-riser snapshot reset configuration to the stair env."""
+
+    from pathlib import Path
+
+    cfg = resolved.get("near_riser_snapshot_reset", {})
+    if cfg is None:
+        cfg = {}
+    if not isinstance(cfg, dict):
+        raise ValueError("near_riser_snapshot_reset must be a mapping")
+
+    enabled = bool(cfg.get("enabled", False))
+    env_cfg.near_riser_snapshot_path = None
+    if not enabled:
+        return {"enabled": False, "artifact_path": None}
+
+    if resolved.get("reset_randomization", {}).get("enabled", False):
+        raise ValueError("near-riser snapshot reset cannot be combined with reset_randomization")
+
+    raw_path = cfg.get("artifact_path")
+    if not isinstance(raw_path, str) or not raw_path.strip():
+        raise ValueError("near_riser_snapshot_reset.artifact_path must be a non-empty string")
+
+    path = Path(raw_path)
+    if not path.is_absolute():
+        path = Path(project_root) / path
+    path = path.resolve()
+    if not path.is_file():
+        raise FileNotFoundError(f"near-riser snapshot artifact not found: {path}")
+
+    artifact = load_single_env_snapshot_artifact(path)
+    expected_episode_length = cfg.get("expected_episode_length")
+    if expected_episode_length is not None:
+        actual_episode_length = int(artifact["episode_length"][0].item())
+        if actual_episode_length != int(expected_episode_length):
+            raise RuntimeError(
+                "near-riser snapshot episode length mismatch: "
+                f"{actual_episode_length} != {int(expected_episode_length)}"
+            )
+
+    env_cfg.near_riser_snapshot_path = str(path)
+    return {
+        "enabled": True,
+        "artifact_path": str(path),
+        "episode_length": int(artifact["episode_length"][0].item()),
+    }

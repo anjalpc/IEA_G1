@@ -10,7 +10,7 @@ def register() -> None:
         return
     gym.register(
         id=TASK_ID,
-        entry_point="isaaclab.envs:ManagerBasedRLEnv",
+        entry_point="isaac_lab.g1_stairs.snapshot_reset_env:NearRiserSnapshotManagerBasedRLEnv",
         disable_env_checker=True,
         kwargs={
             "env_cfg_entry_point": "isaac_lab.g1_stairs.env_cfg:StairEnvCfg",

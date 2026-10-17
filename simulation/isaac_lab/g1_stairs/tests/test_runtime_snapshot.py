@@ -249,7 +249,7 @@ def test_single_env_artifact_uses_localizable_ordered_state():
     artifact = build_single_env_snapshot_artifact(env)
 
     assert artifact["format"] == "iea_g1_c7_near_riser_snapshot"
-    assert artifact["version"] == 1
+    assert artifact["version"] == 2
     torch.testing.assert_close(artifact["source_env_origin"], env.scene.env_origins)
     torch.testing.assert_close(artifact["episode_length"], torch.tensor([124]))
     torch.testing.assert_close(
@@ -317,3 +317,127 @@ def test_artifact_restore_relocalizes_physics_and_prepares_history_for_next_appe
         buffer._buffer[buffer._pointer, 0].copy_(saved["ordered"][0, -1])
         buffer._num_pushes += 1
         torch.testing.assert_close(buffer.buffer, saved["ordered"])
+
+
+class FakeEpisodeTracker:
+    def __init__(self):
+        self.reason = torch.tensor([0], dtype=torch.long)
+        self.started = torch.tensor([True])
+        self.start_x = torch.tensor([0.1])
+        self.best_x = torch.tensor([0.8])
+        self.stall_time = torch.tensor([0.2])
+        self.dwell = torch.tensor([0.0])
+        self.best_dwell = torch.tensor([0.0])
+        self.dwell_peak_increment = torch.tensor([0.0])
+        self.platform_contact_seen = torch.tensor([False])
+        self.platform_seen = torch.tensor([False])
+        self.entered_stairs = torch.tensor([False])
+        self.phase = torch.tensor([0], dtype=torch.long)
+
+
+class FakeStrictGait:
+    def __init__(self):
+        self.count = torch.tensor([0], dtype=torch.long)
+        self.last_foot = torch.tensor([-1], dtype=torch.long)
+        self.failed = torch.tensor([False])
+        self.reason = torch.tensor([0], dtype=torch.long)
+        self.unloaded = torch.tensor([[True, False]])
+        self.support_valid = torch.tensor([[True, True]])
+        self.cleared = torch.tensor([[False, False]])
+        self.pending = torch.tensor([-1], dtype=torch.long)
+        self.dwell = torch.tensor([0.0])
+        self.lane = torch.tensor([[0.05, -0.05]])
+        self.lane_initialized = torch.tensor([True])
+
+
+class FakeGeometryEpisode:
+    def __init__(self):
+        self.tracker = FakeEpisodeTracker()
+        self.strict_gait = FakeStrictGait()
+        self.last_step = 123
+
+
+def test_artifact_captures_and_restores_episode_contract_state():
+    source = make_env()
+    source_robot = FakeRobot()
+    source.scene = FakeScene(source_robot)
+    source.scene.env_origins = torch.tensor([[10.0, 20.0, 0.0]])
+    source.num_envs = 1
+    source.device = "cpu"
+    source.common_step_counter = 124
+    source.episode_length_buf = torch.tensor([124], dtype=torch.long)
+    source._g1_v04_acquisition = SimpleNamespace()
+    source._g1_geometry_episode = FakeGeometryEpisode()
+
+    artifact = build_single_env_snapshot_artifact(source)
+    assert artifact["version"] == 2
+    torch.testing.assert_close(
+        artifact["geometry_episode"]["tracker"]["best_x"],
+        torch.tensor([0.8]),
+    )
+    torch.testing.assert_close(
+        artifact["geometry_episode"]["strict_gait"]["unloaded"],
+        torch.tensor([[True, False]]),
+    )
+
+    target = make_env()
+    target_robot = FakeRobot()
+    target.scene = FakeScene(target_robot)
+    target.scene.env_origins = torch.tensor([[13.0, 24.0, 1.0]])
+    target.num_envs = 1
+    target.device = "cpu"
+    target.common_step_counter = 900
+    target.episode_length_buf = torch.tensor([0], dtype=torch.long)
+    target._g1_v04_acquisition = SimpleNamespace()
+    target._g1_geometry_episode = FakeGeometryEpisode()
+    target._g1_geometry_episode.tracker.best_x.zero_()
+    target._g1_geometry_episode.strict_gait.unloaded.zero_()
+
+    restore_single_env_snapshot_artifact(target, artifact, [0])
+
+    assert target.episode_length_buf.item() == 124
+    torch.testing.assert_close(target._g1_geometry_episode.tracker.best_x, torch.tensor([0.8]))
+    torch.testing.assert_close(
+        target._g1_geometry_episode.strict_gait.unloaded,
+        torch.tensor([[True, False]]),
+    )
+    assert target._g1_geometry_episode.last_step == 899
+
+
+def test_apply_near_riser_snapshot_reset_config(tmp_path):
+    from simulation.isaac_lab.g1_stairs.runtime_snapshot import (
+        apply_near_riser_snapshot_reset_config,
+        save_single_env_snapshot_artifact,
+    )
+
+    source = make_env()
+    source_robot = FakeRobot()
+    source.scene = FakeScene(source_robot)
+    source.scene.env_origins = torch.tensor([[10.0, 20.0, 0.0]])
+    source.num_envs = 1
+    source.device = "cpu"
+    source.episode_length_buf = torch.tensor([124], dtype=torch.long)
+    source._g1_v04_acquisition = SimpleNamespace()
+    source._g1_geometry_episode = FakeGeometryEpisode()
+    artifact_path = tmp_path / "snapshot.pt"
+    save_single_env_snapshot_artifact(artifact_path, source)
+
+    env_cfg = SimpleNamespace(near_riser_snapshot_path=None)
+    resolved = {
+        "near_riser_snapshot_reset": {
+            "enabled": True,
+            "artifact_path": "snapshot.pt",
+            "expected_episode_length": 124,
+        },
+        "reset_randomization": {"enabled": False},
+    }
+
+    summary = apply_near_riser_snapshot_reset_config(
+        env_cfg,
+        resolved,
+        project_root=tmp_path,
+    )
+
+    assert summary["enabled"] is True
+    assert summary["episode_length"] == 124
+    assert env_cfg.near_riser_snapshot_path == str(artifact_path.resolve())

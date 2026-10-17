@@ -844,6 +844,17 @@ def main() -> None:
     from simulation.isaac_lab.g1_stairs.geometry_episode_runtime import apply_geometry_episode_contract
     apply_geometry_episode_contract(env_cfg, resolved_config)
 
+    from simulation.isaac_lab.g1_stairs.runtime_snapshot import (
+        apply_near_riser_snapshot_reset_config,
+    )
+    snapshot_reset = apply_near_riser_snapshot_reset_config(
+        env_cfg,
+        resolved_config,
+        project_root=Path.cwd(),
+    )
+    if snapshot_reset["enabled"]:
+        print("[INFO] Near-riser snapshot reset:", snapshot_reset, flush=True)
+
     env = gym.make(args.task, cfg=env_cfg, render_mode=None)
     if isinstance(env.unwrapped, DirectMARLEnv):
         env = multi_agent_to_single_agent(env)

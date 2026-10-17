@@ -1,0 +1,14 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/c7_liftoff_commit_diag100.yaml
+  resolved_config_required: true
+
+experiment:
+  id: c7_near_riser_snapshot_reset_diag100
+  purpose: Diagnose one-acquisition learning from the verified policy-consistent pre-commit near-riser snapshot.
+
+near_riser_snapshot_reset:
+  enabled: true
+  artifact_path: experiments/g1_stairs/snapshots/c7_model100_seed42_t2p48.pt
+  expected_episode_length: 124
