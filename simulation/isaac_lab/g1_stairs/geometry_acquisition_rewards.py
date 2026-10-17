@@ -311,6 +311,9 @@ class GeometryAcquisitionRuntime:
         self.sample_target_index = torch.full_like(
             self.acquired_target_index, -1
         )
+        self.sample_preferred_foot = torch.full_like(
+            self.preferred_foot, -1
+        )
         self.riser_face_strike_sample = torch.zeros(
             shape, dtype=torch.bool, device=env.device
         )
