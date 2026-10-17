@@ -262,3 +262,153 @@ def restore_temporal_runtime(env, snapshot: TemporalRuntimeSnapshot) -> None:
         raise RuntimeError("command terms changed across snapshot restore")
     for name, saved in snapshot.command_terms.items():
         _restore_object(env.command_manager._terms[name], saved)
+
+
+def load_single_env_snapshot_artifact(path) -> dict:
+    """Load and validate a portable C7 near-riser snapshot artifact."""
+
+    artifact = torch.load(path, map_location="cpu", weights_only=True)
+    _validate_single_env_snapshot_artifact(artifact)
+    return artifact
+
+
+def _validate_single_env_snapshot_artifact(artifact: dict) -> None:
+    if not isinstance(artifact, dict):
+        raise RuntimeError("near-riser snapshot artifact must be a dictionary")
+    if artifact.get("format") != "iea_g1_c7_near_riser_snapshot":
+        raise RuntimeError(f"unexpected near-riser snapshot format: {artifact.get('format')!r}")
+    if artifact.get("version") != 1:
+        raise RuntimeError(f"unsupported near-riser snapshot version: {artifact.get('version')!r}")
+    for key in ("source_env_origin", "physics", "temporal", "acquisition"):
+        if key not in artifact:
+            raise RuntimeError(f"near-riser snapshot is missing {key!r}")
+
+
+def _target_env_ids(env, env_ids) -> torch.Tensor:
+    ids = torch.as_tensor(env_ids, dtype=torch.long, device=env.device).reshape(-1)
+    if ids.numel() == 0:
+        raise ValueError("near-riser snapshot restore requires at least one environment")
+    if torch.any(ids < 0) or torch.any(ids >= env.num_envs):
+        raise ValueError(f"near-riser snapshot env_ids out of range: {ids.tolist()}")
+    return ids
+
+
+def _broadcast_saved(saved: torch.Tensor, count: int, device, name: str) -> torch.Tensor:
+    if not isinstance(saved, torch.Tensor) or saved.ndim == 0 or saved.shape[0] != 1:
+        shape = None if not isinstance(saved, torch.Tensor) else tuple(saved.shape)
+        raise RuntimeError(f"snapshot tensor {name} must have leading singleton env dimension, got {shape}")
+    return saved.to(device=device).expand(count, *saved.shape[1:]).clone()
+
+
+def _restore_rows(current: torch.Tensor, env_ids: torch.Tensor, saved: torch.Tensor, name: str) -> None:
+    values = _broadcast_saved(saved, env_ids.numel(), current.device, name)
+    if tuple(values.shape[1:]) != tuple(current.shape[1:]):
+        raise RuntimeError(
+            f"snapshot tensor {name} shape changed: {tuple(values.shape[1:])} != {tuple(current.shape[1:])}"
+        )
+    current[env_ids] = values
+
+
+def _prepare_history_for_next_append(buffer, env_ids: torch.Tensor, ordered: torch.Tensor, name: str) -> None:
+    """Seed reset rows so the next ObservationManager append reconstructs saved history."""
+
+    if buffer._buffer is None:
+        raise RuntimeError(f"history buffer is uninitialized: {name}")
+    if not isinstance(ordered, torch.Tensor) or ordered.ndim < 3 or ordered.shape[0] != 1:
+        raise RuntimeError(f"snapshot history {name} must be [1, history, ...]")
+    if ordered.shape[1] != buffer.max_length:
+        raise RuntimeError(
+            f"snapshot history length changed for {name}: {ordered.shape[1]} != {buffer.max_length}"
+        )
+    if tuple(ordered.shape[2:]) != tuple(buffer._buffer.shape[2:]):
+        raise RuntimeError(
+            f"snapshot history shape changed for {name}: "
+            f"{tuple(ordered.shape[2:])} != {tuple(buffer._buffer.shape[2:])}"
+        )
+
+    # ObservationManager.compute(update_history=True) performs one append after
+    # reset. Preload the oldest N-1 samples around the buffer's current global
+    # pointer, leaving the final saved sample to be produced from restored state.
+    next_pointer = (int(buffer._pointer) + 1) % buffer.max_length
+    ordered_device = ordered.to(device=buffer._buffer.device)
+    for index in range(buffer.max_length - 1):
+        raw_index = (next_pointer + 1 + index) % buffer.max_length
+        value = ordered_device[:, index].expand(env_ids.numel(), *ordered.shape[2:])
+        buffer._buffer[raw_index, env_ids] = value
+    buffer._num_pushes[env_ids] = buffer.max_length - 1
+
+
+def restore_single_env_snapshot_artifact(env, artifact: dict, env_ids) -> None:
+    """Restore one saved near-riser state into selected reset environments.
+
+    This function must run after normal manager reset has cleared temporal state
+    and before ObservationManager.compute(update_history=True). Histories are
+    intentionally prepared for that mandatory next append.
+    """
+
+    _validate_single_env_snapshot_artifact(artifact)
+    ids = _target_env_ids(env, env_ids)
+    count = ids.numel()
+
+    source_origin = artifact["source_env_origin"]
+    if not isinstance(source_origin, torch.Tensor) or tuple(source_origin.shape) != (1, 3):
+        raise RuntimeError("snapshot source_env_origin must have shape (1, 3)")
+    target_origins = env.scene.env_origins[ids]
+
+    physics = artifact["physics"]
+    root = _broadcast_saved(physics["root_link_state"], count, env.device, "physics.root_link_state")
+    source_origin_device = source_origin.to(device=env.device)
+    root[:, :3] += target_origins - source_origin_device
+    physics_snapshot = PhysicsRuntimeSnapshot(
+        root_link_state=root,
+        joint_pos=_broadcast_saved(physics["joint_pos"], count, env.device, "physics.joint_pos"),
+        joint_vel=_broadcast_saved(physics["joint_vel"], count, env.device, "physics.joint_vel"),
+        joint_pos_target=_broadcast_saved(
+            physics["joint_pos_target"], count, env.device, "physics.joint_pos_target"
+        ),
+    )
+    restore_physics_runtime(env, physics_snapshot, env_ids=ids)
+
+    temporal = artifact["temporal"]
+    _restore_rows(env.action_manager._action, ids, temporal["action"], "temporal.action")
+    _restore_rows(env.action_manager._prev_action, ids, temporal["prev_action"], "temporal.prev_action")
+
+    buffers = env.observation_manager._group_obs_term_history_buffer
+    expected_history = temporal["observation_history"]
+    actual_names = {f"{group}/{term}" for group, terms in buffers.items() for term in terms}
+    if set(expected_history) != actual_names:
+        raise RuntimeError("observation history terms changed across near-riser snapshot restore")
+    for full_name, saved in expected_history.items():
+        group_name, term_name = full_name.split("/", 1)
+        _prepare_history_for_next_append(
+            buffers[group_name][term_name], ids, saved["ordered"], full_name
+        )
+
+    gait = env.action_manager.get_term("gait_frequency")
+    for name, saved in temporal["gait"].items():
+        current = getattr(gait, name, None)
+        if not isinstance(current, torch.Tensor):
+            raise RuntimeError(f"gait_frequency.{name} stopped being a tensor")
+        _restore_rows(current, ids, saved, f"gait.{name}")
+    gait.last_finished_step = int(env.common_step_counter)
+
+    command_terms = temporal["command_terms"]
+    if set(command_terms) != set(env.command_manager._terms):
+        raise RuntimeError("command terms changed across near-riser snapshot restore")
+    for term_name, saved_term in command_terms.items():
+        term = env.command_manager._terms[term_name]
+        for name, saved in saved_term.items():
+            current = getattr(term, name, None)
+            if not isinstance(current, torch.Tensor):
+                raise RuntimeError(f"command.{term_name}.{name} stopped being a tensor")
+            _restore_rows(current, ids, saved, f"command.{term_name}.{name}")
+
+    acquisition = getattr(env, "_g1_v04_acquisition", None)
+    if artifact["acquisition"] and acquisition is None:
+        raise RuntimeError("snapshot contains acquisition state but runtime is unavailable")
+    if acquisition is not None:
+        for name, saved in artifact["acquisition"].items():
+            current = getattr(acquisition, name, None)
+            if not isinstance(current, torch.Tensor):
+                raise RuntimeError(f"acquisition.{name} stopped being a tensor")
+            _restore_rows(current, ids, saved, f"acquisition.{name}")

@@ -6,6 +6,7 @@ from simulation.isaac_lab.g1_stairs.runtime_snapshot import (
     capture_physics_runtime,
     capture_temporal_runtime,
     build_single_env_snapshot_artifact,
+    restore_single_env_snapshot_artifact,
     restore_physics_runtime,
     restore_temporal_runtime,
 )
@@ -16,6 +17,10 @@ class FakeCircularBuffer:
         self._buffer = torch.arange(12, dtype=torch.float32).reshape(3, 1, 4)
         self._pointer = 2
         self._num_pushes = torch.tensor([7], dtype=torch.long)
+
+    @property
+    def max_length(self):
+        return self._buffer.shape[0]
 
     @property
     def buffer(self):
@@ -253,3 +258,62 @@ def test_single_env_artifact_uses_localizable_ordered_state():
     )
     torch.testing.assert_close(artifact["acquisition"]["best_clearance"], torch.tensor([[0.2, 0.3]]))
     assert "last_step" not in artifact["acquisition"]
+
+
+
+def test_artifact_restore_relocalizes_physics_and_prepares_history_for_next_append():
+    env = make_env()
+    robot = FakeRobot()
+    env.scene = FakeScene(robot)
+    env.scene.env_origins = torch.tensor([[13.0, 24.0, 1.0]])
+    env.num_envs = 1
+    env.device = "cpu"
+    env.common_step_counter = 900
+    env.episode_length_buf = torch.tensor([0], dtype=torch.long)
+    env._g1_v04_acquisition = SimpleNamespace(
+        target_step=torch.tensor([[0, 0]], dtype=torch.long),
+        best_clearance=torch.tensor([[0.0, 0.0]]),
+    )
+
+    source = make_env()
+    source_robot = FakeRobot()
+    source.scene = FakeScene(source_robot)
+    source.scene.env_origins = torch.tensor([[10.0, 20.0, 0.0]])
+    source.num_envs = 1
+    source.device = "cpu"
+    source.episode_length_buf = torch.tensor([124], dtype=torch.long)
+    source._g1_v04_acquisition = SimpleNamespace(
+        target_step=torch.tensor([[1, 0]], dtype=torch.long),
+        best_clearance=torch.tensor([[0.2, 0.3]]),
+    )
+    artifact = build_single_env_snapshot_artifact(source)
+
+    env.action_manager._action.zero_()
+    env.action_manager._prev_action.zero_()
+    env.action_manager.gait.phase.zero_()
+    for buffer in env.observation_manager._group_obs_term_history_buffer["policy"].values():
+        buffer._buffer.zero_()
+        buffer._pointer = 1
+        buffer._num_pushes.zero_()
+
+    restore_single_env_snapshot_artifact(env, artifact, [0])
+
+    expected_root = artifact["physics"]["root_link_state"].clone()
+    expected_root[:, :3] += torch.tensor([[3.0, 4.0, 1.0]])
+    torch.testing.assert_close(robot.data.root_link_state_w, expected_root)
+    torch.testing.assert_close(env.action_manager.action, artifact["temporal"]["action"])
+    torch.testing.assert_close(env.action_manager.prev_action, artifact["temporal"]["prev_action"])
+    assert env.action_manager.gait.last_finished_step == 900
+    torch.testing.assert_close(env._g1_v04_acquisition.best_clearance, torch.tensor([[0.2, 0.3]]))
+
+    # With pointer=1 and length=3, the next append writes raw slot 2. The
+    # helper must place the first two ordered samples in raw slots 0 and 1 so
+    # appending the saved newest sample reconstructs the original history.
+    for full_name, saved in artifact["temporal"]["observation_history"].items():
+        group, term = full_name.split("/", 1)
+        buffer = env.observation_manager._group_obs_term_history_buffer[group][term]
+        assert buffer._num_pushes.item() == buffer.max_length - 1
+        buffer._pointer = (buffer._pointer + 1) % buffer.max_length
+        buffer._buffer[buffer._pointer, 0].copy_(saved["ordered"][0, -1])
+        buffer._num_pushes += 1
+        torch.testing.assert_close(buffer.buffer, saved["ordered"])
