@@ -3,7 +3,9 @@ from types import SimpleNamespace
 import torch
 
 from simulation.isaac_lab.g1_stairs.runtime_snapshot import (
+    capture_physics_runtime,
     capture_temporal_runtime,
+    restore_physics_runtime,
     restore_temporal_runtime,
 )
 
@@ -148,3 +150,71 @@ def test_snapshot_is_deep_copy():
         snapshot.command_terms["base_velocity"].tensors["vel_command_b"],
         torch.tensor([[0.35, 0.0, -0.1]]),
     )
+
+
+class FakeRobotData:
+    def __init__(self):
+        self.root_link_state_w = torch.arange(13, dtype=torch.float32).reshape(1, 13)
+        self.joint_pos = torch.arange(29, dtype=torch.float32).reshape(1, 29)
+        self.joint_vel = self.joint_pos + 100.0
+        self.joint_pos_target = self.joint_pos + 200.0
+
+
+class FakeRobot:
+    def __init__(self):
+        self.data = FakeRobotData()
+        self.writes = []
+
+    def write_root_link_state_to_sim(self, value, env_ids=None):
+        self.writes.append(("root", value.detach().clone(), env_ids))
+        self.data.root_link_state_w.copy_(value)
+
+    def write_joint_state_to_sim(self, q, dq, env_ids=None):
+        self.writes.append(("joint", q.detach().clone(), dq.detach().clone(), env_ids))
+        self.data.joint_pos.copy_(q)
+        self.data.joint_vel.copy_(dq)
+
+    def set_joint_position_target(self, target, env_ids=None):
+        self.writes.append(("target", target.detach().clone(), env_ids))
+        self.data.joint_pos_target.copy_(target)
+
+
+class FakeScene(dict):
+    def __init__(self, robot):
+        super().__init__(robot=robot)
+        self.write_count = 0
+
+    def write_data_to_sim(self):
+        self.write_count += 1
+
+
+def test_capture_restore_recovers_physics_runtime_state():
+    env = make_env()
+    robot = FakeRobot()
+    env.scene = FakeScene(robot)
+    snapshot = capture_physics_runtime(env)
+
+    robot.data.root_link_state_w.zero_()
+    robot.data.joint_pos.zero_()
+    robot.data.joint_vel.zero_()
+    robot.data.joint_pos_target.zero_()
+
+    restore_physics_runtime(env, snapshot)
+
+    torch.testing.assert_close(robot.data.root_link_state_w, snapshot.root_link_state)
+    torch.testing.assert_close(robot.data.joint_pos, snapshot.joint_pos)
+    torch.testing.assert_close(robot.data.joint_vel, snapshot.joint_vel)
+    torch.testing.assert_close(robot.data.joint_pos_target, snapshot.joint_pos_target)
+    assert [entry[0] for entry in robot.writes] == ["root", "joint", "target"]
+    assert env.scene.write_count == 1
+
+
+def test_physics_snapshot_is_deep_copy():
+    env = make_env()
+    robot = FakeRobot()
+    env.scene = FakeScene(robot)
+    snapshot = capture_physics_runtime(env)
+    robot.data.root_link_state_w.add_(1000.0)
+    robot.data.joint_pos.add_(1000.0)
+    assert snapshot.root_link_state[0, 0].item() == 0.0
+    assert snapshot.joint_pos[0, 0].item() == 0.0

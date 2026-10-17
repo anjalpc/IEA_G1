@@ -21,6 +21,14 @@ class TensorObjectSnapshot:
 
 
 @dataclass
+class PhysicsRuntimeSnapshot:
+    root_link_state: torch.Tensor
+    joint_pos: torch.Tensor
+    joint_vel: torch.Tensor
+    joint_pos_target: torch.Tensor
+
+
+@dataclass
 class TemporalRuntimeSnapshot:
     action: torch.Tensor
     prev_action: torch.Tensor
@@ -62,6 +70,36 @@ def _restore_object(obj, snapshot: TensorObjectSnapshot) -> None:
     for name, value in snapshot.scalars.items():
         setattr(obj, name, value)
 
+
+
+def capture_physics_runtime(env, env_ids=None) -> PhysicsRuntimeSnapshot:
+    """Capture articulation state required for a dynamically consistent reset."""
+
+    robot = env.scene["robot"]
+    index = slice(None) if env_ids is None else env_ids
+    target = robot.data.joint_pos_target
+    if target is None:
+        raise RuntimeError("robot.data.joint_pos_target is required for runtime snapshots")
+    return PhysicsRuntimeSnapshot(
+        root_link_state=robot.data.root_link_state_w[index].detach().clone(),
+        joint_pos=robot.data.joint_pos[index].detach().clone(),
+        joint_vel=robot.data.joint_vel[index].detach().clone(),
+        joint_pos_target=target[index].detach().clone(),
+    )
+
+
+def restore_physics_runtime(env, snapshot: PhysicsRuntimeSnapshot, env_ids=None) -> None:
+    """Restore an articulation snapshot through Isaac Lab's simulation write API."""
+
+    robot = env.scene["robot"]
+    robot.write_root_link_state_to_sim(snapshot.root_link_state, env_ids=env_ids)
+    robot.write_joint_state_to_sim(
+        snapshot.joint_pos,
+        snapshot.joint_vel,
+        env_ids=env_ids,
+    )
+    robot.set_joint_position_target(snapshot.joint_pos_target, env_ids=env_ids)
+    env.scene.write_data_to_sim()
 
 def capture_temporal_runtime(env) -> TemporalRuntimeSnapshot:
     """Capture manager/runtime state destroyed by an Isaac Lab environment reset."""
