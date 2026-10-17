@@ -1,0 +1,16 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/c7_liftoff_commit_diag100.yaml
+  resolved_config_required: true
+
+experiment:
+  id: c7_liftoff_commit_yaw_zero_centered_diag100
+  purpose: Test zero-centered yaw-rate tracking without changing yaw-error preference.
+
+reward_experiment:
+  rewards:
+    stage_plan:
+      geometry_locomotion_c7_strict:
+        track_ang_vel_z: 0.0
+        track_ang_vel_z_zero_centered: 0.5

@@ -38,6 +38,27 @@ def geometry_failure_termination_event(env) -> torch.Tensor:
     return failure.to(dtype=torch.float32) / float(env.step_dt)
 
 
+def track_ang_vel_z_zero_centered(
+    env,
+    std: float,
+    command_name: str,
+    asset_cfg=None,
+) -> torch.Tensor:
+    """Track yaw-rate command with the Unitree exponential score minus one."""
+
+    asset_name = "robot" if asset_cfg is None else asset_cfg.name
+    robot = env.scene[asset_name]
+    ang_vel_error = torch.square(
+        env.command_manager.get_command(command_name)[:, 2]
+        - robot.data.root_ang_vel_b[:, 2]
+    )
+    return exp_tracking_score(
+        ang_vel_error,
+        std * std,
+        zero_centered=True,
+    )
+
+
 def track_stair_axis_velocity(
     env,
     target_velocity_mps: float = 0.35,

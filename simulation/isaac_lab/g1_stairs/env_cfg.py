@@ -378,6 +378,14 @@ class StairRewardsCfg:
     track_ang_vel_z = copy.deepcopy(
         _UPSTREAM_CFG.rewards.track_ang_vel_z
     )
+    track_ang_vel_z_zero_centered = RewTerm(
+        func=geometry_locomotion_rewards.track_ang_vel_z_zero_centered,
+        weight=0.0,
+        params={
+            "command_name": "base_velocity",
+            "std": 0.5,
+        },
+    )
     track_stair_axis_velocity = RewTerm(
         func=geometry_locomotion_rewards.track_stair_axis_velocity,
         weight=0.0,
