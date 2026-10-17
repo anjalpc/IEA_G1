@@ -347,8 +347,15 @@ def _restore_rows(current: torch.Tensor, env_ids: torch.Tensor, saved: torch.Ten
 def _prepare_history_for_next_append(buffer, env_ids: torch.Tensor, ordered: torch.Tensor, name: str) -> None:
     """Seed reset rows so the next ObservationManager append reconstructs saved history."""
 
+    if not isinstance(ordered, torch.Tensor) or ordered.ndim < 3 or ordered.shape[0] != 1:
+        raise RuntimeError(f"snapshot history {name} must be [1, history, ...]")
     if buffer._buffer is None:
-        raise RuntimeError(f"history buffer is uninitialized: {name}")
+        buffer._pointer = -1
+        buffer._buffer = torch.empty(
+            (buffer.max_length, buffer.batch_size, *ordered.shape[2:]),
+            dtype=ordered.dtype,
+            device=buffer.device,
+        )
     if not isinstance(ordered, torch.Tensor) or ordered.ndim < 3 or ordered.shape[0] != 1:
         raise RuntimeError(f"snapshot history {name} must be [1, history, ...]")
     if ordered.shape[1] != buffer.max_length:
