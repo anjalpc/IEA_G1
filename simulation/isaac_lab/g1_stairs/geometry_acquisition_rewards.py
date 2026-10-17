@@ -32,7 +32,11 @@ from .contracts import (
 from .reward_math import normalized_excess_forward_velocity
 from .terrain_state import riser_height_per_env, stair_cfg
 from .motion_reference import (
-    rotate, sole_state, strict_tread_landing_mask,
+    provisional_supported_acquisition_mask,
+    riser_contact_masks,
+    rotate,
+    sole_state,
+    strict_tread_landing_mask,
 )
 from .reward_math import (
     alternating_foot_gate,
@@ -293,6 +297,14 @@ class GeometryAcquisitionRuntime:
         self.step_acquired_event = torch.zeros(
             env.num_envs, dtype=torch.bool, device=env.device
         )
+        # Separate relaxed curriculum event. This never advances the canonical
+        # target state and never changes strict stair-gait/CLEAN_STEP_OVER.
+        self.provisional_supported_acquisition_event = torch.zeros(
+            env.num_envs, dtype=torch.bool, device=env.device
+        )
+        self.provisional_acquired_foot = torch.full(
+            (env.num_envs,), -1, dtype=torch.long, device=env.device
+        )
         self.acquired_target_index = torch.full(
             (env.num_envs,), -1, dtype=torch.long, device=env.device
         )
@@ -390,6 +402,8 @@ class GeometryAcquisitionRuntime:
         self.nonpreferred_acquisition_reward[env_ids] = 0.0
         self.physical_touchdown_event[env_ids] = False
         self.step_acquired_event[env_ids] = False
+        self.provisional_supported_acquisition_event[env_ids] = False
+        self.provisional_acquired_foot[env_ids] = -1
         self.acquired_target_index[env_ids] = -1
         self.sample_target_index[env_ids] = -1
         self.riser_face_strike_sample[env_ids] = False
@@ -433,6 +447,8 @@ class GeometryAcquisitionRuntime:
         self.nonpreferred_acquisition_reward.zero_()
         self.physical_touchdown_event.zero_()
         self.step_acquired_event.zero_()
+        self.provisional_supported_acquisition_event.zero_()
+        self.provisional_acquired_foot.fill_(-1)
         self.acquired_target_index.fill_(-1)
         self.riser_face_strike_sample.zero_()
         self.riser_strike_force_x.zero_()
@@ -902,6 +918,8 @@ class GeometryAcquisitionRuntime:
                 & ((front_x <= safe_end) | final_target)
             )
 
+        support_transition = torch.zeros_like(valid_target)
+
         if self.require_first_touchdown_placement:
             # A landing attempt begins at the first loaded top-surface contact,
             # before the speed gate can delay recognition until after a shuffle.
@@ -951,6 +969,7 @@ class GeometryAcquisitionRuntime:
                 top_surface_contact
                 & ~self.touchdown_attempt_active
             )
+            support_transition = new_attempt
 
             rear_margin = rear_x - next_riser_x
             front_margin = next_riser_x + tread - front_x
@@ -1014,6 +1033,51 @@ class GeometryAcquisitionRuntime:
             )
         else:
             first_placement_gate = torch.ones_like(valid_target)
+
+        # C7 curriculum-only first acquisition. This intentionally uses the
+        # first loaded target-surface transition instead of strict touchdown,
+        # but still requires the selected/intended foot, whole-sole support,
+        # and no riser strike or bridge. It does not mutate canonical target
+        # progression, strict acquisition, or CLEAN_STEP_OVER state.
+        if strict_gait is not None and self.require_first_touchdown_placement:
+            gait = env.action_manager.get_term("gait_frequency")
+            first_target_active = (
+                (self.target_step[:, 0] == 0)
+                & (self.target_step[:, 1] == 0)
+                & (riser_height > 1.0e-8)
+            )
+            strike, bridge = riser_contact_masks(
+                sole_bounds,
+                self.sensor.data.net_forces_w[:, self.sensor_foot_ids],
+                first_riser=first_riser,
+                tread=tread,
+                steps=step_count,
+                riser_height=riser_height,
+                active=first_target_active,
+                support_force_n=strict_gait.SUPPORT_FORCE_N,
+            )
+            intended_foot = gait.approach_preferred_foot
+            provisional = provisional_supported_acquisition_mask(
+                sole_bounds,
+                vertical_force,
+                intended_foot=intended_foot,
+                support_transition=support_transition,
+                previous_acquired_foot=strict_gait.last_foot,
+                strike=strike,
+                bridge=bridge,
+                tread_start=next_riser_x,
+                tread_end=next_riser_x + tread,
+                tread_top=target_tread_height,
+                terrain_half_width=float(cfg.size[1]) / 2.0,
+                min_force_n=strict_gait.SUPPORT_FORCE_N,
+                height_tolerance_m=float(touchdown_height_tolerance_m),
+            ) & first_target_active
+            self.provisional_supported_acquisition_event.copy_(provisional)
+            self.provisional_acquired_foot.copy_(torch.where(
+                provisional,
+                intended_foot,
+                torch.full_like(intended_foot, -1),
+            ))
 
         # Physical touchdown controls stair-target progression.
         # First-placement quality controls reward eligibility separately.

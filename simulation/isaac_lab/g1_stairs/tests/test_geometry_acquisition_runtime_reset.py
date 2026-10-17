@@ -54,6 +54,8 @@ def _runtime_stub() -> SimpleNamespace:
         nonpreferred_acquisition_reward=torch.tensor([0.5, 1.0]),
         physical_touchdown_event=torch.ones(shape, dtype=torch.bool),
         step_acquired_event=torch.ones(2, dtype=torch.bool),
+        provisional_supported_acquisition_event=torch.ones(2, dtype=torch.bool),
+        provisional_acquired_foot=torch.ones(2, dtype=torch.long),
         acquired_target_index=torch.ones(2, dtype=torch.long),
         sample_target_index=torch.ones(2, dtype=torch.long),
         riser_face_strike_sample=torch.ones(shape, dtype=torch.bool),
@@ -81,4 +83,7 @@ def test_partial_reset_clears_cached_rewards_without_reopening_same_step():
         torch.tensor([0.0, 1.0]),
     )
 
+    assert not bool(runtime.provisional_supported_acquisition_event[0])
+    assert bool(runtime.provisional_supported_acquisition_event[1])
+    assert runtime.provisional_acquired_foot.tolist() == [-1, 1]
     assert runtime.last_step == 37
