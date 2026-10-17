@@ -4,7 +4,11 @@ from __future__ import annotations
 
 from isaaclab.envs import ManagerBasedRLEnv
 
-from .runtime_snapshot import load_single_env_snapshot_artifact, restore_single_env_snapshot_artifact
+from .runtime_snapshot import (
+    ensure_geometry_episode_runtime_for_snapshot,
+    load_single_env_snapshot_artifact,
+    restore_single_env_snapshot_artifact,
+)
 
 
 class NearRiserSnapshotManagerBasedRLEnv(ManagerBasedRLEnv):
@@ -26,4 +30,5 @@ class NearRiserSnapshotManagerBasedRLEnv(ManagerBasedRLEnv):
         super()._reset_idx(env_ids)
         artifact = self._snapshot_artifact()
         if artifact is not None:
+            ensure_geometry_episode_runtime_for_snapshot(self, artifact)
             restore_single_env_snapshot_artifact(self, artifact, env_ids)

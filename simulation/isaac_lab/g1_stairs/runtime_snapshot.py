@@ -534,6 +534,43 @@ def _validate_restore_compatibility(env, artifact: dict, ids: torch.Tensor) -> N
                 raise RuntimeError(f"snapshot owner.{owner_name}.{name} shape changed")
 
 
+
+def ensure_geometry_episode_runtime_for_snapshot(env, artifact: dict) -> None:
+    """Materialize the lazy geometry-episode owner before portable restore.
+
+    GeometryEpisodeRuntime is normally created on the first termination evaluation.
+    The near-riser reset runs earlier, during the wrapper's initial reset, so a
+    portable artifact that contains geometry state must explicitly create the same
+    runtime owner before compatibility validation/restoration.
+    """
+
+    geometry_state = artifact.get("geometry_episode", {})
+    if not geometry_state or getattr(env, "_g1_geometry_episode", None) is not None:
+        return
+
+    manager = getattr(env, "termination_manager", None)
+    if manager is None:
+        raise RuntimeError(
+            "snapshot contains geometry episode state but termination manager is unavailable"
+        )
+    try:
+        term_cfg = manager.get_term_cfg("geometry_terminal")
+    except Exception as exc:
+        raise RuntimeError(
+            "snapshot contains geometry episode state but geometry_terminal is unavailable"
+        ) from exc
+
+    params = getattr(term_cfg, "params", None)
+    contract = params.get("contract") if isinstance(params, dict) else None
+    if not isinstance(contract, dict):
+        raise RuntimeError(
+            "geometry_terminal does not expose the geometry episode contract"
+        )
+
+    from .geometry_episode_runtime import GeometryEpisodeRuntime
+
+    env._g1_geometry_episode = GeometryEpisodeRuntime(env, contract)
+
 def restore_single_env_snapshot_artifact(env, artifact: dict, env_ids) -> None:
     """Restore one saved near-riser state into selected reset environments.
 

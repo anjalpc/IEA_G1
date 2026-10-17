@@ -1,5 +1,6 @@
 from types import SimpleNamespace
 
+import pytest
 import torch
 
 from simulation.isaac_lab.g1_stairs.runtime_snapshot import (
@@ -605,3 +606,66 @@ def test_apply_near_riser_snapshot_reset_config(tmp_path):
     assert summary["enabled"] is True
     assert summary["episode_length"] == 124
     assert env_cfg.near_riser_snapshot_path == str(artifact_path.resolve())
+
+
+def test_geometry_episode_runtime_is_materialized_before_portable_restore(monkeypatch):
+    from simulation.isaac_lab.g1_stairs import geometry_episode_runtime
+    from simulation.isaac_lab.g1_stairs.runtime_snapshot import (
+        ensure_geometry_episode_runtime_for_snapshot,
+    )
+
+    contract = {"strict_stair_gait": True}
+    term_cfg = SimpleNamespace(params={"contract": contract})
+
+    class FakeTerminationManager:
+        def get_term_cfg(self, name):
+            assert name == "geometry_terminal"
+            return term_cfg
+
+    created = []
+
+    class FakeGeometryRuntime:
+        def __init__(self, env, received_contract):
+            created.append((env, received_contract))
+
+    monkeypatch.setattr(
+        geometry_episode_runtime,
+        "GeometryEpisodeRuntime",
+        FakeGeometryRuntime,
+    )
+
+    env = SimpleNamespace(termination_manager=FakeTerminationManager())
+    artifact = {"geometry_episode": {"tracker": {"reason": torch.tensor([0])}}}
+
+    ensure_geometry_episode_runtime_for_snapshot(env, artifact)
+
+    assert len(created) == 1
+    assert created[0][0] is env
+    assert created[0][1] is contract
+    assert isinstance(env._g1_geometry_episode, FakeGeometryRuntime)
+
+    # Repeated/partial resets reuse the same shared owner instead of recreating it.
+    ensure_geometry_episode_runtime_for_snapshot(env, artifact)
+    assert len(created) == 1
+
+
+def test_geometry_episode_runtime_materialization_fails_before_restore_without_contract():
+    from simulation.isaac_lab.g1_stairs.runtime_snapshot import (
+        ensure_geometry_episode_runtime_for_snapshot,
+    )
+
+    class FakeTerminationManager:
+        def get_term_cfg(self, name):
+            assert name == "geometry_terminal"
+            return SimpleNamespace(params={})
+
+    env = SimpleNamespace(termination_manager=FakeTerminationManager())
+    artifact = {"geometry_episode": {"tracker": {"reason": torch.tensor([0])}}}
+
+    with pytest.raises(
+        RuntimeError,
+        match="geometry_terminal does not expose the geometry episode contract",
+    ):
+        ensure_geometry_episode_runtime_for_snapshot(env, artifact)
+
+    assert not hasattr(env, "_g1_geometry_episode")
