@@ -3,7 +3,8 @@ import unittest
 import torch
 from simulation.isaac_lab.g1_stairs.motion_reference import (
     sole_state, swing_reference, bounded_square, normalized_huber,
-    target_support_mask, transition_quality_escrow_update,
+    target_support_mask, provisional_supported_acquisition_mask,
+    transition_quality_escrow_update,
     strict_tread_landing_mask, riser_contact_masks,
 )
 
@@ -127,3 +128,85 @@ class TestMotionReference(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+def test_provisional_supported_acquisition_requires_intended_supported_transition():
+    bounds = torch.tensor([[[1.02, 1.20, -0.04, 0.04, 0.04, 0.04],
+                            [0.70, 0.88, -0.04, 0.04, 0.00, 0.00]]])
+    force = torch.tensor([[60.0, 80.0]])
+    event = provisional_supported_acquisition_mask(
+        bounds, force,
+        intended_foot=torch.tensor([0]),
+        support_transition=torch.tensor([[True, False]]),
+        previous_acquired_foot=torch.tensor([-1]),
+        strike=torch.tensor([False]), bridge=torch.tensor([False]),
+        tread_start=torch.tensor([[1.0, 1.0]]),
+        tread_end=torch.tensor([[1.25, 1.25]]),
+        tread_top=torch.tensor([[0.04, 0.04]]),
+        terrain_half_width=0.6, min_force_n=30.0, height_tolerance_m=0.02,
+    )
+    assert event.tolist() == [True]
+
+
+def test_provisional_supported_acquisition_rejects_wrong_or_simultaneous_foot():
+    bounds = torch.tensor([[[1.02, 1.20, -0.04, 0.04, 0.04, 0.04],
+                            [1.02, 1.20, -0.04, 0.04, 0.04, 0.04]]])
+    force = torch.tensor([[60.0, 60.0]])
+    common = dict(
+        bounds=bounds, vertical_force=force, intended_foot=torch.tensor([0]),
+        previous_acquired_foot=torch.tensor([-1]), strike=torch.tensor([False]),
+        bridge=torch.tensor([False]), tread_start=torch.tensor([[1.0, 1.0]]),
+        tread_end=torch.tensor([[1.25, 1.25]]), tread_top=torch.tensor([[0.04, 0.04]]),
+        terrain_half_width=0.6, min_force_n=30.0, height_tolerance_m=0.02,
+    )
+    wrong = provisional_supported_acquisition_mask(
+        support_transition=torch.tensor([[False, True]]), **common
+    )
+    simultaneous = provisional_supported_acquisition_mask(
+        support_transition=torch.tensor([[True, True]]), **common
+    )
+    assert wrong.tolist() == [False]
+    assert simultaneous.tolist() == [False]
+
+
+def test_provisional_supported_acquisition_rejects_bad_support_or_contact_failure():
+    bounds = torch.tensor([[[0.99, 1.20, -0.04, 0.04, 0.04, 0.04],
+                            [0.70, 0.88, -0.04, 0.04, 0.00, 0.00]]])
+    force = torch.tensor([[60.0, 80.0]])
+    common = dict(
+        bounds=bounds, vertical_force=force, intended_foot=torch.tensor([0]),
+        support_transition=torch.tensor([[True, False]]),
+        previous_acquired_foot=torch.tensor([-1]),
+        tread_start=torch.tensor([[1.0, 1.0]]), tread_end=torch.tensor([[1.25, 1.25]]),
+        tread_top=torch.tensor([[0.04, 0.04]]), terrain_half_width=0.6,
+        min_force_n=30.0, height_tolerance_m=0.02,
+    )
+    outside = provisional_supported_acquisition_mask(
+        strike=torch.tensor([False]), bridge=torch.tensor([False]), **common
+    )
+    bounds[:, 0, 0] = 1.02
+    strike = provisional_supported_acquisition_mask(
+        strike=torch.tensor([True]), bridge=torch.tensor([False]), **common
+    )
+    bridge = provisional_supported_acquisition_mask(
+        strike=torch.tensor([False]), bridge=torch.tensor([True]), **common
+    )
+    assert outside.tolist() == [False]
+    assert strike.tolist() == [False]
+    assert bridge.tolist() == [False]
+
+
+def test_provisional_supported_acquisition_rejects_same_foot_progression():
+    bounds = torch.tensor([[[1.27, 1.45, -0.04, 0.04, 0.08, 0.08],
+                            [0.90, 1.08, -0.04, 0.04, 0.04, 0.04]]])
+    force = torch.tensor([[60.0, 80.0]])
+    event = provisional_supported_acquisition_mask(
+        bounds, force, intended_foot=torch.tensor([0]),
+        support_transition=torch.tensor([[True, False]]),
+        previous_acquired_foot=torch.tensor([0]),
+        strike=torch.tensor([False]), bridge=torch.tensor([False]),
+        tread_start=torch.tensor([[1.25, 1.25]]), tread_end=torch.tensor([[1.50, 1.50]]),
+        tread_top=torch.tensor([[0.08, 0.08]]), terrain_half_width=0.6,
+        min_force_n=30.0, height_tolerance_m=0.02,
+    )
+    assert event.tolist() == [False]

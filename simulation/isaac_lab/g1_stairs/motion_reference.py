@@ -171,6 +171,64 @@ def target_support_mask(bounds, vertical_force, *, tread_start, tread_end,
     )
 
 
+def provisional_supported_acquisition_mask(
+    bounds,
+    vertical_force,
+    *,
+    intended_foot,
+    support_transition,
+    previous_acquired_foot,
+    strike,
+    bridge,
+    tread_start,
+    tread_end,
+    tread_top,
+    terrain_half_width,
+    min_force_n,
+    height_tolerance_m,
+):
+    """Relaxed curriculum acquisition, kept separate from strict success.
+
+    Precision/style constraints such as tread-centre error, yaw, tilt and
+    touchdown speed are intentionally absent.  The event still requires one
+    intended-foot support transition onto the intended tread, full sole
+    containment, meaningful load, and no riser strike/bridge.
+    """
+    if support_transition.shape != vertical_force.shape:
+        raise ValueError("support_transition must match per-foot force shape")
+    if bounds.shape[:-1] != vertical_force.shape:
+        raise ValueError("bounds and vertical_force must describe the same feet")
+    if bounds.shape[-1] != 6:
+        raise ValueError("bounds must contain [xmin,xmax,ymin,ymax,zmin,zmax]")
+
+    support = target_support_mask(
+        bounds,
+        vertical_force,
+        tread_start=tread_start,
+        tread_end=tread_end,
+        tread_top=tread_top,
+        terrain_half_width=terrain_half_width,
+        min_force_n=min_force_n,
+        height_tolerance_m=height_tolerance_m,
+    )
+
+    rows = torch.arange(vertical_force.shape[0], device=vertical_force.device)
+    foot = intended_foot.clamp(0, vertical_force.shape[1] - 1)
+    intended_valid = (intended_foot >= 0) & (intended_foot < vertical_force.shape[1])
+    intended_event = support_transition[rows, foot] & support[rows, foot]
+    unique_transition = support_transition.sum(dim=-1) == 1
+    alternating = (previous_acquired_foot < 0) | (previous_acquired_foot != intended_foot)
+
+    return (
+        intended_valid
+        & intended_event
+        & unique_transition
+        & alternating
+        & ~strike
+        & ~bridge
+    )
+
+
 def advance_reference_phase(phase, frequency, active, acquired_foot, dt,
                             previous_preferred, swing_started=None,
                             expired=None):
