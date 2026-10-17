@@ -232,6 +232,93 @@ def test_physics_snapshot_is_deep_copy():
     assert snapshot.joint_pos[0, 0].item() == 0.0
 
 
+class FakeAcquisition:
+    def __init__(self, n=1):
+        self.target_step = torch.zeros((n, 2), dtype=torch.long)
+        self.preferred_foot = torch.full((n,), -1, dtype=torch.long)
+        self.support_elapsed = torch.zeros((n, 2))
+        self.touchdown_attempt_active = torch.zeros((n, 2), dtype=torch.bool)
+        self.touchdown_attempt_good = torch.zeros((n, 2), dtype=torch.bool)
+        self.touchdown_placement_scored = torch.zeros((n, 2), dtype=torch.bool)
+        self.first_touchdown_reward_seen = torch.zeros(n, dtype=torch.bool)
+        self.best_clearance = torch.zeros((n, 2))
+        self.best_insertion = torch.zeros((n, 2))
+        self.pending_clearance = torch.zeros((n, 2))
+        self.clearance_potential = torch.zeros((n, 2))
+        self.previous_foot_vx = torch.zeros((n, 2))
+        self.previous_foot_vx_initialized = torch.zeros(n, dtype=torch.bool)
+        self.contact_current_duration = torch.zeros((n, 2))
+        self.contact_previous_over = torch.zeros((n, 2), dtype=torch.bool)
+        self.last_step = -1
+
+
+class FakeCoordinatedMotion:
+    def __init__(self, n=1):
+        self.target = torch.full((n,), -1, dtype=torch.long)
+        self.preferred = torch.full((n,), -1, dtype=torch.long)
+        self.progress = torch.zeros(n)
+        self.start = torch.zeros((n, 3))
+        self.landing = torch.zeros((n, 3))
+        self.lane = torch.zeros((n, 2))
+        self.initialized = torch.zeros(n, dtype=torch.bool)
+        self.quality_sum = torch.zeros(n)
+        self.quality_count = torch.zeros(n)
+        self.previous_reference_velocity = torch.zeros((n, 3))
+        self.last_step = -1
+
+
+class FakePreferredTransition:
+    def __init__(self, n=1):
+        self._active = torch.zeros(n, dtype=torch.bool)
+        self._old_target = torch.full((n,), -1, dtype=torch.long)
+        self._preferred = torch.full((n,), -1, dtype=torch.long)
+        self._lifted = torch.zeros(n, dtype=torch.bool)
+        self._cleared = torch.zeros(n, dtype=torch.bool)
+        self._credit_paid = torch.zeros(n)
+        self._sequence_active = torch.zeros(n, dtype=torch.bool)
+        self._first_direct = torch.zeros(n, dtype=torch.bool)
+        self._sequence_failed = torch.zeros(n, dtype=torch.bool)
+        self._clean_paid = torch.zeros(n, dtype=torch.bool)
+        self._rear_progress_baseline = torch.zeros(n)
+        self._rear_progress_phi = torch.zeros(n)
+
+
+class FakeStepOverContract:
+    def __init__(self, n=1):
+        self._active = torch.zeros(n, dtype=torch.bool)
+        self._target = torch.full((n,), -1, dtype=torch.long)
+        self._preferred = torch.full((n,), -1, dtype=torch.long)
+        self._lifted = torch.zeros(n, dtype=torch.bool)
+        self._cleared = torch.zeros(n, dtype=torch.bool)
+        self._inserted = torch.zeros(n, dtype=torch.bool)
+        self._next_contact_seen = torch.zeros(n, dtype=torch.bool)
+        self._resolved = torch.zeros(n, dtype=torch.bool)
+        self._lift_front_x = torch.zeros(n)
+        self._lift_front_valid = torch.zeros(n, dtype=torch.bool)
+        self._milestone_credit_paid = torch.zeros(n)
+        self._vertical_clearance_potential = torch.zeros(n)
+        self.last_event_code = torch.zeros(n, dtype=torch.long)
+
+
+class FakeRewardManager:
+    def __init__(self, n=1):
+        self._term_names = ["preferred_transition_milestones", "step_over_transition_contract"]
+        self._terms = {
+            "preferred_transition_milestones": FakePreferredTransition(n),
+            "step_over_transition_contract": FakeStepOverContract(n),
+        }
+
+    def get_term_cfg(self, name):
+        return SimpleNamespace(func=self._terms[name])
+
+
+def attach_portable_state(env, n=1):
+    env._g1_v04_acquisition = FakeAcquisition(n)
+    env._g1_coordinated_motion = FakeCoordinatedMotion(n)
+    env.reward_manager = FakeRewardManager(n)
+    return env
+
+
 def test_single_env_artifact_uses_localizable_ordered_state():
     env = make_env()
     robot = FakeRobot()
@@ -240,16 +327,14 @@ def test_single_env_artifact_uses_localizable_ordered_state():
     env.num_envs = 1
     env.device = "cpu"
     env.episode_length_buf = torch.tensor([124], dtype=torch.long)
-    env._g1_v04_acquisition = SimpleNamespace(
-        target_step=torch.tensor([[0, 0]], dtype=torch.long),
-        best_clearance=torch.tensor([[0.2, 0.3]]),
-        last_step=123,
-    )
+    attach_portable_state(env)
+    env._g1_v04_acquisition.best_clearance.copy_(torch.tensor([[0.2, 0.3]]))
+    env._g1_v04_acquisition.preferred_transition_event_code = torch.tensor([7])
 
     artifact = build_single_env_snapshot_artifact(env)
 
     assert artifact["format"] == "iea_g1_c7_near_riser_snapshot"
-    assert artifact["version"] == 2
+    assert artifact["version"] == 3
     torch.testing.assert_close(artifact["source_env_origin"], env.scene.env_origins)
     torch.testing.assert_close(artifact["episode_length"], torch.tensor([124]))
     torch.testing.assert_close(
@@ -258,6 +343,12 @@ def test_single_env_artifact_uses_localizable_ordered_state():
     )
     torch.testing.assert_close(artifact["acquisition"]["best_clearance"], torch.tensor([[0.2, 0.3]]))
     assert "last_step" not in artifact["acquisition"]
+    assert "preferred_transition_event_code" not in artifact["acquisition"]
+    assert set(artifact["owners"]) == {
+        "coordinated_motion",
+        "preferred_transition_milestones",
+        "step_over_transition_contract",
+    }
 
 
 
@@ -270,10 +361,7 @@ def test_artifact_restore_relocalizes_physics_and_prepares_history_for_next_appe
     env.device = "cpu"
     env.common_step_counter = 900
     env.episode_length_buf = torch.tensor([0], dtype=torch.long)
-    env._g1_v04_acquisition = SimpleNamespace(
-        target_step=torch.tensor([[0, 0]], dtype=torch.long),
-        best_clearance=torch.tensor([[0.0, 0.0]]),
-    )
+    attach_portable_state(env)
 
     source = make_env()
     source_robot = FakeRobot()
@@ -282,10 +370,9 @@ def test_artifact_restore_relocalizes_physics_and_prepares_history_for_next_appe
     source.num_envs = 1
     source.device = "cpu"
     source.episode_length_buf = torch.tensor([124], dtype=torch.long)
-    source._g1_v04_acquisition = SimpleNamespace(
-        target_step=torch.tensor([[1, 0]], dtype=torch.long),
-        best_clearance=torch.tensor([[0.2, 0.3]]),
-    )
+    attach_portable_state(source)
+    source._g1_v04_acquisition.target_step.copy_(torch.tensor([[1, 0]], dtype=torch.long))
+    source._g1_v04_acquisition.best_clearance.copy_(torch.tensor([[0.2, 0.3]]))
     artifact = build_single_env_snapshot_artifact(source)
 
     env.action_manager._action.zero_()
@@ -366,11 +453,11 @@ def test_artifact_captures_and_restores_episode_contract_state():
     source.device = "cpu"
     source.common_step_counter = 124
     source.episode_length_buf = torch.tensor([124], dtype=torch.long)
-    source._g1_v04_acquisition = SimpleNamespace()
+    attach_portable_state(source)
     source._g1_geometry_episode = FakeGeometryEpisode()
 
     artifact = build_single_env_snapshot_artifact(source)
-    assert artifact["version"] == 2
+    assert artifact["version"] == 3
     torch.testing.assert_close(
         artifact["geometry_episode"]["tracker"]["best_x"],
         torch.tensor([0.8]),
@@ -388,7 +475,7 @@ def test_artifact_captures_and_restores_episode_contract_state():
     target.device = "cpu"
     target.common_step_counter = 900
     target.episode_length_buf = torch.tensor([0], dtype=torch.long)
-    target._g1_v04_acquisition = SimpleNamespace()
+    attach_portable_state(target)
     target._g1_geometry_episode = FakeGeometryEpisode()
     target._g1_geometry_episode.tracker.best_x.zero_()
     target._g1_geometry_episode.strict_gait.unloaded.zero_()
@@ -404,6 +491,83 @@ def test_artifact_captures_and_restores_episode_contract_state():
     assert target._g1_geometry_episode.last_step == 899
 
 
+def test_portable_restore_validates_before_mutating_physics():
+    source = make_env()
+    source_robot = FakeRobot()
+    source.scene = FakeScene(source_robot)
+    source.scene.env_origins = torch.tensor([[10.0, 20.0, 0.0]])
+    source.num_envs = 1
+    source.device = "cpu"
+    source.episode_length_buf = torch.tensor([124], dtype=torch.long)
+    attach_portable_state(source)
+    artifact = build_single_env_snapshot_artifact(source)
+    artifact["acquisition"]["best_clearance"] = torch.zeros((1, 3))
+
+    target = make_env()
+    robot = FakeRobot()
+    target.scene = FakeScene(robot)
+    target.scene.env_origins = torch.tensor([[13.0, 24.0, 1.0]])
+    target.num_envs = 1
+    target.device = "cpu"
+    target.common_step_counter = 0
+    target.episode_length_buf = torch.tensor([0], dtype=torch.long)
+    attach_portable_state(target)
+    before = robot.data.root_link_state_w.clone()
+
+    import pytest
+    with pytest.raises(RuntimeError, match="acquisition.best_clearance shape changed"):
+        restore_single_env_snapshot_artifact(target, artifact, [0])
+    torch.testing.assert_close(robot.data.root_link_state_w, before)
+    assert robot.writes == []
+
+
+def test_portable_restore_changes_only_selected_environment_rows():
+    source = make_env()
+    source_robot = FakeRobot()
+    source.scene = FakeScene(source_robot)
+    source.scene.env_origins = torch.tensor([[10.0, 20.0, 0.0]])
+    source.num_envs = 1
+    source.device = "cpu"
+    source.episode_length_buf = torch.tensor([124], dtype=torch.long)
+    attach_portable_state(source)
+    source._g1_v04_acquisition.best_clearance.fill_(0.25)
+    artifact = build_single_env_snapshot_artifact(source)
+
+    # Validate partial-row manager/runtime restoration independently of the
+    # fake articulation writer, whose implementation is single-env only.
+    target = make_env()
+    target.num_envs = 2
+    target.device = "cpu"
+    target.action_manager._action = torch.full((2, 30), 9.0)
+    target.action_manager._prev_action = torch.full((2, 30), 8.0)
+    target.action_manager.gait = FakeGait()
+    for name, value in vars(target.action_manager.gait).items():
+        if isinstance(value, torch.Tensor) and value.ndim > 0 and value.shape[0] == 1:
+            setattr(target.action_manager.gait, name, value.expand(2, *value.shape[1:]).clone())
+    target.observation_manager._group_obs_term_history_buffer = {
+        "policy": {"base_ang_vel": FakeCircularBuffer(), "last_action": FakeCircularBuffer()}
+    }
+    for buffer in target.observation_manager._group_obs_term_history_buffer["policy"].values():
+        buffer._buffer = buffer._buffer.expand(-1, 2, -1).clone()
+        buffer._num_pushes = torch.tensor([7, 7], dtype=torch.long)
+    target.command_manager._terms["base_velocity"] = FakeCommand()
+    for name, value in vars(target.command_manager._terms["base_velocity"]).items():
+        if isinstance(value, torch.Tensor) and value.ndim > 0 and value.shape[0] == 1:
+            setattr(target.command_manager._terms["base_velocity"], name, value.expand(2, *value.shape[1:]).clone())
+    attach_portable_state(target, 2)
+    untouched_action = target.action_manager._action[0].clone()
+    untouched_clearance = target._g1_v04_acquisition.best_clearance[0].clone()
+
+    # Exercise row helpers through a lightweight target that skips physics.
+    from simulation.isaac_lab.g1_stairs.runtime_snapshot import _restore_rows
+    ids = torch.tensor([1])
+    _restore_rows(target.action_manager._action, ids, artifact["temporal"]["action"], "action")
+    _restore_rows(target._g1_v04_acquisition.best_clearance, ids, artifact["acquisition"]["best_clearance"], "acquisition.best_clearance")
+    torch.testing.assert_close(target.action_manager._action[0], untouched_action)
+    torch.testing.assert_close(target._g1_v04_acquisition.best_clearance[0], untouched_clearance)
+    torch.testing.assert_close(target._g1_v04_acquisition.best_clearance[1], torch.tensor([0.25, 0.25]))
+
+
 def test_apply_near_riser_snapshot_reset_config(tmp_path):
     from simulation.isaac_lab.g1_stairs.runtime_snapshot import (
         apply_near_riser_snapshot_reset_config,
@@ -417,7 +581,7 @@ def test_apply_near_riser_snapshot_reset_config(tmp_path):
     source.num_envs = 1
     source.device = "cpu"
     source.episode_length_buf = torch.tensor([124], dtype=torch.long)
-    source._g1_v04_acquisition = SimpleNamespace()
+    attach_portable_state(source)
     source._g1_geometry_episode = FakeGeometryEpisode()
     artifact_path = tmp_path / "snapshot.pt"
     save_single_env_snapshot_artifact(artifact_path, source)

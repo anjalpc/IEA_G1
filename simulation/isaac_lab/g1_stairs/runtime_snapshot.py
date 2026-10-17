@@ -111,6 +111,63 @@ def _single_env_tensor(value: torch.Tensor, env_id: int, num_envs: int, name: st
     return value[env_id : env_id + 1].detach().cpu().clone()
 
 
+
+
+_GAIT_PERSISTENT_FIELDS = (
+    "_raw", "_frequency", "phase", "active", "aligned", "reward_phase",
+    "reward_active", "contact_loss", "swing_started", "reference_expired",
+    "endpoint_hold_s", "selection_wait_s", "approach_unload_dwell_s",
+    "transition_motion_miss", "transition_motion_miss_event",
+    "transition_motion_miss_reason", "approach_simultaneous_unload",
+    "approach_committed", "approach_clear_pending", "approach_preferred_foot",
+)
+
+_ACQUISITION_PERSISTENT_FIELDS = (
+    "target_step", "preferred_foot", "support_elapsed",
+    "touchdown_attempt_active", "touchdown_attempt_good",
+    "touchdown_placement_scored", "first_touchdown_reward_seen",
+    "best_clearance", "best_insertion", "pending_clearance",
+    "clearance_potential", "previous_foot_vx",
+    "previous_foot_vx_initialized", "contact_current_duration",
+    "contact_previous_over",
+)
+
+_COORDINATED_MOTION_FIELDS = (
+    "target", "preferred", "progress", "start", "landing", "lane",
+    "initialized", "quality_sum", "quality_count",
+    "previous_reference_velocity",
+)
+
+_PREFERRED_TRANSITION_FIELDS = (
+    "_active", "_old_target", "_preferred", "_lifted", "_cleared",
+    "_credit_paid", "_sequence_active", "_first_direct",
+    "_sequence_failed", "_clean_paid", "_rear_progress_baseline",
+    "_rear_progress_phi",
+)
+
+_STEP_OVER_CONTRACT_FIELDS = (
+    "_active", "_target", "_preferred", "_lifted", "_cleared",
+    "_inserted", "_next_contact_seen", "_resolved", "_lift_front_x",
+    "_lift_front_valid", "_milestone_credit_paid",
+    "_vertical_clearance_potential", "last_event_code",
+)
+
+def _capture_named_env_tensors(obj, names, env_id, num_envs, prefix):
+    out = {}
+    for name in names:
+        value = getattr(obj, name, None)
+        if not isinstance(value, torch.Tensor):
+            raise RuntimeError(f"{prefix}.{name} is not an initialized tensor")
+        out[name] = _single_env_tensor(value, env_id, num_envs, f"{prefix}.{name}")
+    return out
+
+def _reward_term_object(env, term_name):
+    manager = getattr(env, "reward_manager", None)
+    if manager is None or term_name not in getattr(manager, "_term_names", ()):
+        return None
+    return manager.get_term_cfg(term_name).func
+
+
 def build_single_env_snapshot_artifact(env, env_id: int = 0) -> dict:
     """Build a portable one-environment near-riser snapshot artifact."""
 
@@ -134,10 +191,10 @@ def build_single_env_snapshot_artifact(env, env_id: int = 0) -> dict:
             "num_pushes": saved.num_pushes[env_id : env_id + 1].detach().cpu().clone(),
         }
 
-    gait_tensors = {
-        name: _single_env_tensor(value, env_id, env.num_envs, f"gait.{name}")
-        for name, value in temporal.gait.tensors.items()
-    }
+    gait = env.action_manager.get_term("gait_frequency")
+    gait_tensors = _capture_named_env_tensors(
+        gait, _GAIT_PERSISTENT_FIELDS, env_id, env.num_envs, "gait"
+    )
     command_terms = {}
     for term_name, saved in temporal.command_terms.items():
         command_terms[term_name] = {
@@ -151,15 +208,30 @@ def build_single_env_snapshot_artifact(env, env_id: int = 0) -> dict:
     acquisition = getattr(env, "_g1_v04_acquisition", None)
     acquisition_tensors = {}
     if acquisition is not None:
-        acquisition_tensors = {
-            name: _single_env_tensor(
-                value, env_id, env.num_envs, f"acquisition.{name}"
-            )
-            for name, value in vars(acquisition).items()
-            if isinstance(value, torch.Tensor)
-            and value.ndim > 0
-            and value.shape[0] == env.num_envs
-        }
+        acquisition_tensors = _capture_named_env_tensors(
+            acquisition, _ACQUISITION_PERSISTENT_FIELDS,
+            env_id, env.num_envs, "acquisition",
+        )
+
+    owners = {}
+    motion = getattr(env, "_g1_coordinated_motion", None)
+    if motion is not None:
+        owners["coordinated_motion"] = _capture_named_env_tensors(
+            motion, _COORDINATED_MOTION_FIELDS, env_id, env.num_envs,
+            "owners.coordinated_motion",
+        )
+    preferred_term = _reward_term_object(env, "preferred_transition_milestones")
+    if preferred_term is not None:
+        owners["preferred_transition_milestones"] = _capture_named_env_tensors(
+            preferred_term, _PREFERRED_TRANSITION_FIELDS, env_id, env.num_envs,
+            "owners.preferred_transition_milestones",
+        )
+    step_over_term = _reward_term_object(env, "step_over_transition_contract")
+    if step_over_term is not None:
+        owners["step_over_transition_contract"] = _capture_named_env_tensors(
+            step_over_term, _STEP_OVER_CONTRACT_FIELDS, env_id, env.num_envs,
+            "owners.step_over_transition_contract",
+        )
 
     geometry_episode = getattr(env, "_g1_geometry_episode", None)
     geometry_episode_state = {}
@@ -197,7 +269,7 @@ def build_single_env_snapshot_artifact(env, env_id: int = 0) -> dict:
 
     return {
         "format": "iea_g1_c7_near_riser_snapshot",
-        "version": 2,
+        "version": 3,
         "source_env_origin": env.scene.env_origins[env_id : env_id + 1].detach().cpu().clone(),
         "episode_length": env.episode_length_buf[env_id : env_id + 1].detach().cpu().clone(),
         "physics": {
@@ -214,6 +286,7 @@ def build_single_env_snapshot_artifact(env, env_id: int = 0) -> dict:
             "command_terms": command_terms,
         },
         "acquisition": acquisition_tensors,
+        "owners": owners,
         "geometry_episode": geometry_episode_state,
     }
 
@@ -312,9 +385,9 @@ def _validate_single_env_snapshot_artifact(artifact: dict) -> None:
         raise RuntimeError("near-riser snapshot artifact must be a dictionary")
     if artifact.get("format") != "iea_g1_c7_near_riser_snapshot":
         raise RuntimeError(f"unexpected near-riser snapshot format: {artifact.get('format')!r}")
-    if artifact.get("version") != 2:
+    if artifact.get("version") != 3:
         raise RuntimeError(f"unsupported near-riser snapshot version: {artifact.get('version')!r}")
-    for key in ("source_env_origin", "physics", "temporal", "acquisition", "geometry_episode"):
+    for key in ("source_env_origin", "physics", "temporal", "acquisition", "owners", "geometry_episode"):
         if key not in artifact:
             raise RuntimeError(f"near-riser snapshot is missing {key!r}")
 
@@ -380,6 +453,87 @@ def _prepare_history_for_next_append(buffer, env_ids: torch.Tensor, ordered: tor
     buffer._num_pushes[env_ids] = buffer.max_length - 1
 
 
+def _validate_restore_compatibility(env, artifact: dict, ids: torch.Tensor) -> None:
+    """Validate the complete portable restore contract before mutating runtime state."""
+    count = ids.numel()
+    physics = artifact["physics"]
+    robot = env.scene["robot"]
+    expected_physics = {
+        "root_link_state": robot.data.root_link_state_w,
+        "joint_pos": robot.data.joint_pos,
+        "joint_vel": robot.data.joint_vel,
+        "joint_pos_target": robot.data.joint_pos_target,
+    }
+    for name, current in expected_physics.items():
+        saved = physics.get(name)
+        values = _broadcast_saved(saved, count, current.device, f"physics.{name}")
+        if tuple(values.shape[1:]) != tuple(current.shape[1:]):
+            raise RuntimeError(f"snapshot physics.{name} shape changed")
+
+    temporal = artifact["temporal"]
+    for name, current in (("action", env.action_manager.action), ("prev_action", env.action_manager.prev_action)):
+        values = _broadcast_saved(temporal[name], count, current.device, f"temporal.{name}")
+        if tuple(values.shape[1:]) != tuple(current.shape[1:]):
+            raise RuntimeError(f"snapshot temporal.{name} shape changed")
+
+    buffers = env.observation_manager._group_obs_term_history_buffer
+    actual_names = {f"{group}/{term}" for group, terms in buffers.items() for term in terms}
+    if set(temporal["observation_history"]) != actual_names:
+        raise RuntimeError("observation history terms changed across near-riser snapshot restore")
+    for full_name, saved in temporal["observation_history"].items():
+        group, term = full_name.split("/", 1)
+        ordered = saved["ordered"]
+        buffer = buffers[group][term]
+        if not isinstance(ordered, torch.Tensor) or ordered.ndim < 3 or ordered.shape[0] != 1:
+            raise RuntimeError(f"snapshot history {full_name} must be [1, history, ...]")
+        if ordered.shape[1] != buffer.max_length:
+            raise RuntimeError(f"snapshot history length changed for {full_name}")
+
+    gait = env.action_manager.get_term("gait_frequency")
+    if set(temporal["gait"]) != set(_GAIT_PERSISTENT_FIELDS):
+        raise RuntimeError("snapshot gait persistent field contract changed")
+    for name, saved in temporal["gait"].items():
+        current = getattr(gait, name, None)
+        if not isinstance(current, torch.Tensor):
+            raise RuntimeError(f"gait_frequency.{name} stopped being a tensor")
+        values = _broadcast_saved(saved, count, current.device, f"gait.{name}")
+        if tuple(values.shape[1:]) != tuple(current.shape[1:]):
+            raise RuntimeError(f"snapshot gait.{name} shape changed")
+
+    acquisition = getattr(env, "_g1_v04_acquisition", None)
+    if acquisition is None and artifact["acquisition"]:
+        raise RuntimeError("snapshot contains acquisition state but runtime is unavailable")
+    if acquisition is not None:
+        if set(artifact["acquisition"]) != set(_ACQUISITION_PERSISTENT_FIELDS):
+            raise RuntimeError("snapshot acquisition persistent field contract changed")
+        for name, saved in artifact["acquisition"].items():
+            current = getattr(acquisition, name, None)
+            if not isinstance(current, torch.Tensor):
+                raise RuntimeError(f"acquisition.{name} stopped being a tensor")
+            values = _broadcast_saved(saved, count, current.device, f"acquisition.{name}")
+            if tuple(values.shape[1:]) != tuple(current.shape[1:]):
+                raise RuntimeError(f"snapshot acquisition.{name} shape changed")
+
+    owner_specs = {
+        "coordinated_motion": (getattr(env, "_g1_coordinated_motion", None), _COORDINATED_MOTION_FIELDS),
+        "preferred_transition_milestones": (_reward_term_object(env, "preferred_transition_milestones"), _PREFERRED_TRANSITION_FIELDS),
+        "step_over_transition_contract": (_reward_term_object(env, "step_over_transition_contract"), _STEP_OVER_CONTRACT_FIELDS),
+    }
+    if set(artifact["owners"]) != {name for name, (obj, _fields) in owner_specs.items() if obj is not None}:
+        raise RuntimeError("snapshot reward-owner contract changed")
+    for owner_name, saved_fields in artifact["owners"].items():
+        obj, fields = owner_specs[owner_name]
+        if set(saved_fields) != set(fields):
+            raise RuntimeError(f"snapshot owner {owner_name} persistent field contract changed")
+        for name, saved in saved_fields.items():
+            current = getattr(obj, name, None)
+            if not isinstance(current, torch.Tensor):
+                raise RuntimeError(f"owner.{owner_name}.{name} stopped being a tensor")
+            values = _broadcast_saved(saved, count, current.device, f"owner.{owner_name}.{name}")
+            if tuple(values.shape[1:]) != tuple(current.shape[1:]):
+                raise RuntimeError(f"snapshot owner.{owner_name}.{name} shape changed")
+
+
 def restore_single_env_snapshot_artifact(env, artifact: dict, env_ids) -> None:
     """Restore one saved near-riser state into selected reset environments.
 
@@ -391,6 +545,7 @@ def restore_single_env_snapshot_artifact(env, artifact: dict, env_ids) -> None:
     _validate_single_env_snapshot_artifact(artifact)
     ids = _target_env_ids(env, env_ids)
     count = ids.numel()
+    _validate_restore_compatibility(env, artifact, ids)
 
     source_origin = artifact["source_env_origin"]
     if not isinstance(source_origin, torch.Tensor) or tuple(source_origin.shape) != (1, 3):
@@ -454,6 +609,19 @@ def restore_single_env_snapshot_artifact(env, artifact: dict, env_ids) -> None:
             if not isinstance(current, torch.Tensor):
                 raise RuntimeError(f"acquisition.{name} stopped being a tensor")
             _restore_rows(current, ids, saved, f"acquisition.{name}")
+
+    owner_objects = {
+        "coordinated_motion": getattr(env, "_g1_coordinated_motion", None),
+        "preferred_transition_milestones": _reward_term_object(env, "preferred_transition_milestones"),
+        "step_over_transition_contract": _reward_term_object(env, "step_over_transition_contract"),
+    }
+    for owner_name, saved_fields in artifact["owners"].items():
+        obj = owner_objects[owner_name]
+        for name, saved in saved_fields.items():
+            _restore_rows(getattr(obj, name), ids, saved, f"owner.{owner_name}.{name}")
+    motion = owner_objects.get("coordinated_motion")
+    if motion is not None:
+        motion.last_step = int(env.common_step_counter) - 1
 
     episode_length = artifact["episode_length"]
     if not isinstance(episode_length, torch.Tensor) or tuple(episode_length.shape) != (1,):
