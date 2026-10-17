@@ -1,0 +1,14 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/c7_near_riser_snapshot_reset_diag100.yaml
+  resolved_config_required: true
+
+experiment:
+  id: c7_near_riser_snapshot_reset_smoke1
+  purpose: Runtime-only smoke for the verified near-riser snapshot reset; no learning claim.
+
+execution:
+  environments: 1
+  maximum_iterations: 1
+  training_seed: 42
