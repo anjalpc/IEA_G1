@@ -111,7 +111,7 @@ class PlatformFinishCommand(UniformVelocityCommand):
             & ~reset[:, None]
         )
         start_stop = (
-            platform_touchdown.any(-1)
+            both_safe
             & (local_x >= platform_start + self.options["minimum_step_advance_m"])
             & ~self.stopping
             & ~self.settling
