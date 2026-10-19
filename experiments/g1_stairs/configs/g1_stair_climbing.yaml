@@ -163,7 +163,7 @@ terrain:
   - 0.20
   curriculum:
     enabled: true
-    initial_max_level: 0
+    initial_max_level: 1
     platform_margin_m: 0.1
     minimum_upright_gravity_z: 0.75
     minimum_base_clearance_m: 0.55
@@ -258,7 +258,7 @@ curriculum:
     range_m:
     - 0.0
     - 0.2
-    initial_level: 0
+    initial_level: 1
   command_curriculum:
     enabled: false
 policy_initialization:
@@ -501,8 +501,8 @@ stop_conditions:
 experiment:
   id: g1_stair_climbing
   purpose: Bootstrap physically supported alternating stair ascent with permissive
-    training contact, preserving strict qualification; curriculum promotion remains
-    gated pending support-event validation.
+    training contact, preserving strict qualification; curriculum promotion requires supported alternating stair acquisition
+    and supported platform continuation.
   type: geometry_conditioned_stair_finish_clean
   meaningful_stair_training: true
 reset_randomization:

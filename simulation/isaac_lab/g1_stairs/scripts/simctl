@@ -681,11 +681,12 @@ if "verified_stair_attempts" in extra:
             if supported is not None:
                 label = "stable_finish_pose_seen" if stable_finish_enabled else "supported_platform"
                 fields.append(f"{label}={supported}/{value}")
+            curriculum_prefix = "curriculum_" + prefix.removeprefix("outcome_")
             stages = [
-                extra.get(prefix + "_supported_step1_episodes"),
-                extra.get(prefix + "_supported_step2_episodes"),
-                extra.get(prefix + "_supported_step3_episodes"),
-                extra.get(prefix + "_alternating_three_stairs_episodes"),
+                extra.get(curriculum_prefix + "_supported_step1_episodes"),
+                extra.get(curriculum_prefix + "_supported_step2_episodes"),
+                extra.get(curriculum_prefix + "_supported_step3_episodes"),
+                extra.get(curriculum_prefix + "_alternating_three_stairs_episodes"),
             ]
             if all(v is not None for v in stages):
                 fields.append(
