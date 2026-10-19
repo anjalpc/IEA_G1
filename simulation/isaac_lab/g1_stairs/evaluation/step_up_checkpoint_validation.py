@@ -90,6 +90,8 @@ def apply_resolved_replay_config(env_cfg, path: Path) -> AppliedReplayConfig:
     """
 
     resolved = load_replay_resolved_config(path)
+    if "episode_contract" in resolved:
+        resolved["episode_contract"]["training_recovery_s"] = 0.0
 
     from simulation.isaac_lab.g1_stairs.runtime_contract import (
         reject_archived_pre_specialist_runtime,

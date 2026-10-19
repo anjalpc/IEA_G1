@@ -1074,7 +1074,7 @@ class GeometryAcquisitionRuntime:
                 terrain_half_width=float(cfg.size[1]) / 2.0,
                 min_force_n=strict_gait.SUPPORT_FORCE_N,
                 height_tolerance_m=float(touchdown_height_tolerance_m),
-            ) & first_target_active
+            ) & first_target_active & ~strict_gait.failed
             self.provisional_supported_acquisition_event.copy_(provisional)
             self.provisional_acquired_foot.copy_(torch.where(
                 provisional,
@@ -1517,7 +1517,9 @@ def provisional_supported_acquisition(
         raise RuntimeError(
             "provisional acquisition requires the current acquisition update"
         )
-    return runtime.provisional_supported_acquisition_event.to(
+    episode = getattr(env, "_g1_geometry_episode", None)
+    blocked = episode.strict_failure_latched if episode is not None else torch.zeros_like(runtime.provisional_supported_acquisition_event)
+    return (runtime.provisional_supported_acquisition_event & ~blocked).to(
         dtype=runtime.clearance_reward.dtype
     ) / float(env.step_dt)
 
@@ -1544,7 +1546,9 @@ def first_stair_acquisition(
         runtime.acquired_target_index,
     )
 
-    return event.to(dtype=runtime.clearance_reward.dtype) / float(env.step_dt)
+    episode = getattr(env, "_g1_geometry_episode", None)
+    blocked = episode.strict_failure_latched if episode is not None else torch.zeros_like(event)
+    return (event & ~blocked).to(dtype=runtime.clearance_reward.dtype) / float(env.step_dt)
 
 
 _COMMON_DEFAULTS = dict(

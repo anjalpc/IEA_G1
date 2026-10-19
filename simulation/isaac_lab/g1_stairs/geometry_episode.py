@@ -44,6 +44,7 @@ class EpisodeContract:
     strict_stair_gait: bool = False
     stable_finish: bool = False
     single_acquisition_success: bool = False
+    training_recovery_s: float = 0.0
     finish_sole_margin_m: float = 0.05
     finish_max_linear_speed_mps: float = 0.15
     finish_max_angular_speed_radps: float = 0.30
@@ -57,6 +58,10 @@ class EpisodeContract:
             raise ValueError("stable_finish must be a boolean")
         if not isinstance(self.single_acquisition_success, bool):
             raise ValueError("single_acquisition_success must be a boolean")
+        if not math.isfinite(self.training_recovery_s) or self.training_recovery_s < 0:
+            raise ValueError("training_recovery_s must be finite and nonnegative")
+        if self.training_recovery_s and not self.strict_stair_gait:
+            raise ValueError("training recovery requires strict stair gait")
         if self.single_acquisition_success and not self.strict_stair_gait:
             raise ValueError(
                 "single_acquisition_success requires strict_stair_gait"
@@ -66,6 +71,7 @@ class EpisodeContract:
                 "strict_stair_gait",
                 "stable_finish",
                 "single_acquisition_success",
+                "training_recovery_s",
             ):
                 continue
             if not math.isfinite(value) or value <= 0:

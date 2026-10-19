@@ -245,6 +245,8 @@ def main():
 
     config_path = Path(args.resolved_config).resolve()
     resolved = load_resolved_config(config_path)
+    # Qualification always uses strict first-contact termination, even for D2 checkpoints.
+    resolved["episode_contract"]["training_recovery_s"] = 0.0
     if not resolved.get("episode_contract", {}).get("enabled", False):
         raise ValueError("batch evaluation requires an enabled V03 episode_contract")
     model = Path(args.checkpoint or resolved["policy_initialization"]["source"]["path"]).resolve()

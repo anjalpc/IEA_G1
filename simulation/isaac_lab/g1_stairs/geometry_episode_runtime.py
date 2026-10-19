@@ -53,6 +53,8 @@ class GeometryEpisodeRuntime:
         )
         self.platform_counts = torch.zeros(len(self.heights), dtype=torch.long, device=env.device)
         self.last_step = -1
+        self.strict_failure_latched = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+        self.recovery_elapsed_s = torch.zeros(env.num_envs, device=env.device)
         self.last_completed = None
         self.sole_centres = torch.tensor(G1_SOLE_SPHERE_CENTRES_M, device=env.device)
 
@@ -158,6 +160,37 @@ class GeometryEpisodeRuntime:
             step_over_contract_violation = step_over_contract_violation | violation
             strict_first_acquisition = self.strict_gait.count >= 1
 
+        # Training-only D2: strict failure stays latched independently of
+        # training liveness. The normal tracker continues to see all safety
+        # signals and is given STEP_OVER_CONTRACT only upon recovery expiry.
+        if self.contract.training_recovery_s > 0.0:
+            # The strict detector stops updating after its first failure. Keep
+            # detecting physical strikes/bridges throughout the recovery window.
+            from .motion_reference import riser_contact_masks
+            strike, bridge = riser_contact_masks(
+                sole_bounds, forces[:, self.sensor_feet],
+                first_riser=self.strict_gait.first, tread=self.strict_gait.tread,
+                steps=self.strict_gait.steps, riser_height=riser_height_per_env(env),
+                active=self.tracker.reason == Result.RUNNING,
+                support_force_n=self.strict_gait.SUPPORT_FORCE_N,
+            )
+            external_violation = getattr(
+                acquisition_runtime, "step_over_contract_violation", None
+            )
+            immediate = strike | bridge
+            if external_violation is not None:
+                immediate = immediate | external_violation
+            tracker_violation = self._recovery_violation(
+                step_over_contract_violation, self.strict_gait.reason,
+                immediate, float(env.step_dt),
+            )
+            if strict_complete is not None:
+                strict_complete = strict_complete & ~self.strict_failure_latched
+            if strict_first_acquisition is not None:
+                strict_first_acquisition = strict_first_acquisition & ~self.strict_failure_latched
+        else:
+            tracker_violation = step_over_contract_violation
+
         reason = self.tracker.update(
             position=position, roll_pitch=torch.stack((roll, pitch), -1),
             riser_height=riser_height_per_env(env), foot_position=feet,
@@ -167,13 +200,27 @@ class GeometryEpisodeRuntime:
             velocity_limit=(data.joint_vel.abs() > data.soft_joint_vel_limits + 1.e-5).any(-1),
             torque_limit=(data.applied_torque.abs() > data.joint_effort_limits + 1.e-3).any(-1),
             timed_out=env.episode_length_buf >= env.max_episode_length,
-            step_over_contract_violation=step_over_contract_violation,
+            step_over_contract_violation=tracker_violation,
             strict_gait_complete=strict_complete,
             strict_first_acquisition=strict_first_acquisition,
             **finish_state,
         )
         self._record_joint_limit_diagnostics(env, data, limits, reason)
         return reason
+
+    def _recovery_violation(self, violation, strict_reason, immediate, dt):
+        """Delay only bad landing; independent violations always end recovery."""
+        if self.contract.training_recovery_s == 0.0:
+            return violation | immediate
+        from .strict_stair_gait import StrictStairGait
+        new_failure = violation & ~self.strict_failure_latched
+        self.strict_failure_latched |= violation
+        self.recovery_elapsed_s += (
+            (self.strict_failure_latched & ~new_failure).to(self.recovery_elapsed_s.dtype) * dt
+        )
+        recoverable = strict_reason == StrictStairGait.BAD_LANDING
+        expired = self.recovery_elapsed_s + 1.e-6 >= self.contract.training_recovery_s
+        return immediate | (violation & ~recoverable) | (self.strict_failure_latched & expired)
 
     def _record_joint_limit_diagnostics(self, env, data, limits, reason):
         # Diagnostic only: capture the pre-reset state of episodes whose
@@ -407,6 +454,8 @@ def finish_geometry_episodes(
             ids, move_up=move_up, move_down=move_down
         )
     tracker.reset(ids)
+    runtime.strict_failure_latched[ids] = False
+    runtime.recovery_elapsed_s[ids] = 0.0
     strict_gait = getattr(runtime, "strict_gait", None)
     if strict_gait is not None:
         strict_gait.reset(ids)

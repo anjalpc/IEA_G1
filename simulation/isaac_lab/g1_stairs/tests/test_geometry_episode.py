@@ -241,6 +241,8 @@ class EpisodeAccountingTests(unittest.TestCase):
         runtime.platform_contact_counts = torch.zeros(3, dtype=torch.long)
         runtime.platform_counts = torch.zeros(3, dtype=torch.long)
         runtime.last_completed = None
+        runtime.strict_failure_latched = torch.zeros(n, dtype=torch.bool)
+        runtime.recovery_elapsed_s = torch.zeros(n)
         env = types.SimpleNamespace(
             _g1_geometry_episode=runtime, device="cpu", common_step_counter=99,
             episode_length_buf=torch.full((n,), 100),
