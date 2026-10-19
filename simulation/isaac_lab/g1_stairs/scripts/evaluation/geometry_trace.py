@@ -247,6 +247,17 @@ class GeometryTrace:
             })
 
         runtime = getattr(env, "_g1_geometry_episode", None)
+        progress = getattr(runtime, "supported_ascent", None)
+        if progress is not None:
+            row["supported_ascent"] = {
+                "next_step": int(progress.next_step[0].item()),
+                "last_foot": int(progress.last_foot[0].item()),
+                "pending_time_s": self.values(progress.pending_time[0]),
+                "first": bool(progress.first[0].item()),
+                "second": bool(progress.second[0].item()),
+                "third": bool(progress.third[0].item()),
+                "alternating_complete": bool(progress.alternating_complete[0].item()),
+            }
         row["finish_dwell_s"] = (
             float(runtime.tracker.dwell[0].item())
             if runtime is not None else None
