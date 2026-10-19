@@ -1507,6 +1507,21 @@ def _runtime(env: "ManagerBasedRLEnv") -> GeometryAcquisitionRuntime:
     return runtime
 
 
+
+def provisional_supported_acquisition(
+    env: "ManagerBasedRLEnv",
+) -> torch.Tensor:
+    """Stage A only: expose provisional support without changing strict outcomes."""
+    runtime = _runtime(env)
+    if runtime.last_step != int(env.common_step_counter):
+        raise RuntimeError(
+            "provisional acquisition requires the current acquisition update"
+        )
+    return runtime.provisional_supported_acquisition_event.to(
+        dtype=runtime.clearance_reward.dtype
+    ) / float(env.step_dt)
+
+
 def first_stair_acquisition(
     env: "ManagerBasedRLEnv",
 ) -> torch.Tensor:

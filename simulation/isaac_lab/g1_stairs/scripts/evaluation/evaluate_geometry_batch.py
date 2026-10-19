@@ -306,6 +306,14 @@ def main():
                 env_cfg.seed = seed
                 env_cfg.commands.base_velocity.debug_vis = False
                 apply_geometry_episode_contract(env_cfg, resolved, promote=False)
+                from simulation.isaac_lab.g1_stairs.runtime_snapshot import (
+                    apply_near_riser_snapshot_reset_config,
+                )
+                snapshot_reset = apply_near_riser_snapshot_reset_config(
+                    env_cfg, resolved, project_root=REPO_ROOT,
+                )
+                if snapshot_reset["enabled"]:
+                    print("[INFO] Evaluation near-riser snapshot:", snapshot_reset, flush=True)
                 args.seed = seed
                 agent_cfg = cli_args.parse_rsl_rl_cfg(args.task, args)
                 agent_cfg.seed = seed

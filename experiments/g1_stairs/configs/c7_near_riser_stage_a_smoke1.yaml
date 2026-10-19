@@ -1,0 +1,15 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/c7_near_riser_snapshot_reset_smoke1.yaml
+  resolved_config_required: true
+
+experiment:
+  id: c7_near_riser_stage_a_smoke1
+  purpose: Smoke-test first provisional supported-acquisition reward wiring.
+
+reward_experiment:
+  rewards:
+    stage_plan:
+      geometry_locomotion_c7_strict:
+        provisional_supported_acquisition: 1.0

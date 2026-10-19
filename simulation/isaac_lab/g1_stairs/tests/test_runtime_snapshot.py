@@ -669,3 +669,40 @@ def test_geometry_episode_runtime_materialization_fails_before_restore_without_c
         ensure_geometry_episode_runtime_for_snapshot(env, artifact)
 
     assert not hasattr(env, "_g1_geometry_episode")
+
+
+def test_history_preload_partial_and_repeated_reset_preserves_other_rows():
+    """History preload must preserve non-reset environment rows."""
+    from simulation.isaac_lab.g1_stairs.runtime_snapshot import (
+        _prepare_history_for_next_append,
+    )
+
+    buffer = FakeCircularBuffer()
+    buffer._buffer = torch.arange(24, dtype=torch.float32).reshape(3, 2, 4)
+    buffer._num_pushes = torch.tensor([7, 7], dtype=torch.long)
+
+    ordered = torch.tensor(
+        [[[100.0, 101.0, 102.0, 103.0],
+          [110.0, 111.0, 112.0, 113.0],
+          [120.0, 121.0, 122.0, 123.0]]]
+    )
+
+    for _ in range(2):
+        untouched = buffer._buffer[:, 0].clone()
+        pushes = buffer._num_pushes[0].clone()
+        pointer = buffer._pointer
+
+        _prepare_history_for_next_append(
+            buffer, torch.tensor([1]), ordered, "policy/base_ang_vel"
+        )
+
+        torch.testing.assert_close(buffer._buffer[:, 0], untouched)
+        torch.testing.assert_close(buffer._num_pushes[0], pushes)
+        assert buffer._pointer == pointer
+
+        next_pointer = (buffer._pointer + 1) % buffer.max_length
+        buffer._buffer[next_pointer, 1].copy_(ordered[0, -1])
+        buffer._pointer = next_pointer
+        buffer._num_pushes += 1
+
+        torch.testing.assert_close(buffer.buffer[1], ordered[0])
