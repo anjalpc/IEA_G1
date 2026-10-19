@@ -34,3 +34,28 @@ class SupportedAscentTests(unittest.TestCase):
         for _ in range(10):
             s.update(b,f,torch.tensor([.04]),1.,.25,.5,.02,torch.tensor([True]))
         self.assertEqual(s.next_step.item(),0)
+
+    def test_partial_supported_tread_can_advance_but_not_strike(self):
+        s = SupportedAscent(1, "cpu", dwell_s=0.04)
+        b = torch.tensor([[[1.078, 1.262, -.03, .03, .040, .080],
+                           [0., 0., 0., 0., 0., 0.]]])
+        f = torch.tensor([[100., 0.]])
+        h = torch.tensor([.04])
+        active = torch.tensor([True])
+        for _ in range(2):
+            s.update(b, f, h, 1., .25, .5, .02, active,
+                     invalid_contact=torch.tensor([True]))
+        self.assertEqual(s.next_step.item(), 0)
+        for _ in range(2):
+            s.update(b, f, h, 1., .25, .5, .02, active,
+                     invalid_contact=torch.tensor([False]))
+        self.assertEqual(s.next_step.item(), 1)
+
+    def test_riser_overlap_without_enough_tread_cannot_progress(self):
+        s = SupportedAscent(1, "cpu", dwell_s=0.04)
+        b = torch.tensor([[[.90, 1.08, -.03, .03, .04, .04],
+                           [0., 0., 0., 0., 0., 0.]]])
+        for _ in range(3):
+            s.update(b, torch.tensor([[200., 0.]]), torch.tensor([.04]),
+                     1., .25, .5, .02, torch.tensor([True]))
+        self.assertEqual(s.next_step.item(), 0)

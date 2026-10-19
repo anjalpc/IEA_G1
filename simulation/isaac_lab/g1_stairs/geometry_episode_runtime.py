@@ -52,6 +52,9 @@ class GeometryEpisodeRuntime:
             len(self.heights), dtype=torch.long, device=env.device
         )
         self.platform_counts = torch.zeros(len(self.heights), dtype=torch.long, device=env.device)
+        self.supported_curriculum_success_counts = torch.zeros(
+            len(self.heights), dtype=torch.long, device=env.device
+        )
         self.last_step = -1
         self.strict_failure_latched = torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
         self.recovery_elapsed_s = torch.zeros(env.num_envs, device=env.device)
@@ -163,6 +166,7 @@ class GeometryEpisodeRuntime:
             step_over_contract_violation = step_over_contract_violation | violation
             strict_first_acquisition = self.strict_gait.count >= 1
 
+        unsafe_stair_contact = torch.zeros_like(invalid)
         # D3: retain strict failure diagnostics/credit blocking, but let the
         # normal tracker terminate only for physical safety and task limits.
         if self.contract.training_permissive_contact:
@@ -174,6 +178,7 @@ class GeometryEpisodeRuntime:
                 active=self.tracker.reason == Result.RUNNING,
                 support_force_n=self.strict_gait.SUPPORT_FORCE_N,
             )
+            unsafe_stair_contact = strike | bridge
             self.strict_failure_latched |= (
                 step_over_contract_violation | strike | bridge
             )
@@ -238,6 +243,7 @@ class GeometryEpisodeRuntime:
             self.tracker.half_width,
             float(env.step_dt),
             reason == Result.RUNNING,
+            invalid_contact=unsafe_stair_contact,
         )
         self._record_joint_limit_diagnostics(env, data, limits, reason)
         return reason
@@ -449,13 +455,21 @@ def finish_geometry_episodes(
         0, levels * 3 + tracker.phase[ids], (~success).long(),
     )
 
-    # Keep curriculum reporting aligned with the promotion contract.
-    # Strict curricula report verified episode SUCCESS; historical curricula
-    # retain the supported-platform milestone for reproducibility.
+    # Report the actual per-episode promotion gate; platform contact alone
+    # is not supported alternating ascent.
+    if require_alternating_supported_ascent:
+        runtime.supported_curriculum_success_counts.scatter_add_(
+            0, levels, curriculum_success.long()
+        )
+    # Preserve strict/historical reporting when the new gate is disabled.
     curriculum_success_counts = (
-        runtime.counts[:, Result.SUCCESS].clone()
-        if require_strict_success_for_promotion
-        else runtime.platform_counts.clone()
+        runtime.supported_curriculum_success_counts.clone()
+        if require_alternating_supported_ascent
+        else (
+            runtime.counts[:, Result.SUCCESS].clone()
+            if require_strict_success_for_promotion
+            else runtime.platform_counts.clone()
+        )
     )
 
     env._g1_stair_curriculum_attempts = runtime.counts.sum(-1)

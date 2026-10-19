@@ -16,14 +16,16 @@ class SupportedAscent:
         self.third = torch.zeros_like(self.first)
         self.alternating_complete = torch.zeros_like(self.first)
 
-    def update(self, sole_bounds, forces_z, heights, first_riser, tread, half_width, dt, active):
+    def update(self, sole_bounds, forces_z, heights, first_riser, tread, half_width, dt, active, invalid_contact=None):
         """Call once per simulation step, before auto-reset.
 
-        Requires full-sole X/Y containment, both sole surfaces at the tread
-        elevation, upward foot contact, and sustained support. Neither a
-        riser-face strike nor unsupported base passage can earn credit.
+        Requires substantial tread overlap, sole-bottom near tread height,
+        vertical loading and sustained support. Known riser strikes/bridges
+        are explicitly excluded. This is a learning milestone, not a clean
+        landing or strict qualification event.
         """
-        n = sole_bounds.shape[0]
+        if invalid_contact is None:
+            invalid_contact = torch.zeros_like(active)
         target = self.next_step
         index = target.clamp(max=self.step_count - 1)
         start = first_riser + index.to(heights.dtype) * tread
@@ -32,13 +34,14 @@ class SupportedAscent:
         eligible = (
             (target < self.step_count)[:, None]
             & active[:, None]
+            & ~invalid_contact[:, None]
             & (heights > 0)[:, None]
-            & (sole_bounds[:, :, 0] >= start[:, None] + 0.005)
-            & (sole_bounds[:, :, 1] <= end[:, None] - 0.005)
-            & (sole_bounds[:, :, 2] >= -half_width + 0.005)
-            & (sole_bounds[:, :, 3] <= half_width - 0.005)
+            & ((torch.minimum(sole_bounds[:, :, 1], end[:, None])
+                - torch.maximum(sole_bounds[:, :, 0], start[:, None])) >= 0.10)
+            & (sole_bounds[:, :, 2] <= half_width - 0.005)
+            & (sole_bounds[:, :, 3] >= -half_width + 0.005)
             & ((sole_bounds[:, :, 4] - top[:, None]).abs() <= 0.025)
-            & ((sole_bounds[:, :, 5] - top[:, None]).abs() <= 0.025)
+            & (sole_bounds[:, :, 5] <= top[:, None] + 0.05)
             & (forces_z >= 30.0)
         )
         self.pending_time = torch.where(eligible, self.pending_time + dt, 0.0)
