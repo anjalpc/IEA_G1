@@ -1218,6 +1218,15 @@ class InstrumentedRslRlVecEnvWrapper:
                             else 0.0
                         )
 
+        geometry = getattr(env, "_g1_geometry_episode", None)
+        if geometry is not None and hasattr(geometry, "supported_ascent_counts"):
+            names = ("supported_step1", "supported_step2", "supported_step3", "alternating_three_stairs")
+            for level, height in enumerate(geometry.heights):
+                prefix = f"curriculum_h{int(round(float(height) * 100)):02d}cm"
+                for col, name in enumerate(names):
+                    snapshot[f"{prefix}_{name}_episodes"] = int(
+                        geometry.supported_ascent_counts[level, col].item()
+                    )
         acquisition = getattr(
             env,
             "_g1_v04_acquisition",

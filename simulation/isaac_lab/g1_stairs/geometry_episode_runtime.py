@@ -57,6 +57,9 @@ class GeometryEpisodeRuntime:
         self.recovery_elapsed_s = torch.zeros(env.num_envs, device=env.device)
         self.last_completed = None
         self.sole_centres = torch.tensor(G1_SOLE_SPHERE_CENTRES_M, device=env.device)
+        from .supported_stair_progress import SupportedAscent
+        self.supported_ascent = SupportedAscent(env.num_envs, env.device, cfg.step_count)
+        self.supported_ascent_counts = torch.zeros((len(self.heights), 4), dtype=torch.long, device=env.device)
 
     def update(self, env):
         # TerminationManager invokes both termination and timeout functions.
@@ -226,6 +229,16 @@ class GeometryEpisodeRuntime:
             strict_first_acquisition=strict_first_acquisition,
             **finish_state,
         )
+        self.supported_ascent.update(
+            sole_bounds,
+            forces[:, self.sensor_feet, 2],
+            riser_height_per_env(env),
+            self.tracker.first_riser,
+            self.tracker.tread,
+            self.tracker.half_width,
+            float(env.step_dt),
+            reason == Result.RUNNING,
+        )
         self._record_joint_limit_diagnostics(env, data, limits, reason)
         return reason
 
@@ -374,6 +387,7 @@ def finish_geometry_episodes(
     promote=False,
     minimum_nonflat_env_fraction=0.0,
     require_strict_success_for_promotion=False,
+    require_alternating_supported_ascent=False,
 ):
     """Count the terminal snapshot before scene reset or terrain reassignment."""
     runtime = getattr(env, "_g1_geometry_episode", None)
@@ -399,6 +413,16 @@ def finish_geometry_episodes(
         if require_strict_success_for_promotion
         else tracker.platform_seen[ids].clone()
     )
+    if require_alternating_supported_ascent:
+        progress = runtime.supported_ascent
+        # On flat terrain use the existing supported platform milestone.
+        # On stairs require all three individually supported, alternating
+        # acquisitions AND a supported platform pose; mere X passage fails.
+        curriculum_success = torch.where(
+            levels == 0,
+            tracker.platform_seen[ids],
+            progress.alternating_complete[ids] & tracker.platform_seen[ids],
+        )
 
     runtime.last_completed = {
         "step": int(env.common_step_counter), "env_ids": ids.clone(),
@@ -409,6 +433,12 @@ def finish_geometry_episodes(
         "entered_stairs": tracker.entered_stairs[ids].clone(),
         "phase": tracker.phase[ids].clone(),
     }
+    progress = getattr(runtime, "supported_ascent", None)
+    for i, observed in enumerate((progress.first, progress.second,
+                                  progress.third, progress.alternating_complete) if progress is not None else ()):
+        runtime.supported_ascent_counts[:, i].scatter_add_(
+            0, levels, observed[ids].to(torch.long),
+        )
     flat_indices = levels * len(Result) + reason
     runtime.counts.view(-1).scatter_add_(0, flat_indices, torch.ones_like(ids))
     runtime.platform_contact_counts.scatter_add_(
@@ -477,6 +507,7 @@ def finish_geometry_episodes(
     tracker.reset(ids)
     runtime.strict_failure_latched[ids] = False
     runtime.recovery_elapsed_s[ids] = 0.0
+    if progress is not None: progress.reset(ids)
     strict_gait = getattr(runtime, "strict_gait", None)
     if strict_gait is not None:
         strict_gait.reset(ids)
@@ -502,6 +533,11 @@ def apply_geometry_episode_contract(env_cfg, resolved, *, promote=None):
     require_strict_success_for_promotion = bool(
         curriculum_cfg.get("require_strict_success_for_promotion", False)
     )
+    require_alternating_supported_ascent = bool(
+        curriculum_cfg.get("require_alternating_supported_ascent", False)
+    )
+    if require_alternating_supported_ascent and require_strict_success_for_promotion:
+        raise ValueError("supported-ascent and strict promotion are mutually exclusive")
     if not 0.0 <= minimum_nonflat_env_fraction <= 1.0:
         raise ValueError(
             "terrain.curriculum.minimum_nonflat_env_fraction must be in [0, 1]"
@@ -529,6 +565,9 @@ def apply_geometry_episode_contract(env_cfg, resolved, *, promote=None):
                 ),
                 "require_strict_success_for_promotion": (
                     require_strict_success_for_promotion
+                ),
+                "require_alternating_supported_ascent": (
+                    require_alternating_supported_ascent
                 ),
             },
         )
