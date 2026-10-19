@@ -160,6 +160,27 @@ class GeometryEpisodeRuntime:
             step_over_contract_violation = step_over_contract_violation | violation
             strict_first_acquisition = self.strict_gait.count >= 1
 
+        # D3: retain strict failure diagnostics/credit blocking, but let the
+        # normal tracker terminate only for physical safety and task limits.
+        if self.contract.training_permissive_contact:
+            from .motion_reference import riser_contact_masks
+            strike, bridge = riser_contact_masks(
+                sole_bounds, forces[:, self.sensor_feet],
+                first_riser=self.strict_gait.first, tread=self.strict_gait.tread,
+                steps=self.strict_gait.steps, riser_height=riser_height_per_env(env),
+                active=self.tracker.reason == Result.RUNNING,
+                support_force_n=self.strict_gait.SUPPORT_FORCE_N,
+            )
+            self.strict_failure_latched |= (
+                step_over_contract_violation | strike | bridge
+            )
+            tracker_violation = torch.zeros_like(invalid)
+            if strict_complete is not None:
+                strict_complete = strict_complete & ~self.strict_failure_latched
+            if strict_first_acquisition is not None:
+                strict_first_acquisition = (
+                    strict_first_acquisition & ~self.strict_failure_latched
+                )
         # Training-only D2: strict failure stays latched independently of
         # training liveness. The normal tracker continues to see all safety
         # signals and is given STEP_OVER_CONTRACT only upon recovery expiry.
@@ -188,7 +209,7 @@ class GeometryEpisodeRuntime:
                 strict_complete = strict_complete & ~self.strict_failure_latched
             if strict_first_acquisition is not None:
                 strict_first_acquisition = strict_first_acquisition & ~self.strict_failure_latched
-        else:
+        elif not self.contract.training_permissive_contact:
             tracker_violation = step_over_contract_violation
 
         reason = self.tracker.update(

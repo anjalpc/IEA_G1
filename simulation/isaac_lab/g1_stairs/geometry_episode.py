@@ -45,6 +45,7 @@ class EpisodeContract:
     stable_finish: bool = False
     single_acquisition_success: bool = False
     training_recovery_s: float = 0.0
+    training_permissive_contact: bool = False
     finish_sole_margin_m: float = 0.05
     finish_max_linear_speed_mps: float = 0.15
     finish_max_angular_speed_radps: float = 0.30
@@ -58,6 +59,12 @@ class EpisodeContract:
             raise ValueError("stable_finish must be a boolean")
         if not isinstance(self.single_acquisition_success, bool):
             raise ValueError("single_acquisition_success must be a boolean")
+        if not isinstance(self.training_permissive_contact, bool):
+            raise ValueError("training_permissive_contact must be a boolean")
+        if self.training_permissive_contact and not self.strict_stair_gait:
+            raise ValueError("permissive contact training requires strict stair gait")
+        if self.training_permissive_contact and self.training_recovery_s:
+            raise ValueError("permissive contact training cannot combine with bounded recovery")
         if not math.isfinite(self.training_recovery_s) or self.training_recovery_s < 0:
             raise ValueError("training_recovery_s must be finite and nonnegative")
         if self.training_recovery_s and not self.strict_stair_gait:
@@ -72,6 +79,7 @@ class EpisodeContract:
                 "stable_finish",
                 "single_acquisition_success",
                 "training_recovery_s",
+                "training_permissive_contact",
             ):
                 continue
             if not math.isfinite(value) or value <= 0:

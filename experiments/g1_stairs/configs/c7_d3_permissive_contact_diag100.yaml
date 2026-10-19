@@ -1,0 +1,10 @@
+schema_version: 1
+inheritance:
+  base_config: experiments/g1_stairs/configs/c7_near_riser_stage_a_diag100.yaml
+  resolved_config_required: true
+experiment:
+  id: c7_d3_permissive_contact_diag100
+  purpose: Isolate permissive contact termination with unchanged rewards and strict qualification.
+episode_contract:
+  training_recovery_s: 0.0
+  training_permissive_contact: true

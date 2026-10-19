@@ -254,6 +254,27 @@ class GeometryTrace:
         episode_runtime = getattr(env, "_g1_geometry_episode", None)
         strict = getattr(episode_runtime, "strict_gait", None)
         if strict is not None:
+            from simulation.isaac_lab.g1_stairs.motion_reference import riser_contact_masks
+            from simulation.isaac_lab.g1_stairs.terrain_state import riser_height_per_env
+            # Recompute physical masks: strict classification freezes after failure.
+            height = riser_height_per_env(env)
+            strike, bridge = riser_contact_masks(
+                bounds, self.sensor.data.net_forces_w[:, episode_runtime.sensor_feet],
+                first_riser=strict.first, tread=strict.tread, steps=strict.steps,
+                riser_height=height, active=height > 0,
+                support_force_n=strict.SUPPORT_FORCE_N,
+            )
+            acquisition = getattr(env, "_g1_v04_acquisition", None)
+            external = getattr(acquisition, "step_over_contract_violation", None)
+            row["training_recovery"] = {
+                "duration_s": episode_runtime.contract.training_recovery_s,
+                "failure_latched": bool(episode_runtime.strict_failure_latched[0].item()),
+                "elapsed_s": float(episode_runtime.recovery_elapsed_s[0].item()),
+                "live_strike": bool(strike[0].item()),
+                "live_bridge": bool(bridge[0].item()),
+                "external_violation": bool(external[0].item()) if external is not None else False,
+                "episode_reason": int(episode_runtime.tracker.reason[0].item()),
+            }
             row["strict_stair_gait"] = {
                 "acquisitions": int(strict.count[0].item()),
                 "last_foot": int(strict.last_foot[0].item()),

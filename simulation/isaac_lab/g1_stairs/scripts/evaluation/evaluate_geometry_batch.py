@@ -192,6 +192,8 @@ parser.add_argument("--resolved-config", required=True)
 parser.add_argument("--output-dir", required=True)
 parser.add_argument("--unitree-baseline", action="store_true")
 parser.add_argument("--sample-actions", action="store_true")
+parser.add_argument("--training-contract-diagnostic", action="store_true",
+                    help="Trace configured recovery; NOT strict qualification")
 parser.add_argument("--arm-noise-scale", type=float, default=1.0)
 parser.add_argument("--wrist-target-scale", type=float, default=1.0)
 parser.add_argument("--trace", action="store_true", help="Record one environment and one episode before automatic reset")
@@ -212,6 +214,8 @@ if args.arm_noise_scale != 1.0 and not args.sample_actions:
     parser.error("--arm-noise-scale requires --sample-actions")
 if args.sample_actions and args.unitree_baseline:
     parser.error("sampled evaluation requires an RSL-RL checkpoint")
+if args.training_contract_diagnostic and not args.trace:
+    parser.error("--training-contract-diagnostic requires --trace")
 if args.trace and (args.num_envs != 1 or args.episodes_per_env != 1):
     parser.error("--trace requires --num-envs 1 --episodes-per-env 1")
 if bool(args.checkpoint) == args.unitree_baseline:
@@ -246,7 +250,12 @@ def main():
     config_path = Path(args.resolved_config).resolve()
     resolved = load_resolved_config(config_path)
     # Qualification always uses strict first-contact termination, even for D2 checkpoints.
-    resolved["episode_contract"]["training_recovery_s"] = 0.0
+    if not args.training_contract_diagnostic:
+        resolved["episode_contract"]["training_recovery_s"] = 0.0
+        resolved["episode_contract"]["training_permissive_contact"] = False
+    elif not (resolved["episode_contract"].get("training_recovery_s", 0.0) > 0
+              or resolved["episode_contract"].get("training_permissive_contact", False)):
+        raise ValueError("training-contract diagnostic requires a non-strict training contract")
     if not resolved.get("episode_contract", {}).get("enabled", False):
         raise ValueError("batch evaluation requires an enabled V03 episode_contract")
     model = Path(args.checkpoint or resolved["policy_initialization"]["source"]["path"]).resolve()
@@ -275,6 +284,8 @@ def main():
             })
         summary = {
             "schema_version": 1, "episode_contract": resolved["episode_contract"],
+            "qualification": not args.training_contract_diagnostic,
+            "contract_mode": "training_diagnostic" if args.training_contract_diagnostic else "strict_evaluation",
             "action_sampling": sampling,
             "wrist_target_scale": args.wrist_target_scale,
             "config_sha256": hashlib.sha256(config_path.read_bytes()).hexdigest(),
