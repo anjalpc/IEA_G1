@@ -239,11 +239,18 @@ def initialize_actor_from_unitree_onnx(
             f"{runtime_input_dim}"
         )
 
+    runtime_action_dim = int(actor[6].weight.shape[0])
+    if runtime_action_dim not in (ACTION_DIM, ACTION_DIM + 1):
+        raise RuntimeError(
+            "Unitree transfer supports 29 physical actions with at most "
+            f"one appended internal action, got {runtime_action_dim}"
+        )
+
     expected_runtime_shapes = {
         0: ((512, runtime_input_dim), (512,)),
         2: ((256, 512), (256,)),
         4: ((128, 256), (128,)),
-        6: ((29, 128), (29,)),
+        6: ((runtime_action_dim, 128), (runtime_action_dim,)),
     }
 
     for index, (weight_shape, bias_shape) in expected_runtime_shapes.items():
@@ -280,8 +287,8 @@ def initialize_actor_from_unitree_onnx(
         )
         copy_tensor(actor[0].bias, weights["actor.0.bias"])
 
-        # Remaining actor layers are architecture-identical.
-        for index in (2, 4, 6):
+        # Hidden actor layers are architecture-identical.
+        for index in (2, 4):
             copy_tensor(
                 actor[index].weight,
                 weights[f"actor.{index}.weight"],
@@ -290,6 +297,19 @@ def initialize_actor_from_unitree_onnx(
                 actor[index].bias,
                 weights[f"actor.{index}.bias"],
             )
+
+        # Preserve the 29 physical Unitree outputs exactly. If the runtime
+        # appends one internal action (cadence), it starts at zero influence.
+        actor[6].weight.zero_()
+        actor[6].bias.zero_()
+        copy_tensor(
+            actor[6].weight[:ACTION_DIM],
+            weights["actor.6.weight"],
+        )
+        copy_tensor(
+            actor[6].bias[:ACTION_DIM],
+            weights["actor.6.bias"],
+        )
 
     # Hard check that the new terrain columns really start at zero.
     new_columns_max_abs = float(
@@ -305,6 +325,20 @@ def initialize_actor_from_unitree_onnx(
             "New observation columns were not zero initialized: "
             f"{new_columns_max_abs}"
         )
+
+    new_action_rows_max_abs = 0.0
+    if runtime_action_dim > ACTION_DIM:
+        new_action_rows_max_abs = float(
+            torch.cat((
+                actor[6].weight[ACTION_DIM:].detach().reshape(-1),
+                actor[6].bias[ACTION_DIM:].detach().reshape(-1),
+            )).abs().max().cpu()
+        )
+        if new_action_rows_max_abs != 0.0:
+            raise RuntimeError(
+                "New internal action rows were not zero initialized: "
+                f"{new_action_rows_max_abs}"
+            )
 
     explicit_geometry_observations = (
         EXPLICIT_GEOMETRY_OBS_DIM
@@ -332,8 +366,10 @@ def initialize_actor_from_unitree_onnx(
             explicit_geometry_observations
         ),
         "stair_observations": runtime_input_dim,
-        "actions": ACTION_DIM,
+        "physical_actions": ACTION_DIM,
+        "actions": runtime_action_dim,
         "runtime_observations": runtime_input_dim,
+        "new_action_rows_max_abs": new_action_rows_max_abs,
         "new_observations": (
             runtime_input_dim - LOCOMOTION_OBS_DIM
         ),

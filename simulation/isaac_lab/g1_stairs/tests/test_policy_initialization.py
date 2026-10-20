@@ -18,15 +18,15 @@ from simulation.isaac_lab.g1_stairs.policy_initialization import (
 )
 
 
-def _make_actor() -> torch.nn.Sequential:
+def _make_actor(input_dim: int = 667, action_dim: int = 29) -> torch.nn.Sequential:
     return torch.nn.Sequential(
-        torch.nn.Linear(667, 512),
+        torch.nn.Linear(input_dim, 512),
         torch.nn.ELU(),
         torch.nn.Linear(512, 256),
         torch.nn.ELU(),
         torch.nn.Linear(256, 128),
         torch.nn.ELU(),
-        torch.nn.Linear(128, 29),
+        torch.nn.Linear(128, action_dim),
     )
 
 
@@ -150,6 +150,43 @@ class PolicyInitializationTest(unittest.TestCase):
             metadata["new_columns_max_abs"],
             0.0,
         )
+
+
+    def test_unitree_onnx_transfer_supports_zero_initialized_internal_action(self) -> None:
+        actor = _make_actor(input_dim=492, action_dim=30)
+        critic = _make_critic()
+        policy = SimpleNamespace(actor=actor, critic=critic)
+        runner = SimpleNamespace(alg=SimpleNamespace(policy=policy))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            model_path = Path(tmp) / "policy.onnx"
+            source = _make_fake_onnx(model_path)
+            metadata = initialize_actor_from_unitree_onnx(
+                runner=runner,
+                onnx_path=model_path,
+            )
+
+        np.testing.assert_allclose(
+            actor[0].weight[:, :LOCOMOTION_OBS_DIM].detach().cpu().numpy(),
+            source["actor.0.weight"],
+        )
+        self.assertEqual(
+            float(actor[0].weight[:, LOCOMOTION_OBS_DIM:].detach().abs().max()),
+            0.0,
+        )
+        np.testing.assert_allclose(
+            actor[6].weight[:29].detach().cpu().numpy(),
+            source["actor.6.weight"],
+        )
+        np.testing.assert_allclose(
+            actor[6].bias[:29].detach().cpu().numpy(),
+            source["actor.6.bias"],
+        )
+        self.assertEqual(float(actor[6].weight[29].detach().abs().max()), 0.0)
+        self.assertEqual(float(actor[6].bias[29].detach().abs()), 0.0)
+        self.assertEqual(metadata["physical_actions"], 29)
+        self.assertEqual(metadata["actions"], 30)
+        self.assertEqual(metadata["new_action_rows_max_abs"], 0.0)
 
     def test_rsl_rl_checkpoint_actor_transfer_preserves_critic(self) -> None:
         class FakePolicy(torch.nn.Module):
