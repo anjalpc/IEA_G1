@@ -1,0 +1,17 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/albert_single04_no_stall_train100.yaml
+  resolved_config_required: true
+
+experiment:
+  id: albert_flat04_mixed_train300
+  purpose: Preserve Unitree flat locomotion while adapting the retained gait to one 4 cm step.
+
+execution:
+  maximum_iterations: 300
+
+terrain:
+  riser_heights_m: [0.0, 0.04]
+  curriculum:
+    enabled: false
