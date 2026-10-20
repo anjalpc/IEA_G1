@@ -48,6 +48,25 @@ class AppliedReplayConfig:
     required_platform_continuation_m: float = 2.0
 
 
+def resolved_replay_riser_height(terrain: dict) -> float:
+    """Return the fixed recorded riser height when a run has one height."""
+    heights = terrain.get("riser_heights_m")
+    if heights is not None:
+        if not isinstance(heights, (list, tuple)) or not heights:
+            raise ValueError(
+                "terrain.riser_heights_m must contain at least one height"
+            )
+        values = tuple(float(value) for value in heights)
+        if any(value < 0.0 or value > 0.20 for value in values):
+            raise ValueError(
+                "terrain.riser_heights_m values must be in [0.0, 0.20]"
+            )
+        if len(values) == 1:
+            return values[0]
+
+    return float(terrain["riser_height_m"])
+
+
 def stair_outcome_config_from_replay(replay: AppliedReplayConfig):
     """Build evaluator geometry from the exact recorded replay contract."""
 
@@ -197,7 +216,7 @@ def apply_resolved_replay_config(env_cfg, path: Path) -> AppliedReplayConfig:
         env_cfg.observations.policy.height_scan = None
 
     terrain = resolved.get("terrain", {})
-    riser_height_m = float(terrain["riser_height_m"])
+    riser_height_m = resolved_replay_riser_height(terrain)
     tread_depth_m = float(terrain["tread_depth_m"])
     step_count = int(terrain["step_count"])
     required_platform_continuation_m = float(

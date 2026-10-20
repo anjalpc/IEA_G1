@@ -10,6 +10,7 @@ from simulation.isaac_lab.g1_stairs.evaluation.step_up_checkpoint_validation imp
     apply_resolved_replay_agent_config,
     calibration_ready,
     load_replay_resolved_config,
+    resolved_replay_riser_height,
     stair_outcome_config_from_replay,
 )
 
@@ -32,6 +33,38 @@ class StepUpCheckpointCalibrationTest(unittest.TestCase):
     def test_calibration_rejects_invalid_minimum(self):
         with self.assertRaises(ValueError):
             calibration_ready([], [], minimum_samples=0)
+
+
+    def test_single_recorded_height_overrides_inherited_scalar(self):
+        self.assertEqual(
+            resolved_replay_riser_height(
+                {
+                    "riser_height_m": 0.20,
+                    "riser_heights_m": [0.04],
+                }
+            ),
+            0.04,
+        )
+
+    def test_multi_height_replay_keeps_scalar_without_explicit_override(self):
+        self.assertEqual(
+            resolved_replay_riser_height(
+                {
+                    "riser_height_m": 0.20,
+                    "riser_heights_m": [0.04, 0.08],
+                }
+            ),
+            0.20,
+        )
+
+    def test_empty_recorded_height_list_is_rejected(self):
+        with self.assertRaises(ValueError):
+            resolved_replay_riser_height(
+                {
+                    "riser_height_m": 0.20,
+                    "riser_heights_m": [],
+                }
+            )
 
 
     def test_replay_loader_normalizes_specialist_reward_schema(self):

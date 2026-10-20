@@ -312,6 +312,19 @@ def main() -> None:
             )
         )
 
+        training_heights = (
+            resolved_config.get("terrain", {}).get("riser_heights_m")
+        )
+        if (
+            args.riser_height_override is None
+            and isinstance(training_heights, (list, tuple))
+            and len(training_heights) > 1
+        ):
+            raise ValueError(
+                "recording a multi-height run requires "
+                "--riser_height_override"
+            )
+
         from simulation.isaac_lab.g1_stairs.evaluation.step_up_checkpoint_validation import (
             apply_resolved_replay_config,
             apply_resolved_replay_agent_config,
