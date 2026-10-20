@@ -516,11 +516,11 @@ episode_contract:
   training_recovery_s: 0.0
   training_permissive_contact: false
 reward_experiment:
-  active_stage: unitree_flat_gait_control
+  active_stage: geometry_locomotion_unitree_flat_gait_control
   strict_runtime_set: true
   rewards:
     stage_plan:
-      unitree_flat_gait_control:
+      geometry_locomotion_unitree_flat_gait_control:
         track_lin_vel_xy: 1.0
         track_ang_vel_z: 0.5
         alive: 0.15
