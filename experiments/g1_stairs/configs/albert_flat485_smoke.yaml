@@ -1,0 +1,52 @@
+schema_version: 1
+inheritance:
+  base_config: experiments/g1_stairs/configs/albert_single04_smoke.yaml
+  resolved_config_required: true
+experiment:
+  id: albert_flat485_smoke
+  purpose: Consolidate the expanded 485-D Unitree walking policy with five null stair
+    inputs.
+  type: expanded_flat_walking_consolidation
+  meaningful_stair_training: false
+execution:
+  environments: 512
+  maximum_iterations: 4
+  training_seed: 42
+checkpointing:
+  interval_iterations: 1
+terrain:
+  riser_height_m: 0.04
+  riser_heights_m:
+  - 0.0
+  tread_depth_m: 0.25
+  step_count: 1
+  curriculum:
+    enabled: false
+command:
+  forward_velocity_mps: 0.35
+ppo:
+  initial_action_noise_std: 0.15
+reward_experiment:
+  active_stage: geometry_locomotion_albert_flat485
+  strict_runtime_set: true
+  rewards:
+    stage_plan:
+      geometry_locomotion_albert_flat485:
+        track_lin_vel_xy: 1.0
+        track_ang_vel_z: 0.5
+        alive: 0.15
+        upright: -5.0
+        base_angular_velocity: -0.05
+        joint_vel: -0.001
+        joint_acc: -2.5e-07
+        action_rate: -0.05
+        dof_pos_limits: -5.0
+        energy: -2.0e-05
+        joint_deviation_arms: -0.1
+        joint_deviation_waists: -1.0
+        joint_deviation_legs: -1.0
+        gait: 0.5
+        feet_slide: -0.2
+        undesired_contacts: -1.0
+        forward_stall: 0.0
+reward_parameters: {}
