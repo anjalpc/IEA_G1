@@ -1,0 +1,77 @@
+schema_version: 1
+experiment:
+  id: albert_single04_smoke
+  purpose: Preserve the Unitree walking prior while learning one isolated 4 cm stair.
+  type: single_step_curriculum_smoke
+  meaningful_stair_training: true
+inheritance:
+  base_config: experiments/g1_stairs/configs/nominal_stairs_base.yaml
+  resolved_config_required: true
+execution:
+  environments: 512
+  maximum_iterations: 4
+  training_seed: 42
+checkpointing:
+  interval_iterations: 1
+policy_initialization:
+  type: unitree_velocity_onnx_transfer
+  locomotion_observations: 480
+  terrain_observations: 0
+  stair_observations: 485
+  actions: 29
+  critic_initialization: fresh
+  optimizer_initialization: fresh
+observations:
+  explicit_stair_geometry:
+    enabled: true
+  preferred_foothold: false
+  gait_phase: false
+  actor_height_scan: false
+  terrain_scan_in_actor: false
+  preferred_transition_foot: false
+  preferred_foothold_ablation: false
+  coordinated_foothold_xyz: false
+actions:
+  expected_action_dimension: 29
+gait:
+  enabled: false
+terrain:
+  curriculum:
+    enabled: false
+  riser_heights_m:
+  - 0.04
+  tread_depth_m: 0.25
+  step_count: 1
+commands:
+  forward_velocity_mps: 0.35
+episode_contract:
+  enabled: false
+reward_experiment:
+  active_stage: geometry_locomotion_albert_single04
+  strict_runtime_set: true
+  rewards:
+    stage_plan:
+      geometry_locomotion_albert_single04:
+        track_lin_vel_xy: 1.0
+        track_ang_vel_z: 0.5
+        alive: 0.15
+        upright: -5.0
+        base_angular_velocity: -0.05
+        joint_vel: -0.001
+        joint_acc: -2.5e-07
+        action_rate: -0.05
+        dof_pos_limits: -5.0
+        energy: -2.0e-05
+        joint_deviation_arms: -0.1
+        joint_deviation_waists: -1.0
+        joint_deviation_legs: -1.0
+        gait: 0.5
+        feet_slide: -0.2
+        undesired_contacts: -1.0
+        forward_stall: -1.0
+reward_parameters:
+  forward_stall:
+    minimum_forward_speed_mps: 0.1
+    command_name: base_velocity
+command:
+  forward_velocity_mps: 0.35

@@ -462,11 +462,32 @@ class StairRewardsCfg:
     base_angular_velocity = copy.deepcopy(
         _UPSTREAM_CFG.rewards.base_angular_velocity
     )
-    feet_slide = copy.deepcopy(_UPSTREAM_CFG.rewards.feet_slide)
+    joint_vel = copy.deepcopy(_UPSTREAM_CFG.rewards.joint_vel)
     joint_acc = copy.deepcopy(_UPSTREAM_CFG.rewards.joint_acc)
-    dof_pos_limits = copy.deepcopy(_UPSTREAM_CFG.rewards.dof_pos_limits)
-    undesired_contacts = copy.deepcopy(_UPSTREAM_CFG.rewards.undesired_contacts)
     action_rate = copy.deepcopy(_UPSTREAM_CFG.rewards.action_rate)
+    dof_pos_limits = copy.deepcopy(_UPSTREAM_CFG.rewards.dof_pos_limits)
+    energy = copy.deepcopy(_UPSTREAM_CFG.rewards.energy)
+    joint_deviation_arms = copy.deepcopy(
+        _UPSTREAM_CFG.rewards.joint_deviation_arms
+    )
+    joint_deviation_waists = copy.deepcopy(
+        _UPSTREAM_CFG.rewards.joint_deviation_waists
+    )
+    joint_deviation_legs = copy.deepcopy(
+        _UPSTREAM_CFG.rewards.joint_deviation_legs
+    )
+    gait = copy.deepcopy(_UPSTREAM_CFG.rewards.gait)
+    feet_slide = copy.deepcopy(_UPSTREAM_CFG.rewards.feet_slide)
+    undesired_contacts = copy.deepcopy(_UPSTREAM_CFG.rewards.undesired_contacts)
+    forward_stall = RewTerm(
+        func=geometry_locomotion_rewards.forward_stall,
+        weight=-1.0,
+        params={
+            "minimum_forward_speed_mps": 0.10,
+            "command_name": "base_velocity",
+            "asset_cfg": SceneEntityCfg("robot"),
+        },
+    )
     failure_termination_event = RewTerm(
         func=stair_rewards.failure_termination_event,
         weight=-1.0,

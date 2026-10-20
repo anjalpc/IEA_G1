@@ -81,12 +81,22 @@ def dispatch_isolated_batches():
                     print(f"[BATCH] Interrupted/timed out; inspect {directory}", flush=True)
                     raise
             (directory / "process_exit_code.txt").write_text(str(returncode) + "\n")
-            if returncode != 0:
+            summary_path = directory / "summary.json"
+            if returncode != 0 or not summary_path.is_file():
+                log_path = directory / "process.log"
+                lines = log_path.read_text(errors="replace").splitlines()
+                tail = "\n".join(lines[-40:])
+                reason = (
+                    f"exited {returncode}"
+                    if returncode != 0
+                    else "exited without writing summary.json"
+                )
                 raise RuntimeError(
-                    f"Worker exited {returncode}; inspect {directory / 'process.log'}"
+                    f"Worker {reason}: {directory}\n"
+                    f"Worker log tail:\n{tail}"
                 )
 
-            summary = json.loads((directory / "summary.json").read_text())
+            summary = json.loads(summary_path.read_text())
             with (directory / "episodes.csv").open(newline="") as stream:
                 reader = csv.DictReader(stream)
                 fields = reader.fieldnames

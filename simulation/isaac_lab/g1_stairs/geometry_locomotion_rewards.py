@@ -10,6 +10,30 @@ from .reward_math import (
 )
 
 
+
+def forward_stall(
+    env,
+    minimum_forward_speed_mps: float = 0.10,
+    command_name: str = "base_velocity",
+    asset_cfg=None,
+):
+    """Penalize failure to move forward while forward motion is commanded."""
+    if minimum_forward_speed_mps <= 0.0:
+        raise ValueError("minimum_forward_speed_mps must be positive")
+
+    robot = env.scene[asset_cfg.name]
+    forward_speed = robot.data.root_lin_vel_w[:, 0]
+    forward_command = env.command_manager.get_command(command_name)[:, 0]
+
+    deficit = torch.clamp(
+        (minimum_forward_speed_mps - forward_speed)
+        / minimum_forward_speed_mps,
+        min=0.0,
+        max=1.0,
+    )
+    return deficit * (forward_command > minimum_forward_speed_mps)
+
+
 def geometry_failure_termination_event(env) -> torch.Tensor:
     """One-shot penalty for geometry-contract failures, never success.
 
