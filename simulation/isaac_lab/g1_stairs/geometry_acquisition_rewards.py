@@ -864,25 +864,26 @@ class GeometryAcquisitionRuntime:
             * crossing_attempt_valid.to(foot_pos.dtype)
         ).clamp(0.0, 1.0)
 
-        new_insertion_peak = torch.maximum(
-            self.best_insertion,
-            insertion_score,
-        )
+        if reversible_clearance_potential:
+            # Defer insertion accounting until touchdown/termination is known
+            # below so target changes and true failures can terminalize Phi.
+            insertion_delta = torch.zeros_like(insertion_score)
+        else:
+            # Historical V04/V07 behavior: monotonic non-recyclable insertion
+            # progress. In reversible mode this same tensor stores prior Phi
+            # so existing runtime snapshots remain compatible.
+            new_insertion_peak = torch.maximum(
+                self.best_insertion,
+                insertion_score,
+            )
+            insertion_delta = (
+                new_insertion_peak - self.best_insertion
+            ).clamp_min(0.0)
+            self.best_insertion.copy_(new_insertion_peak)
 
-        insertion_delta = (
-            new_insertion_peak - self.best_insertion
-        ).clamp_min(0.0)
-
-        self.best_insertion.copy_(new_insertion_peak)
-
-        # RewardManager multiplies the returned value by dt. Dividing the
-        # bounded monotonic increments by dt makes total credit independent
-        # of controller frequency.
+        # RewardManager multiplies returned values by dt. Dividing bounded
+        # progress by dt keeps total credit independent of control frequency.
         dt = float(env.step_dt)
-
-        self.insertion_reward.copy_(
-            insertion_delta.sum(dim=1) / dt
-        )
 
         self.first_touchdown_placement_reward.zero_()
 
@@ -1172,6 +1173,21 @@ class GeometryAcquisitionRuntime:
             )
             self.clearance_potential.copy_(next_clearance_potential)
 
+            # C7 uses the same failure-neutral accounting for forward
+            # insertion. ``best_insertion`` is reused as prior Phi only in
+            # reversible mode; legacy lineages retain the monotonic peak above.
+            insertion_delta, next_insertion_potential = (
+                discounted_potential_shaping(
+                    self.best_insertion,
+                    insertion_score,
+                    potential_boundary,
+                    discount_gamma=float(
+                        clearance_potential_discount_gamma
+                    ),
+                )
+            )
+            self.best_insertion.copy_(next_insertion_potential)
+
         if escrow_clearance_until_riser_crossing:
             # Verified touchdown is the acquisition event. A foot that only
             # crosses the riser geometrically cannot cash provisional credit.
@@ -1191,6 +1207,9 @@ class GeometryAcquisitionRuntime:
 
         self.clearance_reward.copy_(
             clearance_delta.sum(dim=1) / dt
+        )
+        self.insertion_reward.copy_(
+            insertion_delta.sum(dim=1) / dt
         )
 
         if bool(physical_touchdown.any()):

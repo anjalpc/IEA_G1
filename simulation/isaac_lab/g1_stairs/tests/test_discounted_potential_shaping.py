@@ -154,3 +154,40 @@ def test_qualified_global_acquisition_debits_old_target_once_and_advances_target
     torch.testing.assert_close(debit, -previous)
     torch.testing.assert_close(repeated, torch.zeros_like(repeated))
     torch.testing.assert_close(next_potential, torch.zeros_like(next_potential))
+
+
+def test_forward_insertion_uses_reversible_potential_when_enabled():
+    import ast
+    from pathlib import Path
+
+    source_path = Path(__file__).parents[1] / "geometry_acquisition_rewards.py"
+    tree = ast.parse(source_path.read_text(encoding="utf-8"))
+
+    update = next(
+        node
+        for node in ast.walk(tree)
+        if isinstance(node, ast.FunctionDef) and node.name == "update"
+    )
+
+    def name_of(node):
+        if isinstance(node, ast.Name):
+            return node.id
+        if isinstance(node, ast.Attribute):
+            prefix = name_of(node.value)
+            return f"{prefix}.{node.attr}" if prefix else node.attr
+        return None
+
+    calls = [
+        node
+        for node in ast.walk(update)
+        if isinstance(node, ast.Call)
+        and name_of(node.func) == "discounted_potential_shaping"
+        and len(node.args) >= 3
+    ]
+
+    assert any(
+        name_of(call.args[0]) == "self.best_insertion"
+        and name_of(call.args[1]) == "insertion_score"
+        and name_of(call.args[2]) == "potential_boundary"
+        for call in calls
+    ), "forward insertion is not wired to failure-neutral potential accounting"
