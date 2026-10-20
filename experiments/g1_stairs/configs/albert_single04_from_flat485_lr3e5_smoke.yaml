@@ -1,0 +1,22 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/albert_single04_smoke.yaml
+  resolved_config_required: true
+
+experiment:
+  id: albert_single04_from_flat485_lr3e5_smoke
+  purpose: Preserve the retained Unitree gait while entering the first isolated 4 cm stair room.
+
+policy_initialization:
+  type: rsl_rl_checkpoint_actor_transfer
+  source:
+    task: albert_flat485_lr3e5_smoke_model3
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/albert_flat485_lr3e5_smoke_20261020_130618/model_3.pt
+  critic_initialization: fresh
+  optimizer_initialization: fresh
+
+ppo:
+  learning_rate: 3.0e-05
+  learning_rate_schedule: fixed
+  initial_action_noise_std: 0.15
