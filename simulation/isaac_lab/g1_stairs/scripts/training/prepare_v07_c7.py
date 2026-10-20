@@ -169,6 +169,7 @@ def control_config(*, output_hash: str):
             "mode": "fixed",
             "coordinated_motion": False,
             "adaptive_timing": False,
+            "preservation_mode": True,
             "frequency_std": FREQUENCY_STD,
         },
         "policy_initialization": {
@@ -190,17 +191,6 @@ def control_config(*, output_hash: str):
             "optimizer_initialization": "fresh",
             "pretrained_actor_trainable": True,
         },
-        # gait_runtime requires this bookkeeping term when gait is enabled but
-        # coordinated motion is disabled. It does not affect deterministic policy actions.
-        "reward_experiment": {
-            "rewards": {
-                "stage_plan": {
-                    "geometry_locomotion_v05b_finish_stabilization": {
-                        "phase_swing_contact": -0.10,
-                    }
-                }
-            }
-        },
     }
 
 
@@ -215,12 +205,14 @@ def validate_control(path: Path):
         raise AssertionError("initial V07 expansion control must hold cadence fixed")
     if resolved["gait"].get("coordinated_motion", False):
         raise AssertionError("initial V07 expansion control must not enable coordinated motion")
+    if not resolved["gait"].get("preservation_mode", False):
+        raise AssertionError("initial V07 expansion control must use passive preservation mode")
     if resolved.get("episode_contract", {}).get("strict_stair_gait", False):
         raise AssertionError("initial V07 expansion control must not add strict gait termination")
 
     base, _ = resolve_config(ROOT / BASE)
     base = materialize_legacy_reward_config(base)
-    expected_weights = dict(active_reward_weights(base), phase_swing_contact=-0.10)
+    expected_weights = active_reward_weights(base)
     if active_reward_weights(resolved) != expected_weights:
         raise AssertionError("V07 reward contract changed beyond gait bookkeeping")
 

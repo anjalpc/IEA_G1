@@ -153,6 +153,18 @@ class GaitFrequencyAction(ActionTerm):
         step = int(env.common_step_counter)
         if self.last_finished_step == step:
             return
+        if self.cfg.preservation_mode:
+            # Architecture-preservation control: keep the 30th internal action
+            # and two gait observation channels present without introducing C3
+            # acquisition, phase, or reward semantics into the V07 task.
+            self.phase.zero_()
+            self.active.zero_()
+            self.aligned.zero_()
+            self.reward_phase.zero_()
+            self.reward_active.zero_()
+            self.contact_loss.zero_()
+            self.last_finished_step = step
+            return
         if not runtime.dynamic_alternating_rewards:
             raise RuntimeError("C3 requires dynamic alternating acquisition")
         if not runtime.global_stair_acquisition:
@@ -550,6 +562,7 @@ class GaitFrequencyActionCfg(ActionTermCfg):
     touchdown_grace_s: float = 0.30
     policy_observation_dim: int = 489
     critic_observation_dim: int = 691
+    preservation_mode: bool = False
 
 
 def phase_swing_contact(env):
@@ -601,6 +614,7 @@ def configure_gait(env_cfg, resolved):
     direct_quality_weight = float(options.get("direct_quality_weight", 0.0))
     ascent_only_auxiliary = bool(options.get("ascent_only_auxiliary", False))
     adaptive_timing = bool(options.get("adaptive_timing", False))
+    preservation_mode = bool(options.get("preservation_mode", False))
     smoothing_tau_s = float(options.get("frequency_smoothing_tau_s", 0.0))
     first_step_activation_distance_m = float(
         options.get("first_step_activation_distance_m", 0.35)
@@ -634,6 +648,15 @@ def configure_gait(env_cfg, resolved):
         raise ValueError("gait.direct_quality_weight cannot be negative")
     if outcome_conditioned and direct_quality_weight <= 0.0:
         raise ValueError("outcome-conditioned motion requires positive direct_quality_weight")
+    if preservation_mode:
+        if mode != "fixed":
+            raise ValueError("gait.preservation_mode requires gait.mode=fixed")
+        if options.get("coordinated_motion", False):
+            raise ValueError("gait.preservation_mode cannot enable coordinated_motion")
+        if adaptive_timing:
+            raise ValueError("gait.preservation_mode cannot enable adaptive_timing")
+        if outcome_conditioned:
+            raise ValueError("gait.preservation_mode cannot enable outcome_conditioned_motion")
     if adaptive_timing and mode != "learned":
         raise ValueError("adaptive_timing requires gait.mode=learned")
     if adaptive_timing and smoothing_tau_s <= 0.0:
@@ -679,6 +702,7 @@ def configure_gait(env_cfg, resolved):
         touchdown_grace_s=touchdown_grace_s,
         policy_observation_dim=expected_policy_dim,
         critic_observation_dim=expected_critic_dim,
+        preservation_mode=preservation_mode,
     )
     for group in (env_cfg.observations.policy, env_cfg.observations.critic):
         if group.last_action.history_length != 5:
@@ -688,6 +712,7 @@ def configure_gait(env_cfg, resolved):
 
     env_cfg.rewards.action_rate.func = physical_action_rate
     env_cfg.rewards.action_rate.params = {}
-    env_cfg.rewards.phase_swing_contact = RewardTermCfg(
-        func=phase_swing_contact, weight=-0.10, params={}
-    )
+    if not preservation_mode:
+        env_cfg.rewards.phase_swing_contact = RewardTermCfg(
+            func=phase_swing_contact, weight=-0.10, params={}
+        )

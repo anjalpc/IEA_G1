@@ -70,6 +70,7 @@ class PrepareV07C7Tests(unittest.TestCase):
             resolved = validate_control(repo_path)
             self.assertEqual(resolved["gait"]["mode"], "fixed")
             self.assertFalse(resolved["gait"]["coordinated_motion"])
+            self.assertTrue(resolved["gait"]["preservation_mode"])
             self.assertFalse(
                 resolved.get("episode_contract", {}).get("strict_stair_gait", False)
             )

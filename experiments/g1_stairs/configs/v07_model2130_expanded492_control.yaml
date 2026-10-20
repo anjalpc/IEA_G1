@@ -24,6 +24,7 @@ gait:
   mode: fixed
   coordinated_motion: false
   adaptive_timing: false
+  preservation_mode: true
   frequency_std: 0.1
 policy_initialization:
   type: rsl_rl_checkpoint_actor_transfer
@@ -42,8 +43,3 @@ policy_initialization:
   critic_initialization: fresh
   optimizer_initialization: fresh
   pretrained_actor_trainable: true
-reward_experiment:
-  rewards:
-    stage_plan:
-      geometry_locomotion_v05b_finish_stabilization:
-        phase_swing_contact: -0.1

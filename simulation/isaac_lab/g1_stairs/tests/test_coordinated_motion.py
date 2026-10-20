@@ -62,6 +62,7 @@ def fixture():
     real = gait_module.GaitFrequencyAction.__new__(gait_module.GaitFrequencyAction)
     real._env, real.cfg = env, NS(
         learned=False, smoothing_tau_s=0.0, adaptive_transition_clock=False,
+        preservation_mode=False,
         liftoff_force_n=15.0, support_force_n=30.0,
         first_step_activation_distance_m=.35, first_step_unload_dwell_s=.06,
         liftoff_timeout_s=.30, touchdown_grace_s=.30)
@@ -106,6 +107,28 @@ def run_step(env, runtime, gait, term, **term_kwargs):
 
 
 class TestCoordinatedMotion(unittest.TestCase):
+    def test_gait_preservation_mode_is_passive_without_dynamic_acquisition(self):
+        env, runtime, gait = fixture()
+        gait.cfg.preservation_mode = True
+        runtime.dynamic_alternating_rewards = False
+        runtime.global_stair_acquisition = False
+        gait.phase.fill_(0.25)
+        gait.active.fill_(True)
+        gait.aligned.fill_(True)
+        gait.reward_phase.fill_(0.25)
+        gait.reward_active.fill_(True)
+        gait.contact_loss.fill_(1.0)
+        env.common_step_counter = runtime.last_step = 2
+
+        gait.finish_step(runtime, 30.0)
+
+        self.assertTrue(bool((gait.phase == 0).all()))
+        self.assertFalse(bool(gait.active.any()))
+        self.assertFalse(bool(gait.aligned.any()))
+        self.assertTrue(bool((gait.contact_loss == 0).all()))
+        self.assertEqual(gait.last_finished_step, 2)
+
+
     def test_first_step_same_tick_replant_and_opposite_selection_replace_reference(self):
         env,runtime,gait=fixture()
         gait.cfg.adaptive_transition_clock=True
