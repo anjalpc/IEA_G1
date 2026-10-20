@@ -242,7 +242,10 @@ def main():
     from simulation.isaac_lab.g1_stairs.reward_runtime import load_resolved_config
     from simulation.isaac_lab.g1_stairs.geometry_episode import Result
     from simulation.isaac_lab.g1_stairs.geometry_episode_runtime import apply_geometry_episode_contract
-    from simulation.isaac_lab.g1_stairs.policy_initialization import initialize_actor_from_unitree_onnx
+    from simulation.isaac_lab.g1_stairs.policy_initialization import (
+        initialize_actor_from_rsl_rl_checkpoint,
+        initialize_actor_from_unitree_onnx,
+    )
     from simulation.isaac_lab.g1_stairs.evaluation.step_up_checkpoint_validation import (
         apply_resolved_replay_config, apply_resolved_replay_agent_config,
     )
@@ -346,6 +349,8 @@ def main():
                     runner = OnPolicyRunner(env, agent_cfg.to_dict(), log_dir=None, device=agent_cfg.device)
                     if args.unitree_baseline:
                         initialize_actor_from_unitree_onnx(runner, model)
+                    elif resolved.get("policy_initialization", {}).get("type") == "rsl_rl_checkpoint_actor_transfer":
+                        initialize_actor_from_rsl_rl_checkpoint(runner, model)
                     else:
                         runner.load(str(model), load_optimizer=False)
                     policy = runner.get_inference_policy(device=env.unwrapped.device)
