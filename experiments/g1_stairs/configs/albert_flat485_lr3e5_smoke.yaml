@@ -1,0 +1,12 @@
+schema_version: 1
+inheritance:
+  base_config: experiments/g1_stairs/configs/albert_flat485_smoke.yaml
+  resolved_config_required: true
+
+experiment:
+  id: albert_flat485_lr3e5_smoke
+  purpose: Test flat-gait retention with conservative PPO updates.
+
+ppo:
+  learning_rate: 3.0e-05
+  learning_rate_schedule: fixed
