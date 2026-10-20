@@ -512,7 +512,7 @@ episode_contract:
   stall_duration_s: 2.0
   progress_epsilon_m: 0.02
   wrong_direction_tolerance_m: 0.25
-  stable_finish: true
+  stable_finish: false
   training_recovery_s: 0.0
   training_permissive_contact: false
 reward_experiment:
