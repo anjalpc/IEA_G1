@@ -1,0 +1,12 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/albert_single04_from_flat485_lr3e5_smoke.yaml
+  resolved_config_required: true
+
+experiment:
+  id: albert_single04_from_flat485_lr3e5_train100
+  purpose: Learn the first isolated 4 cm stair while preserving the retained Unitree gait.
+
+execution:
+  maximum_iterations: 100
