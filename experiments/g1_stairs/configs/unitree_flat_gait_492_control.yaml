@@ -140,7 +140,7 @@ terrain:
   - 5.75
   - 1.2
   approach_length_m: 2.0
-  riser_height_m: 0.0
+  riser_height_m: 0.04
   tread_depth_m: 0.25
   step_count: 3
   stair_run_m: 0.75
