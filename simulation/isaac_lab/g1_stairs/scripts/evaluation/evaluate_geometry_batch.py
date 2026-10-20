@@ -47,9 +47,17 @@ def dispatch_isolated_batches():
     output.mkdir(parents=True, exist_ok=True)
     # Exclusive directory prevents mixing this invocation with an earlier sweep.
     batches = output / "batches"
-    if (output / "summary.json").exists() or (output / "episodes.csv").exists():
-        raise RuntimeError("Output already contains results; choose a new directory")
-    batches.mkdir(exist_ok=False)
+    existing = [
+        path.name
+        for path in (batches, output / "summary.json", output / "episodes.csv")
+        if path.exists()
+    ]
+    if existing:
+        raise RuntimeError(
+            f"Output already contains evaluation artifacts ({', '.join(existing)}); "
+            "choose a new directory"
+        )
+    batches.mkdir()
     all_rows, records = [], []
     first = None
     identity = None
