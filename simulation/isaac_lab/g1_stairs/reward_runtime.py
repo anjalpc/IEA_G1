@@ -261,6 +261,15 @@ def _apply_reward_parameter_overrides(
                 )
             term.params[key] = value
 
+def gait_reward_contract_required(resolved: dict[str, Any]) -> bool:
+    """Return whether C3/C4 gait reward invariants apply to this run."""
+    gait = resolved.get("gait", {})
+    return bool(
+        gait.get("enabled", False)
+        and not gait.get("preservation_mode", False)
+    )
+
+
 def apply_resolved_rewards(
     env_cfg: Any,
     resolved: dict[str, Any],
@@ -270,7 +279,7 @@ def apply_resolved_rewards(
         from .gait_runtime import configure_gait
         configure_gait(env_cfg, resolved)
     weights = active_reward_weights(resolved)
-    if resolved.get("gait", {}).get("enabled", False):
+    if gait_reward_contract_required(resolved):
         c4 = resolved.get("gait", {}).get("coordinated_motion", False)
         expected_contact_weight = 0.0 if c4 else -0.10
         if weights.get("phase_swing_contact") != expected_contact_weight:

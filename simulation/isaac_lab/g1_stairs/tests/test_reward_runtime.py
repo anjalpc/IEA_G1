@@ -10,11 +10,39 @@ from simulation.isaac_lab.g1_stairs.reward_registry import (
 from simulation.isaac_lab.g1_stairs.reward_runtime import (
     active_reward_weights,
     apply_resolved_rewards,
+    gait_reward_contract_required,
 )
 from simulation.isaac_lab.g1_stairs.scripts.training.prepare_experiment import resolve_config
 
 
 class RewardRuntimeTests(unittest.TestCase):
+
+    def test_passive_gait_preservation_skips_c3_c4_reward_contract(self):
+        self.assertFalse(
+            gait_reward_contract_required(
+                {
+                    "gait": {
+                        "enabled": True,
+                        "mode": "fixed",
+                        "preservation_mode": True,
+                        "coordinated_motion": False,
+                    }
+                }
+            )
+        )
+        self.assertTrue(
+            gait_reward_contract_required(
+                {
+                    "gait": {
+                        "enabled": True,
+                        "mode": "fixed",
+                        "preservation_mode": False,
+                        "coordinated_motion": False,
+                    }
+                }
+            )
+        )
+
     def test_geometry_locomotion_v01_resolves_exact_contract(self):
         root = Path(__file__).resolve().parents[4]
         resolved, _ = resolve_config(
