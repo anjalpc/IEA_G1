@@ -24,6 +24,9 @@ class SupportedAscent:
         are explicitly excluded. This is a learning milestone, not a clean
         landing or strict qualification event.
         """
+        if sole_bounds is None:
+            self.pending_time.zero_()
+            return torch.zeros_like(active)
         if invalid_contact is None:
             invalid_contact = torch.zeros_like(active)
         target = self.next_step

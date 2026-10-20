@@ -3,6 +3,25 @@ import torch
 from simulation.isaac_lab.g1_stairs.supported_stair_progress import SupportedAscent
 
 class SupportedAscentTests(unittest.TestCase):
+    def test_missing_sole_geometry_is_a_noop(self):
+        s = SupportedAscent(1, "cpu", dwell_s=0.04)
+        s.pending_time[:] = 0.02
+
+        credited = s.update(
+            None,
+            torch.tensor([[100.0, 0.0]]),
+            torch.tensor([0.0]),
+            1.0,
+            0.25,
+            0.5,
+            0.02,
+            torch.tensor([True]),
+        )
+
+        self.assertFalse(credited.any())
+        self.assertEqual(s.pending_time.sum().item(), 0.0)
+        self.assertEqual(s.next_step.item(), 0)
+
     def test_unique_alternation_and_reset(self):
         s = SupportedAscent(1, "cpu", dwell_s=.04)
         b = torch.zeros((1, 2, 6))
