@@ -223,7 +223,7 @@ def apply_resolved_replay_config(env_cfg, path: Path) -> AppliedReplayConfig:
         terrain.get("required_platform_continuation_m", 2.0)
     )
 
-    if not 0.0 < riser_height_m <= 0.20:
+    if not 0.0 <= riser_height_m <= 0.20:
         raise ValueError("invalid resolved riser height")
     if not 1 <= step_count <= 3:
         raise ValueError("invalid resolved step count")
