@@ -1,0 +1,49 @@
+schema_version: 1
+inheritance:
+  base_config: experiments/g1_stairs/configs/geometry_locomotion_v07_resume_high2000.yaml
+  resolved_config_required: true
+experiment:
+  id: v07_model2130_expanded492_control
+  purpose: Behavior-preserving V07 model2130 actor expansion from 485/29 to 492/30.
+    Fixed 1 Hz cadence; no C7 strict gait or coordinated-motion objective.
+execution:
+  maximum_iterations: 1
+observations:
+  preferred_transition_foot: true
+  preferred_foothold: false
+  preferred_foothold_ablation: false
+  coordinated_foothold_xyz: true
+  gait_phase: true
+  actor_height_scan: false
+  critic_height_scan: true
+actions:
+  dimension: 30
+  physical_joint_dimension: 29
+gait:
+  enabled: true
+  mode: fixed
+  coordinated_motion: false
+  adaptive_timing: false
+  frequency_std: 0.1
+policy_initialization:
+  type: rsl_rl_checkpoint_actor_transfer
+  source:
+    task: V07_model2130_expanded_for_492_30_control
+    path: /workspace/IEA_G1/experiments/g1_stairs/outputs/initialization/v07_model2130_actor492_actions30.pt
+    sha256: 01fef19a195203be3b58c7180e2f047b8ea7d3c250ca6822a350177479126806
+  locomotion_observations: 480
+  explicit_geometry_observations: 5
+  transition_state_observations: 2
+  gait_phase_observations: 2
+  coordinated_foothold_observations: 3
+  stair_observations: 492
+  actions: 30
+  new_observation_initialization: zero
+  critic_initialization: fresh
+  optimizer_initialization: fresh
+  pretrained_actor_trainable: true
+reward_experiment:
+  rewards:
+    stage_plan:
+      geometry_locomotion_v05b_finish_stabilization:
+        phase_swing_contact: -0.1
