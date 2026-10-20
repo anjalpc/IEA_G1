@@ -1,0 +1,18 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/albert_single04_from_flat485_lr3e5_smoke.yaml
+  resolved_config_required: true
+
+experiment:
+  id: albert_single04_no_stall_train100
+  purpose: Train the first isolated 4 cm step without premature anti-stall pressure.
+
+execution:
+  maximum_iterations: 100
+
+reward_experiment:
+  rewards:
+    stage_plan:
+      geometry_locomotion_albert_single04:
+        forward_stall: 0.0
