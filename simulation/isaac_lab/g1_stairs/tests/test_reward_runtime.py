@@ -561,6 +561,59 @@ class RewardRuntimeTests(unittest.TestCase):
                 0.99,
             )
 
+
+    def test_albert_reversible_clearance_diag100_changes_only_clearance_weight(self):
+        root = Path(__file__).resolve().parents[4]
+
+        baseline, _ = resolve_config(
+            root / (
+                "experiments/g1_stairs/configs/"
+                "albert_three04_foot_riser_coupled_stall500.yaml"
+            )
+        )
+        diag, _ = resolve_config(
+            root / (
+                "experiments/g1_stairs/configs/"
+                "albert_three04_reversible_clearance_diag100.yaml"
+            )
+        )
+
+        materialize_legacy_reward_config(baseline)
+        materialize_legacy_reward_config(diag)
+
+        expected = dict(active_reward_weights(baseline))
+        expected["terrain_relative_clearance"] = 0.10
+        expected["forward_insertion"] = 0.0
+
+        self.assertEqual(active_reward_weights(diag), expected)
+
+        self.assertEqual(
+            diag["policy_initialization"],
+            baseline["policy_initialization"],
+        )
+        self.assertEqual(diag["observations"], baseline["observations"])
+        self.assertEqual(diag["terrain"], baseline["terrain"])
+        self.assertEqual(diag["command"], baseline["command"])
+
+        self.assertEqual(diag["execution"]["maximum_iterations"], 100)
+        self.assertEqual(diag["ppo"]["discount_gamma"], 0.99)
+
+        for name in (
+            "terrain_relative_clearance",
+            "forward_insertion",
+        ):
+            params = diag["reward_parameters"][name]
+            self.assertTrue(
+                params["reversible_clearance_potential"]
+            )
+            self.assertFalse(
+                params["escrow_clearance_until_riser_crossing"]
+            )
+            self.assertEqual(
+                params["clearance_potential_discount_gamma"],
+                0.99,
+            )
+
     def test_reward_parameter_overrides_are_active_term_scoped(self):
         class _Term:
             def __init__(self, weight, **params):
