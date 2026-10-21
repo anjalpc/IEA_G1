@@ -1976,3 +1976,215 @@ def clean_step_over_sequence_reward(
     )
 
     return reward
+
+
+def proximity_gated_coupled_stall_severity(
+    foot_riser_distance_norm: torch.Tensor,
+    root_progress_m: torch.Tensor,
+    mean_foot_progress_m: torch.Tensor,
+    stair_active: torch.Tensor,
+    forward_command_mps: torch.Tensor,
+    *,
+    minimum_forward_speed_mps: float,
+    window_s: float,
+) -> torch.Tensor:
+    """Bounded pre-riser anti-stall severity from coupled windowed progress.
+
+    The proximity gate uses the same normalized signed sole-front-to-riser
+    distance presented to the actor. The progress deficit couples body and
+    mean-foot advance so neither pelvis-only motion nor foot shuffling can
+    satisfy the locomotion requirement alone.
+
+    Pressure is disabled once either foot reaches/crosses the current riser
+    plane, so this term does not force instantaneous motion during acquisition
+    and support transfer.
+    """
+
+    if minimum_forward_speed_mps <= 0.0:
+        raise ValueError(
+            "minimum_forward_speed_mps must be positive"
+        )
+    if window_s <= 0.0:
+        raise ValueError("window_s must be positive")
+
+    if (
+        foot_riser_distance_norm.ndim != 2
+        or foot_riser_distance_norm.shape[1] != 2
+    ):
+        raise ValueError(
+            "foot_riser_distance_norm must have shape [N, 2]"
+        )
+
+    n = foot_riser_distance_norm.shape[0]
+    for name, value in (
+        ("root_progress_m", root_progress_m),
+        ("mean_foot_progress_m", mean_foot_progress_m),
+        ("stair_active", stair_active),
+        ("forward_command_mps", forward_command_mps),
+    ):
+        if value.ndim != 1 or value.shape[0] != n:
+            raise ValueError(f"{name} must have shape [N]")
+
+    if not torch.isfinite(foot_riser_distance_norm).all():
+        raise RuntimeError(
+            "foot_riser_distance_norm must be finite"
+        )
+    if not torch.isfinite(root_progress_m).all():
+        raise RuntimeError("root_progress_m must be finite")
+    if not torch.isfinite(mean_foot_progress_m).all():
+        raise RuntimeError(
+            "mean_foot_progress_m must be finite"
+        )
+    if not torch.isfinite(forward_command_mps).all():
+        raise RuntimeError(
+            "forward_command_mps must be finite"
+        )
+
+    required_progress_m = (
+        float(minimum_forward_speed_mps)
+        * float(window_s)
+    )
+
+    coupled_progress_m = torch.minimum(
+        root_progress_m,
+        mean_foot_progress_m,
+    )
+
+    progress_deficit = (
+        (required_progress_m - coupled_progress_m)
+        / required_progress_m
+    ).clamp(0.0, 1.0)
+
+    nearest_distance = (
+        foot_riser_distance_norm.amin(dim=1)
+    )
+
+    proximity = (
+        1.0 - nearest_distance.clamp(0.0, 1.0)
+    )
+
+    # Both feet must still be before the shared current-riser plane.
+    # Any zero/negative signed distance means negotiation/crossing has begun.
+    pre_crossing = (
+        foot_riser_distance_norm > 0.0
+    ).all(dim=1)
+
+    active = (
+        stair_active.to(dtype=torch.bool)
+        & pre_crossing
+        & (
+            forward_command_mps
+            > float(minimum_forward_speed_mps)
+        )
+    )
+
+    return (
+        proximity
+        * progress_deficit
+        * active.to(dtype=proximity.dtype)
+    )
+
+
+class WindowedCoupledProgress:
+    """Track root and mean-foot displacement over an exact step window."""
+
+    def __init__(
+        self,
+        *,
+        num_envs: int,
+        window_steps: int,
+        device,
+    ):
+        if num_envs <= 0:
+            raise ValueError("num_envs must be positive")
+        if window_steps <= 0:
+            raise ValueError("window_steps must be positive")
+
+        self.num_envs = int(num_envs)
+        self.window_steps = int(window_steps)
+
+        self._root_history = torch.zeros(
+            (self.window_steps, self.num_envs),
+            dtype=torch.float32,
+            device=device,
+        )
+        self._foot_history = torch.zeros_like(
+            self._root_history
+        )
+
+        self._count = torch.zeros(
+            self.num_envs,
+            dtype=torch.long,
+            device=device,
+        )
+
+        self._cursor = 0
+
+    def reset(self, env_ids=None) -> None:
+        """Forget pre-reset history for selected environments."""
+        if env_ids is None:
+            self._count.zero_()
+        else:
+            self._count[env_ids] = 0
+
+    def update(
+        self,
+        root_x_m: torch.Tensor,
+        mean_foot_front_x_m: torch.Tensor,
+    ) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Return displacement across the configured history window."""
+
+        expected = (self.num_envs,)
+
+        if root_x_m.shape != expected:
+            raise ValueError(
+                "root_x_m must have shape [num_envs]"
+            )
+        if mean_foot_front_x_m.shape != expected:
+            raise ValueError(
+                "mean_foot_front_x_m must have shape [num_envs]"
+            )
+
+        if not torch.isfinite(root_x_m).all():
+            raise RuntimeError("root_x_m must be finite")
+        if not torch.isfinite(mean_foot_front_x_m).all():
+            raise RuntimeError(
+                "mean_foot_front_x_m must be finite"
+            )
+
+        previous_root = self._root_history[
+            self._cursor
+        ]
+        previous_foot = self._foot_history[
+            self._cursor
+        ]
+
+        ready = self._count >= self.window_steps
+
+        root_progress = torch.where(
+            ready,
+            root_x_m - previous_root,
+            torch.zeros_like(root_x_m),
+        )
+        foot_progress = torch.where(
+            ready,
+            mean_foot_front_x_m - previous_foot,
+            torch.zeros_like(mean_foot_front_x_m),
+        )
+
+        self._root_history[
+            self._cursor
+        ].copy_(root_x_m.detach())
+
+        self._foot_history[
+            self._cursor
+        ].copy_(mean_foot_front_x_m.detach())
+
+        self._count.add_(1)
+        self._count.clamp_(max=self.window_steps)
+
+        self._cursor = (
+            self._cursor + 1
+        ) % self.window_steps
+
+        return root_progress, foot_progress, ready

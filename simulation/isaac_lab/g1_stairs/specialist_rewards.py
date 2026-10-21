@@ -31,6 +31,8 @@ from .contracts import (
     G1_SOLE_SPHERE_RADIUS_M,
 )
 from .reward_math import (
+    WindowedCoupledProgress,
+    proximity_gated_coupled_stall_severity,
     body_advance_gate,
     bottleneck_score,
     continuous_touchdown_potential,
@@ -47,6 +49,7 @@ from .reward_math import (
     tread_containment_score,
     weighted_arm_family_excess_cost,
 )
+from .motion_reference import foot_riser_distance, sole_state
 from .terrain_state import riser_height_per_env, stair_cfg
 from .geometry_locomotion_rewards import actual_gait_scores
 
@@ -3022,3 +3025,154 @@ class single_step_success(_SingleStepRewardBase):
         event = completed & ~self._triggered
         self._triggered |= event
         return event.to(m["root_x"].dtype) / dt
+
+
+class proximity_gated_coupled_stall(ManagerTermBase):
+    """Bounded first-riser anti-stall from windowed body+foot progress."""
+
+    def __init__(self, cfg, env: "ManagerBasedRLEnv"):
+        super().__init__(cfg, env)
+
+        window_s = float(cfg.params["window_s"])
+        if window_s <= 0.0:
+            raise ValueError("window_s must be positive")
+        if float(env.step_dt) <= 0.0:
+            raise ValueError("reward step dt must be positive")
+
+        steps_float = window_s / float(env.step_dt)
+        window_steps = int(round(steps_float))
+
+        if window_steps <= 0:
+            raise ValueError(
+                "window_s must span at least one control step"
+            )
+
+        if abs(window_steps * float(env.step_dt) - window_s) > 1.0e-9:
+            raise ValueError(
+                "window_s must be an exact multiple of env.step_dt"
+            )
+
+        self._history = WindowedCoupledProgress(
+            num_envs=env.num_envs,
+            window_steps=window_steps,
+            device=env.device,
+        )
+
+        self._first_riser_crossed = torch.zeros(
+            env.num_envs,
+            dtype=torch.bool,
+            device=env.device,
+        )
+
+    def reset(self, env_ids=None) -> None:
+        self._history.reset(env_ids)
+
+        if env_ids is None:
+            self._first_riser_crossed.zero_()
+        else:
+            self._first_riser_crossed[env_ids] = False
+
+    def __call__(
+        self,
+        env: "ManagerBasedRLEnv",
+        minimum_forward_speed_mps: float = 0.10,
+        window_s: float = 0.50,
+        command_name: str = "base_velocity",
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+        foot_cfg: SceneEntityCfg = SceneEntityCfg(
+            "robot",
+            body_names=[
+                "left_ankle_roll_link",
+                "right_ankle_roll_link",
+            ],
+        ),
+    ) -> torch.Tensor:
+        if minimum_forward_speed_mps <= 0.0:
+            raise ValueError(
+                "minimum_forward_speed_mps must be positive"
+            )
+
+        robot = env.scene[asset_cfg.name]
+
+        terrain = stair_cfg(env)
+        first_riser_x = float(terrain.start_clearance)
+        tread_depth = float(terrain.tread_depth)
+
+        stair_active = riser_height_per_env(env) > 1.0e-8
+
+        foot_pos = robot.data.body_pos_w[:, foot_cfg.body_ids]
+        foot_quat = robot.data.body_quat_w[:, foot_cfg.body_ids]
+
+        zero_velocity = torch.zeros_like(foot_pos)
+
+        _, sole_bounds, _ = sole_state(
+            foot_pos,
+            foot_quat,
+            zero_velocity,
+            zero_velocity,
+        )
+
+        local_bounds = sole_bounds.clone()
+        local_bounds[..., 0:2] -= (
+            env.scene.env_origins[:, 0, None, None]
+        )
+
+        front_x = local_bounds[..., 1]
+
+        # This diagnostic is deliberately first-riser-only.
+        # Do not use the root-selected "next riser" here because that
+        # selector is a separate known issue after a crossing.
+        first_riser = torch.full(
+            (env.num_envs,),
+            first_riser_x,
+            dtype=front_x.dtype,
+            device=front_x.device,
+        )
+
+        foot_distance = foot_riser_distance(
+            first_riser,
+            local_bounds,
+            tread_depth,
+            stair_active.to(dtype=front_x.dtype),
+        )
+
+        root_x = (
+            robot.data.root_pos_w[:, 0]
+            - env.scene.env_origins[:, 0]
+        )
+
+        mean_foot_front_x = front_x.mean(dim=1)
+
+        root_progress, foot_progress, ready = (
+            self._history.update(
+                root_x,
+                mean_foot_front_x,
+            )
+        )
+
+        crossed_now = (
+            stair_active
+            & (front_x >= first_riser_x).any(dim=1)
+        )
+
+        self._first_riser_crossed |= crossed_now
+
+        forward_command = env.command_manager.get_command(
+            command_name
+        )[:, 0]
+
+        severity = proximity_gated_coupled_stall_severity(
+            foot_riser_distance_norm=foot_distance,
+            root_progress_m=root_progress,
+            mean_foot_progress_m=foot_progress,
+            stair_active=(
+                stair_active
+                & ready
+                & ~self._first_riser_crossed
+            ),
+            forward_command_mps=forward_command,
+            minimum_forward_speed_mps=minimum_forward_speed_mps,
+            window_s=window_s,
+        )
+
+        return severity.clone()
