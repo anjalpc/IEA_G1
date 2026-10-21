@@ -55,6 +55,7 @@ from .reward_math import (
     gate_physical_touchdown_by_first_placement,
     escrowed_transition_reward,
     discounted_potential_shaping,
+    rear_edge_insertion_fraction,
     update_alternating_preferred_foot,
     classify_clean_step_over_transition,
     clean_step_over_potential_shaping,
@@ -442,6 +443,7 @@ class GeometryAcquisitionRuntime:
         riser_below_top_margin_m: float = 0.005,
         riser_minimum_horizontal_force_n: float = 30.0,
         riser_minimum_previous_forward_speed_mps: float = 0.10,
+        insertion_start_before_riser_m: float = 0.0,
     ) -> None:
         step = int(env.common_step_counter)
         if self.last_step == step:
@@ -466,6 +468,10 @@ class GeometryAcquisitionRuntime:
             raise ValueError("tread_margin_m must be positive")
         if insertion_target_m <= 0.0:
             raise ValueError("insertion_target_m must be positive")
+        if insertion_start_before_riser_m < 0.0:
+            raise ValueError(
+                "insertion_start_before_riser_m cannot be negative"
+            )
         if not 0.0 <= insertion_clearance_fraction < 1.0:
             raise ValueError(
                 "insertion_clearance_fraction must be in [0, 1)"
@@ -841,14 +847,15 @@ class GeometryAcquisitionRuntime:
             safe_end - 1.0e-3,
         )
 
-        insertion_denominator = (
-            insertion_target - safe_start
-        ).clamp_min(1.0e-4)
-
-        insertion_fraction = (
-            (rear_x - safe_start)
-            / insertion_denominator
-        ).clamp(0.0, 1.0)
+        insertion_fraction = rear_edge_insertion_fraction(
+            rear_x_m=rear_x,
+            riser_x_m=next_riser_x,
+            safe_start_x_m=safe_start,
+            insertion_target_x_m=insertion_target,
+            start_before_riser_m=float(
+                insertion_start_before_riser_m
+            ),
+        )
 
         # Do not reward a foot that has already overshot the safe tread.
         safe_end_gate = (
@@ -1617,6 +1624,7 @@ class terrain_relative_clearance(ManagerTermBase):
         clearance_margin_m: float = 0.015,
         tread_margin_m: float = 0.015,
         insertion_target_m: float = 0.040,
+        insertion_start_before_riser_m: float = 0.0,
         unload_full_force_n: float = 15.0,
         unload_zero_force_n: float = 80.0,
         opposite_support_start_n: float = 30.0,
@@ -1642,6 +1650,7 @@ class terrain_relative_clearance(ManagerTermBase):
             clearance_margin_m=clearance_margin_m,
             tread_margin_m=tread_margin_m,
             insertion_target_m=insertion_target_m,
+            insertion_start_before_riser_m=insertion_start_before_riser_m,
             unload_full_force_n=unload_full_force_n,
             unload_zero_force_n=unload_zero_force_n,
             opposite_support_start_n=opposite_support_start_n,
@@ -1687,6 +1696,7 @@ class forward_insertion(ManagerTermBase):
         clearance_margin_m: float = 0.015,
         tread_margin_m: float = 0.015,
         insertion_target_m: float = 0.040,
+        insertion_start_before_riser_m: float = 0.0,
         unload_full_force_n: float = 15.0,
         unload_zero_force_n: float = 80.0,
         opposite_support_start_n: float = 30.0,
@@ -1712,6 +1722,7 @@ class forward_insertion(ManagerTermBase):
             clearance_margin_m=clearance_margin_m,
             tread_margin_m=tread_margin_m,
             insertion_target_m=insertion_target_m,
+            insertion_start_before_riser_m=insertion_start_before_riser_m,
             unload_full_force_n=unload_full_force_n,
             unload_zero_force_n=unload_zero_force_n,
             opposite_support_start_n=opposite_support_start_n,

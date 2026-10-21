@@ -12,6 +12,7 @@ from simulation.isaac_lab.g1_stairs.reward_math import (
     normalized_planar_velocity_error,
     normalized_excess_forward_velocity,
     coupled_swing_score,
+    rear_edge_insertion_fraction,
     deadzone_score,
     support_anchor_slip_penalty,
     support_quality,
@@ -68,6 +69,43 @@ def test_coupled_swing_requires_lift_and_advance() -> None:
     assert no_advance.item() == 0.0
     assert valid.item() == pytest.approx(1.0)
 
+
+
+def test_rear_edge_insertion_fraction_preserves_legacy_and_adds_pre_riser_progress() -> None:
+    rear_x = torch.tensor([0.8200, 0.9375, 1.0550])
+    riser_x = torch.tensor([1.0000, 1.0000, 1.0000])
+    safe_start = torch.tensor([1.0150, 1.0150, 1.0150])
+    insertion_target = torch.tensor([1.0550, 1.0550, 1.0550])
+
+    legacy = rear_edge_insertion_fraction(
+        rear_x_m=rear_x,
+        riser_x_m=riser_x,
+        safe_start_x_m=safe_start,
+        insertion_target_x_m=insertion_target,
+        start_before_riser_m=0.0,
+    )
+    shaped = rear_edge_insertion_fraction(
+        rear_x_m=rear_x,
+        riser_x_m=riser_x,
+        safe_start_x_m=safe_start,
+        insertion_target_x_m=insertion_target,
+        start_before_riser_m=0.18,
+    )
+
+    assert legacy.tolist() == pytest.approx([0.0, 0.0, 1.0])
+    assert shaped.tolist() == pytest.approx([0.0, 0.5, 1.0])
+
+    with pytest.raises(
+        ValueError,
+        match="start_before_riser_m cannot be negative",
+    ):
+        rear_edge_insertion_fraction(
+            rear_x_m=rear_x,
+            riser_x_m=riser_x,
+            safe_start_x_m=safe_start,
+            insertion_target_x_m=insertion_target,
+            start_before_riser_m=-0.01,
+        )
 
 
 def test_supported_single_foot_lift_requires_opposite_lower_support() -> None:

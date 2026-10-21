@@ -372,6 +372,56 @@ def coupled_swing_score(
 
 
 
+
+def rear_edge_insertion_fraction(
+    *,
+    rear_x_m: torch.Tensor,
+    riser_x_m: torch.Tensor,
+    safe_start_x_m: torch.Tensor,
+    insertion_target_x_m: torch.Tensor,
+    start_before_riser_m: float,
+) -> torch.Tensor:
+    """Return bounded rear-edge progress into the target tread.
+
+    A zero start distance preserves historical V04 behavior: insertion
+    begins only after the rear edge reaches the safe tread start.
+
+    A positive distance begins progress before the riser so a sufficiently
+    cleared, unloaded foot can receive a dense forward-crossing gradient.
+    Clearance and support eligibility remain the caller's responsibility.
+    """
+    if start_before_riser_m < 0.0:
+        raise ValueError(
+            "start_before_riser_m cannot be negative"
+        )
+
+    shape = rear_x_m.shape
+    for name, value in (
+        ("riser_x_m", riser_x_m),
+        ("safe_start_x_m", safe_start_x_m),
+        ("insertion_target_x_m", insertion_target_x_m),
+    ):
+        if value.shape != shape:
+            raise ValueError(
+                f"{name} must match rear_x_m shape"
+            )
+
+    if start_before_riser_m == 0.0:
+        insertion_start = safe_start_x_m
+    else:
+        insertion_start = (
+            riser_x_m - float(start_before_riser_m)
+        )
+
+    denominator = (
+        insertion_target_x_m - insertion_start
+    ).clamp_min(1.0e-4)
+
+    return (
+        (rear_x_m - insertion_start) / denominator
+    ).clamp(0.0, 1.0)
+
+
 def support_relative_forward_progress(
     *,
     root_x_m: torch.Tensor,
