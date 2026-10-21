@@ -241,6 +241,9 @@ class GeometryTrace:
                 "riser_strike_force_x": self.values(
                     acquisition.riser_strike_force_x[0]
                 ),
+                "crossing_attempt_invalid": self.values(
+                    acquisition.crossing_attempt_invalid[0]
+                ),
                 "clearance_potential": trace_value(
                     "clearance_potential"
                 ),
