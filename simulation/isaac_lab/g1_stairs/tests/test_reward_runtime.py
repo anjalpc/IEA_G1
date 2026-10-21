@@ -493,6 +493,74 @@ class RewardRuntimeTests(unittest.TestCase):
             )
         )
 
+
+    def test_albert_reversible_signal_audit_changes_only_two_reward_terms(self):
+        root = Path(__file__).resolve().parents[4]
+
+        baseline, _ = resolve_config(
+            root / (
+                "experiments/g1_stairs/configs/"
+                "albert_three04_foot_riser_coupled_stall500.yaml"
+            )
+        )
+        audit, _ = resolve_config(
+            root / (
+                "experiments/g1_stairs/configs/"
+                "albert_three04_reversible_signal_audit.yaml"
+            )
+        )
+
+        materialize_legacy_reward_config(baseline)
+        materialize_legacy_reward_config(audit)
+
+        baseline_weights = active_reward_weights(baseline)
+        expected = dict(baseline_weights)
+        expected.update(
+            {
+                "terrain_relative_clearance": 1.0,
+                "forward_insertion": 1.0,
+            }
+        )
+
+        self.assertEqual(active_reward_weights(audit), expected)
+
+        self.assertEqual(
+            audit["policy_initialization"],
+            baseline["policy_initialization"],
+        )
+        self.assertEqual(audit["observations"], baseline["observations"])
+        self.assertEqual(audit["terrain"], baseline["terrain"])
+        self.assertEqual(audit["command"], baseline["command"])
+        self.assertEqual(audit["ppo"]["discount_gamma"], 0.99)
+
+        self.assertFalse(
+            audit["experiment"]["meaningful_stair_training"]
+        )
+
+        for name in (
+            "terrain_relative_clearance",
+            "forward_insertion",
+        ):
+            params = audit["reward_parameters"][name]
+            self.assertEqual(
+                params["insertion_start_before_riser_m"],
+                0.18,
+            )
+            self.assertEqual(
+                params["insertion_clearance_fraction"],
+                0.80,
+            )
+            self.assertFalse(
+                params["escrow_clearance_until_riser_crossing"]
+            )
+            self.assertTrue(
+                params["reversible_clearance_potential"]
+            )
+            self.assertEqual(
+                params["clearance_potential_discount_gamma"],
+                0.99,
+            )
+
     def test_reward_parameter_overrides_are_active_term_scoped(self):
         class _Term:
             def __init__(self, weight, **params):
