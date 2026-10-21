@@ -1,0 +1,15 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/albert_three04_model350_clean_alt1500.yaml
+  resolved_config_required: true
+
+experiment:
+  id: albert_three04_model350_clean_alt_smoke1
+  purpose: >
+    One-iteration runtime qualification of the clean model350
+    touchdown-placement plus alternating-transition contract.
+  meaningful_stair_training: false
+
+execution:
+  maximum_iterations: 1

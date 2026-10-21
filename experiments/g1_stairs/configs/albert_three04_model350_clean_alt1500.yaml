@@ -1,0 +1,57 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/albert_three04_reversible_clearance_strikefall500.yaml
+  resolved_config_required: true
+
+experiment:
+  id: albert_three04_model350_clean_alt1500
+  purpose: >
+    Clean-lineage continuation from current ALBERT model350. Preserve the
+    learned 4 cm stair-clearance behavior, improve first loaded tread
+    placement, and promote two consecutive DIRECT alternating stair
+    transitions without provisional lift/clearance milestone rewards or
+    additional transition-failure penalties.
+  type: clean_alternating_stair_continuation
+  meaningful_stair_training: true
+
+execution:
+  maximum_iterations: 1500
+
+policy_initialization:
+  type: rsl_rl_checkpoint_actor_transfer
+  source:
+    task: albert_three04_reversible_clearance_strikefall500_model350
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/albert_three04_reversible_clearance_strikefall500_20261021_130232/model_350.pt
+    sha256: 40e5ef0936ef5eb4fafc15f7f0f54b5ff35e6dae64c164b46df1411cca050729
+  critic_initialization: fresh
+  optimizer_initialization: fresh
+
+acquisition_credit:
+  verified_insertion: true
+  support_dwell_s: 0.10
+  require_first_touchdown_placement: true
+  first_touchdown_shaping_start_margin_m: -0.15
+  global_stair_acquisition: true
+  dynamic_alternating_rewards: true
+  dynamic_alternating_reward_gating: false
+
+reward_experiment:
+  rewards:
+    stage_plan:
+      albert_reversible_clearance_strikefall:
+        first_touchdown_placement: 0.5
+        preferred_transition_milestones: 1.0
+
+reward_parameters:
+  preferred_transition_milestones:
+    lift_value: 0.0
+    clearance_value: 0.0
+    success_value: 1.0
+    replant_value: 0.0
+    wrong_foot_value: 0.0
+    unresolved_end_value: 0.0
+    sequence_clean_step_over: true
+    sequence_potential_value: 0.25
+    sequence_potential_gamma: 0.99
+    rear_progress_potential_value: 0.0
