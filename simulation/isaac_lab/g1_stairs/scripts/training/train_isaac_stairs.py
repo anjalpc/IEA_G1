@@ -652,6 +652,10 @@ def main() -> None:
         {},
     )
 
+    env_cfg.foot_riser_distance_observation = bool(
+        observation_cfg.get("foot_riser_distance", False)
+    )
+
     foothold_obs_enabled = bool(
         observation_cfg.get(
             "preferred_foothold",

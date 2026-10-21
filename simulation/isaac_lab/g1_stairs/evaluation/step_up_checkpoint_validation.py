@@ -135,6 +135,10 @@ def apply_resolved_replay_config(env_cfg, path: Path) -> AppliedReplayConfig:
         {},
     )
 
+    env_cfg.foot_riser_distance_observation = bool(
+        observations.get("foot_riser_distance", False)
+    )
+
     env_cfg.preferred_transition_foot_observation = bool(
         observations.get(
             "preferred_transition_foot",

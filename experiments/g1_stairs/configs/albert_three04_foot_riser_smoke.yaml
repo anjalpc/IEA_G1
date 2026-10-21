@@ -1,0 +1,16 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/albert_three04_foot_riser1000.yaml
+  resolved_config_required: true
+
+experiment:
+  id: albert_three04_foot_riser_smoke
+  purpose: Runtime-only preflight for the 487-D three-step training contract.
+
+execution:
+  environments: 32
+  maximum_iterations: 4
+
+checkpointing:
+  interval_iterations: 1

@@ -8,6 +8,7 @@ import torch
 from isaaclab.managers import SceneEntityCfg
 
 from .contracts import G1_SOLE_SPHERE_RADIUS_M
+from .motion_reference import foot_riser_distance, sole_state
 from .terrain_state import riser_height_per_env, stair_cfg
 
 
@@ -144,6 +145,10 @@ def _preferred_foothold_features(
 def stair_geometry(
     env,
     asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    foot_cfg: SceneEntityCfg = SceneEntityCfg(
+        "robot",
+        body_names=["left_ankle_roll_link", "right_ankle_roll_link"],
+    ),
 ) -> torch.Tensor:
     """Return deployable local stair observations.
 
@@ -153,6 +158,10 @@ def stair_geometry(
       2 normalized tread depth
       3 relative staircase yaw
       4 distance to next geometric riser
+
+    Optional deployable foot proximity:
+      5 left sole-front distance to next riser
+      6 right sole-front distance to next riser
 
     C1 optionally appends:
       5 preferred-left
@@ -235,6 +244,8 @@ def stair_geometry(
         torch.zeros_like(next_distance),
     )
 
+    next_riser_x = root_x + next_distance
+
     next_distance = torch.clamp(
         next_distance,
         0.0,
@@ -265,6 +276,26 @@ def stair_geometry(
         ),
         dim=1,
     )
+
+    if bool(getattr(env.cfg, "foot_riser_distance_observation", False)):
+        foot_pos = robot.data.body_pos_w[:, foot_cfg.body_ids]
+        foot_quat = robot.data.body_quat_w[:, foot_cfg.body_ids]
+        zero_velocity = torch.zeros_like(foot_pos)
+        _, sole_bounds, _ = sole_state(
+            foot_pos,
+            foot_quat,
+            zero_velocity,
+            zero_velocity,
+        )
+        local_bounds = sole_bounds.clone()
+        local_bounds[..., 0:2] -= env.scene.env_origins[:, 0, None, None]
+        foot_distance = foot_riser_distance(
+            next_riser_x,
+            local_bounds,
+            tread_depth,
+            active,
+        )
+        geometry = torch.cat((geometry, foot_distance), dim=1)
 
     # --------------------------------------------------------
     # C1: preferred next swing-foot identity

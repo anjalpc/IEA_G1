@@ -32,6 +32,16 @@ def sole_state(position, quaternion, velocity, omega):
     return bottom.mean(-2), bounds, surface_velocity
 
 
+def foot_riser_distance(next_riser_x, sole_bounds, tread_depth, active):
+    """Normalized signed distance from each sole front edge to the next riser."""
+    if tread_depth <= 0.0:
+        raise ValueError("tread_depth must be positive")
+    foot_span = sole_bounds[..., 1] - sole_bounds[..., 0]
+    scale = (2.0 * tread_depth + foot_span).clamp_min(1.0e-6)
+    distance = (next_riser_x[:, None] - sole_bounds[..., 1]) / scale
+    return active[:, None] * distance.clamp(-1.0, 1.0)
+
+
 
 def strict_touchdown_height_tolerance(riser_height):
     """Shared strict stair touchdown tolerance: 20% of riser, capped at 1 cm."""

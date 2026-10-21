@@ -128,7 +128,11 @@ class StairObservationsCfg(_UPSTREAM.ObservationsCfg):
         stair_geometry = ObsTerm(
             func=terrain_observations.stair_geometry,
             params={
-                "asset_cfg": SceneEntityCfg("robot")
+                "asset_cfg": SceneEntityCfg("robot"),
+                "foot_cfg": SceneEntityCfg(
+                    "robot",
+                    body_names=["left_ankle_roll_link", "right_ankle_roll_link"],
+                ),
             },
             clip=(-1.0, 1.0),
             history_length=1,
@@ -177,7 +181,11 @@ class StairObservationsCfg(_UPSTREAM.ObservationsCfg):
         stair_geometry = ObsTerm(
             func=terrain_observations.stair_geometry,
             params={
-                "asset_cfg": SceneEntityCfg("robot")
+                "asset_cfg": SceneEntityCfg("robot"),
+                "foot_cfg": SceneEntityCfg(
+                    "robot",
+                    body_names=["left_ankle_roll_link", "right_ankle_roll_link"],
+                ),
             },
             clip=(-1.0, 1.0),
             history_length=1,

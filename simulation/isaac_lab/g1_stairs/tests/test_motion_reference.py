@@ -3,6 +3,7 @@ import unittest
 import torch
 from simulation.isaac_lab.g1_stairs.motion_reference import (
     sole_state, swing_reference, bounded_square, normalized_huber,
+    foot_riser_distance,
     target_support_mask, provisional_supported_acquisition_mask,
     transition_quality_escrow_update,
     strict_tread_landing_mask, riser_contact_masks,
@@ -10,6 +11,17 @@ from simulation.isaac_lab.g1_stairs.motion_reference import (
 
 
 class TestMotionReference(unittest.TestCase):
+    def test_foot_riser_distance_is_per_foot_signed_and_masked(self):
+        bounds = torch.tensor([
+            [[.70, .90, 0., 0., 0., 0.], [.60, .80, 0., 0., 0., 0.]],
+            [[1.00, 1.20, 0., 0., 0., 0.], [1.10, 1.30, 0., 0., 0., 0.]],
+        ])
+        result = foot_riser_distance(
+            torch.tensor([1.0, 1.25]), bounds, .25, torch.tensor([1., 0.])
+        )
+        torch.testing.assert_close(result[0], torch.tensor([1/7, 2/7]))
+        torch.testing.assert_close(result[1], torch.zeros(2))
+
     def test_endpoints_and_no_wrap(self):
         start = torch.tensor([[0., .12, 0.]]).repeat(4, 1)
         end = torch.tensor([[.5, .12, .2]]).repeat(4, 1)
