@@ -48,6 +48,7 @@ from .reward_math import (
     weighted_arm_family_excess_cost,
 )
 from .terrain_state import riser_height_per_env, stair_cfg
+from .geometry_locomotion_rewards import actual_gait_scores
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -99,6 +100,52 @@ def _quat_to_euler_wxyz(quaternion: torch.Tensor) -> tuple[torch.Tensor, torch.T
         1.0 - 2.0 * (y * y + z * z),
     )
     return roll, pitch, yaw
+
+
+class lead_foot_switch(ManagerTermBase):
+    """One-shot credit when qualified loaded lead support alternates."""
+
+    def __init__(self, cfg, env: "ManagerBasedRLEnv"):
+        super().__init__(cfg, env)
+        self.previous = torch.full(
+            (env.num_envs,), -1, dtype=torch.long, device=env.device
+        )
+
+    def reset(self, env_ids=None) -> None:
+        if env_ids is None:
+            self.previous.fill_(-1)
+        else:
+            self.previous[env_ids] = -1
+
+    def __call__(
+        self,
+        env: "ManagerBasedRLEnv",
+        minimum_stride_m: float = 0.10,
+        target_stride_m: float = 0.20,
+        maximum_stride_m: float = 0.30,
+        support_force_n: float = 80.0,
+        unload_force_n: float = 20.0,
+        full_speed_mps: float = 0.35,
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+        contact_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces"),
+    ) -> torch.Tensor:
+        robot = env.scene[asset_cfg.name]
+        sensor = env.scene.sensors[contact_sensor_cfg.name]
+        lead = actual_gait_scores(
+            robot.data.body_pos_w[:, asset_cfg.body_ids, 0],
+            sensor.data.net_forces_w[:, contact_sensor_cfg.body_ids, 2],
+            robot.data.root_lin_vel_w[:, 0],
+            minimum_stride_m=minimum_stride_m,
+            target_stride_m=target_stride_m,
+            maximum_stride_m=maximum_stride_m,
+            support_force_n=support_force_n,
+            unload_force_n=unload_force_n,
+            full_speed_mps=full_speed_mps,
+        )[2]
+        valid = lead >= 0
+        event = valid & (self.previous >= 0) & (lead != self.previous)
+        self.previous.copy_(torch.where(valid, lead, self.previous))
+        return event.to(dtype=torch.float32) / float(env.step_dt)
 
 
 class _SingleStepRewardBase(ManagerTermBase):

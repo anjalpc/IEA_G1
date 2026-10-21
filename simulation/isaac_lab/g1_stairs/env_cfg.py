@@ -488,6 +488,63 @@ class StairRewardsCfg:
             "asset_cfg": SceneEntityCfg("robot"),
         },
     )
+    meaningful_stride = RewTerm(
+        func=geometry_locomotion_rewards.meaningful_stride,
+        weight=0.0,
+        params={
+            "asset_cfg": SceneEntityCfg(
+                "robot", body_names=["left_ankle_roll_link", "right_ankle_roll_link"]
+            ),
+            "contact_sensor_cfg": SceneEntityCfg(
+                "contact_forces",
+                body_names=["left_ankle_roll_link", "right_ankle_roll_link"],
+            ),
+            "minimum_stride_m": 0.10,
+            "target_stride_m": 0.20,
+            "maximum_stride_m": 0.30,
+            "support_force_n": 80.0,
+            "unload_force_n": 20.0,
+            "full_speed_mps": 0.35,
+        },
+    )
+    forward_foot_support = RewTerm(
+        func=geometry_locomotion_rewards.forward_foot_support,
+        weight=0.0,
+        params={
+            "asset_cfg": SceneEntityCfg(
+                "robot", body_names=["left_ankle_roll_link", "right_ankle_roll_link"]
+            ),
+            "contact_sensor_cfg": SceneEntityCfg(
+                "contact_forces",
+                body_names=["left_ankle_roll_link", "right_ankle_roll_link"],
+            ),
+            "minimum_stride_m": 0.10,
+            "target_stride_m": 0.20,
+            "maximum_stride_m": 0.30,
+            "support_force_n": 80.0,
+            "unload_force_n": 20.0,
+            "full_speed_mps": 0.35,
+        },
+    )
+    lead_foot_switch = RewTerm(
+        func=stair_rewards.lead_foot_switch,
+        weight=0.0,
+        params={
+            "asset_cfg": SceneEntityCfg(
+                "robot", body_names=["left_ankle_roll_link", "right_ankle_roll_link"]
+            ),
+            "contact_sensor_cfg": SceneEntityCfg(
+                "contact_forces",
+                body_names=["left_ankle_roll_link", "right_ankle_roll_link"],
+            ),
+            "minimum_stride_m": 0.10,
+            "target_stride_m": 0.20,
+            "maximum_stride_m": 0.30,
+            "support_force_n": 80.0,
+            "unload_force_n": 20.0,
+            "full_speed_mps": 0.35,
+        },
+    )
     failure_termination_event = RewTerm(
         func=stair_rewards.failure_termination_event,
         weight=-1.0,

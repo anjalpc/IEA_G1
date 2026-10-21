@@ -1,0 +1,16 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/albert_flat_gait50.yaml
+  resolved_config_required: true
+
+experiment:
+  id: albert_flat_gait_smoke
+  purpose: Runtime construction check for physical gait-retention rewards.
+
+execution:
+  environments: 32
+  maximum_iterations: 1
+
+checkpointing:
+  interval_iterations: 1

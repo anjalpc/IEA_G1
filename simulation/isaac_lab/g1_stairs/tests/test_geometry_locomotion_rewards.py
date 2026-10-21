@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import torch
 
 from simulation.isaac_lab.g1_stairs.geometry_locomotion_rewards import (
+    actual_gait_scores,
     forward_stall,
 )
 
@@ -47,6 +48,41 @@ class ForwardStallTests(unittest.TestCase):
             asset_cfg=SimpleNamespace(name="robot"),
         )
         self.assertEqual(value.item(), 0.0)
+
+
+class ActualGaitScoreTests(unittest.TestCase):
+    def score(self, foot_x, force, speed=0.5):
+        return actual_gait_scores(
+            torch.tensor([foot_x]),
+            torch.tensor([force]),
+            torch.tensor([speed]),
+            minimum_stride_m=0.10,
+            target_stride_m=0.20,
+            maximum_stride_m=0.30,
+            support_force_n=80.0,
+            unload_force_n=20.0,
+            full_speed_mps=0.35,
+        )
+
+    def test_target_stride_with_forward_support_scores_one(self):
+        stride, support, lead = self.score([0.20, 0.0], [100.0, 0.0])
+        self.assertAlmostEqual(stride.item(), 1.0)
+        self.assertAlmostEqual(support.item(), 1.0)
+        self.assertEqual(lead.item(), 0)
+
+    def test_static_double_support_cannot_farm_credit(self):
+        stride, support, lead = self.score(
+            [0.20, 0.0], [100.0, 100.0], speed=0.0
+        )
+        self.assertEqual(stride.item(), 0.0)
+        self.assertEqual(support.item(), 0.0)
+        self.assertEqual(lead.item(), -1)
+
+    def test_oversized_stride_scores_zero(self):
+        stride, support, lead = self.score([0.31, 0.0], [100.0, 0.0])
+        self.assertEqual(stride.item(), 0.0)
+        self.assertEqual(support.item(), 0.0)
+        self.assertEqual(lead.item(), -1)
 
 
 if __name__ == "__main__":

@@ -10,6 +10,113 @@ from .reward_math import (
 )
 
 
+def actual_gait_scores(
+    foot_x: torch.Tensor,
+    vertical_force: torch.Tensor,
+    forward_speed: torch.Tensor,
+    *,
+    minimum_stride_m: float,
+    target_stride_m: float,
+    maximum_stride_m: float,
+    support_force_n: float,
+    unload_force_n: float,
+    full_speed_mps: float,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+    """Bounded stride/support scores and qualified physical lead foot."""
+
+    if not 0.0 < minimum_stride_m < target_stride_m < maximum_stride_m:
+        raise ValueError("stride bounds must satisfy 0 < minimum < target < maximum")
+    if not 0.0 <= unload_force_n < support_force_n:
+        raise ValueError("force bounds must satisfy 0 <= unload < support")
+    if full_speed_mps <= 0.0:
+        raise ValueError("full_speed_mps must be positive")
+
+    delta = foot_x[:, 0] - foot_x[:, 1]
+    separation = delta.abs()
+    lead = torch.where(delta >= 0.0, 0, 1)
+    rear = 1 - lead
+    rows = torch.arange(foot_x.shape[0], device=foot_x.device)
+    lead_force = vertical_force[rows, lead]
+    rear_force = vertical_force[rows, rear]
+
+    rise = ((separation - minimum_stride_m)
+            / (target_stride_m - minimum_stride_m)).clamp(0.0, 1.0)
+    fall = ((maximum_stride_m - separation)
+            / (maximum_stride_m - target_stride_m)).clamp(0.0, 1.0)
+    stride_band = torch.minimum(rise, fall)
+    speed_gate = (forward_speed / full_speed_mps).clamp(0.0, 1.0)
+    single_support = (
+        (lead_force >= support_force_n) & (rear_force <= unload_force_n)
+    )
+    grounded = vertical_force.amax(dim=1) >= support_force_n
+    stride_score = stride_band * speed_gate * grounded
+
+    load_score = ((lead_force - unload_force_n)
+                  / (support_force_n - unload_force_n)).clamp(0.0, 1.0)
+    unload_score = ((support_force_n - rear_force)
+                    / (support_force_n - unload_force_n)).clamp(0.0, 1.0)
+    support_score = stride_band * speed_gate * load_score * unload_score
+    qualified_lead = torch.where(
+        (stride_band > 0.0) & single_support,
+        lead,
+        torch.full_like(lead, -1),
+    )
+    return stride_score, support_score, qualified_lead
+
+
+def _actual_gait_measurements(env, asset_cfg, contact_sensor_cfg):
+    robot = env.scene[asset_cfg.name]
+    sensor = env.scene.sensors[contact_sensor_cfg.name]
+    foot_x = robot.data.body_pos_w[:, asset_cfg.body_ids, 0]
+    vertical_force = sensor.data.net_forces_w[:, contact_sensor_cfg.body_ids, 2]
+    return foot_x, vertical_force, robot.data.root_lin_vel_w[:, 0]
+
+
+def meaningful_stride(
+    env,
+    minimum_stride_m: float = 0.10,
+    target_stride_m: float = 0.20,
+    maximum_stride_m: float = 0.30,
+    support_force_n: float = 80.0,
+    unload_force_n: float = 20.0,
+    full_speed_mps: float = 0.35,
+    asset_cfg=None,
+    contact_sensor_cfg=None,
+) -> torch.Tensor:
+    values = _actual_gait_measurements(env, asset_cfg, contact_sensor_cfg)
+    return actual_gait_scores(
+        *values,
+        minimum_stride_m=minimum_stride_m,
+        target_stride_m=target_stride_m,
+        maximum_stride_m=maximum_stride_m,
+        support_force_n=support_force_n,
+        unload_force_n=unload_force_n,
+        full_speed_mps=full_speed_mps,
+    )[0]
+
+
+def forward_foot_support(
+    env,
+    minimum_stride_m: float = 0.10,
+    target_stride_m: float = 0.20,
+    maximum_stride_m: float = 0.30,
+    support_force_n: float = 80.0,
+    unload_force_n: float = 20.0,
+    full_speed_mps: float = 0.35,
+    asset_cfg=None,
+    contact_sensor_cfg=None,
+) -> torch.Tensor:
+    values = _actual_gait_measurements(env, asset_cfg, contact_sensor_cfg)
+    return actual_gait_scores(
+        *values,
+        minimum_stride_m=minimum_stride_m,
+        target_stride_m=target_stride_m,
+        maximum_stride_m=maximum_stride_m,
+        support_force_n=support_force_n,
+        unload_force_n=unload_force_n,
+        full_speed_mps=full_speed_mps,
+    )[1]
+
 
 def forward_stall(
     env,
