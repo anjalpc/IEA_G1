@@ -8,7 +8,7 @@ import torch
 from isaaclab.managers import SceneEntityCfg
 
 from .contracts import G1_SOLE_SPHERE_RADIUS_M
-from .motion_reference import foot_riser_distance, sole_state
+from .motion_reference import per_foot_next_riser_distance, sole_state
 from .terrain_state import riser_height_per_env, stair_cfg
 
 
@@ -160,8 +160,8 @@ def stair_geometry(
       4 distance to next geometric riser
 
     Optional deployable foot proximity:
-      5 left sole-front distance to next riser
-      6 right sole-front distance to next riser
+      5 left sole-front distance to its own next riser
+      6 right sole-front distance to its own next riser
 
     C1 optionally appends:
       5 preferred-left
@@ -244,7 +244,6 @@ def stair_geometry(
         torch.zeros_like(next_distance),
     )
 
-    next_riser_x = root_x + next_distance
 
     next_distance = torch.clamp(
         next_distance,
@@ -289,10 +288,11 @@ def stair_geometry(
         )
         local_bounds = sole_bounds.clone()
         local_bounds[..., 0:2] -= env.scene.env_origins[:, 0, None, None]
-        foot_distance = foot_riser_distance(
-            next_riser_x,
+        foot_distance = per_foot_next_riser_distance(
             local_bounds,
+            first_riser,
             tread_depth,
+            step_count,
             active,
         )
         geometry = torch.cat((geometry, foot_distance), dim=1)

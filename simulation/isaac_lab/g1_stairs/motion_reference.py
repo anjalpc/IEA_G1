@@ -42,6 +42,82 @@ def foot_riser_distance(next_riser_x, sole_bounds, tread_depth, active):
     return active[:, None] * distance.clamp(-1.0, 1.0)
 
 
+def per_foot_next_riser_distance(
+    sole_bounds,
+    first_riser,
+    tread_depth,
+    step_count,
+    active,
+):
+    """Normalized distance from each sole front to its own next riser."""
+    if tread_depth <= 0.0:
+        raise ValueError("tread_depth must be positive")
+    if step_count <= 0:
+        raise ValueError("step_count must be positive")
+    if sole_bounds.shape[-1] != 6:
+        raise ValueError(
+            "sole_bounds must end with 6 envelope values"
+        )
+    if (
+        active.ndim != 1
+        or active.shape[0] != sole_bounds.shape[0]
+    ):
+        raise ValueError(
+            "active must contain one value per environment"
+        )
+
+    front_x = sole_bounds[..., 1]
+
+    edges = (
+        float(first_riser)
+        + torch.arange(
+            step_count,
+            dtype=front_x.dtype,
+            device=front_x.device,
+        )
+        * float(tread_depth)
+    )
+
+    distances = (
+        edges[None, None, :]
+        - front_x[..., None]
+    )
+
+    upcoming = torch.where(
+        distances >= 0.0,
+        distances,
+        torch.full_like(
+            distances,
+            torch.inf,
+        ),
+    )
+
+    next_distance = upcoming.amin(dim=-1)
+
+    valid = (
+        torch.isfinite(next_distance)
+        & active.bool()[:, None]
+    )
+
+    foot_span = (
+        sole_bounds[..., 1]
+        - sole_bounds[..., 0]
+    )
+
+    scale = (
+        2.0 * float(tread_depth)
+        + foot_span
+    ).clamp_min(1.0e-6)
+
+    result = torch.where(
+        valid,
+        next_distance / scale,
+        torch.zeros_like(next_distance),
+    )
+
+    return result.clamp(0.0, 1.0)
+
+
 
 def strict_touchdown_height_tolerance(riser_height):
     """Shared strict stair touchdown tolerance: 20% of riser, capped at 1 cm."""

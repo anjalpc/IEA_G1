@@ -3,7 +3,7 @@ import unittest
 import torch
 from simulation.isaac_lab.g1_stairs.motion_reference import (
     sole_state, swing_reference, bounded_square, normalized_huber,
-    foot_riser_distance,
+    foot_riser_distance, per_foot_next_riser_distance,
     target_support_mask, provisional_supported_acquisition_mask,
     transition_quality_escrow_update,
     strict_tread_landing_mask, riser_contact_masks,
@@ -136,6 +136,48 @@ class TestMotionReference(unittest.TestCase):
         self.assertGreater(float(credit[0]),0.)
         self.assertEqual(float(credit[1]),0.)
         self.assertEqual(count.tolist(), [0.,0.])
+
+
+
+    def test_per_foot_next_riser_distance_handles_straddled_riser(self):
+        bounds = torch.tensor([[
+            [.85, 1.03, 0., 0., 0., 0.],
+            [.78, .96, 0., 0., 0., 0.],
+        ]])
+        result = per_foot_next_riser_distance(
+            bounds,
+            1.0,
+            .25,
+            3,
+            torch.tensor([1.0]),
+        )
+        torch.testing.assert_close(
+            result,
+            torch.tensor([[.22 / .68, .04 / .68]]),
+        )
+
+    def test_per_foot_next_riser_distance_masks_edge_final_and_flat(self):
+        bounds = torch.tensor([
+            [
+                [.82, 1.00, 0., 0., 0., 0.],
+                [1.33, 1.51, 0., 0., 0., 0.],
+            ],
+            [
+                [.82, .99, 0., 0., 0., 0.],
+                [.82, .99, 0., 0., 0., 0.],
+            ],
+        ])
+        result = per_foot_next_riser_distance(
+            bounds,
+            1.0,
+            .25,
+            3,
+            torch.tensor([1.0, 0.0]),
+        )
+        torch.testing.assert_close(
+            result,
+            torch.zeros_like(result),
+        )
 
 
 if __name__ == '__main__':
