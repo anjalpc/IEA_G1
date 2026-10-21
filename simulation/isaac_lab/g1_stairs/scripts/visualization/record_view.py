@@ -133,6 +133,12 @@ parser.add_argument(
 )
 
 parser.add_argument(
+    "--trace-only",
+    action="store_true",
+    help="Record the geometry/reward trace without rendering or writing video.",
+)
+
+parser.add_argument(
     "--task",
     default="Unitree-IEA-G1-29dof-Stairs-v0",
 )
@@ -217,8 +223,11 @@ if bool(args.checkpoint) == bool(args.policy_onnx):
 if args.num_envs != 1:
     parser.error("Phase 11 requires --num_envs 1")
 
-# Same behavior used by pinned Unitree play.py when --video is selected.
-args.enable_cameras = True
+if args.trace_only:
+    args.trace = True
+
+# Camera rendering is unnecessary for trace-only replay.
+args.enable_cameras = not args.trace_only
 
 app_launcher = AppLauncher(args)
 simulation_app = app_launcher.app
@@ -432,22 +441,23 @@ def main() -> None:
     env = gym.make(
         args.task,
         cfg=env_cfg,
-        render_mode="rgb_array",
+        render_mode=None if args.trace_only else "rgb_array",
     )
 
     if isinstance(env.unwrapped, DirectMARLEnv):
         env = multi_agent_to_single_agent(env)
 
-    raw_dir = output_dir / "raw"
-    raw_dir.mkdir(parents=True, exist_ok=True)
+    if not args.trace_only:
+        raw_dir = output_dir / "raw"
+        raw_dir.mkdir(parents=True, exist_ok=True)
 
-    env = gym.wrappers.RecordVideo(
-        env,
-        video_folder=str(raw_dir),
-        step_trigger=lambda step: step == 0,
-        video_length=args.video_length,
-        disable_logger=True,
-    )
+        env = gym.wrappers.RecordVideo(
+            env,
+            video_folder=str(raw_dir),
+            step_trigger=lambda step: step == 0,
+            video_length=args.video_length,
+            disable_logger=True,
+        )
 
     env = RslRlVecEnvWrapper(
         env,
@@ -522,6 +532,7 @@ def main() -> None:
         "unitree_integration_diff_sha256": args.unitree_diff_sha256,
         "step_dt": float(env.unwrapped.step_dt),
         "trace": bool(args.trace),
+        "trace_only": bool(args.trace_only),
     }
 
     metadata_file = output_dir / "metadata.json"
@@ -601,10 +612,11 @@ def main() -> None:
         for i in range(3)
     )
 
-    env.unwrapped.sim.set_camera_view(
-        eye=resolved_eye,
-        target=resolved_lookat,
-    )
+    if not args.trace_only:
+        env.unwrapped.sim.set_camera_view(
+            eye=resolved_eye,
+            target=resolved_lookat,
+        )
 
     metadata["robot_root_world"] = list(robot_root)
     metadata["camera_spawn_offset"] = list(spawn_offset)
