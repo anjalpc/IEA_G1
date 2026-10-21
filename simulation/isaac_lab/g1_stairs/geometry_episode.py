@@ -4,7 +4,7 @@ No Isaac imports: the same state machine is tested on CPU and used by training
 and batch evaluation. Coordinates are relative to the assigned terrain origin.
 """
 
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from enum import IntEnum
 import math
 
@@ -88,6 +88,22 @@ class EpisodeContract:
             raise ValueError("maximum_roll_pitch_rad must be below pi/2")
         if self.finish_max_roll_pitch_rad > self.maximum_roll_pitch_rad:
             raise ValueError("finish tilt limit must not exceed fall tilt limit")
+
+
+def strict_evaluation_contract(settings=None):
+    """Return a validated strict contract for qualification evaluation."""
+    settings = settings or {}
+    if not isinstance(settings, dict):
+        raise ValueError("episode_contract must be a mapping")
+
+    values = {key: value for key, value in settings.items() if key != "enabled"}
+    values["training_recovery_s"] = 0.0
+    values["training_permissive_contact"] = False
+
+    return {
+        "enabled": True,
+        **asdict(EpisodeContract(**values)),
+    }
 
 
 class EpisodeTracker:

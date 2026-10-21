@@ -533,8 +533,6 @@ def apply_geometry_episode_contract(env_cfg, resolved, *, promote=None):
     settings = resolved.get("episode_contract", {})
     if not settings.get("enabled", False):
         return False
-    if not str(resolved["reward_experiment"]["active_stage"]).startswith("geometry_locomotion"):
-        raise ValueError("geometry episode contract requires a geometry locomotion stage")
     contract = asdict(EpisodeContract(**{k: v for k, v in settings.items() if k != "enabled"}))
     curriculum_cfg = resolved.get("terrain", {}).get("curriculum", {})
     if curriculum_cfg is None:

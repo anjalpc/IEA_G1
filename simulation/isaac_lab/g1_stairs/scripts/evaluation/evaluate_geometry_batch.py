@@ -258,7 +258,10 @@ def main():
     import unitree_rl_lab.tasks  # noqa: F401
     import simulation.isaac_lab.g1_stairs.register  # noqa: F401
     from simulation.isaac_lab.g1_stairs.reward_runtime import load_resolved_config
-    from simulation.isaac_lab.g1_stairs.geometry_episode import Result
+    from simulation.isaac_lab.g1_stairs.geometry_episode import (
+        Result,
+        strict_evaluation_contract,
+    )
     from simulation.isaac_lab.g1_stairs.geometry_episode_runtime import apply_geometry_episode_contract
     from simulation.isaac_lab.g1_stairs.policy_initialization import (
         initialize_actor_from_rsl_rl_checkpoint,
@@ -270,15 +273,31 @@ def main():
 
     config_path = Path(args.resolved_config).resolve()
     resolved = load_resolved_config(config_path)
-    # Qualification always uses strict first-contact termination, even for D2 checkpoints.
+    configured_contract = resolved.get("episode_contract", {})
+
+    # Qualification owns its strict outcome contract. Training may deliberately
+    # disable that contract without requiring a separate replay YAML.
     if not args.training_contract_diagnostic:
-        resolved["episode_contract"]["training_recovery_s"] = 0.0
-        resolved["episode_contract"]["training_permissive_contact"] = False
-    elif not (resolved["episode_contract"].get("training_recovery_s", 0.0) > 0
-              or resolved["episode_contract"].get("training_permissive_contact", False)):
-        raise ValueError("training-contract diagnostic requires a non-strict training contract")
-    if not resolved.get("episode_contract", {}).get("enabled", False):
-        raise ValueError("batch evaluation requires an enabled V03 episode_contract")
+        if not configured_contract.get("enabled", False):
+            print(
+                "[INFO] Promoting disabled training episode contract "
+                "to strict evaluation defaults.",
+                flush=True,
+            )
+        resolved["episode_contract"] = strict_evaluation_contract(
+            configured_contract
+        )
+    elif not configured_contract.get("enabled", False):
+        raise ValueError(
+            "training-contract diagnostic requires an enabled training contract"
+        )
+    elif not (
+        configured_contract.get("training_recovery_s", 0.0) > 0
+        or configured_contract.get("training_permissive_contact", False)
+    ):
+        raise ValueError(
+            "training-contract diagnostic requires a non-strict training contract"
+        )
     model = Path(args.checkpoint or resolved["policy_initialization"]["source"]["path"]).resolve()
     if args.unitree_baseline and resolved["policy_initialization"]["type"] != "unitree_velocity_onnx_transfer":
         raise ValueError("baseline requires the original Unitree ONNX source")

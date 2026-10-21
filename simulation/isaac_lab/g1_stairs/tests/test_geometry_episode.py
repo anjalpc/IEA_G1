@@ -4,7 +4,12 @@ from unittest.mock import patch
 
 import torch
 
-from simulation.isaac_lab.g1_stairs.geometry_episode import EpisodeContract, EpisodeTracker, Result
+from simulation.isaac_lab.g1_stairs.geometry_episode import (
+    EpisodeContract,
+    EpisodeTracker,
+    Result,
+    strict_evaluation_contract,
+)
 from simulation.isaac_lab.g1_stairs.geometry_episode_runtime import (
     GeometryEpisodeRuntime, finish_geometry_episodes, apply_geometry_episode_contract,
 )
@@ -215,6 +220,21 @@ class GeometryEpisodeTests(unittest.TestCase):
                 EpisodeContract(**kwargs)
         with self.assertRaises(ValueError):
             tracker(platform_continuation_m=4.)
+
+    def test_strict_evaluation_promotes_disabled_training_contract(self):
+        contract = strict_evaluation_contract({
+            "enabled": False,
+            "stable_finish": False,
+            "training_recovery_s": 1.0,
+        })
+        self.assertTrue(contract["enabled"])
+        self.assertFalse(contract["stable_finish"])
+        self.assertEqual(contract["training_recovery_s"], 0.0)
+        self.assertFalse(contract["training_permissive_contact"])
+        self.assertEqual(
+            contract["platform_continuation_m"],
+            EpisodeContract().platform_continuation_m,
+        )
 
     def test_old_experiments_do_not_opt_in(self):
         env_cfg = object()
