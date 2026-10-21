@@ -169,6 +169,47 @@ def geometry_failure_termination_event(env) -> torch.Tensor:
     return failure.to(dtype=torch.float32) / float(env.step_dt)
 
 
+
+def unresolved_riser_strike_fall_event(env) -> torch.Tensor:
+    """One-shot native fall penalty while a riser strike remains unresolved.
+
+    The acquisition runtime latches a physical riser-face strike in
+    crossing_attempt_invalid and clears it only after a verified safe lower
+    replant. Native reset_terminated excludes timeout in the inherited Unitree
+    velocity task, so this term penalizes only a fall/bad-orientation
+    termination that occurs before recovery.
+    """
+    terminated = getattr(env, "reset_terminated", None)
+    if terminated is None:
+        raise RuntimeError(
+            "unresolved_riser_strike_fall_event requires "
+            "env.reset_terminated"
+        )
+
+    acquisition = getattr(env, "_g1_v04_acquisition", None)
+    if acquisition is None:
+        raise RuntimeError(
+            "unresolved_riser_strike_fall_event requires "
+            "the acquisition runtime"
+        )
+
+    invalid = acquisition.crossing_attempt_invalid
+    if invalid.ndim != 2 or invalid.shape[0] != terminated.shape[0]:
+        raise RuntimeError(
+            "crossing_attempt_invalid must have shape [num_envs, feet]"
+        )
+
+    dt = float(env.step_dt)
+    if dt <= 0.0:
+        raise ValueError("reward step dt must be positive")
+
+    event = (
+        terminated.to(dtype=torch.bool)
+        & invalid.any(dim=1)
+    )
+    return event.to(dtype=torch.float32) / dt
+
+
 def track_ang_vel_z_zero_centered(
     env,
     std: float,

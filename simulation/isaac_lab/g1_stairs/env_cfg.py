@@ -1059,6 +1059,11 @@ class StairRewardsCfg:
         },
     )
 
+    unresolved_riser_strike_fall_event = RewTerm(
+        func=geometry_locomotion_rewards.unresolved_riser_strike_fall_event,
+        weight=0.0,
+    )
+
     first_touchdown_placement = RewTerm(
         func=geometry_acquisition_rewards.first_touchdown_placement,
         weight=0.0,

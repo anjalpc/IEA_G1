@@ -1,0 +1,160 @@
+schema_version: 1
+inheritance:
+  base_config: experiments/g1_stairs/configs/nominal_stairs_base.yaml
+  resolved_config_required: true
+execution:
+  environments: 2048
+  maximum_iterations: 1
+observations:
+  terrain_scan_in_actor: false
+  explicit_stair_geometry:
+    enabled: true
+  preferred_foothold: false
+  gait_phase: false
+  actor_height_scan: false
+  preferred_transition_foot: false
+  preferred_foothold_ablation: false
+  coordinated_foothold_xyz: false
+  foot_riser_distance: true
+actions:
+  expected_action_dimension: 29
+commands:
+  forward_velocity_mps: 0.5
+terrain:
+  riser_height_m: 0.04
+  total_rise_m: 0.12
+  curriculum:
+    enabled: false
+  riser_heights_m:
+  - 0.04
+policy_initialization:
+  type: rsl_rl_checkpoint_actor_transfer
+  source:
+    task: albert_model120_expanded_with_foot_riser_distance
+    path: /workspace/IEA_G1/experiments/g1_stairs/outputs/initialization/albert_model120_actor487_foot_riser.pt
+    sha256: 34134839eea1ad6444e6adfce8abb3cd296a68594f3b37f8962d4efd86d44cfd
+  terrain_observations: 0
+  stair_observations: 487
+  optimizer_initialization: fresh
+  explicit_geometry_observations: 5
+  foot_riser_distance_observations: 2
+  new_observation_initialization: zero
+ppo:
+  initial_action_noise_std: 0.15
+  learning_rate: 3.0e-05
+  learning_rate_schedule: fixed
+experiment:
+  id: albert_three04_reversible_clearance_strikefall_audit
+  purpose: >
+    Frozen-checkpoint audit of a one-shot native fall penalty gated by an
+    unresolved physical riser-strike latch. Not a training experiment.
+  type: single_step_curriculum_smoke
+  meaningful_stair_training: false
+gait:
+  enabled: false
+episode_contract:
+  enabled: false
+reward_experiment:
+  active_stage: albert_reversible_clearance_strikefall
+  strict_runtime_set: true
+  rewards:
+    stage_plan:
+      geometry_locomotion_albert_single04:
+        track_lin_vel_xy: 1.0
+        track_ang_vel_z: 0.5
+        alive: 0.15
+        upright: -5.0
+        base_angular_velocity: -0.05
+        joint_vel: -0.001
+        joint_acc: -2.5e-07
+        action_rate: -0.05
+        dof_pos_limits: -5.0
+        energy: -2.0e-05
+        joint_deviation_arms: -0.1
+        joint_deviation_waists: -1.0
+        joint_deviation_legs: -1.0
+        gait: 0.5
+        feet_slide: -0.2
+        undesired_contacts: -1.0
+        forward_stall: 0.0
+      albert_flat050_axis_heading:
+        track_stair_axis_velocity: 1.0
+        track_ang_vel_z: 0.5
+        body_heading_guard: -0.1
+        alive: 0.15
+        upright: -5.0
+        base_angular_velocity: -0.05
+        joint_vel: -0.001
+        joint_acc: -2.5e-07
+        action_rate: -0.05
+        dof_pos_limits: -5.0
+        energy: -2.0e-05
+        joint_deviation_arms: -0.1
+        joint_deviation_waists: -1.0
+        joint_deviation_legs: -1.0
+        gait: 0.5
+        feet_slide: -0.2
+        undesired_contacts: -1.0
+        forward_stall: 0.0
+      albert_reversible_clearance_strikefall:
+        track_stair_axis_velocity: 1.0
+        track_ang_vel_z: 0.5
+        body_heading_guard: -0.1
+        alive: 0.15
+        upright: -5.0
+        base_angular_velocity: -0.05
+        joint_vel: -0.001
+        joint_acc: -2.5e-07
+        action_rate: -0.05
+        dof_pos_limits: -5.0
+        energy: -2.0e-05
+        joint_deviation_arms: -0.1
+        joint_deviation_waists: -1.0
+        joint_deviation_legs: -1.0
+        gait: 0.5
+        feet_slide: -0.2
+        undesired_contacts: -1.0
+        forward_stall: 0.0
+        meaningful_stride: 0.15
+        forward_foot_support: 0.15
+        lead_foot_switch: 0.02
+        proximity_gated_coupled_stall: -1.0
+        terrain_relative_clearance: 0.10
+        forward_insertion: 0.0
+        unresolved_riser_strike_fall_event: -0.5
+reward_parameters:
+  forward_stall:
+    minimum_forward_speed_mps: 0.1
+    command_name: base_velocity
+  track_stair_axis_velocity:
+    target_velocity_mps: 0.5
+    std_mps: 0.25
+  body_heading_guard:
+    free_yaw_rad: 0.1
+    zero_at_yaw_rad: 0.35
+  meaningful_stride: &id001
+    minimum_stride_m: 0.1
+    target_stride_m: 0.2
+    maximum_stride_m: 0.3
+    support_force_n: 80.0
+    unload_force_n: 20.0
+    full_speed_mps: 0.35
+  forward_foot_support: *id001
+  lead_foot_switch: *id001
+  proximity_gated_coupled_stall:
+    minimum_forward_speed_mps: 0.1
+    window_s: 0.5
+  terrain_relative_clearance:
+    insertion_start_before_riser_m: 0.18
+    insertion_clearance_fraction: 0.80
+    escrow_clearance_until_riser_crossing: false
+    reversible_clearance_potential: true
+    clearance_potential_discount_gamma: 0.99
+  forward_insertion:
+    insertion_start_before_riser_m: 0.18
+    insertion_clearance_fraction: 0.80
+    escrow_clearance_until_riser_crossing: false
+    reversible_clearance_potential: true
+    clearance_potential_discount_gamma: 0.99
+command:
+  forward_velocity_mps: 0.5

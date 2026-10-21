@@ -614,6 +614,41 @@ class RewardRuntimeTests(unittest.TestCase):
                 0.99,
             )
 
+
+    def test_albert_strikefall_audit_adds_only_unresolved_fall_event(self):
+        root = Path(__file__).resolve().parents[4]
+
+        baseline, _ = resolve_config(
+            root / (
+                "experiments/g1_stairs/configs/"
+                "albert_three04_reversible_clearance_diag100.yaml"
+            )
+        )
+        audit, _ = resolve_config(
+            root / (
+                "experiments/g1_stairs/configs/"
+                "albert_three04_reversible_clearance_strikefall_audit.yaml"
+            )
+        )
+
+        materialize_legacy_reward_config(baseline)
+        materialize_legacy_reward_config(audit)
+
+        expected = dict(active_reward_weights(baseline))
+        expected["unresolved_riser_strike_fall_event"] = -0.5
+
+        self.assertEqual(active_reward_weights(audit), expected)
+        self.assertEqual(
+            audit["policy_initialization"],
+            baseline["policy_initialization"],
+        )
+        self.assertEqual(audit["observations"], baseline["observations"])
+        self.assertEqual(audit["terrain"], baseline["terrain"])
+        self.assertEqual(audit["command"], baseline["command"])
+        self.assertFalse(
+            audit["experiment"]["meaningful_stair_training"]
+        )
+
     def test_reward_parameter_overrides_are_active_term_scoped(self):
         class _Term:
             def __init__(self, weight, **params):
