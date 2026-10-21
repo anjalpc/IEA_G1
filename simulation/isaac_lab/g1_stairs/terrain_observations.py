@@ -379,7 +379,6 @@ def stair_geometry(
         )
         motion = getattr(env, "_g1_coordinated_motion", None)
         if motion is not None and runtime is not None:
-            from .motion_reference import sole_state
 
             data = runtime.robot.data
             foot_pos = (
