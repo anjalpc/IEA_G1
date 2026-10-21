@@ -530,6 +530,49 @@ def finish_geometry_episodes(
 
 def apply_geometry_episode_contract(env_cfg, resolved, *, promote=None):
     """Enable only explicitly selected geometry experiments; retain old runs."""
+    acquisition = resolved.get("acquisition_credit", {}) or {}
+    if acquisition.get("verified_insertion", False):
+        dwell = float(acquisition.get("support_dwell_s", 0.10))
+        if not math.isfinite(dwell) or dwell <= 0:
+            raise ValueError("support_dwell_s must be finite and positive")
+        env_cfg.verified_insertion_dwell_s = dwell
+        env_cfg.require_first_touchdown_placement = bool(
+            acquisition.get("require_first_touchdown_placement", False)
+        )
+        env_cfg.global_stair_acquisition = bool(
+            acquisition.get("global_stair_acquisition", False)
+        )
+        env_cfg.dynamic_alternating_rewards = bool(
+            acquisition.get("dynamic_alternating_rewards", False)
+        )
+        env_cfg.dynamic_alternating_reward_gating = bool(
+            acquisition.get(
+                "dynamic_alternating_reward_gating",
+                env_cfg.dynamic_alternating_rewards,
+            )
+        )
+        if (
+            env_cfg.dynamic_alternating_rewards
+            and not env_cfg.global_stair_acquisition
+        ):
+            raise ValueError(
+                "dynamic_alternating_rewards requires "
+                "global_stair_acquisition"
+            )
+
+        shaping_start = float(
+            acquisition.get(
+                "first_touchdown_shaping_start_margin_m",
+                -0.150,
+            )
+        )
+        if not math.isfinite(shaping_start):
+            raise ValueError(
+                "first_touchdown_shaping_start_margin_m "
+                "must be finite"
+            )
+        env_cfg.first_touchdown_shaping_start_margin_m = shaping_start
+
     settings = resolved.get("episode_contract", {})
     if not settings.get("enabled", False):
         return False
@@ -583,49 +626,6 @@ def apply_geometry_episode_contract(env_cfg, resolved, *, promote=None):
                 ),
             },
         )
-
-    acquisition = resolved.get("acquisition_credit", {}) or {}
-    if acquisition.get("verified_insertion", False):
-        dwell = float(acquisition.get("support_dwell_s", 0.10))
-        if not math.isfinite(dwell) or dwell <= 0:
-            raise ValueError("support_dwell_s must be finite and positive")
-        env_cfg.verified_insertion_dwell_s = dwell
-        env_cfg.require_first_touchdown_placement = bool(
-            acquisition.get("require_first_touchdown_placement", False)
-        )
-        env_cfg.global_stair_acquisition = bool(
-            acquisition.get("global_stair_acquisition", False)
-        )
-        env_cfg.dynamic_alternating_rewards = bool(
-            acquisition.get("dynamic_alternating_rewards", False)
-        )
-        env_cfg.dynamic_alternating_reward_gating = bool(
-            acquisition.get(
-                "dynamic_alternating_reward_gating",
-                env_cfg.dynamic_alternating_rewards,
-            )
-        )
-        if (
-            env_cfg.dynamic_alternating_rewards
-            and not env_cfg.global_stair_acquisition
-        ):
-            raise ValueError(
-                "dynamic_alternating_rewards requires "
-                "global_stair_acquisition"
-            )
-
-        shaping_start = float(
-            acquisition.get(
-                "first_touchdown_shaping_start_margin_m",
-                -0.150,
-            )
-        )
-        if not math.isfinite(shaping_start):
-            raise ValueError(
-                "first_touchdown_shaping_start_margin_m "
-                "must be finite"
-            )
-        env_cfg.first_touchdown_shaping_start_margin_m = shaping_start
 
     if contract["stable_finish"]:
         from .platform_finish_command import apply_platform_finish_command

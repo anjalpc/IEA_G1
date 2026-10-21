@@ -236,6 +236,34 @@ class GeometryEpisodeTests(unittest.TestCase):
             EpisodeContract().platform_continuation_m,
         )
 
+    def test_acquisition_credit_applies_without_episode_contract(self):
+        env_cfg = types.SimpleNamespace()
+        resolved = {
+            "episode_contract": {"enabled": False},
+            "acquisition_credit": {
+                "verified_insertion": True,
+                "support_dwell_s": 0.10,
+                "require_first_touchdown_placement": True,
+                "first_touchdown_shaping_start_margin_m": -0.15,
+                "global_stair_acquisition": True,
+                "dynamic_alternating_rewards": True,
+                "dynamic_alternating_reward_gating": False,
+            },
+        }
+
+        self.assertFalse(
+            apply_geometry_episode_contract(env_cfg, resolved)
+        )
+        self.assertEqual(env_cfg.verified_insertion_dwell_s, 0.10)
+        self.assertTrue(env_cfg.require_first_touchdown_placement)
+        self.assertTrue(env_cfg.global_stair_acquisition)
+        self.assertTrue(env_cfg.dynamic_alternating_rewards)
+        self.assertFalse(env_cfg.dynamic_alternating_reward_gating)
+        self.assertEqual(
+            env_cfg.first_touchdown_shaping_start_margin_m,
+            -0.15,
+        )
+
     def test_old_experiments_do_not_opt_in(self):
         env_cfg = object()
         self.assertFalse(apply_geometry_episode_contract(env_cfg, {}))
