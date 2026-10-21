@@ -127,6 +127,12 @@ parser.add_argument(
 )
 
 parser.add_argument(
+    "--trace",
+    action="store_true",
+    help="Record the existing read-only geometry/reward trace with the video.",
+)
+
+parser.add_argument(
     "--task",
     default="Unitree-IEA-G1-29dof-Stairs-v0",
 )
@@ -515,6 +521,7 @@ def main() -> None:
         "unitree_rl_commit": args.unitree_rl_commit,
         "unitree_integration_diff_sha256": args.unitree_diff_sha256,
         "step_dt": float(env.unwrapped.step_dt),
+        "trace": bool(args.trace),
     }
 
     metadata_file = output_dir / "metadata.json"
@@ -553,6 +560,18 @@ def main() -> None:
         f"{metadata['unitree_integration_diff_sha256']}"
     )
     print(f"step_dt={metadata['step_dt']}")
+
+    trace = None
+
+    if args.trace:
+        from simulation.isaac_lab.g1_stairs.scripts.evaluation.geometry_trace import (
+            GeometryTrace,
+        )
+
+        trace = GeometryTrace(
+            env.unwrapped,
+            output_dir,
+        )
 
     obs = env.get_observations()
 
@@ -617,6 +636,9 @@ def main() -> None:
 
         if steps >= args.video_length:
             break
+
+    if trace is not None:
+        trace.close()
 
     env.close()
 
