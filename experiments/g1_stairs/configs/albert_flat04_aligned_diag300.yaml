@@ -1,0 +1,59 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/albert_flat04_mixed_train300.yaml
+  resolved_config_required: true
+
+experiment:
+  id: albert_flat04_aligned_diag300
+  purpose: >
+    Test whether anti-stall and centerline pressure remove the verified
+    hesitation and diagonal-approach exploits while preserving the existing
+    485-observation, 29-action walking objective.
+
+execution:
+  maximum_iterations: 300
+
+policy_initialization:
+  type: rsl_rl_checkpoint_actor_transfer
+  source:
+    task: albert_flat04_mixed_model0
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/albert_flat04_mixed_train300_20261020_145201/model_0.pt
+  locomotion_observations: 480
+  terrain_observations: 0
+  stair_observations: 485
+  actions: 29
+  critic_initialization: fresh
+  optimizer_initialization: fresh
+
+reward_experiment:
+  active_stage: geometry_locomotion_albert_aligned
+  strict_runtime_set: true
+  rewards:
+    stage_plan:
+      geometry_locomotion_albert_aligned:
+        track_lin_vel_xy: 1.0
+        track_ang_vel_z: 0.5
+        stair_centerline_error: -0.5
+        alive: 0.15
+        upright: -5.0
+        base_angular_velocity: -0.05
+        joint_vel: -0.001
+        joint_acc: -2.5e-7
+        action_rate: -0.05
+        dof_pos_limits: -5.0
+        energy: -2.0e-5
+        joint_deviation_arms: -0.1
+        joint_deviation_waists: -1.0
+        joint_deviation_legs: -1.0
+        gait: 0.5
+        feet_slide: -0.2
+        undesired_contacts: -1.0
+        forward_stall: -1.0
+
+reward_parameters:
+  stair_centerline_error:
+    scale_m: 0.25
+  forward_stall:
+    minimum_forward_speed_mps: 0.10
+    command_name: base_velocity
