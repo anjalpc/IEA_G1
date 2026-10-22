@@ -52,6 +52,7 @@ reward_experiment:
         physical_step_event: 0.20
 
 reward_parameters:
+  forward_stall: null
   meaningful_stride: null
   forward_foot_support: null
   lead_foot_switch: null
