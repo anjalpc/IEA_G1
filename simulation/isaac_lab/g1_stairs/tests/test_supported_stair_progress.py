@@ -40,14 +40,41 @@ class SupportedAscentTests(unittest.TestCase):
         self.assertTrue(s.last_credit.item())
         s.update(b, f, h, 1., .25, .5, .02, torch.tensor([True]))
         self.assertFalse(s.last_credit.item())
-        step(0,1)
-        self.assertEqual(s.next_step.item(),1)
         step(1,1)
         self.assertEqual(s.next_step.item(),2)
         step(0,2)
         self.assertTrue(s.alternating_complete.item())
         s.reset(torch.tensor([0]))
         self.assertFalse(s.alternating_complete.item())
+        self.assertFalse(s.sequence_failed.item())
+
+    def test_wrong_foot_on_next_tread_invalidates_sequence(self):
+        s = SupportedAscent(1, "cpu", dwell_s=0.04)
+        b = torch.zeros((1, 2, 6))
+        f = torch.zeros((1, 2))
+        h = torch.tensor([0.04])
+        active = torch.tensor([True])
+
+        def dwell(foot, stair):
+            f.zero_()
+            f[0, foot] = 100.0
+            b.zero_()
+            left = 1.0 + stair * 0.25
+            b[0, foot] = torch.tensor(
+                [left + .02, left + .20, -.03, .03,
+                 (stair + 1) * .04, (stair + 1) * .04]
+            )
+            for _ in range(2):
+                s.update(b, f, h, 1., .25, .5, .02, active)
+
+        dwell(0, 0)
+        dwell(0, 1)
+        self.assertTrue(s.sequence_failed.item())
+        self.assertTrue(s.last_invalid.item())
+        self.assertEqual(s.next_step.item(), 1)
+        dwell(1, 1)
+        self.assertEqual(s.next_step.item(), 1)
+        self.assertFalse(s.last_credit.item())
 
     def test_invalid_support_cannot_progress(self):
         s = SupportedAscent(1,"cpu",dwell_s=.04)

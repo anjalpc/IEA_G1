@@ -16,6 +16,8 @@ class SupportedAscent:
         self.third = torch.zeros_like(self.first)
         self.alternating_complete = torch.zeros_like(self.first)
         self.last_credit = torch.zeros_like(self.first)
+        self.sequence_failed = torch.zeros_like(self.first)
+        self.last_invalid = torch.zeros_like(self.first)
 
     def update(self, sole_bounds, forces_z, heights, first_riser, tread, half_width, dt, active, invalid_contact=None):
         """Call once per simulation step, before auto-reset.
@@ -26,6 +28,7 @@ class SupportedAscent:
         landing or strict qualification event.
         """
         self.last_credit.zero_()
+        self.last_invalid.zero_()
         if sole_bounds is None:
             self.pending_time.zero_()
             return torch.zeros_like(active)
@@ -39,6 +42,7 @@ class SupportedAscent:
         eligible = (
             (target < self.step_count)[:, None]
             & active[:, None]
+            & ~self.sequence_failed[:, None]
             & ~invalid_contact[:, None]
             & (heights > 0)[:, None]
             & ((torch.minimum(sole_bounds[:, :, 1], end[:, None])
@@ -56,7 +60,14 @@ class SupportedAscent:
         unique = ready.sum(dim=1) == 1
         foot = ready.to(torch.long).argmax(dim=1)
         allowed = (self.last_foot < 0) | (foot != self.last_foot)
-        credit = unique & allowed & active & (target < self.step_count)
+        attempted = ready.any(dim=1) & active & (target < self.step_count)
+        invalid = attempted & (~unique | ~allowed)
+        self.last_invalid.copy_(invalid & ~self.sequence_failed)
+        self.sequence_failed |= invalid
+        credit = (
+            unique & allowed & active & ~self.sequence_failed
+            & (target < self.step_count)
+        )
         self.last_credit.copy_(credit)
         old = target.clone()
         self.first |= credit & (old == 0)
@@ -77,3 +88,5 @@ class SupportedAscent:
         self.third[ids] = False
         self.alternating_complete[ids] = False
         self.last_credit[ids] = False
+        self.sequence_failed[ids] = False
+        self.last_invalid[ids] = False

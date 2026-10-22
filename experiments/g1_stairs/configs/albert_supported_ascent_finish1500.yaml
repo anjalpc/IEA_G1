@@ -17,9 +17,17 @@ reward_experiment:
   rewards:
     stage_plan:
       albert_clean_step_finish:
+        planar_body_velocity_change: -0.10
         supported_alternating_stair_acquisition: 3.0
+        invalid_alternating_stair_sequence: -3.0
         top_platform_settling_progress: 2.0
 
 reward_parameters:
+  planar_body_velocity_change:
+    full_cost_acceleration_mps2: 3.0
   physical_step_event:
     ascent_scale: 0.10
+  top_platform_settling_progress:
+    require_supported_alternating_ascent: true
+  top_platform_success_event:
+    require_supported_alternating_ascent: true

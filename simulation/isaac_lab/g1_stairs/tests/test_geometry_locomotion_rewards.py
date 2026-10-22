@@ -4,10 +4,33 @@ from types import SimpleNamespace
 import torch
 
 from simulation.isaac_lab.g1_stairs.geometry_locomotion_rewards import (
+    planar_velocity_change_cost,
     physical_step_event_mask,
     physical_step_phase_scale,
     unresolved_riser_strike_fall_event,
 )
+
+
+class PlanarVelocityChangeCostTests(unittest.TestCase):
+    def test_ignores_reset_and_vertical_velocity(self):
+        value = planar_velocity_change_cost(
+            torch.tensor([[1.0, 0.0, 5.0], [0.0, 0.0, 5.0]]),
+            torch.zeros(2, 3),
+            torch.tensor([False, True]),
+            dt=0.02,
+            full_cost_acceleration_mps2=3.0,
+        )
+        torch.testing.assert_close(value, torch.tensor([0.0, 0.0]))
+
+    def test_is_bounded_and_sensitive_to_planar_change(self):
+        value = planar_velocity_change_cost(
+            torch.tensor([[0.03, 0.0, 0.0], [1.0, 0.0, 0.0]]),
+            torch.zeros(2, 3),
+            torch.tensor([True, True]),
+            dt=0.02,
+            full_cost_acceleration_mps2=3.0,
+        )
+        torch.testing.assert_close(value, torch.tensor([0.25, 1.0]))
 
 
 class UnresolvedRiserStrikeFallEventTests(unittest.TestCase):

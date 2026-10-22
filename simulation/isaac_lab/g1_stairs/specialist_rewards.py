@@ -53,6 +53,7 @@ from .motion_reference import foot_riser_distance, sole_state
 from .terrain_state import riser_height_per_env, stair_cfg
 from .geometry_locomotion_rewards import (
     actual_gait_scores,
+    planar_velocity_change_cost,
     physical_step_event_mask,
     physical_step_phase_scale,
 )
@@ -153,6 +154,40 @@ class lead_foot_switch(ManagerTermBase):
         event = valid & (self.previous >= 0) & (lead != self.previous)
         self.previous.copy_(torch.where(valid, lead, self.previous))
         return event.to(dtype=torch.float32) / float(env.step_dt)
+
+
+class planar_body_velocity_change(ManagerTermBase):
+    """Penalize abrupt planar torso velocity changes without opposing stair rise."""
+
+    def __init__(self, cfg, env: "ManagerBasedRLEnv"):
+        super().__init__(cfg, env)
+        self.previous = torch.zeros(env.num_envs, 3, device=env.device)
+        self.initialized = torch.zeros(
+            env.num_envs, dtype=torch.bool, device=env.device
+        )
+
+    def reset(self, env_ids=None) -> None:
+        ids = slice(None) if env_ids is None else env_ids
+        self.previous[ids] = 0.0
+        self.initialized[ids] = False
+
+    def __call__(
+        self,
+        env: "ManagerBasedRLEnv",
+        full_cost_acceleration_mps2: float = 3.0,
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+    ) -> torch.Tensor:
+        current = env.scene[asset_cfg.name].data.root_lin_vel_w
+        cost = planar_velocity_change_cost(
+            current,
+            self.previous,
+            self.initialized,
+            dt=float(env.step_dt),
+            full_cost_acceleration_mps2=full_cost_acceleration_mps2,
+        )
+        self.previous.copy_(current)
+        self.initialized.fill_(True)
+        return cost
 
 
 class physical_step_event(ManagerTermBase):
@@ -275,13 +310,20 @@ class top_platform_success_event(ManagerTermBase):
         else:
             self.paid[env_ids] = False
 
-    def __call__(self, env: "ManagerBasedRLEnv") -> torch.Tensor:
+    def __call__(
+        self,
+        env: "ManagerBasedRLEnv",
+        require_supported_alternating_ascent: bool = False,
+    ) -> torch.Tensor:
         from .geometry_episode import Result
 
         runtime = getattr(env, "_g1_geometry_episode", None)
         if runtime is None or not runtime.contract.stable_finish:
             return torch.zeros(env.num_envs, device=env.device)
         completed = runtime.tracker.reason == Result.SUCCESS
+        if require_supported_alternating_ascent:
+            ascent = runtime.supported_ascent
+            completed &= ascent.alternating_complete & ~ascent.sequence_failed
         event = completed & ~self.paid
         self.paid |= event
         return event.to(torch.float32) / float(env.step_dt)

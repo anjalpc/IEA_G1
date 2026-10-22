@@ -90,6 +90,26 @@ def physical_step_event_mask(
     )
 
 
+def planar_velocity_change_cost(
+    current_velocity: torch.Tensor,
+    previous_velocity: torch.Tensor,
+    initialized: torch.Tensor,
+    *,
+    dt: float,
+    full_cost_acceleration_mps2: float,
+) -> torch.Tensor:
+    """Bounded planar acceleration severity, with no cross-reset impulse."""
+    if dt <= 0.0:
+        raise ValueError("dt must be positive")
+    if full_cost_acceleration_mps2 <= 0.0:
+        raise ValueError("full cost acceleration must be positive")
+    delta = torch.linalg.vector_norm(
+        current_velocity[:, :2] - previous_velocity[:, :2], dim=1
+    )
+    severity = (delta / (dt * full_cost_acceleration_mps2)).square().clamp_max(1.0)
+    return severity * initialized.to(severity.dtype)
+
+
 def physical_step_phase_scale(
     touchdown_x: torch.Tensor,
     *,
@@ -450,18 +470,24 @@ def stable_platform_finish(env):
     return (settling_progress + completed) / float(env.step_dt)
 
 
-def top_platform_settling_progress(env):
+def top_platform_settling_progress(
+    env, require_supported_alternating_ascent: bool = False,
+):
     """Reward only new best supported dwell toward a stable platform finish."""
     runtime = getattr(env, "_g1_geometry_episode", None)
     if runtime is None or not runtime.contract.stable_finish:
         return torch.zeros(env.num_envs, device=env.device)
 
     tracker = runtime.tracker
+    gate = torch.ones(env.num_envs, dtype=torch.bool, device=env.device)
+    if require_supported_alternating_ascent:
+        ascent = runtime.supported_ascent
+        gate = ascent.alternating_complete & ~ascent.sequence_failed
     return (
         tracker.dwell_peak_increment
         / float(tracker.cfg.supported_dwell_s)
         / float(env.step_dt)
-    )
+    ) * gate
 
 
 def supported_alternating_stair_acquisition(env):
@@ -470,3 +496,11 @@ def supported_alternating_stair_acquisition(env):
     if runtime is None:
         return torch.zeros(env.num_envs, device=env.device)
     return runtime.supported_ascent.last_credit.to(torch.float32) / float(env.step_dt)
+
+
+def invalid_alternating_stair_sequence(env):
+    """One-shot event when the wrong or both feet acquire the next tread."""
+    runtime = getattr(env, "_g1_geometry_episode", None)
+    if runtime is None:
+        return torch.zeros(env.num_envs, device=env.device)
+    return runtime.supported_ascent.last_invalid.to(torch.float32) / float(env.step_dt)

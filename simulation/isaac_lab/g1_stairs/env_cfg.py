@@ -470,6 +470,14 @@ class StairRewardsCfg:
     base_angular_velocity = copy.deepcopy(
         _UPSTREAM_CFG.rewards.base_angular_velocity
     )
+    planar_body_velocity_change = RewTerm(
+        func=stair_rewards.planar_body_velocity_change,
+        weight=0.0,
+        params={
+            "full_cost_acceleration_mps2": 3.0,
+            "asset_cfg": SceneEntityCfg("robot"),
+        },
+    )
     joint_vel = copy.deepcopy(_UPSTREAM_CFG.rewards.joint_vel)
     joint_acc = copy.deepcopy(_UPSTREAM_CFG.rewards.joint_acc)
     action_rate = copy.deepcopy(_UPSTREAM_CFG.rewards.action_rate)
@@ -1250,14 +1258,20 @@ class StairRewardsCfg:
     top_platform_settling_progress = RewTerm(
         func=geometry_locomotion_rewards.top_platform_settling_progress,
         weight=0.0,
+        params={"require_supported_alternating_ascent": False},
     )
     supported_alternating_stair_acquisition = RewTerm(
         func=geometry_locomotion_rewards.supported_alternating_stair_acquisition,
         weight=0.0,
     )
+    invalid_alternating_stair_sequence = RewTerm(
+        func=geometry_locomotion_rewards.invalid_alternating_stair_sequence,
+        weight=0.0,
+    )
     top_platform_success_event = RewTerm(
         func=stair_rewards.top_platform_success_event,
         weight=0.0,
+        params={"require_supported_alternating_ascent": False},
     )
 
 
