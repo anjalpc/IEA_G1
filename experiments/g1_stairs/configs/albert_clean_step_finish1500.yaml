@@ -1,0 +1,76 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/albert_clean_step_event1500.yaml
+  resolved_config_required: true
+
+experiment:
+  id: albert_clean_step_finish1500
+  purpose: Learn visible alternating steps, climb three 4 cm treads, and stop stably on top.
+  type: clean_physical_step_and_finish
+  meaningful_stair_training: true
+
+execution:
+  maximum_iterations: 1500
+
+episode_contract:
+  enabled: true
+  platform_continuation_m: 0.2
+  supported_dwell_s: 1.0
+  minimum_base_clearance_m: 0.45
+  maximum_roll_pitch_rad: 0.8
+  forbidden_contact_force_n: 1.0
+  support_force_n: 30.0
+  sole_height_tolerance_m: 0.025
+  boundary_margin_m: 0.15
+  stall_duration_s: 2.0
+  progress_epsilon_m: 0.02
+  wrong_direction_tolerance_m: 0.25
+  stable_finish: true
+
+command:
+  forward_velocity_mps: 0.5
+  platform_finish:
+    slowdown_distance_m: 0.35
+    creep_speed_mps: 0.08
+    stop_buffer_m: 0.10
+    transition_duration_s: 0.40
+    minimum_step_advance_m: 0.15
+
+reward_experiment:
+  active_stage: albert_clean_step_finish
+  strict_runtime_set: true
+  rewards:
+    stage_plan:
+      albert_clean_step_finish:
+        track_stair_axis_velocity: 1.0
+        track_ang_vel_z: 0.5
+        body_heading_guard: -0.1
+        alive: 0.15
+        upright: -5.0
+        base_angular_velocity: -0.05
+        joint_vel: -0.001
+        joint_acc: -2.5e-07
+        action_rate: -0.05
+        dof_pos_limits: -5.0
+        energy: -2.0e-05
+        joint_deviation_arms: -0.1
+        joint_deviation_waists: -1.0
+        joint_deviation_legs: -1.0
+        gait: 0.5
+        feet_slide: -0.2
+        undesired_contacts: -1.0
+        proximity_gated_coupled_stall: -1.0
+        terrain_relative_clearance: 0.10
+        forward_insertion: 0.0
+        unresolved_riser_strike_fall_event: -0.5
+        physical_step_event: 1.0
+        stable_platform_finish: 10.0
+
+reward_parameters:
+  physical_step_event:
+    minimum_forward_travel_m: 0.15
+    minimum_vertical_excursion_m: 0.015
+    maximum_touchdown_speed_mps: 0.60
+    support_force_n: 80.0
+    unload_force_n: 20.0
