@@ -1,8 +1,11 @@
 import types
 import unittest
 
+import torch
+
 from simulation.isaac_lab.g1_stairs.command_runtime import (
     apply_stair_heading_command,
+    platform_finish_speed,
 )
 
 
@@ -73,6 +76,37 @@ class CommandRuntimeTests(unittest.TestCase):
             env_cfg.commands.base_velocity.ranges.ang_vel_z,
             original,
         )
+
+    def test_platform_finish_slows_by_position_and_stops_only_when_safe(self):
+        x = torch.tensor([1.95, 2.20, 2.30])
+        speed, settling = platform_finish_speed(
+            x,
+            stop_x=2.30,
+            cruise_speed=0.50,
+            feet_safe=torch.tensor([False, False, True]),
+            settling=torch.zeros(3, dtype=torch.bool),
+            reset=torch.zeros(3, dtype=torch.bool),
+            slowdown_distance=0.35,
+            creep_speed=0.08,
+            resume_x=2.20,
+        )
+        torch.testing.assert_close(speed, torch.tensor([0.50, 1.0 / 7.0, 0.0]))
+        torch.testing.assert_close(settling, torch.tensor([False, False, True]))
+
+    def test_platform_finish_reset_clears_settling(self):
+        speed, settling = platform_finish_speed(
+            torch.tensor([2.30]),
+            stop_x=2.30,
+            cruise_speed=0.50,
+            feet_safe=torch.tensor([False]),
+            settling=torch.tensor([True]),
+            reset=torch.tensor([True]),
+            slowdown_distance=0.35,
+            creep_speed=0.08,
+            resume_x=2.20,
+        )
+        torch.testing.assert_close(speed, torch.tensor([0.08]))
+        torch.testing.assert_close(settling, torch.tensor([False]))
 
 
 if __name__ == "__main__":

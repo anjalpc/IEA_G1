@@ -1243,6 +1243,10 @@ class StairRewardsCfg:
         func=geometry_locomotion_rewards.stable_platform_finish,
         weight=0.0,
     )
+    top_platform_success_event = RewTerm(
+        func=geometry_locomotion_rewards.top_platform_success_event,
+        weight=0.0,
+    )
 
 
 @configclass

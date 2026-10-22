@@ -27,21 +27,6 @@ class PlatformFinishCommand(UniformVelocityCommand):
             self.settling = torch.zeros(
                 env.num_envs, dtype=torch.bool, device=env.device,
             )
-            self.platform_armed = torch.zeros(
-                env.num_envs, dtype=torch.bool, device=env.device,
-            )
-            self.post_platform_swing = torch.zeros(
-                (env.num_envs, 2), dtype=torch.bool, device=env.device,
-            )
-            self.previous_foot_safe = torch.zeros(
-                (env.num_envs, 2), dtype=torch.bool, device=env.device,
-            )
-            self.stopping = torch.zeros(
-                env.num_envs, dtype=torch.bool, device=env.device,
-            )
-            self.stop_elapsed_s = torch.zeros(
-                env.num_envs, dtype=torch.float32, device=env.device,
-            )
             self.sole_centres = torch.tensor(
                 G1_SOLE_SPHERE_CENTRES_M, device=env.device,
             )
@@ -84,66 +69,18 @@ class PlatformFinishCommand(UniformVelocityCommand):
         both_safe = foot_safe.all(-1)
         reset = env.episode_length_buf == 0
 
-        # Episode reset clears all finish-phase state.
-        self.platform_armed[reset] = False
-        self.post_platform_swing[reset] = False
-        self.previous_foot_safe[reset] = False
-        self.stopping[reset] = False
-        self.settling[reset] = False
-        self.stop_elapsed_s[reset] = 0.0
-
-        # Arm only after both feet are genuinely supported on the platform.
-        self.platform_armed |= both_safe & ~reset
-
-        # A natural extra step requires a foot to leave safe support after arming.
-        self.post_platform_swing |= (
-            self.platform_armed[:, None]
-            & ~foot_safe
-            & ~reset[:, None]
-        )
-
-        # Start stopping on the next real safe-platform support onset.
-        platform_touchdown = (
-            self.platform_armed[:, None]
-            & self.post_platform_swing
-            & foot_safe
-            & ~self.previous_foot_safe
-            & ~reset[:, None]
-        )
-        start_stop = (
-            both_safe
-            & (local_x >= platform_start + self.options["minimum_step_advance_m"])
-            & ~self.stopping
-            & ~self.settling
-        )
-        self.stopping |= start_stop
-
         cruise = float(self.options["cruise_speed_mps"])
-        duration = float(self.options["transition_duration_s"])
-
-        alpha = (self.stop_elapsed_s / duration).clamp(0.0, 1.0)
-        speed = torch.full_like(self.stop_elapsed_s, cruise)
-        speed = torch.where(
-            self.stopping,
-            cruise * (1.0 - alpha),
-            speed,
-        )
-
-        self.stop_elapsed_s = torch.where(
-            self.stopping & ~self.settling,
-            self.stop_elapsed_s + float(env.step_dt),
-            self.stop_elapsed_s,
-        )
-
-        finished = self.stopping & (self.stop_elapsed_s >= duration)
-        self.settling |= finished
-        speed = torch.where(
+        speed, self.settling = platform_finish_speed(
+            local_x,
+            stop_x,
+            cruise,
+            both_safe,
             self.settling,
-            torch.zeros_like(speed),
-            speed,
+            reset,
+            slowdown_distance=float(self.options["slowdown_distance_m"]),
+            creep_speed=float(self.options["creep_speed_mps"]),
+            resume_x=completion_x,
         )
-
-        self.previous_foot_safe.copy_(foot_safe)
 
         self.vel_command_b[:, 0] = speed
         self.vel_command_b[:, 1] = 0.0

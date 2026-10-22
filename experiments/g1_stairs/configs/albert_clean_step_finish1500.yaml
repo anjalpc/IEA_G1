@@ -31,11 +31,9 @@ episode_contract:
 command:
   forward_velocity_mps: 0.5
   platform_finish:
-    slowdown_distance_m: 0.35
+    slowdown_distance_m: 0.25
     creep_speed_mps: 0.08
     stop_buffer_m: 0.10
-    transition_duration_s: 0.40
-    minimum_step_advance_m: 0.15
 
 reward_experiment:
   active_stage: albert_clean_step_finish
@@ -65,7 +63,7 @@ reward_experiment:
         forward_insertion: 0.0
         unresolved_riser_strike_fall_event: -0.5
         physical_step_event: 1.0
-        stable_platform_finish: 10.0
+        top_platform_success_event: 10.0
 
 reward_parameters:
   physical_step_event:

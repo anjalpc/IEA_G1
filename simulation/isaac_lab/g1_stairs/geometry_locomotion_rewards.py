@@ -418,3 +418,14 @@ def stable_platform_finish(env):
     settling_progress = tracker.dwell_peak_increment / required
     completed = (tracker.reason == Result.SUCCESS).to(torch.float32)
     return (settling_progress + completed) / float(env.step_dt)
+
+
+def top_platform_success_event(env):
+    """One-shot credit only for the strict, stable top-platform success."""
+    from .geometry_episode import Result
+
+    runtime = getattr(env, "_g1_geometry_episode", None)
+    if runtime is None or not runtime.contract.stable_finish:
+        return torch.zeros(env.num_envs, device=env.device)
+    completed = runtime.tracker.reason == Result.SUCCESS
+    return completed.to(torch.float32) / float(env.step_dt)
