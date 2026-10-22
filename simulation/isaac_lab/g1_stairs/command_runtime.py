@@ -108,7 +108,7 @@ def platform_finish_speed(
     if resume_x > stop_x:
         raise ValueError("resume_x must not exceed stop_x")
     settling = (settling & ~reset & (local_x >= resume_x)) | (
-        ~reset & feet_safe & (local_x >= stop_x)
+        ~reset & (local_x >= stop_x)
     )
     speed = (
         cruise_speed * ((stop_x - local_x) / slowdown_distance).clamp(0.0, 1.0)

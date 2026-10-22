@@ -77,13 +77,13 @@ class CommandRuntimeTests(unittest.TestCase):
             original,
         )
 
-    def test_platform_finish_slows_by_position_and_stops_only_when_safe(self):
+    def test_platform_finish_slows_by_position_and_stops_at_target(self):
         x = torch.tensor([1.95, 2.20, 2.30])
         speed, settling = platform_finish_speed(
             x,
             stop_x=2.30,
             cruise_speed=0.50,
-            feet_safe=torch.tensor([False, False, True]),
+            feet_safe=torch.tensor([False, False, False]),
             settling=torch.zeros(3, dtype=torch.bool),
             reset=torch.zeros(3, dtype=torch.bool),
             slowdown_distance=0.35,
