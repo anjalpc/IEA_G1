@@ -51,7 +51,11 @@ from .reward_math import (
 )
 from .motion_reference import foot_riser_distance, sole_state
 from .terrain_state import riser_height_per_env, stair_cfg
-from .geometry_locomotion_rewards import actual_gait_scores, physical_step_event_mask
+from .geometry_locomotion_rewards import (
+    actual_gait_scores,
+    physical_step_event_mask,
+    physical_step_phase_scale,
+)
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -162,6 +166,9 @@ class physical_step_event(ManagerTermBase):
         self.start_x = torch.zeros(shape, device=env.device)
         self.start_z = torch.zeros(shape, device=env.device)
         self.apex_z = torch.zeros(shape, device=env.device)
+        self.best_touchdown_x = torch.full(
+            shape, -torch.inf, device=env.device
+        )
 
     def reset(self, env_ids=None) -> None:
         ids = slice(None) if env_ids is None else env_ids
@@ -170,6 +177,7 @@ class physical_step_event(ManagerTermBase):
         self.start_x[ids] = 0.0
         self.start_z[ids] = 0.0
         self.apex_z[ids] = 0.0
+        self.best_touchdown_x[ids] = -torch.inf
 
     def __call__(
         self,
@@ -179,9 +187,15 @@ class physical_step_event(ManagerTermBase):
         maximum_touchdown_speed_mps: float = 0.35,
         support_force_n: float = 80.0,
         unload_force_n: float = 20.0,
+        approach_scale: float = 0.10,
+        ascent_scale: float = 1.0,
+        platform_scale: float = 0.10,
+        minimum_new_progress_m: float = 0.05,
         asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
         contact_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces"),
     ) -> torch.Tensor:
+        if minimum_new_progress_m <= 0.0:
+            raise ValueError("minimum new progress must be positive")
         robot = env.scene[asset_cfg.name]
         sensor = env.scene.sensors[contact_sensor_cfg.name]
         positions = robot.data.body_pos_w[:, asset_cfg.body_ids]
@@ -213,18 +227,64 @@ class physical_step_event(ManagerTermBase):
         self.apex_z.copy_(torch.where(active, torch.maximum(self.apex_z, foot_z), self.apex_z))
         touchdown = active & (forces[rows, foot] >= support_force_n)
         alternates = (self.last_completed_foot < 0) | (foot != self.last_completed_foot)
+        touchdown_x = positions[rows, foot, 0] - env.scene.env_origins[:, 0]
+        new_progress = (
+            ~torch.isfinite(self.best_touchdown_x)
+            | (touchdown_x >= self.best_touchdown_x + minimum_new_progress_m)
+        )
         qualified = touchdown & physical_step_event_mask(
             positions[rows, foot, 0] - self.start_x,
             self.apex_z - self.start_z,
             velocities[rows, foot].norm(dim=1),
-            alternates,
+            alternates & new_progress,
             minimum_forward_travel_m=minimum_forward_travel_m,
             minimum_vertical_excursion_m=minimum_vertical_excursion_m,
             maximum_touchdown_speed_mps=maximum_touchdown_speed_mps,
         )
+        terrain = stair_cfg(env)
+        first_riser = float(terrain.start_clearance)
+        platform_start = first_riser + int(terrain.step_count) * float(terrain.tread_depth)
+        phase_scale = physical_step_phase_scale(
+            touchdown_x,
+            first_riser_x=first_riser,
+            platform_start_x=platform_start,
+            approach_scale=approach_scale,
+            ascent_scale=ascent_scale,
+            platform_scale=platform_scale,
+        )
         self.last_completed_foot.copy_(torch.where(qualified, foot, self.last_completed_foot))
+        self.best_touchdown_x.copy_(
+            torch.where(qualified, touchdown_x, self.best_touchdown_x)
+        )
         self.active_foot.copy_(torch.where(touchdown, -1, self.active_foot))
-        return qualified.to(dtype=torch.float32) / float(env.step_dt)
+        return qualified.to(dtype=torch.float32) * phase_scale / float(env.step_dt)
+
+
+class top_platform_success_event(ManagerTermBase):
+    """Pay strict stable-top success once, independent of reset timing."""
+
+    def __init__(self, cfg, env: "ManagerBasedRLEnv"):
+        super().__init__(cfg, env)
+        self.paid = torch.zeros(
+            env.num_envs, dtype=torch.bool, device=env.device
+        )
+
+    def reset(self, env_ids=None) -> None:
+        if env_ids is None:
+            self.paid.fill_(False)
+        else:
+            self.paid[env_ids] = False
+
+    def __call__(self, env: "ManagerBasedRLEnv") -> torch.Tensor:
+        from .geometry_episode import Result
+
+        runtime = getattr(env, "_g1_geometry_episode", None)
+        if runtime is None or not runtime.contract.stable_finish:
+            return torch.zeros(env.num_envs, device=env.device)
+        completed = runtime.tracker.reason == Result.SUCCESS
+        event = completed & ~self.paid
+        self.paid |= event
+        return event.to(torch.float32) / float(env.step_dt)
 
 
 class _SingleStepRewardBase(ManagerTermBase):

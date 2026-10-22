@@ -586,6 +586,10 @@ class StairRewardsCfg:
             "maximum_touchdown_speed_mps": 0.35,
             "support_force_n": 80.0,
             "unload_force_n": 20.0,
+            "approach_scale": 0.10,
+            "ascent_scale": 1.0,
+            "platform_scale": 0.10,
+            "minimum_new_progress_m": 0.05,
         },
     )
     failure_termination_event = RewTerm(
@@ -1244,7 +1248,7 @@ class StairRewardsCfg:
         weight=0.0,
     )
     top_platform_success_event = RewTerm(
-        func=geometry_locomotion_rewards.top_platform_success_event,
+        func=stair_rewards.top_platform_success_event,
         weight=0.0,
     )
 

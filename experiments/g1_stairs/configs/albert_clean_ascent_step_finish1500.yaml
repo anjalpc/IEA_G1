@@ -1,0 +1,26 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/albert_clean_step_finish1500.yaml
+  resolved_config_required: true
+
+experiment:
+  id: albert_clean_ascent_step_finish1500
+  purpose: Favor physical alternating steps during ascent while retaining light gait credit elsewhere.
+  type: clean_ascent_physical_step_and_finish
+  meaningful_stair_training: true
+
+execution:
+  maximum_iterations: 1500
+
+reward_parameters:
+  physical_step_event:
+    minimum_forward_travel_m: 0.15
+    minimum_vertical_excursion_m: 0.015
+    maximum_touchdown_speed_mps: 0.60
+    support_force_n: 80.0
+    unload_force_n: 20.0
+    approach_scale: 0.10
+    ascent_scale: 1.0
+    platform_scale: 0.10
+    minimum_new_progress_m: 0.05

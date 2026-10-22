@@ -5,7 +5,7 @@ import torch
 
 from simulation.isaac_lab.g1_stairs.geometry_locomotion_rewards import (
     physical_step_event_mask,
-    top_platform_success_event,
+    physical_step_phase_scale,
     unresolved_riser_strike_fall_event,
 )
 
@@ -90,28 +90,17 @@ class PhysicalStepEventMaskTests(unittest.TestCase):
             torch.tensor([True, False, False, False]),
         )
 
-
-class TopPlatformSuccessEventTests(unittest.TestCase):
-    def test_only_strict_stable_success_pays(self):
-        from simulation.isaac_lab.g1_stairs.geometry_episode import Result
-
-        env = SimpleNamespace(
-            num_envs=3,
-            device="cpu",
-            step_dt=0.02,
-            _g1_geometry_episode=SimpleNamespace(
-                contract=SimpleNamespace(stable_finish=True),
-                tracker=SimpleNamespace(
-                    reason=torch.tensor(
-                        [Result.RUNNING, Result.SUCCESS, Result.STALL]
-                    )
-                ),
-            ),
+    def test_phase_scale_favors_stair_ascent(self):
+        scale = physical_step_phase_scale(
+            torch.tensor([0.9, 1.2, 1.8]),
+            first_riser_x=1.0,
+            platform_start_x=1.75,
+            approach_scale=0.10,
+            ascent_scale=1.0,
+            platform_scale=0.10,
         )
-        torch.testing.assert_close(
-            top_platform_success_event(env),
-            torch.tensor([0.0, 50.0, 0.0]),
-        )
+        torch.testing.assert_close(scale, torch.tensor([0.10, 1.0, 0.10]))
+
 
 if __name__ == "__main__":
     unittest.main()

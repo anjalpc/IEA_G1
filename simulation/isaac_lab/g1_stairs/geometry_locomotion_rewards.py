@@ -90,6 +90,36 @@ def physical_step_event_mask(
     )
 
 
+def physical_step_phase_scale(
+    touchdown_x: torch.Tensor,
+    *,
+    first_riser_x: float,
+    platform_start_x: float,
+    approach_scale: float,
+    ascent_scale: float,
+    platform_scale: float,
+) -> torch.Tensor:
+    """Weight a valid step by task phase without changing qualification."""
+
+    if not 0.0 <= approach_scale <= ascent_scale:
+        raise ValueError("require 0 <= approach scale <= ascent scale")
+    if not 0.0 <= platform_scale <= ascent_scale:
+        raise ValueError("require 0 <= platform scale <= ascent scale")
+    if ascent_scale <= 0.0:
+        raise ValueError("ascent scale must be positive")
+    if not first_riser_x < platform_start_x:
+        raise ValueError("platform must begin after first riser")
+    return torch.where(
+        touchdown_x < first_riser_x,
+        torch.full_like(touchdown_x, approach_scale),
+        torch.where(
+            touchdown_x < platform_start_x,
+            torch.full_like(touchdown_x, ascent_scale),
+            torch.full_like(touchdown_x, platform_scale),
+        ),
+    )
+
+
 def _actual_gait_measurements(env, asset_cfg, contact_sensor_cfg):
     robot = env.scene[asset_cfg.name]
     sensor = env.scene.sensors[contact_sensor_cfg.name]
@@ -418,14 +448,3 @@ def stable_platform_finish(env):
     settling_progress = tracker.dwell_peak_increment / required
     completed = (tracker.reason == Result.SUCCESS).to(torch.float32)
     return (settling_progress + completed) / float(env.step_dt)
-
-
-def top_platform_success_event(env):
-    """One-shot credit only for the strict, stable top-platform success."""
-    from .geometry_episode import Result
-
-    runtime = getattr(env, "_g1_geometry_episode", None)
-    if runtime is None or not runtime.contract.stable_finish:
-        return torch.zeros(env.num_envs, device=env.device)
-    completed = runtime.tracker.reason == Result.SUCCESS
-    return completed.to(torch.float32) / float(env.step_dt)
