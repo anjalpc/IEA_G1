@@ -448,3 +448,25 @@ def stable_platform_finish(env):
     settling_progress = tracker.dwell_peak_increment / required
     completed = (tracker.reason == Result.SUCCESS).to(torch.float32)
     return (settling_progress + completed) / float(env.step_dt)
+
+
+def top_platform_settling_progress(env):
+    """Reward only new best supported dwell toward a stable platform finish."""
+    runtime = getattr(env, "_g1_geometry_episode", None)
+    if runtime is None or not runtime.contract.stable_finish:
+        return torch.zeros(env.num_envs, device=env.device)
+
+    tracker = runtime.tracker
+    return (
+        tracker.dwell_peak_increment
+        / float(tracker.cfg.supported_dwell_s)
+        / float(env.step_dt)
+    )
+
+
+def supported_alternating_stair_acquisition(env):
+    """Credit each correct next-tread acquisition once, in alternating order."""
+    runtime = getattr(env, "_g1_geometry_episode", None)
+    if runtime is None:
+        return torch.zeros(env.num_envs, device=env.device)
+    return runtime.supported_ascent.last_credit.to(torch.float32) / float(env.step_dt)

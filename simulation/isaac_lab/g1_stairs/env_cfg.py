@@ -1247,6 +1247,14 @@ class StairRewardsCfg:
         func=geometry_locomotion_rewards.stable_platform_finish,
         weight=0.0,
     )
+    top_platform_settling_progress = RewTerm(
+        func=geometry_locomotion_rewards.top_platform_settling_progress,
+        weight=0.0,
+    )
+    supported_alternating_stair_acquisition = RewTerm(
+        func=geometry_locomotion_rewards.supported_alternating_stair_acquisition,
+        weight=0.0,
+    )
     top_platform_success_event = RewTerm(
         func=stair_rewards.top_platform_success_event,
         weight=0.0,

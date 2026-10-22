@@ -1,0 +1,25 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/albert_clean_ascent_step_finish1500.yaml
+  resolved_config_required: true
+
+experiment:
+  id: albert_supported_ascent_finish1500
+  purpose: Reward unique alternating next-tread acquisitions and stable top-platform settling.
+  type: supported_alternating_ascent_and_finish
+  meaningful_stair_training: true
+
+execution:
+  maximum_iterations: 1500
+
+reward_experiment:
+  rewards:
+    stage_plan:
+      albert_clean_step_finish:
+        supported_alternating_stair_acquisition: 3.0
+        top_platform_settling_progress: 2.0
+
+reward_parameters:
+  physical_step_event:
+    ascent_scale: 0.10

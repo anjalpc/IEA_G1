@@ -234,6 +234,22 @@ class GeometryEpisodeRuntime:
             strict_first_acquisition=strict_first_acquisition,
             **finish_state,
         )
+        supported_invalid_contact = unsafe_stair_contact
+        if sole_bounds is not None:
+            from .motion_reference import riser_contact_masks
+            strike, bridge = riser_contact_masks(
+                sole_bounds,
+                forces[:, self.sensor_feet],
+                first_riser=self.tracker.first_riser,
+                tread=self.tracker.tread,
+                steps=self.tracker.step_count,
+                riser_height=riser_height_per_env(env),
+                active=reason == Result.RUNNING,
+                support_force_n=30.0,
+            )
+            supported_invalid_contact = (
+                supported_invalid_contact | strike | bridge
+            )
         self.supported_ascent.update(
             sole_bounds,
             forces[:, self.sensor_feet, 2],
@@ -243,7 +259,7 @@ class GeometryEpisodeRuntime:
             self.tracker.half_width,
             float(env.step_dt),
             reason == Result.RUNNING,
-            invalid_contact=unsafe_stair_contact,
+            invalid_contact=supported_invalid_contact,
         )
         self._record_joint_limit_diagnostics(env, data, limits, reason)
         return reason

@@ -15,6 +15,7 @@ class SupportedAscent:
         self.second = torch.zeros_like(self.first)
         self.third = torch.zeros_like(self.first)
         self.alternating_complete = torch.zeros_like(self.first)
+        self.last_credit = torch.zeros_like(self.first)
 
     def update(self, sole_bounds, forces_z, heights, first_riser, tread, half_width, dt, active, invalid_contact=None):
         """Call once per simulation step, before auto-reset.
@@ -24,6 +25,7 @@ class SupportedAscent:
         are explicitly excluded. This is a learning milestone, not a clean
         landing or strict qualification event.
         """
+        self.last_credit.zero_()
         if sole_bounds is None:
             self.pending_time.zero_()
             return torch.zeros_like(active)
@@ -55,6 +57,7 @@ class SupportedAscent:
         foot = ready.to(torch.long).argmax(dim=1)
         allowed = (self.last_foot < 0) | (foot != self.last_foot)
         credit = unique & allowed & active & (target < self.step_count)
+        self.last_credit.copy_(credit)
         old = target.clone()
         self.first |= credit & (old == 0)
         self.second |= credit & (old == 1)
@@ -73,3 +76,4 @@ class SupportedAscent:
         self.second[ids] = False
         self.third[ids] = False
         self.alternating_complete[ids] = False
+        self.last_credit[ids] = False
