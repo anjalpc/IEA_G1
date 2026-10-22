@@ -1,0 +1,63 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/albert_three04_reversible_clearance_strikefall500.yaml
+  resolved_config_required: true
+
+experiment:
+  id: albert_clean_step_event1500
+  purpose: Train only a physical alternating step event; remove the three old gait proxies.
+  type: clean_physical_step_event
+  meaningful_stair_training: true
+
+execution:
+  maximum_iterations: 1500
+
+policy_initialization:
+  type: rsl_rl_checkpoint_actor_transfer
+  source:
+    task: albert_three04_reversible_clearance_strikefall500_model350
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/albert_three04_reversible_clearance_strikefall500_20261021_130232/model_350.pt
+    sha256: 40e5ef0936ef5eb4fafc15f7f0f54b5ff35e6dae64c164b46df1411cca050729
+  critic_initialization: fresh
+  optimizer_initialization: fresh
+
+reward_experiment:
+  active_stage: albert_clean_step_event
+  strict_runtime_set: true
+  rewards:
+    stage_plan:
+      albert_clean_step_event:
+        track_stair_axis_velocity: 1.0
+        track_ang_vel_z: 0.5
+        body_heading_guard: -0.1
+        alive: 0.15
+        upright: -5.0
+        base_angular_velocity: -0.05
+        joint_vel: -0.001
+        joint_acc: -2.5e-07
+        action_rate: -0.05
+        dof_pos_limits: -5.0
+        energy: -2.0e-05
+        joint_deviation_arms: -0.1
+        joint_deviation_waists: -1.0
+        joint_deviation_legs: -1.0
+        gait: 0.5
+        feet_slide: -0.2
+        undesired_contacts: -1.0
+        proximity_gated_coupled_stall: -1.0
+        terrain_relative_clearance: 0.10
+        forward_insertion: 0.0
+        unresolved_riser_strike_fall_event: -0.5
+        physical_step_event: 0.20
+
+reward_parameters:
+  meaningful_stride: null
+  forward_foot_support: null
+  lead_foot_switch: null
+  physical_step_event:
+    minimum_forward_travel_m: 0.15
+    minimum_vertical_excursion_m: 0.015
+    maximum_touchdown_speed_mps: 0.35
+    support_force_n: 80.0
+    unload_force_n: 20.0

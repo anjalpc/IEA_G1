@@ -64,6 +64,32 @@ def actual_gait_scores(
     return stride_score, support_score, qualified_lead
 
 
+def physical_step_event_mask(
+    forward_travel: torch.Tensor,
+    vertical_excursion: torch.Tensor,
+    touchdown_speed: torch.Tensor,
+    alternates: torch.Tensor,
+    *,
+    minimum_forward_travel_m: float,
+    minimum_vertical_excursion_m: float,
+    maximum_touchdown_speed_mps: float,
+) -> torch.Tensor:
+    """Qualify a completed physical step; continuous posture earns nothing."""
+
+    if minimum_forward_travel_m <= 0.0:
+        raise ValueError("minimum forward travel must be positive")
+    if minimum_vertical_excursion_m <= 0.0:
+        raise ValueError("minimum vertical excursion must be positive")
+    if maximum_touchdown_speed_mps <= 0.0:
+        raise ValueError("maximum touchdown speed must be positive")
+    return (
+        (forward_travel >= minimum_forward_travel_m)
+        & (vertical_excursion >= minimum_vertical_excursion_m)
+        & (touchdown_speed <= maximum_touchdown_speed_mps)
+        & alternates
+    )
+
+
 def _actual_gait_measurements(env, asset_cfg, contact_sensor_cfg):
     robot = env.scene[asset_cfg.name]
     sensor = env.scene.sensors[contact_sensor_cfg.name]

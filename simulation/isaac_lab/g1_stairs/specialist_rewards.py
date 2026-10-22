@@ -51,7 +51,7 @@ from .reward_math import (
 )
 from .motion_reference import foot_riser_distance, sole_state
 from .terrain_state import riser_height_per_env, stair_cfg
-from .geometry_locomotion_rewards import actual_gait_scores
+from .geometry_locomotion_rewards import actual_gait_scores, physical_step_event_mask
 
 if TYPE_CHECKING:
     from isaaclab.envs import ManagerBasedRLEnv
@@ -149,6 +149,82 @@ class lead_foot_switch(ManagerTermBase):
         event = valid & (self.previous >= 0) & (lead != self.previous)
         self.previous.copy_(torch.where(valid, lead, self.previous))
         return event.to(dtype=torch.float32) / float(env.step_dt)
+
+
+class physical_step_event(ManagerTermBase):
+    """One-shot credit for alternating unload, lift, advance, and touchdown."""
+
+    def __init__(self, cfg, env: "ManagerBasedRLEnv"):
+        super().__init__(cfg, env)
+        shape = (env.num_envs,)
+        self.active_foot = torch.full(shape, -1, dtype=torch.long, device=env.device)
+        self.last_completed_foot = torch.full_like(self.active_foot, -1)
+        self.start_x = torch.zeros(shape, device=env.device)
+        self.start_z = torch.zeros(shape, device=env.device)
+        self.apex_z = torch.zeros(shape, device=env.device)
+
+    def reset(self, env_ids=None) -> None:
+        ids = slice(None) if env_ids is None else env_ids
+        self.active_foot[ids] = -1
+        self.last_completed_foot[ids] = -1
+        self.start_x[ids] = 0.0
+        self.start_z[ids] = 0.0
+        self.apex_z[ids] = 0.0
+
+    def __call__(
+        self,
+        env: "ManagerBasedRLEnv",
+        minimum_forward_travel_m: float = 0.15,
+        minimum_vertical_excursion_m: float = 0.015,
+        maximum_touchdown_speed_mps: float = 0.35,
+        support_force_n: float = 80.0,
+        unload_force_n: float = 20.0,
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+        contact_sensor_cfg: SceneEntityCfg = SceneEntityCfg("contact_forces"),
+    ) -> torch.Tensor:
+        robot = env.scene[asset_cfg.name]
+        sensor = env.scene.sensors[contact_sensor_cfg.name]
+        positions = robot.data.body_pos_w[:, asset_cfg.body_ids]
+        velocities = _body_linear_velocity(robot.data)[:, asset_cfg.body_ids]
+        forces = sensor.data.net_forces_w[:, contact_sensor_cfg.body_ids, 2].clamp_min(0)
+        rows = torch.arange(env.num_envs, device=env.device)
+
+        inactive = self.active_foot < 0
+        left_ready = (forces[:, 0] <= unload_force_n) & (forces[:, 1] >= support_force_n)
+        right_ready = (forces[:, 1] <= unload_force_n) & (forces[:, 0] >= support_force_n)
+        candidate = torch.where(
+            left_ready,
+            torch.zeros_like(self.active_foot),
+            torch.where(right_ready, torch.ones_like(self.active_foot), -1),
+        )
+        alternating_candidate = (
+            (self.last_completed_foot < 0) | (candidate != self.last_completed_foot)
+        )
+        start = inactive & (candidate >= 0) & alternating_candidate
+        safe_candidate = candidate.clamp_min(0)
+        self.active_foot.copy_(torch.where(start, candidate, self.active_foot))
+        self.start_x.copy_(torch.where(start, positions[rows, safe_candidate, 0], self.start_x))
+        self.start_z.copy_(torch.where(start, positions[rows, safe_candidate, 2], self.start_z))
+        self.apex_z.copy_(torch.where(start, positions[rows, safe_candidate, 2], self.apex_z))
+
+        active = self.active_foot >= 0
+        foot = self.active_foot.clamp_min(0)
+        foot_z = positions[rows, foot, 2]
+        self.apex_z.copy_(torch.where(active, torch.maximum(self.apex_z, foot_z), self.apex_z))
+        touchdown = active & (forces[rows, foot] >= support_force_n)
+        alternates = (self.last_completed_foot < 0) | (foot != self.last_completed_foot)
+        qualified = touchdown & physical_step_event_mask(
+            positions[rows, foot, 0] - self.start_x,
+            self.apex_z - self.start_z,
+            velocities[rows, foot].norm(dim=1),
+            alternates,
+            minimum_forward_travel_m=minimum_forward_travel_m,
+            minimum_vertical_excursion_m=minimum_vertical_excursion_m,
+            maximum_touchdown_speed_mps=maximum_touchdown_speed_mps,
+        )
+        self.last_completed_foot.copy_(torch.where(qualified, foot, self.last_completed_foot))
+        self.active_foot.copy_(torch.where(touchdown, -1, self.active_foot))
+        return qualified.to(dtype=torch.float32) / float(env.step_dt)
 
 
 class _SingleStepRewardBase(ManagerTermBase):

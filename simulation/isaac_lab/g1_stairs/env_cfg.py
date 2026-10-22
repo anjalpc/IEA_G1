@@ -570,6 +570,24 @@ class StairRewardsCfg:
             "full_speed_mps": 0.35,
         },
     )
+    physical_step_event = RewTerm(
+        func=stair_rewards.physical_step_event,
+        weight=0.0,
+        params={
+            "asset_cfg": SceneEntityCfg(
+                "robot", body_names=["left_ankle_roll_link", "right_ankle_roll_link"]
+            ),
+            "contact_sensor_cfg": SceneEntityCfg(
+                "contact_forces",
+                body_names=["left_ankle_roll_link", "right_ankle_roll_link"],
+            ),
+            "minimum_forward_travel_m": 0.15,
+            "minimum_vertical_excursion_m": 0.015,
+            "maximum_touchdown_speed_mps": 0.35,
+            "support_force_n": 80.0,
+            "unload_force_n": 20.0,
+        },
+    )
     failure_termination_event = RewTerm(
         func=stair_rewards.failure_termination_event,
         weight=-1.0,

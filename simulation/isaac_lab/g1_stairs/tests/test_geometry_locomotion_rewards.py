@@ -4,6 +4,7 @@ from types import SimpleNamespace
 import torch
 
 from simulation.isaac_lab.g1_stairs.geometry_locomotion_rewards import (
+    physical_step_event_mask,
     unresolved_riser_strike_fall_event,
 )
 
@@ -71,6 +72,22 @@ class UnresolvedRiserStrikeFallEventTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "step dt"):
             unresolved_riser_strike_fall_event(env)
 
+
+class PhysicalStepEventMaskTests(unittest.TestCase):
+    def test_requires_complete_alternating_physical_step(self):
+        qualified = physical_step_event_mask(
+            torch.tensor([0.20, 0.10, 0.20, 0.20]),
+            torch.tensor([0.020, 0.020, 0.005, 0.020]),
+            torch.tensor([0.20, 0.20, 0.20, 0.50]),
+            torch.tensor([True, True, True, False]),
+            minimum_forward_travel_m=0.15,
+            minimum_vertical_excursion_m=0.015,
+            maximum_touchdown_speed_mps=0.35,
+        )
+        torch.testing.assert_close(
+            qualified,
+            torch.tensor([True, False, False, False]),
+        )
 
 if __name__ == "__main__":
     unittest.main()
