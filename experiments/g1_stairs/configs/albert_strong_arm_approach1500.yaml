@@ -1,0 +1,21 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/albert_supported_ascent_finish1500.yaml
+  resolved_config_required: true
+
+experiment:
+  id: albert_strong_arm_approach1500
+  purpose: Strong arm-deviation and planar-acceleration penalties while retaining supported alternating stair ascent.
+  type: supported_alternating_ascent_and_finish
+  meaningful_stair_training: true
+
+execution:
+  maximum_iterations: 1500
+
+reward_experiment:
+  rewards:
+    stage_plan:
+      albert_clean_step_finish:
+        joint_deviation_arms: -0.50
+        planar_body_velocity_change: -0.50
