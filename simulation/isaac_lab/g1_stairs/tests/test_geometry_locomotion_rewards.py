@@ -5,10 +5,41 @@ import torch
 
 from simulation.isaac_lab.g1_stairs.geometry_locomotion_rewards import (
     planar_velocity_change_cost,
+    approach_overspeed_cost,
     physical_step_event_mask,
     physical_step_phase_scale,
     unresolved_riser_strike_fall_event,
 )
+
+
+
+class ApproachOverspeedTests(unittest.TestCase):
+    def test_only_excess_speed_before_riser(self):
+        cost = approach_overspeed_cost(
+            torch.tensor([0.50, 0.60, 0.80, 1.10, 1.10]),
+            torch.full((5,), 0.50),
+            torch.tensor([0.2, 0.4, 0.7, 0.99, 1.0]),
+            1.0,
+        )
+        torch.testing.assert_close(
+            cost, torch.tensor([0.0, 0.0, 0.16, 1.0, 0.0])
+        )
+
+    def test_command_change_and_no_underspeed_penalty(self):
+        cost = approach_overspeed_cost(
+            torch.tensor([0.4, 0.7]),
+            torch.tensor([0.5, 0.8]),
+            torch.tensor([0.0, 0.0]),
+            1.0,
+        )
+        torch.testing.assert_close(cost, torch.zeros(2))
+
+    def test_invalid_parameters(self):
+        with self.assertRaises(ValueError):
+            approach_overspeed_cost(
+                torch.zeros(1), torch.zeros(1),
+                torch.zeros(1), 1.0, scale_mps=0.0
+            )
 
 
 class PlanarVelocityChangeCostTests(unittest.TestCase):

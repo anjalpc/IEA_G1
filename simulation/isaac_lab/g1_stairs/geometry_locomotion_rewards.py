@@ -359,6 +359,44 @@ def track_stair_axis_velocity(
     return score
 
 
+def approach_overspeed_cost(
+    forward_velocity, command_velocity, local_x, first_riser_x,
+    *, tolerance_mps=0.10, scale_mps=0.50,
+):
+    """Positive excess-speed cost, active only before the first riser."""
+    if tolerance_mps < 0 or scale_mps <= 0:
+        raise ValueError("invalid overspeed parameters")
+    excess = torch.relu(
+        forward_velocity - command_velocity - tolerance_mps
+    )
+    return (
+        (excess / scale_mps).square()
+        * (local_x < first_riser_x).to(excess.dtype)
+    )
+
+
+def approach_overspeed(
+    env, tolerance_mps=0.10, scale_mps=0.50,
+    command_name="base_velocity", asset_cfg=None,
+):
+    from .terrain_state import stair_cfg
+
+    robot = env.scene["robot" if asset_cfg is None else asset_cfg.name]
+    terrain = stair_cfg(env)
+    local_x = (
+        robot.data.root_pos_w[:, 0] - env.scene.env_origins[:, 0]
+    )
+    command = env.command_manager.get_command(command_name)[:, 0]
+    return approach_overspeed_cost(
+        robot.data.root_lin_vel_w[:, 0],
+        command,
+        local_x,
+        float(terrain.start_clearance),
+        tolerance_mps=tolerance_mps,
+        scale_mps=scale_mps,
+    )
+
+
 def stair_centerline_error(
     env,
     scale_m: float = 0.25,

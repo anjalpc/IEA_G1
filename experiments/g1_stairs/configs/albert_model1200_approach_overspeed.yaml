@@ -1,0 +1,22 @@
+schema_version: 1
+inheritance:
+  base_config: experiments/g1_stairs/configs/albert_strong_arm_approach1500.yaml
+  resolved_config_required: true
+experiment:
+  id: albert_model1200_approach_overspeed
+  purpose: Preserve model1200 ascent while regulating approach overspeed.
+  type: supported_alternating_ascent_and_finish
+  meaningful_stair_training: true
+policy_initialization:
+  type: rsl_rl_checkpoint_actor_transfer
+  source:
+    task: albert_strong_arm_approach1500_model1200
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/albert_strong_arm_approach1500_20261022_124250/model_1200.pt
+    sha256: feb926e92d3fea4153a39a5651f26cb92f9833ffc42382ea1a64a8840a8b043f
+  critic_initialization: fresh
+  optimizer_initialization: fresh
+reward_experiment:
+  rewards:
+    stage_plan:
+      albert_clean_step_finish:
+        approach_overspeed: -0.50

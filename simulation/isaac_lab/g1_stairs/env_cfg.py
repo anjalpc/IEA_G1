@@ -405,6 +405,16 @@ class StairRewardsCfg:
             "ascent_scale": 1.0,
         },
     )
+    approach_overspeed = RewTerm(
+        func=geometry_locomotion_rewards.approach_overspeed,
+        weight=0.0,
+        params={
+            "asset_cfg": SceneEntityCfg("robot"),
+            "command_name": "base_velocity",
+            "tolerance_mps": 0.10,
+            "scale_mps": 0.50,
+        },
+    )
     stair_centerline_error = RewTerm(
         func=geometry_locomotion_rewards.stair_centerline_error,
         weight=0.0,
