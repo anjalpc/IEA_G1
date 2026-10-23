@@ -1,37 +1,44 @@
-"""Training-only supported alternating stair progression; not strict qualification."""
+"""Training-only supported alternating stair progression; not qualification."""
 import torch
 
 
 class SupportedAscent:
-    """One credited, supported new tread per step; alternate feet across treads."""
+    """Track spatial swing, latched touchdown, and supported body transfer."""
 
     def __init__(
         self, num_envs, device, step_count=3, dwell_s=0.10,
         minimum_load_share=0.0, transfer_margin_m=0.0,
-        maximum_planar_speed_mps=1000.0,
-        maximum_vertical_speed_mps=1000.0,
-        maximum_angular_speed_radps=1000.0,
-        maximum_foot_speed_mps=1000.0,
-        maximum_roll_pitch_rad=0.8,
+        touchdown_dwell_s=0.04, maximum_roll_pitch_rad=0.8,
+        swing_activation_distance_m=0.30,
+        swing_clearance_margin_m=0.015, swing_insertion_m=0.055,
     ):
-        if dwell_s <= 0:
-            raise ValueError("dwell_s must be positive")
+        if dwell_s <= 0 or touchdown_dwell_s <= 0:
+            raise ValueError("support and touchdown dwell must be positive")
         if not 0.0 <= minimum_load_share <= 1.0:
             raise ValueError("minimum_load_share must be in [0, 1]")
         if transfer_margin_m < 0:
             raise ValueError("transfer_margin_m must be nonnegative")
+        if min(swing_activation_distance_m, swing_clearance_margin_m,
+               swing_insertion_m) <= 0:
+            raise ValueError("swing geometry parameters must be positive")
         self.step_count = step_count
         self.dwell_s = dwell_s
         self.minimum_load_share = minimum_load_share
         self.transfer_margin_m = transfer_margin_m
-        self.maximum_planar_speed_mps = maximum_planar_speed_mps
-        self.maximum_vertical_speed_mps = maximum_vertical_speed_mps
-        self.maximum_angular_speed_radps = maximum_angular_speed_radps
-        self.maximum_foot_speed_mps = maximum_foot_speed_mps
+        self.touchdown_dwell_s = touchdown_dwell_s
         self.maximum_roll_pitch_rad = maximum_roll_pitch_rad
+        self.swing_activation_distance_m = swing_activation_distance_m
+        self.swing_clearance_margin_m = swing_clearance_margin_m
+        self.swing_insertion_m = swing_insertion_m
+        self.latching_enabled = minimum_load_share > 0 or transfer_margin_m > 0
+
         self.next_step = torch.zeros(num_envs, device=device, dtype=torch.long)
         self.last_foot = torch.full((num_envs,), -1, device=device, dtype=torch.long)
         self.pending_time = torch.zeros((num_envs, 2), device=device)
+        self.candidate_foot = torch.full_like(self.last_foot, -1)
+        self.transfer_time = torch.zeros(num_envs, device=device)
+        self.swing_potential = torch.zeros(num_envs, device=device)
+        self.last_swing_progress = torch.zeros(num_envs, device=device)
         self.first = torch.zeros(num_envs, device=device, dtype=torch.bool)
         self.second = torch.zeros_like(self.first)
         self.third = torch.zeros_like(self.first)
@@ -40,109 +47,149 @@ class SupportedAscent:
         self.sequence_failed = torch.zeros_like(self.first)
         self.last_invalid = torch.zeros_like(self.first)
 
+    def _complete(self, credit, foot, target):
+        self.last_credit.copy_(credit)
+        self.first |= credit & (target == 0)
+        self.second |= credit & (target == 1)
+        self.third |= credit & (target == 2)
+        self.last_foot = torch.where(credit, foot, self.last_foot)
+        self.next_step += credit.to(torch.long)
+        self.alternating_complete |= credit & (target == self.step_count - 1)
+        self.pending_time[credit] = 0.0
+        self.candidate_foot[credit] = -1
+        self.transfer_time[credit] = 0.0
+
     def update(
         self, sole_bounds, forces_z, heights, first_riser, tread,
         half_width, dt, active, invalid_contact=None, body_x=None,
-        body_velocity=None, body_angular_velocity=None, roll_pitch=None,
-        foot_speed=None,
+        roll_pitch=None, **_unused,
     ):
-        """Call once per simulation step, before auto-reset.
-
-        Requires substantial tread overlap, sole-bottom near tread height,
-        vertical loading and sustained support. Known riser strikes/bridges
-        are explicitly excluded. This is a learning milestone, not a clean
-        landing or strict qualification event.
-        """
+        """Update once before reset; return newly confirmed acquisitions."""
         self.last_credit.zero_()
         self.last_invalid.zero_()
+        self.last_swing_progress.zero_()
         if sole_bounds is None:
             self.pending_time.zero_()
+            self.candidate_foot.fill_(-1)
+            self.transfer_time.zero_()
+            self.swing_potential.zero_()
             return torch.zeros_like(active)
         if invalid_contact is None:
             invalid_contact = torch.zeros_like(active)
+
         target = self.next_step
         index = target.clamp(max=self.step_count - 1)
         start = first_riser + index.to(heights.dtype) * tread
         end = start + tread
-        top = (index + 1).to(heights.dtype) * heights
-        load_share = forces_z / forces_z.sum(dim=1, keepdim=True).clamp_min(1.0)
-        if self.transfer_margin_m > 0.0:
-            if body_x is None or body_x.shape != active.shape:
-                raise ValueError(
-                    "body_x with shape [num_envs] is required for transfer"
-                )
-            body_transferred = body_x >= start + self.transfer_margin_m
-        else:
-            body_transferred = torch.ones_like(active)
-        controlled_inputs = (
-            body_velocity, body_angular_velocity, roll_pitch, foot_speed
+        support_top = index.to(heights.dtype) * heights
+        target_top = (index + 1).to(heights.dtype) * heights
+        in_task = (
+            active & ~self.sequence_failed & ~invalid_contact
+            & (target < self.step_count) & (heights > 0)
         )
-        if any(value is None for value in controlled_inputs) and not all(
-            value is None for value in controlled_inputs
-        ):
-            raise ValueError("controlled-transfer inputs must be supplied together")
-        if any(value is None for value in controlled_inputs):
-            controlled = torch.ones_like(active)
-            supported_foot_slow = torch.ones_like(forces_z, dtype=torch.bool)
-        else:
-            controlled = (
-                (torch.linalg.vector_norm(body_velocity[:, :2], dim=1)
-                 <= self.maximum_planar_speed_mps)
-                & (body_velocity[:, 2].abs()
-                   <= self.maximum_vertical_speed_mps)
-                & (torch.linalg.vector_norm(body_angular_velocity, dim=1)
-                   <= self.maximum_angular_speed_radps)
-                & (roll_pitch.abs() <= self.maximum_roll_pitch_rad).all(dim=1)
-            )
-            supported_foot_slow = foot_speed <= self.maximum_foot_speed_mps
-        eligible = (
-            (target < self.step_count)[:, None]
-            & active[:, None]
-            & ~self.sequence_failed[:, None]
-            & ~invalid_contact[:, None]
-            & (heights > 0)[:, None]
-            & ((torch.minimum(sole_bounds[:, :, 1], end[:, None])
-                - torch.maximum(sole_bounds[:, :, 0], start[:, None])) >= 0.10)
+        overlap = (
+            torch.minimum(sole_bounds[:, :, 1], end[:, None])
+            - torch.maximum(sole_bounds[:, :, 0], start[:, None])
+        )
+        landing = (
+            in_task[:, None] & (overlap >= 0.10)
             & (sole_bounds[:, :, 2] <= half_width - 0.005)
             & (sole_bounds[:, :, 3] >= -half_width + 0.005)
-            & ((sole_bounds[:, :, 4] - top[:, None]).abs() <= 0.025)
-            & (sole_bounds[:, :, 5] <= top[:, None] + 0.05)
+            & ((sole_bounds[:, :, 4] - target_top[:, None]).abs() <= 0.025)
+            & (sole_bounds[:, :, 5] <= target_top[:, None] + 0.05)
             & (forces_z >= 30.0)
-            & (load_share >= self.minimum_load_share)
-            & body_transferred[:, None]
-            & controlled[:, None]
-            & supported_foot_slow
         )
-        self.pending_time = torch.where(eligible, self.pending_time + dt, 0.0)
-        ready = self.pending_time >= self.dwell_s
-        # No credit for simultaneous acquisition or same-foot acquisition
-        # on the next stair. Same-tread corrective loading has no credit.
+
+        # Preserve historical configs exactly; the new state machine is opt-in.
+        if not self.latching_enabled:
+            self.pending_time = torch.where(landing, self.pending_time + dt, 0.0)
+            ready = self.pending_time >= self.dwell_s
+            unique = ready.sum(dim=1) == 1
+            foot = ready.to(torch.long).argmax(dim=1)
+            allowed = (self.last_foot < 0) | (foot != self.last_foot)
+            attempted = ready.any(dim=1) & in_task
+            invalid = attempted & (~unique | ~allowed)
+            self.last_invalid.copy_(invalid & ~self.sequence_failed)
+            self.sequence_failed |= invalid
+            credit = unique & allowed & in_task & ~self.sequence_failed
+            self._complete(credit, foot, target.clone())
+            return credit
+
+        if body_x is None or roll_pitch is None:
+            raise ValueError("latched transfer requires body_x and roll_pitch")
+
+        expected = torch.ones_like(landing)
+        known = self.last_foot >= 0
+        feet = torch.arange(2, device=forces_z.device)
+        expected[known] = feet[None, :] != self.last_foot[known, None]
+        unloaded = forces_z <= 20.0
+        opposite_supported = torch.flip(forces_z, dims=(1,)) >= 30.0
+        lift = (
+            (sole_bounds[:, :, 4] - support_top[:, None])
+            / (heights[:, None] + self.swing_clearance_margin_m)
+        ).clamp(0.0, 1.0)
+        reach = (
+            (sole_bounds[:, :, 0]
+             - (start[:, None] - self.swing_activation_distance_m))
+            / (self.swing_activation_distance_m + self.swing_insertion_m)
+        ).clamp(0.0, 1.0)
+        swing = torch.sqrt(lift * reach) * expected * unloaded * opposite_supported
+        swing = swing.amax(dim=1)
+        swing = torch.where(in_task & (self.candidate_foot < 0), swing, 0.0)
+        self.last_swing_progress.copy_(swing - self.swing_potential)
+        self.swing_potential.copy_(swing)
+
+        # Touchdown owns this target before body-transfer evaluation begins.
+        no_candidate = self.candidate_foot < 0
+        self.pending_time = torch.where(
+            landing & no_candidate[:, None], self.pending_time + dt, 0.0
+        )
+        ready = self.pending_time >= self.touchdown_dwell_s
         unique = ready.sum(dim=1) == 1
         foot = ready.to(torch.long).argmax(dim=1)
         allowed = (self.last_foot < 0) | (foot != self.last_foot)
-        attempted = ready.any(dim=1) & active & (target < self.step_count)
+        attempted = ready.any(dim=1) & no_candidate & in_task
         invalid = attempted & (~unique | ~allowed)
+        latch = attempted & unique & allowed
+        self.candidate_foot = torch.where(latch, foot, self.candidate_foot)
+        self.pending_time[latch] = 0.0
+
+        rows = torch.arange(active.shape[0], device=active.device)
+        candidate = self.candidate_foot >= 0
+        candidate_index = self.candidate_foot.clamp_min(0)
+        candidate_supported = candidate & landing[rows, candidate_index]
+        other = 1 - candidate_index
+        invalid |= candidate & landing[rows, other]
         self.last_invalid.copy_(invalid & ~self.sequence_failed)
         self.sequence_failed |= invalid
-        credit = (
-            unique & allowed & active & ~self.sequence_failed
-            & (target < self.step_count)
+
+        lost = candidate & (~candidate_supported | ~in_task)
+        self.candidate_foot[lost] = -1
+        self.transfer_time[lost] = 0.0
+
+        candidate = self.candidate_foot >= 0
+        candidate_index = self.candidate_foot.clamp_min(0)
+        total_force = forces_z.sum(dim=1).clamp_min(1.0)
+        candidate_share = forces_z[rows, candidate_index] / total_force
+        upright = (roll_pitch.abs() <= self.maximum_roll_pitch_rad).all(dim=1)
+        transfer = (
+            candidate & ~self.sequence_failed & in_task
+            & (candidate_share >= self.minimum_load_share)
+            & (body_x >= start + self.transfer_margin_m) & upright
         )
-        self.last_credit.copy_(credit)
-        old = target.clone()
-        self.first |= credit & (old == 0)
-        self.second |= credit & (old == 1)
-        self.third |= credit & (old == 2)
-        self.last_foot = torch.where(credit, foot, self.last_foot)
-        self.next_step += credit.to(torch.long)
-        self.alternating_complete |= credit & (old == self.step_count - 1)
-        self.pending_time[credit] = 0.0
+        self.transfer_time = torch.where(transfer, self.transfer_time + dt, 0.0)
+        credit = transfer & (self.transfer_time + 1.0e-6 >= self.dwell_s)
+        self._complete(credit, candidate_index, target.clone())
         return credit
 
     def reset(self, ids):
         self.next_step[ids] = 0
         self.last_foot[ids] = -1
         self.pending_time[ids] = 0.0
+        self.candidate_foot[ids] = -1
+        self.transfer_time[ids] = 0.0
+        self.swing_potential[ids] = 0.0
+        self.last_swing_progress[ids] = 0.0
         self.first[ids] = False
         self.second[ids] = False
         self.third[ids] = False

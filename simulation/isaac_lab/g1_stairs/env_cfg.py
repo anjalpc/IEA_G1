@@ -1274,6 +1274,10 @@ class StairRewardsCfg:
         func=geometry_locomotion_rewards.supported_alternating_stair_acquisition,
         weight=0.0,
     )
+    supported_alternating_swing_progress = RewTerm(
+        func=geometry_locomotion_rewards.supported_alternating_swing_progress,
+        weight=0.0,
+    )
     invalid_alternating_stair_sequence = RewTerm(
         func=geometry_locomotion_rewards.invalid_alternating_stair_sequence,
         weight=0.0,

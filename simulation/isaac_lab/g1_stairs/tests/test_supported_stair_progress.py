@@ -113,22 +113,13 @@ class SupportedAscentTests(unittest.TestCase):
         s = SupportedAscent(
             1, "cpu", dwell_s=0.04, minimum_load_share=0.45,
             transfer_margin_m=0.05,
-            maximum_planar_speed_mps=0.60,
-            maximum_vertical_speed_mps=0.35,
-            maximum_angular_speed_radps=0.80,
-            maximum_foot_speed_mps=0.20,
             maximum_roll_pitch_rad=0.30,
         )
         bounds = torch.tensor([[[1.02, 1.20, -.03, .03, .04, .04],
                                 [0., 0., 0., 0., 0., 0.]]])
         active = torch.tensor([True])
         height = torch.tensor([.04])
-        controlled = dict(
-            body_velocity=torch.tensor([[.30, 0., 0.]]),
-            body_angular_velocity=torch.zeros((1, 3)),
-            roll_pitch=torch.zeros((1, 2)),
-            foot_speed=torch.tensor([[.10, .10]]),
-        )
+        controlled = dict(roll_pitch=torch.zeros((1, 2)))
 
         for _ in range(3):
             s.update(bounds, torch.tensor([[40., 160.]]), height,
@@ -142,15 +133,7 @@ class SupportedAscentTests(unittest.TestCase):
                      1., .25, .5, .02, active, body_x=torch.tensor([1.04]),
                      **controlled)
         self.assertEqual(s.next_step.item(), 0)
-
-        # An abrupt transfer also remains provisional.
-        abrupt = dict(controlled)
-        abrupt["body_velocity"] = torch.tensor([[.80, 0., 0.]])
-        for _ in range(2):
-            s.update(bounds, torch.tensor([[100., 100.]]), height,
-                     1., .25, .5, .02, active, body_x=torch.tensor([1.10]),
-                     **abrupt)
-        self.assertEqual(s.next_step.item(), 0)
+        self.assertEqual(s.candidate_foot.item(), 0)
 
         # Credit only after placement, load and body transfer persist together.
         for _ in range(2):
@@ -158,3 +141,54 @@ class SupportedAscentTests(unittest.TestCase):
                      1., .25, .5, .02, active, body_x=torch.tensor([1.05]),
                      **controlled)
         self.assertEqual(s.next_step.item(), 1)
+
+    def test_latched_foot_cannot_be_replaced_by_trailing_foot(self):
+        s = SupportedAscent(
+            1, "cpu", dwell_s=.04, touchdown_dwell_s=.04,
+            minimum_load_share=.45, transfer_margin_m=.05,
+        )
+        bounds = torch.tensor([[[1.02, 1.20, -.03, .03, .04, .04],
+                                [0., 0., 0., 0., 0., 0.]]])
+        forces = torch.tensor([[100., 100.]])
+        kwargs = dict(body_x=torch.tensor([1.02]),
+                      roll_pitch=torch.zeros((1, 2)))
+        for _ in range(2):
+            s.update(bounds, forces, torch.tensor([.04]), 1., .25, .5,
+                     .02, torch.tensor([True]), **kwargs)
+        self.assertEqual(s.candidate_foot.item(), 0)
+
+        bounds[0, 1] = bounds[0, 0]
+        s.update(bounds, forces, torch.tensor([.04]), 1., .25, .5,
+                 .02, torch.tensor([True]), **kwargs)
+        self.assertTrue(s.sequence_failed.item())
+        self.assertFalse(s.last_credit.item())
+
+    def test_swing_progress_is_spatial_reversible_and_expected_foot_only(self):
+        s = SupportedAscent(
+            1, "cpu", minimum_load_share=0.45, transfer_margin_m=0.05
+        )
+        bounds = torch.tensor([[[-.20, -.02, -.03, .03, .00, .00],
+                                [.80, .98, -.03, .03, .02, .02]]])
+        forces = torch.tensor([[100., 0.]])
+        active = torch.tensor([True])
+        kwargs = dict(
+            body_x=torch.tensor([.8]),
+            roll_pitch=torch.zeros((1, 2)),
+        )
+
+        s.update(bounds, forces, torch.tensor([.04]), 1., .25, .5, .02,
+                 active, **kwargs)
+        first = s.swing_potential.item()
+        self.assertGreater(first, 0.0)
+
+        bounds[0, 1, 0:2] += .10
+        bounds[0, 1, 4:6] += .03
+        s.update(bounds, forces, torch.tensor([.04]), 1., .25, .5, .02,
+                 active, **kwargs)
+        self.assertGreater(s.last_swing_progress.item(), 0.0)
+
+        bounds[0, 1, 0:2] -= .10
+        bounds[0, 1, 4:6] -= .03
+        s.update(bounds, forces, torch.tensor([.04]), 1., .25, .5, .02,
+                 active, **kwargs)
+        self.assertLess(s.last_swing_progress.item(), 0.0)

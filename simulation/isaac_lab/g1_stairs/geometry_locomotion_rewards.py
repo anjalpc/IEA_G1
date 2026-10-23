@@ -536,6 +536,14 @@ def supported_alternating_stair_acquisition(env):
     return runtime.supported_ascent.last_credit.to(torch.float32) / float(env.step_dt)
 
 
+def supported_alternating_swing_progress(env):
+    """Reversible spatial progress of the expected foot toward the next tread."""
+    runtime = getattr(env, "_g1_geometry_episode", None)
+    if runtime is None:
+        return torch.zeros(env.num_envs, device=env.device)
+    return runtime.supported_ascent.last_swing_progress / float(env.step_dt)
+
+
 def invalid_alternating_stair_sequence(env):
     """One-shot event when the wrong or both feet acquire the next tread."""
     runtime = getattr(env, "_g1_geometry_episode", None)

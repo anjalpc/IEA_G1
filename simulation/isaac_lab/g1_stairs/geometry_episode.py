@@ -47,8 +47,11 @@ class EpisodeContract:
     training_recovery_s: float = 0.0
     training_permissive_contact: bool = False
     supported_ascent_dwell_s: float = 0.10
+    supported_ascent_touchdown_dwell_s: float = 0.04
     supported_ascent_minimum_load_share: float = 0.0
     supported_ascent_transfer_margin_m: float = 0.0
+    # Parsed only so historical resolved configs remain reproducible. The
+    # spatial-transfer experiment does not use velocity as qualification.
     supported_ascent_max_planar_speed_mps: float = 1000.0
     supported_ascent_max_vertical_speed_mps: float = 1000.0
     supported_ascent_max_angular_speed_radps: float = 1000.0
