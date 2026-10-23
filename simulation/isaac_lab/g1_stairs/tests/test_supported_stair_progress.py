@@ -108,3 +108,53 @@ class SupportedAscentTests(unittest.TestCase):
             s.update(b, torch.tensor([[200., 0.]]), torch.tensor([.04]),
                      1., .25, .5, .02, torch.tensor([True]))
         self.assertEqual(s.next_step.item(), 0)
+
+    def test_credit_requires_sustained_weight_transfer_when_configured(self):
+        s = SupportedAscent(
+            1, "cpu", dwell_s=0.04, minimum_load_share=0.45,
+            transfer_margin_m=0.05,
+            maximum_planar_speed_mps=0.60,
+            maximum_vertical_speed_mps=0.35,
+            maximum_angular_speed_radps=0.80,
+            maximum_foot_speed_mps=0.20,
+            maximum_roll_pitch_rad=0.30,
+        )
+        bounds = torch.tensor([[[1.02, 1.20, -.03, .03, .04, .04],
+                                [0., 0., 0., 0., 0., 0.]]])
+        active = torch.tensor([True])
+        height = torch.tensor([.04])
+        controlled = dict(
+            body_velocity=torch.tensor([[.30, 0., 0.]]),
+            body_angular_velocity=torch.zeros((1, 3)),
+            roll_pitch=torch.zeros((1, 2)),
+            foot_speed=torch.tensor([[.10, .10]]),
+        )
+
+        for _ in range(3):
+            s.update(bounds, torch.tensor([[40., 160.]]), height,
+                     1., .25, .5, .02, active, body_x=torch.tensor([1.10]),
+                     **controlled)
+        self.assertEqual(s.next_step.item(), 0)
+
+        # Adequate load without body transfer remains provisional.
+        for _ in range(2):
+            s.update(bounds, torch.tensor([[100., 100.]]), height,
+                     1., .25, .5, .02, active, body_x=torch.tensor([1.04]),
+                     **controlled)
+        self.assertEqual(s.next_step.item(), 0)
+
+        # An abrupt transfer also remains provisional.
+        abrupt = dict(controlled)
+        abrupt["body_velocity"] = torch.tensor([[.80, 0., 0.]])
+        for _ in range(2):
+            s.update(bounds, torch.tensor([[100., 100.]]), height,
+                     1., .25, .5, .02, active, body_x=torch.tensor([1.10]),
+                     **abrupt)
+        self.assertEqual(s.next_step.item(), 0)
+
+        # Credit only after placement, load and body transfer persist together.
+        for _ in range(2):
+            s.update(bounds, torch.tensor([[100., 100.]]), height,
+                     1., .25, .5, .02, active, body_x=torch.tensor([1.05]),
+                     **controlled)
+        self.assertEqual(s.next_step.item(), 1)

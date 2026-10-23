@@ -46,6 +46,14 @@ class EpisodeContract:
     single_acquisition_success: bool = False
     training_recovery_s: float = 0.0
     training_permissive_contact: bool = False
+    supported_ascent_dwell_s: float = 0.10
+    supported_ascent_minimum_load_share: float = 0.0
+    supported_ascent_transfer_margin_m: float = 0.0
+    supported_ascent_max_planar_speed_mps: float = 1000.0
+    supported_ascent_max_vertical_speed_mps: float = 1000.0
+    supported_ascent_max_angular_speed_radps: float = 1000.0
+    supported_ascent_max_foot_speed_mps: float = 1000.0
+    supported_ascent_max_roll_pitch_rad: float = 0.8
     finish_sole_margin_m: float = 0.05
     finish_max_linear_speed_mps: float = 0.15
     finish_max_angular_speed_radps: float = 0.30
@@ -67,6 +75,12 @@ class EpisodeContract:
             raise ValueError("permissive contact training cannot combine with bounded recovery")
         if not math.isfinite(self.training_recovery_s) or self.training_recovery_s < 0:
             raise ValueError("training_recovery_s must be finite and nonnegative")
+        if not math.isfinite(self.supported_ascent_dwell_s) or self.supported_ascent_dwell_s <= 0:
+            raise ValueError("supported_ascent_dwell_s must be finite and positive")
+        if not 0.0 <= self.supported_ascent_minimum_load_share <= 1.0:
+            raise ValueError("supported_ascent_minimum_load_share must be in [0, 1]")
+        if not math.isfinite(self.supported_ascent_transfer_margin_m) or self.supported_ascent_transfer_margin_m < 0:
+            raise ValueError("supported_ascent_transfer_margin_m must be finite and nonnegative")
         if self.training_recovery_s and not self.strict_stair_gait:
             raise ValueError("training recovery requires strict stair gait")
         if self.single_acquisition_success and not self.strict_stair_gait:
@@ -80,6 +94,8 @@ class EpisodeContract:
                 "single_acquisition_success",
                 "training_recovery_s",
                 "training_permissive_contact",
+                "supported_ascent_minimum_load_share",
+                "supported_ascent_transfer_margin_m",
             ):
                 continue
             if not math.isfinite(value) or value <= 0:
@@ -88,6 +104,8 @@ class EpisodeContract:
             raise ValueError("maximum_roll_pitch_rad must be below pi/2")
         if self.finish_max_roll_pitch_rad > self.maximum_roll_pitch_rad:
             raise ValueError("finish tilt limit must not exceed fall tilt limit")
+        if self.supported_ascent_max_roll_pitch_rad > self.maximum_roll_pitch_rad:
+            raise ValueError("supported-ascent tilt limit must not exceed fall tilt limit")
 
 
 def strict_evaluation_contract(settings=None):

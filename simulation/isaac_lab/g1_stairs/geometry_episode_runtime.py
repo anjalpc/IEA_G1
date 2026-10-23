@@ -61,7 +61,19 @@ class GeometryEpisodeRuntime:
         self.last_completed = None
         self.sole_centres = torch.tensor(G1_SOLE_SPHERE_CENTRES_M, device=env.device)
         from .supported_stair_progress import SupportedAscent
-        self.supported_ascent = SupportedAscent(env.num_envs, env.device, cfg.step_count)
+        self.supported_ascent = SupportedAscent(
+            env.num_envs,
+            env.device,
+            cfg.step_count,
+            dwell_s=self.contract.supported_ascent_dwell_s,
+            minimum_load_share=self.contract.supported_ascent_minimum_load_share,
+            transfer_margin_m=self.contract.supported_ascent_transfer_margin_m,
+            maximum_planar_speed_mps=self.contract.supported_ascent_max_planar_speed_mps,
+            maximum_vertical_speed_mps=self.contract.supported_ascent_max_vertical_speed_mps,
+            maximum_angular_speed_radps=self.contract.supported_ascent_max_angular_speed_radps,
+            maximum_foot_speed_mps=self.contract.supported_ascent_max_foot_speed_mps,
+            maximum_roll_pitch_rad=self.contract.supported_ascent_max_roll_pitch_rad,
+        )
         self.supported_ascent_counts = torch.zeros((len(self.heights), 4), dtype=torch.long, device=env.device)
 
     def update(self, env):
@@ -86,14 +98,11 @@ class GeometryEpisodeRuntime:
         cross = 2 * torch.cross(qv, v, dim=-1)
         rotated = v + fq[:, :, None, :1] * cross + torch.cross(qv, cross, dim=-1)
         finish_state = {}
-        sole_bounds = None
-        sole_surface_velocity = None
-        if self.contract.stable_finish or self.strict_gait is not None:
-            from .motion_reference import sole_state
-            _, sole_bounds, sole_surface_velocity = sole_state(
-                feet, fq, data.body_lin_vel_w[:, self.robot_feet],
-                data.body_ang_vel_w[:, self.robot_feet],
-            )
+        from .motion_reference import sole_state
+        _, sole_bounds, sole_surface_velocity = sole_state(
+            feet, fq, data.body_lin_vel_w[:, self.robot_feet],
+            data.body_ang_vel_w[:, self.robot_feet],
+        )
         if self.contract.stable_finish:
             finish_state = {
                 "sole_bounds": sole_bounds,
@@ -260,6 +269,15 @@ class GeometryEpisodeRuntime:
             float(env.step_dt),
             reason == Result.RUNNING,
             invalid_contact=supported_invalid_contact,
+            body_x=position[:, 0],
+            body_velocity=data.root_lin_vel_w,
+            body_angular_velocity=data.root_ang_vel_w,
+            roll_pitch=torch.stack((roll, pitch), dim=-1),
+            foot_speed=(
+                torch.linalg.vector_norm(sole_surface_velocity, dim=-1)
+                .amax(dim=-1)
+                if sole_surface_velocity is not None else None
+            ),
         )
         self._record_joint_limit_diagnostics(env, data, limits, reason)
         return reason

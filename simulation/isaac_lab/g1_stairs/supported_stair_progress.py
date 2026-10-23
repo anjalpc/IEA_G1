@@ -5,9 +5,30 @@ import torch
 class SupportedAscent:
     """One credited, supported new tread per step; alternate feet across treads."""
 
-    def __init__(self, num_envs, device, step_count=3, dwell_s=0.10):
+    def __init__(
+        self, num_envs, device, step_count=3, dwell_s=0.10,
+        minimum_load_share=0.0, transfer_margin_m=0.0,
+        maximum_planar_speed_mps=1000.0,
+        maximum_vertical_speed_mps=1000.0,
+        maximum_angular_speed_radps=1000.0,
+        maximum_foot_speed_mps=1000.0,
+        maximum_roll_pitch_rad=0.8,
+    ):
+        if dwell_s <= 0:
+            raise ValueError("dwell_s must be positive")
+        if not 0.0 <= minimum_load_share <= 1.0:
+            raise ValueError("minimum_load_share must be in [0, 1]")
+        if transfer_margin_m < 0:
+            raise ValueError("transfer_margin_m must be nonnegative")
         self.step_count = step_count
         self.dwell_s = dwell_s
+        self.minimum_load_share = minimum_load_share
+        self.transfer_margin_m = transfer_margin_m
+        self.maximum_planar_speed_mps = maximum_planar_speed_mps
+        self.maximum_vertical_speed_mps = maximum_vertical_speed_mps
+        self.maximum_angular_speed_radps = maximum_angular_speed_radps
+        self.maximum_foot_speed_mps = maximum_foot_speed_mps
+        self.maximum_roll_pitch_rad = maximum_roll_pitch_rad
         self.next_step = torch.zeros(num_envs, device=device, dtype=torch.long)
         self.last_foot = torch.full((num_envs,), -1, device=device, dtype=torch.long)
         self.pending_time = torch.zeros((num_envs, 2), device=device)
@@ -19,7 +40,12 @@ class SupportedAscent:
         self.sequence_failed = torch.zeros_like(self.first)
         self.last_invalid = torch.zeros_like(self.first)
 
-    def update(self, sole_bounds, forces_z, heights, first_riser, tread, half_width, dt, active, invalid_contact=None):
+    def update(
+        self, sole_bounds, forces_z, heights, first_riser, tread,
+        half_width, dt, active, invalid_contact=None, body_x=None,
+        body_velocity=None, body_angular_velocity=None, roll_pitch=None,
+        foot_speed=None,
+    ):
         """Call once per simulation step, before auto-reset.
 
         Requires substantial tread overlap, sole-bottom near tread height,
@@ -39,6 +65,36 @@ class SupportedAscent:
         start = first_riser + index.to(heights.dtype) * tread
         end = start + tread
         top = (index + 1).to(heights.dtype) * heights
+        load_share = forces_z / forces_z.sum(dim=1, keepdim=True).clamp_min(1.0)
+        if self.transfer_margin_m > 0.0:
+            if body_x is None or body_x.shape != active.shape:
+                raise ValueError(
+                    "body_x with shape [num_envs] is required for transfer"
+                )
+            body_transferred = body_x >= start + self.transfer_margin_m
+        else:
+            body_transferred = torch.ones_like(active)
+        controlled_inputs = (
+            body_velocity, body_angular_velocity, roll_pitch, foot_speed
+        )
+        if any(value is None for value in controlled_inputs) and not all(
+            value is None for value in controlled_inputs
+        ):
+            raise ValueError("controlled-transfer inputs must be supplied together")
+        if any(value is None for value in controlled_inputs):
+            controlled = torch.ones_like(active)
+            supported_foot_slow = torch.ones_like(forces_z, dtype=torch.bool)
+        else:
+            controlled = (
+                (torch.linalg.vector_norm(body_velocity[:, :2], dim=1)
+                 <= self.maximum_planar_speed_mps)
+                & (body_velocity[:, 2].abs()
+                   <= self.maximum_vertical_speed_mps)
+                & (torch.linalg.vector_norm(body_angular_velocity, dim=1)
+                   <= self.maximum_angular_speed_radps)
+                & (roll_pitch.abs() <= self.maximum_roll_pitch_rad).all(dim=1)
+            )
+            supported_foot_slow = foot_speed <= self.maximum_foot_speed_mps
         eligible = (
             (target < self.step_count)[:, None]
             & active[:, None]
@@ -52,6 +108,10 @@ class SupportedAscent:
             & ((sole_bounds[:, :, 4] - top[:, None]).abs() <= 0.025)
             & (sole_bounds[:, :, 5] <= top[:, None] + 0.05)
             & (forces_z >= 30.0)
+            & (load_share >= self.minimum_load_share)
+            & body_transferred[:, None]
+            & controlled[:, None]
+            & supported_foot_slow
         )
         self.pending_time = torch.where(eligible, self.pending_time + dt, 0.0)
         ready = self.pending_time >= self.dwell_s

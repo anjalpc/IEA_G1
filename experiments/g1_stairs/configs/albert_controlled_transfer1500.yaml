@@ -1,0 +1,37 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/albert_model1200_approach_overspeed.yaml
+  resolved_config_required: true
+
+experiment:
+  id: albert_controlled_transfer1500
+  purpose: Require supported alternating transfers without velocity-driven stair rushing.
+  type: controlled_supported_alternating_ascent
+  meaningful_stair_training: true
+
+execution:
+  maximum_iterations: 1500
+
+episode_contract:
+  supported_ascent_dwell_s: 0.20
+  supported_ascent_minimum_load_share: 0.45
+  supported_ascent_transfer_margin_m: 0.05
+  supported_ascent_max_planar_speed_mps: 0.60
+  supported_ascent_max_vertical_speed_mps: 0.35
+  supported_ascent_max_angular_speed_radps: 0.80
+  supported_ascent_max_foot_speed_mps: 0.20
+  supported_ascent_max_roll_pitch_rad: 0.30
+
+reward_experiment:
+  rewards:
+    stage_plan:
+      albert_clean_step_finish:
+        supported_alternating_stair_acquisition: 1.0
+        joint_deviation_arms: -0.20
+        planar_body_velocity_change: -0.15
+        approach_overspeed: -0.50
+
+reward_parameters:
+  track_stair_axis_velocity:
+    ascent_scale: 0.0
