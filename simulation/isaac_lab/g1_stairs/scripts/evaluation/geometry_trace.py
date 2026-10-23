@@ -257,6 +257,7 @@ class GeometryTrace:
                 "last_foot": int(progress.last_foot[0].item()),
                 "pending_time_s": self.values(progress.pending_time[0]),
                 "candidate_foot": int(progress.candidate_foot[0].item()),
+                "transfer_blocked": bool(progress.transfer_blocked[0].item()),
                 "transfer_time_s": float(progress.transfer_time[0].item()),
                 "transfer_start_potential": float(
                     progress.transfer_start_potential[0].item()

@@ -142,7 +142,7 @@ class SupportedAscentTests(unittest.TestCase):
                      **controlled)
         self.assertEqual(s.next_step.item(), 1)
 
-    def test_latched_foot_cannot_be_replaced_by_trailing_foot(self):
+    def test_trailing_foot_pauses_transfer_without_replacing_candidate(self):
         s = SupportedAscent(
             1, "cpu", dwell_s=.04, touchdown_dwell_s=.04,
             minimum_load_share=.45, transfer_margin_m=.05,
@@ -160,8 +160,20 @@ class SupportedAscentTests(unittest.TestCase):
         bounds[0, 1] = bounds[0, 0]
         s.update(bounds, forces, torch.tensor([.04]), 1., .25, .5,
                  .02, torch.tensor([True]), **kwargs)
-        self.assertTrue(s.sequence_failed.item())
+        self.assertFalse(s.sequence_failed.item())
+        self.assertTrue(s.transfer_blocked.item())
+        self.assertEqual(s.candidate_foot.item(), 0)
         self.assertFalse(s.last_credit.item())
+
+        # Removing the trailing foot resumes the same latched transfer.
+        bounds[0, 1].zero_()
+        forces[0, 1] = 0.0
+        kwargs["body_x"] = torch.tensor([1.05])
+        for _ in range(2):
+            s.update(bounds, forces, torch.tensor([.04]), 1., .25, .5,
+                     .02, torch.tensor([True]), **kwargs)
+        self.assertFalse(s.transfer_blocked.item())
+        self.assertEqual(s.next_step.item(), 1)
 
     def test_swing_progress_is_spatial_reversible_and_expected_foot_only(self):
         s = SupportedAscent(

@@ -37,6 +37,7 @@ class SupportedAscent:
         self.pending_time = torch.zeros((num_envs, 2), device=device)
         self.candidate_foot = torch.full_like(self.last_foot, -1)
         self.transfer_time = torch.zeros(num_envs, device=device)
+        self.transfer_blocked = torch.zeros(num_envs, device=device, dtype=torch.bool)
         self.swing_potential = torch.zeros(num_envs, device=device)
         self.transfer_start_potential = torch.zeros(num_envs, device=device)
         self.last_swing_progress = torch.zeros(num_envs, device=device)
@@ -59,6 +60,7 @@ class SupportedAscent:
         self.pending_time[credit] = 0.0
         self.candidate_foot[credit] = -1
         self.transfer_time[credit] = 0.0
+        self.transfer_blocked[credit] = False
         self.transfer_start_potential[credit] = 0.0
 
     def update(
@@ -74,6 +76,7 @@ class SupportedAscent:
             self.pending_time.zero_()
             self.candidate_foot.fill_(-1)
             self.transfer_time.zero_()
+            self.transfer_blocked.zero_()
             self.swing_potential.zero_()
             self.transfer_start_potential.zero_()
             return torch.zeros_like(active)
@@ -163,13 +166,16 @@ class SupportedAscent:
         candidate_index = self.candidate_foot.clamp_min(0)
         candidate_supported = candidate & landing[rows, candidate_index]
         other = 1 - candidate_index
-        invalid |= candidate & landing[rows, other]
+        trailing_on_target = candidate & landing[rows, other]
+        invalid |= trailing_on_target & ~self.transfer_blocked
+        self.transfer_blocked.copy_(trailing_on_target)
         self.last_invalid.copy_(invalid & ~self.sequence_failed)
-        self.sequence_failed |= invalid
+        self.sequence_failed |= invalid & ~trailing_on_target
 
         lost = candidate & (~candidate_supported | ~in_task)
         self.candidate_foot[lost] = -1
         self.transfer_time[lost] = 0.0
+        self.transfer_blocked[lost] = False
         self.transfer_start_potential[lost] = 0.0
 
         candidate = self.candidate_foot >= 0
@@ -200,7 +206,7 @@ class SupportedAscent:
         self.last_swing_progress.copy_(potential - self.swing_potential)
         self.swing_potential.copy_(potential)
         transfer = (
-            candidate & ~self.sequence_failed & in_task
+            candidate & ~self.sequence_failed & ~self.transfer_blocked & in_task
             & (candidate_share >= self.minimum_load_share)
             & (body_x >= start + self.transfer_margin_m) & upright
         )
@@ -215,6 +221,7 @@ class SupportedAscent:
         self.pending_time[ids] = 0.0
         self.candidate_foot[ids] = -1
         self.transfer_time[ids] = 0.0
+        self.transfer_blocked[ids] = False
         self.swing_potential[ids] = 0.0
         self.transfer_start_potential[ids] = 0.0
         self.last_swing_progress[ids] = 0.0
