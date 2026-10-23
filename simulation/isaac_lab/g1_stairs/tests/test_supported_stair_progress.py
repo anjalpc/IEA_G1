@@ -192,3 +192,38 @@ class SupportedAscentTests(unittest.TestCase):
         s.update(bounds, forces, torch.tensor([.04]), 1., .25, .5, .02,
                  active, **kwargs)
         self.assertLess(s.last_swing_progress.item(), 0.0)
+
+    def test_touchdown_continues_into_reversible_body_transfer(self):
+        s = SupportedAscent(
+            1, "cpu", dwell_s=.20, touchdown_dwell_s=.04,
+            minimum_load_share=.45, transfer_margin_m=.05,
+            maximum_roll_pitch_rad=.30,
+        )
+        bounds = torch.tensor([[[1.02, 1.20, -.03, .03, .04, .04],
+                                [.70, .88, -.03, .03, .00, .00]]])
+        active = torch.tensor([True])
+        common = dict(
+            heights=torch.tensor([.04]), first_riser=1., tread=.25,
+            half_width=.5, dt=.02, active=active,
+            roll_pitch=torch.zeros((1, 2)),
+        )
+
+        # Valid touchdown latches the foot without erasing earned swing progress.
+        for _ in range(2):
+            s.update(bounds, torch.tensor([[60., 140.]]),
+                     body_x=torch.tensor([.96]), **common)
+        at_touchdown = s.swing_potential.item()
+        self.assertEqual(s.candidate_foot.item(), 0)
+        self.assertGreater(at_touchdown, 0.0)
+
+        # Loading the planted foot and moving the pelvis over it is rewarded.
+        s.update(bounds, torch.tensor([[100., 100.]]),
+                 body_x=torch.tensor([1.03]), **common)
+        transferred = s.swing_potential.item()
+        self.assertGreater(transferred, at_touchdown)
+        self.assertGreater(s.last_swing_progress.item(), 0.0)
+
+        # Recoiling loses the same dense progress; it cannot be farmed.
+        s.update(bounds, torch.tensor([[60., 140.]]),
+                 body_x=torch.tensor([.96]), **common)
+        self.assertLess(s.last_swing_progress.item(), 0.0)

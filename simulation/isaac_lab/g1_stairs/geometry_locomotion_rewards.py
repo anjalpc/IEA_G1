@@ -537,7 +537,7 @@ def supported_alternating_stair_acquisition(env):
 
 
 def supported_alternating_swing_progress(env):
-    """Reversible spatial progress of the expected foot toward the next tread."""
+    """Reversible swing and body-transfer progress toward the next tread."""
     runtime = getattr(env, "_g1_geometry_episode", None)
     if runtime is None:
         return torch.zeros(env.num_envs, device=env.device)

@@ -26,6 +26,7 @@ reward_experiment:
       albert_clean_step_finish:
         supported_alternating_swing_progress: 0.50
         supported_alternating_stair_acquisition: 1.0
+        geometry_failure_termination_event: -1.0
         joint_deviation_arms: -0.50
         planar_body_velocity_change: -0.50
         approach_overspeed: -0.50

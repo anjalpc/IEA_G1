@@ -258,6 +258,10 @@ class GeometryTrace:
                 "pending_time_s": self.values(progress.pending_time[0]),
                 "candidate_foot": int(progress.candidate_foot[0].item()),
                 "transfer_time_s": float(progress.transfer_time[0].item()),
+                "transfer_start_potential": float(
+                    progress.transfer_start_potential[0].item()
+                ),
+                "motion_potential": float(progress.swing_potential[0].item()),
                 "swing_potential": float(progress.swing_potential[0].item()),
                 "swing_progress": float(progress.last_swing_progress[0].item()),
                 "first": bool(progress.first[0].item()),

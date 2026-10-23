@@ -38,6 +38,7 @@ class SupportedAscent:
         self.candidate_foot = torch.full_like(self.last_foot, -1)
         self.transfer_time = torch.zeros(num_envs, device=device)
         self.swing_potential = torch.zeros(num_envs, device=device)
+        self.transfer_start_potential = torch.zeros(num_envs, device=device)
         self.last_swing_progress = torch.zeros(num_envs, device=device)
         self.first = torch.zeros(num_envs, device=device, dtype=torch.bool)
         self.second = torch.zeros_like(self.first)
@@ -58,6 +59,7 @@ class SupportedAscent:
         self.pending_time[credit] = 0.0
         self.candidate_foot[credit] = -1
         self.transfer_time[credit] = 0.0
+        self.transfer_start_potential[credit] = 0.0
 
     def update(
         self, sole_bounds, forces_z, heights, first_riser, tread,
@@ -73,6 +75,7 @@ class SupportedAscent:
             self.candidate_foot.fill_(-1)
             self.transfer_time.zero_()
             self.swing_potential.zero_()
+            self.transfer_start_potential.zero_()
             return torch.zeros_like(active)
         if invalid_contact is None:
             invalid_contact = torch.zeros_like(active)
@@ -136,8 +139,6 @@ class SupportedAscent:
         swing = torch.sqrt(lift * reach) * expected * unloaded * opposite_supported
         swing = swing.amax(dim=1)
         swing = torch.where(in_task & (self.candidate_foot < 0), swing, 0.0)
-        self.last_swing_progress.copy_(swing - self.swing_potential)
-        self.swing_potential.copy_(swing)
 
         # Touchdown owns this target before body-transfer evaluation begins.
         no_candidate = self.candidate_foot < 0
@@ -152,6 +153,9 @@ class SupportedAscent:
         invalid = attempted & (~unique | ~allowed)
         latch = attempted & unique & allowed
         self.candidate_foot = torch.where(latch, foot, self.candidate_foot)
+        self.transfer_start_potential = torch.where(
+            latch, swing, self.transfer_start_potential
+        )
         self.pending_time[latch] = 0.0
 
         rows = torch.arange(active.shape[0], device=active.device)
@@ -166,12 +170,35 @@ class SupportedAscent:
         lost = candidate & (~candidate_supported | ~in_task)
         self.candidate_foot[lost] = -1
         self.transfer_time[lost] = 0.0
+        self.transfer_start_potential[lost] = 0.0
 
         candidate = self.candidate_foot >= 0
         candidate_index = self.candidate_foot.clamp_min(0)
         total_force = forces_z.sum(dim=1).clamp_min(1.0)
         candidate_share = forces_z[rows, candidate_index] / total_force
-        upright = (roll_pitch.abs() <= self.maximum_roll_pitch_rad).all(dim=1)
+        maximum_tilt = roll_pitch.abs().amax(dim=1)
+        upright = maximum_tilt <= self.maximum_roll_pitch_rad
+        load_progress = (
+            (candidate_share - 0.15)
+            / max(self.minimum_load_share - 0.15, 1.0e-6)
+        ).clamp(0.0, 1.0)
+        body_progress = (
+            (body_x - (start - 0.10))
+            / (self.transfer_margin_m + 0.10)
+        ).clamp(0.0, 1.0)
+        upright_progress = (
+            1.0 - maximum_tilt / self.maximum_roll_pitch_rad
+        ).clamp(0.0, 1.0)
+        transfer_quality = torch.pow(
+            load_progress * body_progress * upright_progress, 1.0 / 3.0
+        )
+        transfer_potential = self.transfer_start_potential + (
+            1.0 - self.transfer_start_potential
+        ) * transfer_quality
+        potential = torch.where(candidate & candidate_supported, transfer_potential, swing)
+        potential = torch.where(in_task & ~self.sequence_failed, potential, 0.0)
+        self.last_swing_progress.copy_(potential - self.swing_potential)
+        self.swing_potential.copy_(potential)
         transfer = (
             candidate & ~self.sequence_failed & in_task
             & (candidate_share >= self.minimum_load_share)
@@ -189,6 +216,7 @@ class SupportedAscent:
         self.candidate_foot[ids] = -1
         self.transfer_time[ids] = 0.0
         self.swing_potential[ids] = 0.0
+        self.transfer_start_potential[ids] = 0.0
         self.last_swing_progress[ids] = 0.0
         self.first[ids] = False
         self.second[ids] = False
