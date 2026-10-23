@@ -1,0 +1,25 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/albert_model1200_approach_overspeed.yaml
+  resolved_config_required: true
+
+experiment:
+  id: albert_model1200_strict_body_control
+  purpose: Tighten heading, angular motion, approach overspeed, and planar smoothness while retaining alternating stair acquisition.
+  type: supported_alternating_ascent_and_finish
+  meaningful_stair_training: true
+
+reward_experiment:
+  rewards:
+    stage_plan:
+      albert_clean_step_finish:
+        body_heading_guard: -1.50
+        base_angular_velocity: -0.15
+        planar_body_velocity_change: -0.75
+        approach_overspeed: -1.00
+
+reward_parameters:
+  body_heading_guard:
+    free_yaw_rad: 0.05
+    zero_at_yaw_rad: 0.90
