@@ -1,0 +1,690 @@
+schema_version: 1
+code:
+  project_branch: g1-stair-rl
+  project_commit: resolved_from_clean_worktree_at_launch
+  require_clean_worktree: true
+  unitree_rl_lab_commit: 4960b84732b0c2ec593dccbfe963fda1bcd7b1e3
+software:
+  isaac_sim: 5.1.0
+  isaac_lab_release: 2.3.0
+  isaac_lab_tag: v2.3.0
+  isaac_lab_commit: 3c6e67bb5c7ada942a6d1884ab69338f57596f77
+  rsl_rl: 3.0.1
+execution:
+  provider: aws
+  instance_type: g6.4xlarge
+  device: cuda:0
+  headless: true
+  environments: 2048
+  maximum_iterations: 1500
+  training_seed: 42
+  evaluation_seeds:
+  - 1001
+  - 1002
+  - 1003
+  - 1004
+  - 1005
+  deterministic_torch: false
+task:
+  id: Unitree-IEA-G1-29dof-Stairs-v0
+  custom_stair_task_active: true
+  episode_length_s: 18.0
+  objective: Learn genuine ascent of the exact fixed nominal staircase
+robot:
+  variant: G1_EDU_U7
+  mode_machine: 5
+  policy_dofs: 29
+  asset: UNITREE_G1_29DOF_CFG
+  asset_revision: resolved_from_pinned_unitree_rl_lab
+  brainco_hands:
+    physically_present_on_robot: true
+    included_in_this_debug_asset: false
+    locomotion_action_channels: 0
+    required_before_final_training: true
+timing:
+  physics_timestep_s: 0.005
+  physics_frequency_hz: 200
+  decimation: 4
+  control_timestep_s: 0.02
+  control_frequency_hz: 50
+  policy_frequency_hz: 50
+  observation_latency_s: 0.0
+  action_latency_s: 0.0
+observations:
+  history_length: 5
+  corruption_enabled: false
+  concatenated: true
+  policy_order:
+  - base_angular_velocity
+  - projected_gravity
+  - velocity_command
+  - joint_position_offset
+  - joint_velocity
+  - previous_action
+  - local_terrain_height_scan
+  additions:
+    local_terrain_height_scan:
+      frame: yaw_aligned_robot_frame
+      clipping:
+      - -1.0
+      - 1.0
+      sensor: height_scanner
+      actor_input: true
+      critic_input: true
+  deployment_warning: Local terrain height scan requires an explicitly defined deployable
+    sensing source before hardware promotion
+  action_history_included: true
+  terrain_scan_in_actor: false
+  terrain_scan_in_critic: true
+  explicit_stair_geometry:
+    enabled: true
+  preferred_foothold: false
+  gait_phase: false
+  actor_height_scan: false
+  preferred_transition_foot: false
+  preferred_foothold_ablation: false
+  coordinated_foothold_xyz: false
+  foot_riser_distance: true
+actions:
+  type: joint_position_offset
+  dimension: 29
+  scale: 0.25
+  clipping: resolved_from_upstream_environment
+  use_default_joint_offset: true
+  smoothing: none
+  joint_order:
+  - left_hip_pitch_joint
+  - right_hip_pitch_joint
+  - waist_yaw_joint
+  - left_hip_roll_joint
+  - right_hip_roll_joint
+  - waist_roll_joint
+  - left_hip_yaw_joint
+  - right_hip_yaw_joint
+  - waist_pitch_joint
+  - left_knee_joint
+  - right_knee_joint
+  - left_shoulder_pitch_joint
+  - right_shoulder_pitch_joint
+  - left_ankle_pitch_joint
+  - right_ankle_pitch_joint
+  - left_shoulder_roll_joint
+  - right_shoulder_roll_joint
+  - left_ankle_roll_joint
+  - right_ankle_roll_joint
+  - left_shoulder_yaw_joint
+  - right_shoulder_yaw_joint
+  - left_elbow_joint
+  - right_elbow_joint
+  - left_wrist_roll_joint
+  - right_wrist_roll_joint
+  - left_wrist_pitch_joint
+  - right_wrist_pitch_joint
+  - left_wrist_yaw_joint
+  - right_wrist_yaw_joint
+  expected_action_dimension: 29
+commands:
+  forward_velocity_mps: 0.5
+  lateral_velocity_mps:
+  - 0.0
+  - 0.0
+  yaw_velocity_radps:
+  - 0.0
+  - 0.0
+terrain:
+  type: fixed_three_step_ascent
+  direction: positive_x
+  course_size_m:
+  - 5.75
+  - 1.2
+  approach_length_m: 2.0
+  riser_height_m: 0.04
+  tread_depth_m: 0.25
+  step_count: 3
+  stair_run_m: 0.75
+  total_rise_m: 0.12
+  platform_length_m: 3.0
+  required_platform_continuation_m: 2.0
+  platform_starts_immediately_after_third_tread: true
+  collision_representation: non_overlapping_trimesh_boxes
+  horizontal_resolution_m: 0.05
+  vertical_resolution_m: 0.005
+  curriculum_enabled: false
+  curriculum:
+    enabled: false
+  riser_heights_m:
+  - 0.04
+reset_distribution:
+  base_pose: fixed
+  base_pose_offset: fixed_zero
+  base_velocity: fixed_zero
+  joint_position_scale:
+  - 1.0
+  - 1.0
+  joint_velocity_radps:
+  - 0.0
+  - 0.0
+domain_randomization:
+  enabled: false
+  rigid_body_material: false
+  added_mass: false
+  pushes: false
+  observation_noise: false
+  action_latency: false
+rewards:
+  aggregation: weighted_sum_per_step
+  clipping: none
+  always_logged:
+    forward_progress_raw:
+      formula: base_position_x_t_minus_base_position_x_previous
+      units: m_per_step
+      active_weight: 0.0
+    upward_progress_raw:
+      formula: positive_part_of_base_height_t_minus_base_height_previous
+      units: m_per_step
+      active_weight: 0.0
+    stair_progress_raw:
+      formula: maximum_step_index_reached_minus_previous_maximum_step_index
+      units: steps
+      active_weight: 0.0
+    platform_entry_raw:
+      formula: first_entry_onto_upper_platform
+      threshold_robot_relative_x_m: 1.75
+      active_weight: 0.0
+    task_completion_raw:
+      formula: first_crossing_of_required_post_stair_distance
+      threshold_robot_relative_x_m: 3.75
+      active_weight: 0.0
+    upright_raw:
+      formula: squared_xy_projected_gravity
+      interpretation: zero_when_upright_increases_with_tilt
+      active_weight: 0.0
+    forbidden_contact_raw:
+      formula: count_of_new_forbidden_contact_events
+      active_weight: 0.0
+    fall_raw:
+      formula: first_transition_into_fall_state
+      active_weight: 0.0
+    feet_clearance_raw:
+      formula: foot_clearance_tracking_error
+      active_weight: 0.0
+    feet_slip_raw:
+      formula: stance_foot_horizontal_slip_speed
+      active_weight: 0.0
+    joint_limit_raw:
+      formula: joint_limit_violation_magnitude
+      active_weight: 0.0
+    velocity_limit_raw:
+      formula: joint_velocity_limit_violation_magnitude
+      active_weight: 0.0
+    torque_limit_raw:
+      formula: actuator_torque_limit_violation_magnitude
+      active_weight: 0.0
+    action_rate_raw:
+      formula: squared_action_difference
+      active_weight: 0.0
+    joint_jerk_raw:
+      formula: finite_difference_joint_acceleration
+      active_weight: 0.0
+    mechanical_power_raw:
+      formula: sum_absolute_joint_torque_times_joint_velocity
+      active_weight: 0.0
+terminations:
+  inherited:
+  - timeout
+  - base_height_fall
+  - bad_orientation_fall
+  independent_stair_success_evaluator_active: false
+  reason: Simulator-independent evaluator exists; live Isaac Lab adapter remains required
+curriculum:
+  terrain_riser_height:
+    enabled: false
+    range_m:
+    - 0.05
+    - 0.2
+    initial_level: nominal_exact
+  command_curriculum:
+    enabled: false
+policy_initialization:
+  type: rsl_rl_checkpoint_actor_transfer
+  source:
+    task: albert_model1200_graded_acceleration_failure1500_20261026_095323
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/albert_model1200_graded_acceleration_failure1500_20261026_095323/model_1499.pt
+    sha256: aeb2f46613e2017247002778b02c0ed350286789dbf53fd5bb6d0a89e8869f9e
+  critic_initialization: fresh
+  optimizer_initialization: fresh
+ppo:
+  rollout_steps_per_environment: 24
+  actor_hidden_dimensions:
+  - 512
+  - 256
+  - 128
+  critic_hidden_dimensions:
+  - 512
+  - 256
+  - 128
+  activation: elu
+  initial_action_noise_std: 0.15
+  value_loss_coefficient: 1.0
+  clipped_value_loss: true
+  clip_range: 0.2
+  entropy_coefficient: 0.005
+  learning_epochs: 5
+  minibatches: 4
+  learning_rate: 3.0e-05
+  learning_rate_schedule: fixed
+  discount_gamma: 0.99
+  gae_lambda: 0.95
+  desired_kl: 0.01
+  maximum_gradient_norm: 1.0
+  observation_normalization: false
+checkpointing:
+  upstream_interval_iterations: 500
+  require_final_smoke_checkpoint: true
+  never_overwrite: true
+  attach_project_commit: true
+  attach_resolved_config: true
+  calculate_sha256: true
+  interval_iterations: 50
+  save_new_best_validation: true
+  preserve_optimizer_state: true
+  filename_fields:
+  - run_id
+  - iteration
+  - simulated_steps
+required_outputs:
+- resolved_config.yaml
+- run_manifest.yaml
+- console.log
+- environment.log
+- tensorboard
+- final_checkpoint
+- checkpoint_sha256
+acceptance:
+  isaac_sim_starts: true
+  task_registration_succeeds: true
+  gpu_is_used: true
+  observations_are_finite: true
+  actions_are_finite: true
+  checkpoint_is_written: true
+  logs_are_written: true
+  checkpoint_can_be_downloaded: true
+  simulator_error_count: 0
+  nan_count: 0
+  resets_succeed: true
+  action_dimension: 29
+start_pose:
+  distribution: fixed
+  terrain_origin_m:
+  - 1.0
+  - 0.6
+  - 0.0
+  base_height_from_robot_asset_m: 0.8
+  orientation_rpy_rad:
+  - 0.0
+  - 0.0
+  - 0.0
+  distance_before_first_riser_m: 1.0
+  lateral_offset_m: 0.0
+  position_randomization_m:
+  - 0.0
+  - 0.0
+  - 0.0
+  yaw_randomization_rad: 0.0
+hard_blockers:
+- nan_detected
+- infinity_detected
+- tensor_shape_mismatch
+- invalid_reset
+- unstable_physics
+- corrupted_checkpoint
+launch_gates:
+  independent_evaluator_implemented: true
+  essential_metrics_implemented: true
+  fixed_evaluation_cameras_implemented: true
+  aws_upstream_validation_passed: true
+  staircase_geometry_validation_passed: true
+  allow_launch: true
+metric_deferrals:
+  approximate_kl:
+    reason: RSL-RL 3.0.1 computes adaptive KL internally but does not expose it in
+      loss_dict
+    required_before: PPO ablation studies
+  clip_fraction:
+    reason: RSL-RL 3.0.1 does not expose clipped-sample fraction
+    required_before: PPO ablation studies
+  inactive_reward_components:
+    reason: Experiment A instantiates only forward and stair progress by design
+    required_before: activating the corresponding B-to-G reward stage
+  automatic_periodic_evaluation:
+    reason: Checkpoints are persisted every 50 iterations; independent evaluation
+      is launched separately
+    required_before: final multi-seed checkpoint selection
+success_definition:
+  independent_from_reward: true
+  requirements:
+    approach_staircase: true
+    ascend_step_1: true
+    ascend_step_2: true
+    ascend_step_3: true
+    reach_upper_platform: true
+    travel_after_final_step_m: 2.0
+    upright_dwell_s: 1.0
+    forbidden_contacts: false
+    joint_limit_violation: false
+    velocity_limit_violation: false
+    torque_limit_violation: false
+fall_definition:
+  any_of:
+    base_height_below_m: 0.45
+    absolute_roll_above_rad: 0.8
+    absolute_pitch_above_rad: 0.8
+    torso_contact: true
+    pelvis_contact: true
+    invalid_simulation_state: true
+failure_categories:
+  primary_priority_order:
+  - invalid_simulation_state
+  - fall
+  - torque_violation
+  - velocity_violation
+  - joint_violation
+  - forbidden_contact
+  - wrong_direction
+  - slip
+  - stall
+  - timeout
+  preserve_secondary_flags: true
+forbidden_contacts:
+- torso
+- pelvis
+- left_knee
+- right_knee
+- left_forearm
+- right_forearm
+- left_hand
+- right_hand
+evaluation:
+  interval_iterations: 50
+  episodes_per_seed: 20
+  screening_episode_total: 100
+  training_seeds_excluded: true
+  select_by_training_return: false
+  candidate_score_components:
+  - success_rate
+  - fall_rate
+  - forbidden_contact_rate
+  - constraint_compliance
+  - stability
+  - action_smoothness
+essential_metrics:
+  rewards:
+  - total
+  - every_raw_component
+  - every_weighted_component
+  outcomes:
+  - success
+  - fall
+  - timeout
+  - stall
+  - slip
+  - forbidden_contact
+  progress:
+  - maximum_x
+  - maximum_base_height
+  - maximum_step_reached
+  - platform_reached
+  - final_distance_after_platform
+  constraints:
+  - joint_limit_violations
+  - velocity_limit_violations
+  - torque_limit_violations
+  - action_saturation_count
+  motion:
+  - action_rate
+  - joint_jerk
+  - mechanical_power
+  ppo:
+  - policy_loss
+  - value_loss
+  - entropy
+  - approximate_kl
+  - clip_fraction
+  - learning_rate
+  performance:
+  - simulation_fps
+  - environment_steps_per_second
+  - gpu_memory
+  - wall_clock_time
+  - nan_count
+recording:
+  training_rendering: false
+  periodic_evaluation_video: true
+  camera_views:
+  - side
+  - front
+  - foot_close_up
+  - slow_motion_contact
+  associate_video_with_checkpoint: true
+stop_conditions:
+- any_nan_or_infinity
+- invalid_reset
+- unstable_physics
+- success_rate_not_improving_after_defined_review_window
+- reward_increases_while_safety_metrics_worsen
+- repeated_collision_exploitation
+_resolution:
+  sources_in_order:
+  - experiments/g1_stairs/configs/nominal_stairs_base.yaml
+  - experiments/g1_stairs/configs/albert_three04_reversible_clearance_strikefall500.yaml
+  - experiments/g1_stairs/configs/albert_clean_step_event1500.yaml
+  - experiments/g1_stairs/configs/albert_clean_step_finish1500.yaml
+  - experiments/g1_stairs/configs/albert_clean_ascent_step_finish1500.yaml
+  - experiments/g1_stairs/configs/albert_supported_ascent_finish1500.yaml
+  - experiments/g1_stairs/configs/albert_strong_arm_approach1500.yaml
+  - experiments/g1_stairs/configs/albert_model1200_approach_overspeed.yaml
+  - experiments/g1_stairs/configs/albert_model1200_graded_acceleration_failure1500.yaml
+  leaf_config: experiments/g1_stairs/configs/albert_model1200_graded_acceleration_failure1500.yaml
+experiment:
+  id: albert_model1499_stabilization1500
+  purpose: 'Model1499 actor continuation: stabilize heading, arms, supported ascent
+    and upper-platform finish.'
+  type: supported_alternating_ascent_and_finish
+  meaningful_stair_training: true
+gait:
+  enabled: false
+episode_contract:
+  enabled: true
+  platform_continuation_m: 0.2
+  supported_dwell_s: 1.0
+  minimum_base_clearance_m: 0.45
+  maximum_roll_pitch_rad: 0.8
+  forbidden_contact_force_n: 1.0
+  support_force_n: 30.0
+  sole_height_tolerance_m: 0.025
+  boundary_margin_m: 0.15
+  stall_duration_s: 2.0
+  progress_epsilon_m: 0.02
+  wrong_direction_tolerance_m: 0.25
+  stable_finish: true
+reward_experiment:
+  active_stage: albert_clean_step_finish
+  strict_runtime_set: true
+  rewards:
+    stage_plan:
+      geometry_locomotion_albert_single04:
+        track_lin_vel_xy: 1.0
+        track_ang_vel_z: 0.5
+        alive: 0.15
+        upright: -5.0
+        base_angular_velocity: -0.05
+        joint_vel: -0.001
+        joint_acc: -2.5e-07
+        action_rate: -0.05
+        dof_pos_limits: -5.0
+        energy: -2.0e-05
+        joint_deviation_arms: -0.1
+        joint_deviation_waists: -1.0
+        joint_deviation_legs: -1.0
+        gait: 0.5
+        feet_slide: -0.2
+        undesired_contacts: -1.0
+        forward_stall: 0.0
+      albert_flat050_axis_heading:
+        track_stair_axis_velocity: 1.0
+        track_ang_vel_z: 0.5
+        body_heading_guard: -0.1
+        alive: 0.15
+        upright: -5.0
+        base_angular_velocity: -0.05
+        joint_vel: -0.001
+        joint_acc: -2.5e-07
+        action_rate: -0.05
+        dof_pos_limits: -5.0
+        energy: -2.0e-05
+        joint_deviation_arms: -0.1
+        joint_deviation_waists: -1.0
+        joint_deviation_legs: -1.0
+        gait: 0.5
+        feet_slide: -0.2
+        undesired_contacts: -1.0
+        forward_stall: 0.0
+      albert_reversible_clearance_strikefall:
+        track_stair_axis_velocity: 1.0
+        track_ang_vel_z: 0.5
+        body_heading_guard: -0.1
+        alive: 0.15
+        upright: -5.0
+        base_angular_velocity: -0.05
+        joint_vel: -0.001
+        joint_acc: -2.5e-07
+        action_rate: -0.05
+        dof_pos_limits: -5.0
+        energy: -2.0e-05
+        joint_deviation_arms: -0.1
+        joint_deviation_waists: -1.0
+        joint_deviation_legs: -1.0
+        gait: 0.5
+        feet_slide: -0.2
+        undesired_contacts: -1.0
+        forward_stall: 0.0
+        meaningful_stride: 0.15
+        forward_foot_support: 0.15
+        lead_foot_switch: 0.02
+        proximity_gated_coupled_stall: -1.0
+        terrain_relative_clearance: 0.1
+        forward_insertion: 0.0
+        unresolved_riser_strike_fall_event: -0.5
+      albert_clean_step_event:
+        track_stair_axis_velocity: 1.0
+        track_ang_vel_z: 0.5
+        body_heading_guard: -0.1
+        alive: 0.15
+        upright: -5.0
+        base_angular_velocity: -0.05
+        joint_vel: -0.001
+        joint_acc: -2.5e-07
+        action_rate: -0.05
+        dof_pos_limits: -5.0
+        energy: -2.0e-05
+        joint_deviation_arms: -0.1
+        joint_deviation_waists: -1.0
+        joint_deviation_legs: -1.0
+        gait: 0.5
+        feet_slide: -0.2
+        undesired_contacts: -1.0
+        proximity_gated_coupled_stall: -1.0
+        terrain_relative_clearance: 0.1
+        forward_insertion: 0.0
+        unresolved_riser_strike_fall_event: -0.5
+        physical_step_event: 0.2
+      albert_clean_step_finish:
+        track_stair_axis_velocity: 1.0
+        track_ang_vel_z: 0.5
+        body_heading_guard: -0.1
+        alive: 0.15
+        upright: -5.0
+        base_angular_velocity: -0.05
+        joint_vel: -0.001
+        joint_acc: -2.5e-07
+        action_rate: -0.05
+        dof_pos_limits: -5.0
+        energy: -2.0e-05
+        joint_deviation_arms: -0.5
+        joint_deviation_waists: -1.0
+        joint_deviation_legs: -1.0
+        gait: 0.5
+        feet_slide: -0.2
+        undesired_contacts: -1.0
+        proximity_gated_coupled_stall: -1.0
+        terrain_relative_clearance: 0.1
+        forward_insertion: 0.0
+        unresolved_riser_strike_fall_event: -0.5
+        physical_step_event: 1.0
+        top_platform_success_event: 10.0
+        planar_body_velocity_change: -0.5
+        supported_alternating_stair_acquisition: 2.0
+        invalid_alternating_stair_sequence: -3.0
+        top_platform_settling_progress: 2.0
+        approach_overspeed: -2.0
+        geometry_failure_termination_event: -5.0
+reward_parameters:
+  forward_stall: null
+  track_stair_axis_velocity:
+    target_velocity_mps: 0.5
+    std_mps: 0.25
+  body_heading_guard:
+    free_yaw_rad: 0.1
+    zero_at_yaw_rad: 0.35
+  meaningful_stride: null
+  forward_foot_support: null
+  lead_foot_switch: null
+  proximity_gated_coupled_stall:
+    minimum_forward_speed_mps: 0.1
+    window_s: 0.5
+  terrain_relative_clearance:
+    insertion_start_before_riser_m: 0.18
+    insertion_clearance_fraction: 0.8
+    escrow_clearance_until_riser_crossing: false
+    reversible_clearance_potential: true
+    clearance_potential_discount_gamma: 0.99
+  forward_insertion:
+    insertion_start_before_riser_m: 0.18
+    insertion_clearance_fraction: 0.8
+    escrow_clearance_until_riser_crossing: false
+    reversible_clearance_potential: true
+    clearance_potential_discount_gamma: 0.99
+  physical_step_event:
+    minimum_forward_travel_m: 0.15
+    minimum_vertical_excursion_m: 0.015
+    maximum_touchdown_speed_mps: 0.6
+    support_force_n: 80.0
+    unload_force_n: 20.0
+    approach_scale: 0.1
+    ascent_scale: 0.1
+    platform_scale: 0.1
+    minimum_new_progress_m: 0.05
+  planar_body_velocity_change:
+    full_cost_acceleration_mps2: 3.0
+    graded: true
+  top_platform_settling_progress:
+    require_supported_alternating_ascent: true
+  top_platform_success_event:
+    require_supported_alternating_ascent: true
+  approach_overspeed:
+    tolerance_mps: 0.1
+    scale_mps: 0.5
+    course_wide: true
+command:
+  forward_velocity_mps: 0.5
+  platform_finish:
+    slowdown_distance_m: 0.25
+    creep_speed_mps: 0.08
+    stop_buffer_m: 0.1
+  stair_heading:
+    enabled: true
+    target_heading_rad: 0.0
+    control_stiffness: 1.0
+    max_yaw_rate_radps: 0.6
+inheritance:
+  resolved_config_required: true

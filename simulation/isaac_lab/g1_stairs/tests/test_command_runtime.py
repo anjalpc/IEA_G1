@@ -91,7 +91,36 @@ class CommandRuntimeTests(unittest.TestCase):
             resume_x=2.20,
         )
         torch.testing.assert_close(speed, torch.tensor([0.50, 1.0 / 7.0, 0.0]))
-        torch.testing.assert_close(settling, torch.tensor([False, False, True]))
+        torch.testing.assert_close(settling, torch.tensor([False, False, False]))
+
+
+    def test_platform_settles_only_with_safe_support(self):
+        speed, settling = platform_finish_speed(
+            torch.tensor([2.30, 2.30]),
+            stop_x=2.30,
+            cruise_speed=0.50,
+            feet_safe=torch.tensor([True, False]),
+            settling=torch.zeros(2, dtype=torch.bool),
+            reset=torch.zeros(2, dtype=torch.bool),
+            resume_x=2.20,
+        )
+        torch.testing.assert_close(speed, torch.zeros(2))
+        torch.testing.assert_close(
+            settling, torch.tensor([True, False])
+        )
+
+    def test_platform_can_settle_after_support_recovers(self):
+        speed, settling = platform_finish_speed(
+            torch.tensor([2.30]),
+            stop_x=2.30,
+            cruise_speed=0.50,
+            feet_safe=torch.tensor([True]),
+            settling=torch.tensor([False]),
+            reset=torch.tensor([False]),
+            resume_x=2.20,
+        )
+        torch.testing.assert_close(speed, torch.zeros(1))
+        self.assertTrue(settling.item())
 
     def test_platform_finish_reset_clears_settling(self):
         speed, settling = platform_finish_speed(

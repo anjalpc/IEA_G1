@@ -107,10 +107,22 @@ def platform_finish_speed(
         raise ValueError("stop_x and resume_x must be finite")
     if resume_x > stop_x:
         raise ValueError("resume_x must not exceed stop_x")
-    settling = (settling & ~reset & (local_x >= resume_x)) | (
-        ~reset & (local_x >= stop_x)
+    # Settling is valid only with both feet safely supported.
+    settling = (
+        ~reset
+        & feet_safe
+        & (
+            (settling & (local_x >= resume_x))
+            | (local_x >= stop_x)
+        )
     )
     speed = (
         cruise_speed * ((stop_x - local_x) / slowdown_distance).clamp(0.0, 1.0)
     ).clamp_min(creep_speed)
-    return torch.where(settling, torch.zeros_like(speed), speed), settling
+
+    # Do not drive beyond the stopping target when support is unsafe.
+    # This safety hold is NOT credited as supported settling.
+    stop_command = ~reset & (settling | (local_x >= stop_x))
+    return torch.where(
+        stop_command, torch.zeros_like(speed), speed
+    ), settling
