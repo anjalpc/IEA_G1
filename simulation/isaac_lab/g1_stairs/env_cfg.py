@@ -516,6 +516,23 @@ class StairRewardsCfg:
             "asset_cfg": SceneEntityCfg("robot"),
         },
     )
+    course_windowed_forward_stall = RewTerm(
+        func=stair_rewards.course_windowed_forward_stall,
+        weight=0.0,
+        params={
+            "minimum_forward_speed_mps": 0.10,
+            "window_s": 0.50,
+            "command_name": "base_velocity",
+            "asset_cfg": SceneEntityCfg("robot"),
+            "foot_cfg": SceneEntityCfg(
+                "robot",
+                body_names=[
+                    "left_ankle_roll_link",
+                    "right_ankle_roll_link",
+                ],
+            ),
+        },
+    )
     proximity_gated_coupled_stall = RewTerm(
         func=stair_rewards.proximity_gated_coupled_stall,
         weight=0.0,

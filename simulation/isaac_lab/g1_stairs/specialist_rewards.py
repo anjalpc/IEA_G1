@@ -3207,6 +3207,89 @@ class single_step_success(_SingleStepRewardBase):
         return event.to(m["root_x"].dtype) / dt
 
 
+
+class course_windowed_forward_stall(ManagerTermBase):
+    """Bounded command-gated stall penalty throughout a straight course."""
+
+    def __init__(self, cfg, env: "ManagerBasedRLEnv"):
+        super().__init__(cfg, env)
+
+        window_s = float(cfg.params["window_s"])
+        dt = float(env.step_dt)
+
+        if dt <= 0.0 or window_s <= 0.0:
+            raise ValueError("Invalid stall window or step dt")
+
+        window_steps = int(round(window_s / dt))
+        if window_steps < 1 or abs(window_steps * dt - window_s) > 1e-9:
+            raise ValueError("window_s must be an exact multiple of step_dt")
+
+        self._history = WindowedCoupledProgress(
+            num_envs=env.num_envs,
+            window_steps=window_steps,
+            device=env.device,
+        )
+
+    def reset(self, env_ids=None):
+        self._history.reset(env_ids)
+
+    def __call__(
+        self,
+        env: "ManagerBasedRLEnv",
+        minimum_forward_speed_mps: float = 0.10,
+        window_s: float = 0.50,
+        command_name: str = "base_velocity",
+        asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
+        foot_cfg: SceneEntityCfg = SceneEntityCfg(
+            "robot",
+            body_names=[
+                "left_ankle_roll_link",
+                "right_ankle_roll_link",
+            ],
+        ),
+    ) -> torch.Tensor:
+        if minimum_forward_speed_mps <= 0.0 or window_s <= 0.0:
+            raise ValueError("Invalid stall parameters")
+
+        robot = env.scene[asset_cfg.name]
+
+        root_x = (
+            robot.data.root_pos_w[:, 0]
+            - env.scene.env_origins[:, 0]
+        )
+
+        foot_pos = robot.data.body_pos_w[:, foot_cfg.body_ids]
+        foot_quat = robot.data.body_quat_w[:, foot_cfg.body_ids]
+        zeros = torch.zeros_like(foot_pos)
+
+        _, bounds, _ = sole_state(
+            foot_pos, foot_quat, zeros, zeros,
+        )
+
+        mean_foot_x = (
+            bounds[..., 1].mean(dim=1)
+            - env.scene.env_origins[:, 0]
+        )
+
+        root_progress, foot_progress, ready = self._history.update(
+            root_x, mean_foot_x,
+        )
+
+        command = env.command_manager.get_command(command_name)[:, 0]
+
+        required_progress = minimum_forward_speed_mps * window_s
+
+        coupled_progress = torch.minimum(root_progress, foot_progress)
+
+        severity = (
+            (required_progress - coupled_progress) / required_progress
+        ).clamp(0.0, 1.0)
+
+        active = ready & (command > minimum_forward_speed_mps)
+
+        return severity * active.to(severity.dtype)
+
+
 class proximity_gated_coupled_stall(ManagerTermBase):
     """Bounded first-riser anti-stall from windowed body+foot progress."""
 
