@@ -13,6 +13,7 @@ Commands:
   test        Run imitation reference unit tests (CPU only)
   reference   Alias for preflight
   isaac-preflight  Run one-env Isaac plant/alignment gate (no training)
+  runtime-probe    Run Patch 003 short canonical-reference physics probe
   help        Show this help
 
 Training/evaluation commands will be added only after their contracts pass.
@@ -31,6 +32,9 @@ case "$command" in
         ;;
     isaac-preflight)
         exec "$ROOT/scripts/diagnostics/run_isaac_preflight.sh"
+        ;;
+    runtime-probe)
+        exec "$ROOT/scripts/diagnostics/run_runtime_probe.sh"
         ;;
     test)
         cd "$ROOT/.."
