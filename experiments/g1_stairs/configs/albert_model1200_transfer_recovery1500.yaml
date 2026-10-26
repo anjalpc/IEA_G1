@@ -1,0 +1,21 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/albert_model1200_approach_overspeed.yaml
+  resolved_config_required: true
+
+experiment:
+  id: albert_model1200_transfer_recovery1500
+  purpose: Preserve model1200 locomotion while confirming recoverable supported stair transfers.
+  type: supported_alternating_ascent_and_finish
+  meaningful_stair_training: true
+
+execution:
+  maximum_iterations: 1500
+
+episode_contract:
+  supported_ascent_dwell_s: 0.10
+  supported_ascent_touchdown_dwell_s: 0.04
+  supported_ascent_minimum_load_share: 0.45
+  supported_ascent_transfer_margin_m: 0.05
+  supported_ascent_max_roll_pitch_rad: 0.30

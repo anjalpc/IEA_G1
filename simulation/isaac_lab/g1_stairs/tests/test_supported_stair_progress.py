@@ -161,6 +161,7 @@ class SupportedAscentTests(unittest.TestCase):
         s.update(bounds, forces, torch.tensor([.04]), 1., .25, .5,
                  .02, torch.tensor([True]), **kwargs)
         self.assertFalse(s.sequence_failed.item())
+        self.assertFalse(s.last_invalid.item())
         self.assertTrue(s.transfer_blocked.item())
         self.assertEqual(s.candidate_foot.item(), 0)
         self.assertFalse(s.last_credit.item())

@@ -167,7 +167,8 @@ class SupportedAscent:
         candidate_supported = candidate & landing[rows, candidate_index]
         other = 1 - candidate_index
         trailing_on_target = candidate & landing[rows, other]
-        invalid |= trailing_on_target & ~self.transfer_blocked
+        # A trailing-foot corrective landing pauses transfer; it is not
+        # an invalid alternating acquisition or a terminal sequence failure.
         self.transfer_blocked.copy_(trailing_on_target)
         self.last_invalid.copy_(invalid & ~self.sequence_failed)
         self.sequence_failed |= invalid & ~trailing_on_target
