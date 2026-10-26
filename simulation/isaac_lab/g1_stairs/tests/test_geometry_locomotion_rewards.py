@@ -41,6 +41,26 @@ class ApproachOverspeedTests(unittest.TestCase):
                 torch.zeros(1), 1.0, scale_mps=0.0
             )
 
+    def test_course_wide_overspeed(self):
+        speed = torch.tensor([0.5, 0.8, 1.2, 1.6])
+        command = torch.full((4,), 0.5)
+        positions = torch.tensor([0.5, 1.2, 1.8, 2.5])
+
+        cost = approach_overspeed_cost(
+            speed, command, positions, 1.0,
+            course_wide=True,
+        )
+        torch.testing.assert_close(
+            cost, torch.tensor([0.0, 0.16, 1.44, 4.0])
+        )
+
+        legacy = approach_overspeed_cost(
+            speed, command, positions, 1.0
+        )
+        torch.testing.assert_close(
+            legacy, torch.zeros(4)
+        )
+
 
 class PlanarVelocityChangeCostTests(unittest.TestCase):
     def test_ignores_reset_and_vertical_velocity(self):
@@ -62,6 +82,50 @@ class PlanarVelocityChangeCostTests(unittest.TestCase):
             full_cost_acceleration_mps2=3.0,
         )
         torch.testing.assert_close(value, torch.tensor([0.25, 1.0]))
+
+
+
+class GradedPlanarAccelerationTests(unittest.TestCase):
+    def test_graded_cost_grows_above_threshold(self):
+        current = torch.tensor([
+            [0.03, 0.0, 0.0],
+            [0.06, 0.0, 0.0],
+            [0.18, 0.0, 0.0],
+            [0.27, 0.0, 0.0],
+        ])
+        previous = torch.zeros_like(current)
+        initialized = torch.ones(4, dtype=torch.bool)
+
+        graded = planar_velocity_change_cost(
+            current, previous, initialized,
+            dt=0.02,
+            full_cost_acceleration_mps2=3.0,
+            graded=True,
+        )
+        torch.testing.assert_close(
+            graded, torch.tensor([0.25, 1.0, 5.0, 8.0])
+        )
+
+        legacy = planar_velocity_change_cost(
+            current, previous, initialized,
+            dt=0.02,
+            full_cost_acceleration_mps2=3.0,
+        )
+        torch.testing.assert_close(
+            legacy, torch.tensor([0.25, 1.0, 1.0, 1.0])
+        )
+
+    def test_graded_cost_ignores_vertical_and_reset(self):
+        value = planar_velocity_change_cost(
+            torch.tensor([[0.0, 0.0, 20.0],
+                          [0.27, 0.0, 20.0]]),
+            torch.zeros(2, 3),
+            torch.tensor([True, False]),
+            dt=0.02,
+            full_cost_acceleration_mps2=3.0,
+            graded=True,
+        )
+        torch.testing.assert_close(value, torch.zeros(2))
 
 
 class UnresolvedRiserStrikeFallEventTests(unittest.TestCase):

@@ -97,8 +97,9 @@ def planar_velocity_change_cost(
     *,
     dt: float,
     full_cost_acceleration_mps2: float,
+    graded: bool = False,
 ) -> torch.Tensor:
-    """Bounded planar acceleration severity, with no cross-reset impulse."""
+    """Planar acceleration severity; optionally retain gradient above threshold."""
     if dt <= 0.0:
         raise ValueError("dt must be positive")
     if full_cost_acceleration_mps2 <= 0.0:
@@ -106,7 +107,15 @@ def planar_velocity_change_cost(
     delta = torch.linalg.vector_norm(
         current_velocity[:, :2] - previous_velocity[:, :2], dim=1
     )
-    severity = (delta / (dt * full_cost_acceleration_mps2)).square().clamp_max(1.0)
+    ratio = delta / (dt * full_cost_acceleration_mps2)
+    if graded:
+        severity = torch.where(
+            ratio <= 1.0,
+            ratio.square(),
+            2.0 * ratio - 1.0,
+        )
+    else:
+        severity = ratio.square().clamp_max(1.0)
     return severity * initialized.to(severity.dtype)
 
 
@@ -361,23 +370,24 @@ def track_stair_axis_velocity(
 
 def approach_overspeed_cost(
     forward_velocity, command_velocity, local_x, first_riser_x,
-    *, tolerance_mps=0.10, scale_mps=0.50,
+    *, tolerance_mps=0.10, scale_mps=0.50, course_wide=False,
 ):
-    """Positive excess-speed cost, active only before the first riser."""
+    """Command-relative forward overspeed; optionally active course-wide."""
     if tolerance_mps < 0 or scale_mps <= 0:
         raise ValueError("invalid overspeed parameters")
     excess = torch.relu(
         forward_velocity - command_velocity - tolerance_mps
     )
-    return (
-        (excess / scale_mps).square()
-        * (local_x < first_riser_x).to(excess.dtype)
-    )
+    severity = (excess / scale_mps).square()
+    if course_wide:
+        return severity
+    return severity * (local_x < first_riser_x).to(excess.dtype)
 
 
 def approach_overspeed(
     env, tolerance_mps=0.10, scale_mps=0.50,
     command_name="base_velocity", asset_cfg=None,
+    course_wide=False,
 ):
     from .terrain_state import stair_cfg
 
@@ -394,6 +404,7 @@ def approach_overspeed(
         float(terrain.start_clearance),
         tolerance_mps=tolerance_mps,
         scale_mps=scale_mps,
+        course_wide=course_wide,
     )
 
 

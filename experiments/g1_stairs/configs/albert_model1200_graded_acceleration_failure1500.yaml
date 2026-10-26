@@ -1,0 +1,30 @@
+schema_version: 1
+
+inheritance:
+  base_config: experiments/g1_stairs/configs/albert_model1200_approach_overspeed.yaml
+  resolved_config_required: true
+
+experiment:
+  id: albert_model1200_graded_acceleration_failure1500
+  purpose: Preserve model1200 ascent while penalizing excessive planar acceleration and unsafe termination.
+  type: supported_alternating_ascent_and_finish
+  meaningful_stair_training: true
+
+execution:
+  maximum_iterations: 1500
+
+reward_experiment:
+  rewards:
+    stage_plan:
+      albert_clean_step_finish:
+        geometry_failure_termination_event: -5.0
+        approach_overspeed: -2.0
+
+reward_parameters:
+  approach_overspeed:
+    tolerance_mps: 0.10
+    scale_mps: 0.50
+    course_wide: true
+  planar_body_velocity_change:
+    full_cost_acceleration_mps2: 3.0
+    graded: true

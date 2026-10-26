@@ -413,6 +413,7 @@ class StairRewardsCfg:
             "command_name": "base_velocity",
             "tolerance_mps": 0.10,
             "scale_mps": 0.50,
+            "course_wide": False,
         },
     )
     stair_centerline_error = RewTerm(
@@ -485,6 +486,7 @@ class StairRewardsCfg:
         weight=0.0,
         params={
             "full_cost_acceleration_mps2": 3.0,
+            "graded": False,
             "asset_cfg": SceneEntityCfg("robot"),
         },
     )

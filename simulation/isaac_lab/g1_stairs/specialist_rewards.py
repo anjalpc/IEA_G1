@@ -175,6 +175,7 @@ class planar_body_velocity_change(ManagerTermBase):
         self,
         env: "ManagerBasedRLEnv",
         full_cost_acceleration_mps2: float = 3.0,
+        graded: bool = False,
         asset_cfg: SceneEntityCfg = SceneEntityCfg("robot"),
     ) -> torch.Tensor:
         current = env.scene[asset_cfg.name].data.root_lin_vel_w
@@ -184,6 +185,7 @@ class planar_body_velocity_change(ManagerTermBase):
             self.initialized,
             dt=float(env.step_dt),
             full_cost_acceleration_mps2=full_cost_acceleration_mps2,
+            graded=graded,
         )
         self.previous.copy_(current)
         self.initialized.fill_(True)
