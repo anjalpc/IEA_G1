@@ -993,7 +993,26 @@ cmd_video() {
 
     CONTAINER_RESOLVED_CONFIG="${RESOLVED_CONFIG/$REPO/\/workspace\/IEA_G1}"
 
+    VIDEO_TASK="$(python3 - "$RESOLVED_CONFIG" <<'PYTASK'
+import sys
+import yaml
+
+with open(sys.argv[1], encoding="utf-8") as stream:
+    config = yaml.safe_load(stream)
+
+task = config.get("task", {}).get("id")
+allowed = {
+    "Unitree-IEA-G1-29dof-Stairs-v0",
+    "Unitree-IEA-G1-29dof-Stairs-Footsteps-v0",
+}
+if task not in allowed:
+    raise SystemExit(f"Unsupported video task: {task!r}")
+print(task)
+PYTASK
+)"
+
     echo "========================================"
+    echo "Task:       $VIDEO_TASK"
     echo " G1 VIDEO RECORDING"
     echo "========================================"
     echo "Run:        $RUN_ID"
@@ -1012,7 +1031,7 @@ cd /workspace/IEA_G1
 
 /workspace/isaaclab/isaaclab.sh -p \
   simulation/isaac_lab/g1_stairs/scripts/visualization/record_view.py \
-  --task Unitree-IEA-G1-29dof-Stairs-v0 \
+  --task ${VIDEO_TASK} \
   --view side \
   --output_dir '${OUTPUT_DIR}' \
   --video_length 600 \
