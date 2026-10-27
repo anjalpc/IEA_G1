@@ -189,6 +189,27 @@ def initialize_actor_from_rsl_rl_checkpoint(
     print("[INFO] Policy initialization:", metadata, flush=True)
     return metadata
 
+
+def known_observation_layout(runtime_input_dim: int) -> dict[str, int]:
+    """Report known contract widths; do not mislabel unknown extras as scans."""
+    if runtime_input_dim < LOCOMOTION_OBS_DIM:
+        raise ValueError("observation width below locomotion prefix")
+    layouts = {
+        672: (187, 5, 0, 0),
+        688: (187, 5, 14, 2),
+    }
+    scan, geometry, footstep, clock = layouts.get(runtime_input_dim, (0, 0, 0, 0))
+    extra = runtime_input_dim - LOCOMOTION_OBS_DIM
+    accounted = scan + geometry + footstep + clock
+    return {
+        "actor_height_scan_observations": scan,
+        "explicit_geometry_observations": geometry,
+        "planned_footstep_observations": footstep,
+        "gait_clock_observations": clock,
+        "unclassified_additional_observations": extra - accounted,
+    }
+
+
 def initialize_actor_from_unitree_onnx(
     runner,
     onnx_path: Path,
@@ -340,31 +361,14 @@ def initialize_actor_from_unitree_onnx(
                 f"{new_action_rows_max_abs}"
             )
 
-    explicit_geometry_observations = (
-        EXPLICIT_GEOMETRY_OBS_DIM
-        if runtime_input_dim
-        >= LOCOMOTION_OBS_DIM + EXPLICIT_GEOMETRY_OBS_DIM
-        else 0
-    )
-
-    actor_height_scan_observations = max(
-        0,
-        runtime_input_dim
-        - LOCOMOTION_OBS_DIM
-        - explicit_geometry_observations,
-    )
+    breakdown = known_observation_layout(runtime_input_dim)
 
     metadata = {
         "type": "unitree_velocity_onnx_transfer",
         "source": str(onnx_path),
         "source_sha256": _sha256(onnx_path),
         "locomotion_observations": LOCOMOTION_OBS_DIM,
-        "actor_height_scan_observations": (
-            actor_height_scan_observations
-        ),
-        "explicit_geometry_observations": (
-            explicit_geometry_observations
-        ),
+        **breakdown,
         "stair_observations": runtime_input_dim,
         "physical_actions": ACTION_DIM,
         "actions": runtime_action_dim,
