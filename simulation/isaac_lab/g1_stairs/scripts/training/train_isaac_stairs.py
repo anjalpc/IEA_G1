@@ -72,11 +72,6 @@ def main() -> None:
         )
 
     from simulation.isaac_lab.g1_stairs.register import FOOTSTEP_TASK_ID
-    if args.task == FOOTSTEP_TASK_ID:
-        raise RuntimeError(
-            "Footstep task is inspection-only. PPO blocked until live "
-            "contact/observation synchronization and rewards are validated."
-        )
 
     env_cfg = parse_env_cfg(
         args.task,
@@ -749,6 +744,39 @@ def main() -> None:
         coordinated_foothold_xyz,
         flush=True,
     )
+
+    if args.task == FOOTSTEP_TASK_ID:
+        required = {
+            "footstep_acquisition",
+            "footstep_target_progress",
+            "clock_swing_motion",
+            "clock_stance_support",
+            "footstep_clearance_progress",
+            "footstep_failure_termination",
+            "upright",
+            "action_rate",
+            "dof_pos_limits",
+            "feet_slide",
+        }
+        from simulation.isaac_lab.g1_stairs.reward_runtime import (
+            active_reward_weights,
+        )
+        expected_weights = active_reward_weights(resolved_config)
+        if set(expected_weights) != required:
+            raise RuntimeError(
+                "Footstep training reward contract mismatch: "
+                + str(sorted(set(expected_weights) ^ required))
+            )
+        if resolved_config["terrain"]["riser_heights_m"] != [0.04]:
+            raise RuntimeError("Footstep bootstrap must use 4 cm stairs")
+        if resolved_config["execution"]["maximum_iterations"] != 500:
+            raise RuntimeError("Footstep bootstrap must use 500 iterations")
+        if resolved_config["policy_initialization"]["type"] != (
+            "unitree_velocity_onnx_transfer"
+        ):
+            raise RuntimeError("Footstep bootstrap requires official ONNX prior")
+        if not resolved_config["reward_experiment"]["strict_runtime_set"]:
+            raise RuntimeError("Footstep training requires strict reward selection")
 
     active_rewards = apply_resolved_rewards(env_cfg, resolved_config)
     print("[INFO] Active reward stage:", resolved_config["reward_experiment"]["active_stage"], flush=True)

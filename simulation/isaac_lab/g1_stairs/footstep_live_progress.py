@@ -81,6 +81,9 @@ def audit_after_step(env):
     )
     directed_swing = torch.where(resets, torch.zeros_like(directed_swing), directed_swing)
     env._g1_footstep_directed_swing = directed_swing
+    env._g1_footstep_stance_support = torch.where(
+        resets, torch.zeros_like(_stance_score), _stance_score
+    )
     # Pre-transition assigned foothold; reward only new best distance.
     from .footstep_rewards import new_target_progress
 
@@ -110,6 +113,75 @@ def audit_after_step(env):
         coordinator.runtime.target_index.clone()
     )
 
+
+    # Assigned-foot peak clearance, only before crossing the riser.
+    # Opposite-foot support is required; repeated lift/drop earns no
+    # additional credit. This is measured before target acquisition.
+    target_foot = feet[:, 0].long()
+    other_foot = 1 - target_foot
+    rows = torch.arange(env.num_envs, device=env.device)
+
+    foot_bottom = bounds[rows, target_foot, 4]
+    foot_front = bounds[rows, target_foot, 1]
+    other_supported = supported[rows, other_foot]
+    assigned_unloaded = ~supported[rows, target_foot]
+
+    riser_x = course["first_riser_x"] + (
+        coordinator.runtime.target_index.to(foot_front.dtype)
+        * course["tread_depth"]
+    )
+    height_target = targets[:, 0, 2]
+    approach_window = (
+        (foot_front >= riser_x - 0.25)
+        & (foot_front <= riser_x)
+    )
+
+    eligible = (
+        valid[:, 0]
+        & ~resets
+        & other_supported
+        & assigned_unloaded
+        & approach_window
+    )
+
+    old_peak = getattr(env, "_g1_footstep_peak_clearance", None)
+    old_target = getattr(env, "_g1_footstep_clearance_target_index", None)
+
+    if old_peak is None or old_target is None:
+        old_peak = torch.zeros_like(foot_bottom)
+    else:
+        changed = old_target != coordinator.runtime.target_index
+        old_peak = torch.where(
+            changed | resets,
+            torch.zeros_like(old_peak),
+            old_peak,
+        )
+
+    capped_height = foot_bottom.clamp(min=0.0)
+    capped_height = torch.minimum(capped_height, height_target)
+    improvement = (capped_height - old_peak).clamp_min(0.0)
+
+    clearance = torch.where(
+        eligible,
+        improvement / height_target.clamp_min(0.01),
+        torch.zeros_like(improvement),
+    )
+
+    env._g1_footstep_clearance_progress = clearance
+    env._g1_footstep_peak_clearance = torch.where(
+        eligible,
+        torch.maximum(old_peak, capped_height),
+        old_peak,
+    ).detach().clone()
+    env._g1_footstep_clearance_target_index = (
+        coordinator.runtime.target_index.clone()
+    )
+
+    # A timeout is not a physical failure. Terminated environments
+    # receive a separate event penalty.
+    env._g1_footstep_failure_event = (
+        env.termination_manager.terminated & ~env.termination_manager.time_outs
+    ).float()
     advanced = coordinator.step(
         step_id=int(env.common_step_counter), dt=float(env.step_dt),
         targets=targets, feet=feet, valid=valid, sole_xyz=centre,

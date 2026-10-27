@@ -113,3 +113,35 @@ def new_target_progress(previous_distance, current_distance, best_distance, vali
     improvement = (best_distance - new_best).clamp(min=0)
     reward = torch.where(valid, improvement / scale_m, torch.zeros_like(improvement))
     return reward, torch.where(valid, new_best, best_distance)
+
+
+def cached_net_progress(env):
+    """Non-recycling progress computed once after physics."""
+    value = getattr(env, "_g1_footstep_net_progress", None)
+    if value is None or value.shape != (env.num_envs,):
+        raise RuntimeError("missing cached footstep net progress")
+    return value
+
+
+def cached_stance_support(env):
+    """Observed support during assigned gait-clock stance."""
+    value = getattr(env, "_g1_footstep_stance_support", None)
+    if value is None or value.shape != (env.num_envs,):
+        raise RuntimeError("missing cached stance support")
+    return value
+
+
+def cached_clearance_progress(env):
+    """New peak assigned-foot clearance with opposite-foot support."""
+    value = getattr(env, "_g1_footstep_clearance_progress", None)
+    if value is None or value.shape != (env.num_envs,):
+        raise RuntimeError("missing cached footstep clearance")
+    return value
+
+
+def cached_failure_event(env):
+    """Non-timeout termination event."""
+    value = getattr(env, "_g1_footstep_failure_event", None)
+    if value is None or value.shape != (env.num_envs,):
+        raise RuntimeError("missing cached failure event")
+    return value

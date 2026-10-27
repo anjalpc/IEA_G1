@@ -40,5 +40,13 @@ def reset_footsteps_with_phase(env, env_ids):
         env._g1_footstep_best_distance[ids] = float("inf")
     if hasattr(env, "_g1_footstep_progress_target_index"):
         env._g1_footstep_progress_target_index[ids] = -1
+
+    if hasattr(env, "_g1_footstep_peak_clearance"):
+        env._g1_footstep_peak_clearance[ids] = 0.0
+    if hasattr(env, "_g1_footstep_clearance_target_index"):
+        env._g1_footstep_clearance_target_index[ids] = -1
+    if hasattr(env, "_g1_footstep_clearance_progress"):
+        env._g1_footstep_clearance_progress[ids] = 0.0
+
     if hasattr(env, "_g1_footstep_net_progress"):
         env._g1_footstep_net_progress[ids] = 0.0

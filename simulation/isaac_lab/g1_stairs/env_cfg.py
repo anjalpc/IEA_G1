@@ -1321,9 +1321,24 @@ class FootstepRewardsCfg(StairRewardsCfg):
     """
 
     def __post_init__(self):
+        # Retain only explicitly reviewed safety regularizers from the
+        # existing catalog. Do not restore inherited reward stages.
+        protected = (
+            "upright",
+            "action_rate",
+            "dof_pos_limits",
+            "feet_slide",
+            "posture_envelope_guard",
+        )
+        retained = {
+            name: copy.deepcopy(getattr(self, name))
+            for name in protected
+        }
         for name, term in vars(self).items():
             if not name.startswith("_") and term is not None:
                 setattr(self, name, None)
+        for name, term in retained.items():
+            setattr(self, name, term)
         # Nonzero weights are for reward-activation SMOKE only.
         # Training remains blocked until physical landing and weight audits.
         from . import footstep_rewards
@@ -1332,6 +1347,18 @@ class FootstepRewardsCfg(StairRewardsCfg):
         )
         self.clock_swing_motion = RewTerm(
             func=footstep_rewards.cached_directed_swing, weight=1.0
+        )
+        self.footstep_target_progress = RewTerm(
+            func=footstep_rewards.cached_net_progress, weight=1.0
+        )
+        self.footstep_clearance_progress = RewTerm(
+            func=footstep_rewards.cached_clearance_progress, weight=1.0
+        )
+        self.footstep_failure_termination = RewTerm(
+            func=footstep_rewards.cached_failure_event, weight=-1.0
+        )
+        self.clock_stance_support = RewTerm(
+            func=footstep_rewards.cached_stance_support, weight=1.0
         )
 
 

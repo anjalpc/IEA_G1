@@ -1,0 +1,57 @@
+schema_version: 1
+experiment:
+  id: footstep_bootstrap04
+  purpose: Initial 4 cm planned-footstep PPO diagnostic from official Unitree locomotion
+    prior
+  type: footstep_curriculum_bootstrap
+  meaningful_stair_training: false
+inheritance:
+  base_config: experiments/g1_stairs/configs/nominal_stairs_base.yaml
+  resolved_config_required: true
+code:
+  project_branch: g1-geometry-locomotion
+  require_clean_worktree: true
+task:
+  id: Unitree-IEA-G1-29dof-Stairs-Footsteps-v0
+  custom_stair_task_active: true
+terrain:
+  riser_height_m: 0.04
+  riser_heights_m:
+  - 0.04
+  tread_depth_m: 0.25
+  step_count: 3
+  curriculum_enabled: false
+execution:
+  environments: 128
+  maximum_iterations: 500
+  training_seed: 42
+policy_initialization:
+  type: unitree_velocity_onnx_transfer
+  locomotion_observations: 480
+  terrain_observations: 187
+  explicit_geometry_observations: 5
+  planned_footstep_observations: 14
+  gait_clock_observations: 2
+  stair_observations: 688
+  actions: 29
+ppo:
+  initial_action_noise_std: 0.15
+  learning_rate: 0.0001
+reward_experiment:
+  active_stage: footstep_bootstrap04
+  strict_runtime_set: true
+  rewards:
+    stage_plan:
+      footstep_bootstrap04:
+        footstep_acquisition: 1.0
+        footstep_target_progress: 1.0
+        clock_swing_motion: 1.0
+        clock_stance_support: 1.0
+        upright: -5.0
+        action_rate: -0.05
+        dof_pos_limits: -5.0
+        feet_slide: -0.2
+        footstep_clearance_progress: 1.0
+        footstep_failure_termination: -1.0
+launch_gates:
+  allow_launch: true
