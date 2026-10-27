@@ -113,6 +113,23 @@ def main() -> None:
         {},
     )
 
+    # Stage 8 diagnostic only: first two targets are fixed until physical
+    # contact progression is independently verified. Do not train with it yet.
+    if bool(observations_cfg.get("planned_footsteps_diagnostic", False)):
+        from isaaclab.managers import ObservationTermCfg as ObsTerm
+        from isaaclab.managers import EventTermCfg as EventTerm
+        from simulation.isaac_lab.g1_stairs import footstep_live
+
+        env_cfg.observations.policy.planned_footsteps = ObsTerm(
+            func=footstep_live.planned_footstep_targets,
+            history_length=1,
+        )
+        env_cfg.events.footstep_reset = EventTerm(
+            func=footstep_live.reset_footsteps,
+            mode="reset",
+        )
+        print("[INFO] Footstep observation: diagnostic, no advancement", flush=True)
+
     if observations_cfg.get(
         "actor_height_scan",
         True,

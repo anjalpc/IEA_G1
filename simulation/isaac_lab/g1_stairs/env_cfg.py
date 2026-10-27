@@ -33,6 +33,7 @@ from . import specialist_rewards as stair_rewards
 from . import terrain_observations
 from . import geometry_locomotion_rewards
 from . import geometry_acquisition_rewards
+from . import footstep_live
 
 
 _UPSTREAM = importlib.import_module(
@@ -146,6 +147,7 @@ class StairObservationsCfg(_UPSTREAM.ObservationsCfg):
         reference_root_orientation_error = None
         reference_root_linear_velocity_error = None
         reference_root_angular_velocity_error = None
+        planned_footsteps = None
 
         def __post_init__(self):
             super().__post_init__()
@@ -199,6 +201,7 @@ class StairObservationsCfg(_UPSTREAM.ObservationsCfg):
         reference_root_orientation_error = None
         reference_root_linear_velocity_error = None
         reference_root_angular_velocity_error = None
+        planned_footsteps = None
 
         def __post_init__(self):
             super().__post_init__()
@@ -264,6 +267,7 @@ class StairEventsCfg(_UPSTREAM.EventCfg):
         params={"position_range": (1.0, 1.0), "velocity_range": (0.0, 0.0)},
     )
     reference_state_reset = None
+    footstep_reset = None
 
     base_external_force_torque = None
     physics_material = None
