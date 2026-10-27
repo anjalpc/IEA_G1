@@ -26,8 +26,18 @@ class NearRiserSnapshotManagerBasedRLEnv(ManagerBasedRLEnv):
             self._near_riser_snapshot_artifact = load_single_env_snapshot_artifact(path)
         return self._near_riser_snapshot_artifact
 
+    def step(self, action):
+        result = super().step(action)
+        if bool(getattr(self.cfg, "footstep_progress_diagnostic", False)):
+            from .footstep_live_progress import audit_after_step
+            audit_after_step(self)
+        return result
+
     def _reset_idx(self, env_ids):
         super()._reset_idx(env_ids)
+        if bool(getattr(self.cfg, "footstep_progress_diagnostic", False)):
+            from .footstep_live_progress import reset_coordinator
+            reset_coordinator(self, env_ids)
         artifact = self._snapshot_artifact()
         if artifact is not None:
             ensure_geometry_episode_runtime_for_snapshot(self, artifact)

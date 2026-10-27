@@ -1324,6 +1324,7 @@ class StairEnvCfg(_UPSTREAM.RobotEnvCfg):
     events: StairEventsCfg = StairEventsCfg()
     curriculum: StairCurriculumCfg = StairCurriculumCfg()
     near_riser_snapshot_path: str | None = None
+    footstep_progress_diagnostic: bool = False
 
     def __post_init__(self):
         super().__post_init__()
