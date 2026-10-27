@@ -11,31 +11,39 @@ class GaitClockTests(unittest.TestCase):
         return FootstepGaitClock(num_envs=2, device="cpu",
                                  single_support_s=0.8, double_support_s=0.2)
 
-    def test_double_support_and_assigned_swing(self):
+    def test_alternates_without_target_acquisition(self):
         clock = self.create()
-        foot = torch.tensor([0, 1])
-        active = torch.tensor([True, True])
-        _, swing, stance = clock.features(target_foot=foot, valid=active)
-        self.assertEqual(swing.tolist(), [[0., 0.], [0., 0.]])
-        self.assertEqual(stance.tolist(), [[1., 1.], [1., 1.]])
-        clock.update(dt=0.2)
-        _, swing, stance = clock.features(target_foot=foot, valid=active)
-        self.assertEqual(swing.tolist(), [[1., 0.], [0., 1.]])
-        self.assertEqual(stance.tolist(), [[0., 1.], [1., 0.]])
+        assigned = torch.tensor([0, 0])
+        valid = torch.tensor([True, True])
 
-    def test_touchdown_resynchronizes_only_selected(self):
+        expected = [
+            (0.0, [[0., 0.], [0., 0.]]),
+            (0.3, [[1., 0.], [1., 0.]]),
+            (1.1, [[0., 0.], [0., 0.]]),
+            (1.5, [[0., 1.], [0., 1.]]),
+        ]
+
+        for time, wanted in expected:
+            clock.elapsed_s[:] = time
+            _, swing, _ = clock.features(
+                target_foot=assigned, valid=valid
+            )
+            self.assertEqual(swing.tolist(), wanted)
+
+    def test_acquisition_does_not_restart_gait(self):
         clock = self.create()
         clock.update(dt=0.3)
         clock.update(dt=0.1, acquired=torch.tensor([True, False]))
-        self.assertAlmostEqual(clock.elapsed_s[0].item(), 0., places=6)
-        self.assertAlmostEqual(clock.elapsed_s[1].item(), .4, places=6)
+        self.assertAlmostEqual(clock.elapsed_s[0].item(), 0.4, places=6)
+        self.assertAlmostEqual(clock.elapsed_s[1].item(), 0.4, places=6)
 
-    def test_clock_phase_flips_with_foot(self):
+    def test_clock_is_independent_of_assigned_foot(self):
         clock = self.create()
-        phase, _, _ = clock.features(target_foot=torch.tensor([0, 1]),
-                                     valid=torch.tensor([True, True]))
-        self.assertAlmostEqual(phase[0, 1].item(), 1., places=6)
-        self.assertAlmostEqual(phase[1, 1].item(), -1., places=6)
+        phase, _, _ = clock.features(
+            target_foot=torch.tensor([0, 1]),
+            valid=torch.tensor([True, True]),
+        )
+        self.assertEqual(phase[0].tolist(), phase[1].tolist())
 
     def test_expiration_never_claims_acquisition(self):
         clock = self.create()

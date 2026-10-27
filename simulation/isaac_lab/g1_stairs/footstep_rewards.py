@@ -24,27 +24,37 @@ def footstep_target_score(sole_xyz, targets, feet, valid, acquired, *, sigma_m=0
 
 def clock_contact_scores(force_z, sole_xyz, sole_vel_xyz, targets, feet, valid,
                          swing, stance, *, threshold_n=30.0, speed_scale=0.3):
-    # Reward directed movement of the assigned swing foot, not arbitrary speed.
+    """Signed periodic GRF and foot-speed scores for BOTH legs.
+
+    Positive GRF: scheduled stance; negative GRF: scheduled swing.
+    Positive speed: scheduled swing; negative speed: scheduled stance.
+    Target assignment does not determine which leg receives gait credit.
+    """
     n = force_z.shape[0]
     if (force_z.shape != (n, 2) or sole_xyz.shape != (n, 2, 3)
             or sole_vel_xyz.shape != (n, 2, 3) or targets.shape != (n, 2, 4)
             or feet.shape != (n, 2) or valid.shape != (n, 2)
             or swing.shape != (n, 2) or stance.shape != (n, 2)):
-        raise ValueError('invalid contact/footstep tensor shapes')
+        raise ValueError("invalid contact/footstep tensor shapes")
     if threshold_n <= 0 or speed_scale <= 0:
-        raise ValueError('threshold_n and speed_scale must be positive')
-    stance_score = ((force_z >= threshold_n).to(force_z.dtype) * stance).sum(1)
-    stance_score /= stance.sum(1).clamp(min=1)
-    rows = torch.arange(n, device=feet.device)
-    assigned = feet[:, 0].long()
-    delta = targets[:, 0, :3] - sole_xyz[rows, assigned]
-    dist = torch.linalg.vector_norm(delta, dim=-1)
-    direction = delta / dist.clamp(min=1.0e-6)[:, None]
-    toward_velocity = (sole_vel_xyz[rows, assigned] * direction).sum(-1)
-    score = torch.clamp(toward_velocity / speed_scale, min=0, max=1)
-    active = swing[rows, assigned].bool() & valid[:, 0].bool() & (dist > 0.001)
-    return stance_score, torch.where(active, score, torch.zeros_like(score))
+        raise ValueError("invalid force or speed scale")
+    if valid.dtype != torch.bool:
+        raise ValueError("valid must be boolean")
 
+    # Bounded physical magnitudes. Both legs contribute independently.
+    force = (force_z.clamp_min(0) / threshold_n).clamp(max=1)
+    speed = (
+        torch.linalg.vector_norm(sole_vel_xyz, dim=-1) / speed_scale
+    ).clamp(max=1)
+
+    force_score = ((stance - swing) * force).sum(dim=1) / 2
+    speed_score = ((swing - stance) * speed).sum(dim=1) / 2
+
+    active = valid[:, 0]
+    return (
+        torch.where(active, force_score, torch.zeros_like(force_score)),
+        torch.where(active, speed_score, torch.zeros_like(speed_score)),
+    )
 
 
 # Stage 19 intentionally does not change PPO reward registration, losses, or training.

@@ -35,7 +35,7 @@ class FootstepGaitClock:
 
     @property
     def step_period_s(self) -> float:
-        return self.single_support_s + self.double_support_s
+        return 2 * (self.single_support_s + self.double_support_s)
 
     def reset(self, env_ids: torch.Tensor | None = None) -> None:
         self.elapsed_s[slice(None) if env_ids is None else env_ids] = 0.0
@@ -52,9 +52,8 @@ class FootstepGaitClock:
                 raise ValueError("acquired must be per-environment bool")
             if acquired.device != self.device:
                 raise ValueError("acquired device mismatch")
+        # The periodic gait is independent of target acquisition.
         self.elapsed_s = torch.remainder(self.elapsed_s + dt, self.step_period_s)
-        if acquired is not None:
-            self.elapsed_s = torch.where(acquired, 0.0, self.elapsed_s)
 
     def features(self, *, target_foot: torch.Tensor,
                  valid: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
@@ -71,17 +70,16 @@ class FootstepGaitClock:
         if torch.any(valid & ((target_foot != 0) & (target_foot != 1))):
             raise ValueError("valid target foot must be left (0) or right (1)")
 
-        phase = self.elapsed_s / self.step_period_s
-        # Full cycle includes alternating left/right targets.
-        cyclic_phase = torch.remainder((phase + 0.5 * target_foot), 1.0)
-        angle = 2 * torch.pi * cyclic_phase
+        # Two double-support and two alternating single-support phases.
+        # Target assignment does not determine which leg swings.
+        angle = 2 * torch.pi * self.elapsed_s / self.step_period_s
         clock = torch.stack((torch.sin(angle), torch.cos(angle)), dim=-1)
-        # A configurable half-DS interval at either boundary.
-        half_ds = self.double_support_s / 2
-        in_swing = ((self.elapsed_s >= half_ds)
-                    & (self.elapsed_s < half_ds + self.single_support_s))
-        feet = torch.arange(2, device=self.device)[None, :]
-        swing = in_swing[:, None] & (feet == target_foot[:, None]) & valid[:, None]
+        ds = self.double_support_s
+        ss = self.single_support_s
+        left_swing = (self.elapsed_s >= ds) & (self.elapsed_s < ds + ss)
+        right_swing = ((self.elapsed_s >= ss + 2 * ds)
+                       & (self.elapsed_s < 2 * (ss + ds)))
+        swing = torch.stack((left_swing, right_swing), dim=-1) & valid[:, None]
         stance = valid[:, None] & ~swing
         return (torch.where(valid[:, None], clock, torch.zeros_like(clock)),
                 swing.to(self.elapsed_s.dtype),

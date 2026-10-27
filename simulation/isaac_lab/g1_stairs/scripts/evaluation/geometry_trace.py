@@ -314,6 +314,94 @@ class GeometryTrace:
                     for key, value in decision.items()
                 }
 
+
+        coordinator = getattr(env, "_g1_footstep_coordinator", None)
+        if coordinator is not None:
+            from simulation.isaac_lab.g1_stairs.footstep_isaac_adapter import course_tensors
+
+            runtime = coordinator.runtime
+            course = course_tensors(env, foot_separation_m=0.16)
+            targets, feet, valid = runtime.targets(**course)
+
+            advanced = getattr(env, "_g1_footstep_last_advanced", None)
+
+            row["planned_footsteps"] = {
+                "target_index": int(runtime.target_index[0].item()),
+                "assigned_foot_index": int(feet[0, 0].item()),
+                "target_xyz": self.values(targets[0, 0, :3]),
+                "target_valid": bool(valid[0, 0].item()),
+                "first_foot_index": int(runtime.first_foot[0].item()),
+                "completed": int(runtime.completed[0].item()),
+                "attempted": int(runtime.attempted[0].item()),
+                "advanced_this_step": (
+                    bool(advanced[0].item())
+                    if advanced is not None else None
+                ),
+            }
+
+
+        coordinator = getattr(env, "_g1_footstep_coordinator", None)
+        if coordinator is not None:
+            from simulation.isaac_lab.g1_stairs.footstep_isaac_adapter import (
+                course_tensors,
+            )
+
+            course = course_tensors(env, foot_separation_m=0.16)
+            targets, feet, valid = coordinator.runtime.targets(**course)
+
+            phase, swing, stance = coordinator.clock.features(
+                target_foot=feet[:, 0],
+                valid=valid[:, 0],
+            )
+
+            sensor_ids = [
+                self.sensor.body_names.index(name)
+                for name in self.feet
+            ]
+
+            force_z = self.sensor.data.net_forces_w[
+                0, sensor_ids, 2
+            ]
+
+            def cached(name):
+                tensor = getattr(env, name, None)
+                return (
+                    float(tensor[0].item())
+                    if tensor is not None else None
+                )
+
+            row["footstep_clock_audit"] = {
+                "elapsed_s": float(
+                    coordinator.clock.elapsed_s[0].item()
+                ),
+                "period_s": coordinator.clock.step_period_s,
+                "sin_cos": self.values(phase[0]),
+                "scheduled_swing_lr": self.values(swing[0]),
+                "scheduled_stance_lr": self.values(stance[0]),
+                "assigned_target_foot": int(feet[0, 0].item()),
+                "target_index": int(
+                    coordinator.runtime.target_index[0].item()
+                ),
+                "target_xyz": self.values(targets[0, 0, :3]),
+                "target_valid": bool(valid[0, 0].item()),
+                "vertical_force_lr_n": self.values(force_z),
+                "supported_lr_30n": self.values(force_z >= 30.0),
+                "foot_speed_lr_mps": self.values(
+                    data.body_lin_vel_w[0, self.foot_ids].norm(dim=-1)
+                ),
+                "cached_stance_reward": cached(
+                    "_g1_footstep_stance_support"
+                ),
+                "cached_swing_reward": cached(
+                    "_g1_footstep_directed_swing"
+                ),
+                "qualified_acquisition": (
+                    bool(env._g1_footstep_last_advanced[0].item())
+                    if hasattr(env, "_g1_footstep_last_advanced")
+                    else None
+                ),
+            }
+
         self.stream.write(json.dumps(row, allow_nan=False) + "\n")
 
     def compute(self, dt):

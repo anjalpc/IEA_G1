@@ -40,7 +40,7 @@ class CoordinatorTests(unittest.TestCase):
         self.good[0,0] = True
         self.assertEqual(self.tick(2).tolist(),[True,False])
         self.assertEqual(self.r.target_index.tolist(),[1,0])
-        self.assertAlmostEqual(self.c.elapsed_s[0].item(),0,places=6)
+        self.assertAlmostEqual(self.c.elapsed_s[0].item(),.04,places=6)
         self.assertEqual(self.tick(2).tolist(),[False,False])
         self.assertEqual(self.r.target_index.tolist(),[1,0])
 

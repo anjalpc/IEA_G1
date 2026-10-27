@@ -57,14 +57,11 @@ class FootstepManagerBasedRLEnv(NearRiserSnapshotManagerBasedRLEnv):
         original_compute = self.termination_manager.compute
 
         def compute_and_update(*args, **kw):
-            print("HOOK_ENTER", flush=True)
 
             result = original_compute(*args, **kw)
-            print("TERMINATION_COMPUTED", flush=True)
 
             from .footstep_live_progress import audit_after_step
 
-            print("CONTACT_UPDATE_ENTER", flush=True)
             try:
                 audit_after_step(self)
             except BaseException as exc:
@@ -72,7 +69,6 @@ class FootstepManagerBasedRLEnv(NearRiserSnapshotManagerBasedRLEnv):
                 print("CONTACT_UPDATE_EXCEPTION:", repr(exc), flush=True)
                 traceback.print_exc()
                 raise
-            print("CONTACT_UPDATE_DONE", flush=True)
 
             return result
 
