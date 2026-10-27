@@ -22,22 +22,29 @@ def footstep_target_score(sole_xyz, targets, feet, valid, acquired, *, sigma_m=0
     return torch.exp(-error/sigma_m) * (acquired & valid[:,0]).to(error.dtype)
 
 
-def clock_contact_scores(force_z, foot_speed, swing, stance, *, threshold_n=30.0, speed_scale=0.3):
-    """Return [N] stance-support and swing-motion scores (normalized by active feet).
-
-    Force score measures expected stance contact; swing score measures foot motion.
-    No causal reward assertion until force/speed traces and timing are validated.
-    """
-    n=force_z.shape[0]
-    if force_z.shape != (n,2) or foot_speed.shape != (n,2):
-        raise ValueError("foot forces and speeds must be [N,2]")
-    if swing.shape != (n,2) or stance.shape != (n,2):
-        raise ValueError("clock labels must be [N,2]")
+def clock_contact_scores(force_z, sole_xyz, sole_vel_xyz, targets, feet, valid,
+                         swing, stance, *, threshold_n=30.0, speed_scale=0.3):
+    # Reward directed movement of the assigned swing foot, not arbitrary speed.
+    n = force_z.shape[0]
+    if (force_z.shape != (n, 2) or sole_xyz.shape != (n, 2, 3)
+            or sole_vel_xyz.shape != (n, 2, 3) or targets.shape != (n, 2, 4)
+            or feet.shape != (n, 2) or valid.shape != (n, 2)
+            or swing.shape != (n, 2) or stance.shape != (n, 2)):
+        raise ValueError('invalid contact/footstep tensor shapes')
     if threshold_n <= 0 or speed_scale <= 0:
-        raise ValueError("positive scaling parameters required")
-    stance_score = ((force_z >= threshold_n).to(force_z.dtype)*stance).sum(1)/stance.sum(1).clamp(min=1)
-    swing_score = (torch.clamp(foot_speed/speed_scale,max=1.0)*swing).sum(1)/swing.sum(1).clamp(min=1)
-    return stance_score, swing_score
+        raise ValueError('threshold_n and speed_scale must be positive')
+    stance_score = ((force_z >= threshold_n).to(force_z.dtype) * stance).sum(1)
+    stance_score /= stance.sum(1).clamp(min=1)
+    rows = torch.arange(n, device=feet.device)
+    assigned = feet[:, 0].long()
+    delta = targets[:, 0, :3] - sole_xyz[rows, assigned]
+    dist = torch.linalg.vector_norm(delta, dim=-1)
+    direction = delta / dist.clamp(min=1.0e-6)[:, None]
+    toward_velocity = (sole_vel_xyz[rows, assigned] * direction).sum(-1)
+    score = torch.clamp(toward_velocity / speed_scale, min=0, max=1)
+    active = swing[rows, assigned].bool() & valid[:, 0].bool() & (dist > 0.001)
+    return stance_score, torch.where(active, score, torch.zeros_like(score))
+
 
 
 # Stage 19 intentionally does not change PPO reward registration, losses, or training.

@@ -16,11 +16,24 @@ class PaperScoreTests(unittest.TestCase):
         self.assertAlmostEqual(y.item(),1.0)
     def test_contact_clock(self):
         force=torch.tensor([[100.,0.]])
-        speed=torch.tensor([[0.,.4]])
+        sole=torch.zeros((1,2,3))
+        vel=torch.tensor([[[0.,0.,0.],[.4,0.,0.]]])
+        targets=torch.tensor([[[1.,0.,0.,0.],[0.,0.,0.,0.]]])
+        feet=torch.tensor([[1,0]])
+        valid=torch.tensor([[True,True]])
         swing=torch.tensor([[0.,1.]])
         stance=torch.tensor([[1.,0.]])
-        a,b=clock_contact_scores(force,speed,swing,stance)
+        def score():
+            return clock_contact_scores(force,sole,vel,targets,feet,valid,swing,stance)
+        a,b=score()
         self.assertEqual((a.item(),b.item()),(1.,1.))
+        vel[0,1]=torch.tensor([-.4,0.,0.])
+        self.assertEqual(score()[1].item(),0.)
+        vel[0,1]=torch.tensor([0.,.4,0.])
+        self.assertEqual(score()[1].item(),0.)
+        vel[0,1]=torch.tensor([.4,0.,0.])
+        valid[0,0]=False
+        self.assertEqual(score()[1].item(),0.)
     def test_reject_legacy_rewards(self):
         with self.assertRaises(RuntimeError):
             assert_paper_only_rewards(["track_lin_vel_xy"])

@@ -1313,6 +1313,20 @@ class StairRewardsCfg:
 
 
 @configclass
+class FootstepRewardsCfg(StairRewardsCfg):
+    """New reward catalog: no inherited terms can silently become active.
+
+    All terms intentionally inactive until individually reviewed and
+    registered. This configuration is not yet usable for PPO training.
+    """
+
+    def __post_init__(self):
+        for name, term in vars(self).items():
+            if not name.startswith("_") and term is not None:
+                setattr(self, name, None)
+
+
+@configclass
 class StairEnvCfg(_UPSTREAM.RobotEnvCfg):
     """Deterministic training configuration for the nominal staircase."""
 
@@ -1340,3 +1354,13 @@ class StairPlayEnvCfg(StairEnvCfg):
         self.scene.num_envs = 32
         self.scene.terrain.terrain_generator.num_rows = 2
         self.scene.terrain.terrain_generator.num_cols = 16
+
+
+@configclass
+class FootstepEnvCfg(StairEnvCfg):
+    """New footstep task shell with all legacy rewards disabled.
+
+    No training entry point until independent physical/reward audits pass.
+    """
+
+    rewards: FootstepRewardsCfg = FootstepRewardsCfg()
