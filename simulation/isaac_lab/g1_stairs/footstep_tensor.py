@@ -43,27 +43,34 @@ def planned_target_batch(*, first_riser_x: torch.Tensor,
 def footstep_observation(*, targets: torch.Tensor, feet: torch.Tensor,
                          valid: torch.Tensor, root_xyz: torch.Tensor,
                          root_yaw: torch.Tensor, phase: torch.Tensor,
-                         position_scale: float) -> torch.Tensor:
-    """22-D, clock and two 10-D target slots; zero finished slots."""
-    if position_scale <= 0:
-        raise ValueError("position_scale must be positive")
+                         position_scale: float, step_count: int,
+                         target_index: torch.Tensor) -> torch.Tensor:
+    """Stage 2-compatible 22-D clock and two target slots; finished slots zero."""
+    if position_scale <= 0 or step_count <= 0:
+        raise ValueError("position_scale and step_count must be positive")
     n = root_xyz.shape[0]
     if targets.shape != (n, 2, 4) or feet.shape != (n, 2) or valid.shape != (n, 2):
         raise ValueError("invalid target batch shapes")
-    if root_xyz.shape != (n, 3) or root_yaw.shape != (n,) or phase.shape != (n,):
-        raise ValueError("invalid root/phase shapes")
+    if (root_xyz.shape != (n, 3) or root_yaw.shape != (n,) or
+            phase.shape != (n,) or target_index.shape != (n,)):
+        raise ValueError("invalid root/phase/index shapes")
+    if torch.any((phase < 0) | (phase >= 1)):
+        raise ValueError("phase must be in [0, 1)")
     delta = targets[..., :3] - root_xyz[:, None, :]
     c, s = torch.cos(root_yaw[:, None]), torch.sin(root_yaw[:, None])
     dx = c * delta[..., 0] + s * delta[..., 1]
     dy = -s * delta[..., 0] + c * delta[..., 1]
     dyaw = torch.atan2(torch.sin(targets[..., 3] - root_yaw[:, None]),
                        torch.cos(targets[..., 3] - root_yaw[:, None]))
+    idx = target_index[:, None] + torch.arange(2, device=target_index.device)
+    level = (idx + 1).clamp(1, step_count)
+    current = torch.zeros_like(dx)
+    current[:, 0] = 1
     slots = torch.stack((valid.float(), (feet == 0).float(), (feet == 1).float(),
                          dx / position_scale, dy / position_scale,
                          delta[..., 2] / position_scale, dyaw / torch.pi,
-                         targets[..., 2] / position_scale,
-                         torch.zeros_like(dx),
-                         torch.tensor((1., 0.), device=dx.device, dtype=dx.dtype).expand(n, -1)), dim=-1)
+                         level.to(dx.dtype) / step_count,
+                         idx.to(dx.dtype) / (step_count + 1), current), dim=-1)
     slots = torch.where(valid[..., None], slots, torch.zeros_like(slots))
     return torch.cat((torch.sin(2 * torch.pi * phase)[:, None],
                       torch.cos(2 * torch.pi * phase)[:, None],
@@ -83,13 +90,17 @@ def footstep_scores(*, foot_distance: torch.Tensor, midpoint_distance: torch.Ten
                (midpoint_distance, measured_velocity, commanded_velocity,
                 swing_force, support_force, swing_speed, swing_phase)):
         raise ValueError("reward inputs must have equal shapes")
-    phase = swing_phase.clamp(0, 1)
+    if (any(torch.any(x < 0) for x in (foot_distance, midpoint_distance,
+                                       swing_force, support_force, swing_speed)) or
+            torch.any((swing_phase < 0) | (swing_phase > 1))):
+        raise ValueError("invalid unsigned measurements or phase")
+    phase = swing_phase
     load = (swing_force / force_scale).clamp(0, 1)
     support = (support_force / force_scale).clamp(0, 1)
     speed = (swing_speed / speed_scale).clamp(0, 1)
     return {
-        "footstep_target": torch.exp(-foot_distance.clamp_min(0) / distance_scale),
-        "footstep_root_progress": torch.exp(-midpoint_distance.clamp_min(0) / distance_scale),
+        "footstep_target": torch.exp(-foot_distance / distance_scale),
+        "footstep_root_progress": torch.exp(-midpoint_distance / distance_scale),
         "footstep_velocity_tracking": torch.exp(-((measured_velocity - commanded_velocity) / velocity_scale).square()),
         "footstep_force_phase": ((1-phase)*load + phase*(1-load) + support)/2,
         "footstep_velocity_phase": phase*speed + (1-phase)*(1-speed),
