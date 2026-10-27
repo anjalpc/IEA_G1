@@ -22,7 +22,7 @@ terrain:
   step_count: 3
   curriculum_enabled: false
 execution:
-  environments: 128
+  environments: 2048
   maximum_iterations: 500
   training_seed: 42
 policy_initialization:
