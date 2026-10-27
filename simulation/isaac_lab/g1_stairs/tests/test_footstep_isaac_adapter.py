@@ -56,6 +56,23 @@ class IsaacAdapterTests(unittest.TestCase):
         self.assertAlmostEqual(obs[1, 5].item(), .1)
         self.assertEqual(self.runtime.target_index.tolist(), [0, 0])
 
+    def test_flat_ground_adapter(self):
+        self.env.device = "cpu"
+        with self.patched():
+            obs = target_observation(
+                self.env, self.runtime,
+                position_scale_m=1.,
+                foot_separation_m=.16,
+                flat_ground=True,
+                flat_start_x_m=0.,
+                flat_step_length_m=.20,
+            )
+        self.assertEqual(tuple(obs.shape), (2, 14))
+        # First flat foothold is 20 cm ahead, not the first stair.
+        self.assertAlmostEqual(obs[0, 3].item(), .20, places=5)
+        self.assertAlmostEqual(obs[1, 3].item(), .20, places=5)
+        self.assertEqual(self.runtime.target_index.tolist(), [0, 0])
+
     def test_mismatched_stair_count_fails(self):
         self.cfg.step_count = 4
         with self.patched(), self.assertRaises(ValueError):

@@ -7,6 +7,7 @@ import tempfile
 import unittest
 
 from simulation.isaac_lab.g1_stairs.evaluation.metrics import (
+    summarize_planned_footsteps,
     RunMetricsWriter,
     wilson_interval,
 )
@@ -889,3 +890,66 @@ class MetricsTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PlannedFootstepSummaryTests(unittest.TestCase):
+    def event(self, index, foot, **changes):
+        evidence = dict(
+            target_index=index,
+            foot=foot,
+            placement_valid=True,
+            support_valid=True,
+            slip_valid=True,
+            clearance_valid=True,
+        )
+        evidence.update(changes)
+        return evidence
+
+    def episode(self, landings, destination=True, failure=None):
+        return dict(
+            required_feet=[0, 1, 0],
+            landings=landings,
+            destination_verified=destination,
+            terminal_failure=failure,
+        )
+
+    def test_success_requires_all_verified_landings(self):
+        episode = self.episode([
+            self.event(0, 0),
+            self.event(1, 1),
+            self.event(2, 0),
+        ])
+        result = summarize_planned_footsteps([episode])
+        self.assertEqual(result["contract"], "planned_footsteps_v1")
+        self.assertEqual(result["successes"], 1)
+        self.assertEqual(result["verified_landings"], 3)
+        self.assertEqual(result["success_rate"], 1.0)
+
+    def test_mixed_outcomes_and_failure_reasons(self):
+        complete = self.episode([
+            self.event(0, 0),
+            self.event(1, 1),
+            self.event(2, 0),
+        ])
+        wrong_foot = self.episode([self.event(0, 1)])
+        missing = self.episode([
+            self.event(0, 0, support_valid=None),
+        ])
+        result = summarize_planned_footsteps([
+            complete, wrong_foot, missing,
+        ])
+        self.assertEqual(result["evaluated_episodes"], 3)
+        self.assertEqual(result["successes"], 1)
+        self.assertEqual(result["failures"], 1)
+        self.assertEqual(result["not_verified"], 1)
+        self.assertEqual(result["failure_reasons"], {"wrong_foot": 1})
+        self.assertAlmostEqual(result["success_rate"], 1/3)
+
+    def test_no_evidence_is_not_zero_success_rate(self):
+        result = summarize_planned_footsteps([])
+        self.assertIsNone(result["success_rate"])
+        self.assertEqual(result["evaluated_episodes"], 0)
+
+    def test_missing_episode_contract_rejected(self):
+        with self.assertRaises(ValueError):
+            summarize_planned_footsteps([{"landings": []}])

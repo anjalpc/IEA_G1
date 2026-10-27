@@ -18,6 +18,43 @@ class BatchedFootstepTests(unittest.TestCase):
             target_index=torch.tensor([0, 4]),
             centre_y=torch.zeros(2), foot_separation=torch.tensor([.16, .20]))
 
+    def test_flat_ground_targets_alternate_without_changing_stair_contract(self):
+        params = dict(
+            first_riser_x=torch.zeros(2),
+            tread_depth=torch.full((2,), 0.20),
+            riser_height=torch.zeros(2),
+            step_count=3,
+            first_foot=torch.tensor([0, 1]),
+            target_index=torch.zeros(2, dtype=torch.long),
+            centre_y=torch.zeros(2),
+            foot_separation=torch.full((2,), 0.16),
+        )
+        targets, feet, valid = planned_target_batch(
+            **params, flat_ground=True
+        )
+        self.assertEqual(feet.tolist(), [[0, 1], [1, 0]])
+        self.assertEqual(valid.tolist(), [[True, True], [True, True]])
+        self.assertTrue(torch.allclose(
+            targets[:, :, 0],
+            torch.tensor([[0.20, 0.40], [0.20, 0.40]])
+        ))
+        self.assertTrue(torch.allclose(
+            targets[:, :, 1],
+            torch.tensor([[0.08, -0.08], [-0.08, 0.08]])
+        ))
+        self.assertTrue(torch.all(targets[:, :, 2] == 0))
+
+        params["riser_height"] = torch.full((2,), 0.20)
+        stairs, _, _ = planned_target_batch(**params)
+        self.assertTrue(torch.allclose(
+            stairs[:, :, 0],
+            torch.tensor([[0.10, 0.30], [0.10, 0.30]])
+        ))
+        self.assertTrue(torch.allclose(
+            stairs[:, :, 2],
+            torch.tensor([[0.20, 0.40], [0.20, 0.40]])
+        ))
+
     def test_per_environment_geometry_and_foot(self):
         target, foot, valid = self.build()
         self.assertEqual(target.shape, (2, 2, 4))

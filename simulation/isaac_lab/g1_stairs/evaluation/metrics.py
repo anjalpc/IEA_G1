@@ -183,6 +183,68 @@ def _append_csv(
         writer.writerows(rows)
 
 
+
+
+def summarize_planned_footsteps(episodes: list[dict]) -> dict:
+    """Aggregate independently supplied landing evidence.
+
+    No training reward, X-based progression, or raw acquisition counter
+    is accepted as physical success. Missing evidence stays unverified.
+    """
+    from collections import Counter
+    from simulation.isaac_lab.g1_stairs.footstep_runtime import (
+        evaluate_footstep_sequence,
+    )
+
+    outcomes = Counter()
+    failures = Counter()
+    verified_landings = 0
+    required_landings = 0
+
+    for episode in episodes:
+        if not isinstance(episode, dict):
+            raise ValueError("episode evidence must be a dictionary")
+
+        required = (
+            "required_feet",
+            "landings",
+            "destination_verified",
+            "terminal_failure",
+        )
+        if any(key not in episode for key in required):
+            raise ValueError("episode evidence is incomplete")
+
+        result = evaluate_footstep_sequence(
+            required_feet=episode["required_feet"],
+            landings=episode["landings"],
+            destination_verified=episode["destination_verified"],
+            terminal_failure=episode["terminal_failure"],
+        )
+
+        outcomes[result["outcome"]] += 1
+        verified_landings += result["verified_landings"]
+        required_landings += result["required_landings"]
+
+        if result["failure_reason"] is not None:
+            failures[result["failure_reason"]] += 1
+
+    total = len(episodes)
+    successes = outcomes["SUCCESS"]
+    verified_rate = successes / total if total else None
+
+    return {
+        "contract": "planned_footsteps_v1",
+        "evaluated_episodes": total,
+        "successes": successes,
+        "failures": outcomes["FAILURE"],
+        "not_verified": outcomes["NOT_VERIFIED"],
+        "verified_landings": verified_landings,
+        "required_landings": required_landings,
+        "success_rate": verified_rate,
+        "failure_reasons": dict(sorted(failures.items())),
+    }
+
+
 def wilson_interval(
     successes: int,
     attempts: int,

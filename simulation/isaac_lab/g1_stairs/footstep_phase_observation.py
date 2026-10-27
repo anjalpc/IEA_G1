@@ -17,11 +17,17 @@ def planned_footsteps_with_phase(env) -> torch.Tensor:
     Observation evaluation never mutates planner or phase state.
     """
     coord = ensure_coordinator(env)
+    flat = bool(getattr(env.cfg, "flat_ground_footsteps", False))
     targets = target_observation(
         env, coord.runtime, position_scale_m=1.0, foot_separation_m=0.16,
+        flat_ground=flat,
     )
-    course = course_tensors(env, foot_separation_m=0.16)
-    _poses, feet, valid = coord.runtime.targets(**course)
+    course = course_tensors(
+        env, foot_separation_m=0.16, flat_ground=flat,
+    )
+    _poses, feet, valid = coord.runtime.targets(
+        **course, flat_ground=flat,
+    )
     clock, _swing, _stance = coord.clock.features(
         target_foot=feet[:, 0], valid=valid[:, 0]
     )

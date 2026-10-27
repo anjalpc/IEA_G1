@@ -1,6 +1,6 @@
 import unittest
 import torch
-from simulation.isaac_lab.g1_stairs.footstep_tread import qualified_tread_mask
+from simulation.isaac_lab.g1_stairs.footstep_tread import qualified_tread_mask, qualified_flat_mask
 
 class TreadTests(unittest.TestCase):
     def setup(self):
@@ -25,3 +25,71 @@ class TreadTests(unittest.TestCase):
     def test_unloaded_rejected(self):
         x=self.setup();x['vertical_force'][0,0]=0
         self.assertEqual(qualified_tread_mask(**x).tolist(),[[False,False]])
+
+
+class FlatLandingTests(unittest.TestCase):
+    def inputs(self):
+        return dict(
+            sole_centre=torch.tensor([[
+                [0.20, 0.08, 0.015],
+                [0.02, -0.08, 0.015],
+            ]]),
+            sole_bounds=torch.tensor([[
+                [0.11, 0.29, 0.045, 0.115, 0.0, 0.03],
+                [-0.07, 0.11, -0.115, -0.045, 0.0, 0.03],
+            ]]),
+            vertical_force=torch.tensor([[90.0, 90.0]]),
+            targets=torch.tensor([[
+                [0.20, 0.08, 0.0, 0.0],
+                [0.40, -0.08, 0.0, 0.0],
+            ]]),
+            feet=torch.tensor([[0, 1]]),
+            valid=torch.tensor([[True, True]]),
+            half_width=0.60,
+        )
+
+    def test_assigned_foot_qualifies(self):
+        self.assertEqual(
+            qualified_flat_mask(**self.inputs()).tolist(),
+            [[True, False]],
+        )
+
+    def test_distant_foot_rejected(self):
+        args = self.inputs()
+        args["sole_centre"][0, 0, 0] = 0.40
+        self.assertEqual(
+            qualified_flat_mask(**args).tolist(),
+            [[False, False]],
+        )
+
+    def test_airborne_foot_rejected(self):
+        args = self.inputs()
+        args["sole_bounds"][0, 0, 4] = 0.10
+        self.assertEqual(
+            qualified_flat_mask(**args).tolist(),
+            [[False, False]],
+        )
+
+    def test_unloaded_foot_rejected(self):
+        args = self.inputs()
+        args["vertical_force"][0, 0] = 0.0
+        self.assertEqual(
+            qualified_flat_mask(**args).tolist(),
+            [[False, False]],
+        )
+
+    def test_outside_course_rejected(self):
+        args = self.inputs()
+        args["sole_bounds"][0, 0, 3] = 0.70
+        self.assertEqual(
+            qualified_flat_mask(**args).tolist(),
+            [[False, False]],
+        )
+
+    def test_invalid_target_rejected(self):
+        args = self.inputs()
+        args["valid"][0, 0] = False
+        self.assertEqual(
+            qualified_flat_mask(**args).tolist(),
+            [[False, False]],
+        )

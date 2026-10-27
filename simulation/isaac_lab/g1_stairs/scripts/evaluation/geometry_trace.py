@@ -320,8 +320,13 @@ class GeometryTrace:
             from simulation.isaac_lab.g1_stairs.footstep_isaac_adapter import course_tensors
 
             runtime = coordinator.runtime
-            course = course_tensors(env, foot_separation_m=0.16)
-            targets, feet, valid = runtime.targets(**course)
+            flat = bool(getattr(env.cfg, "flat_ground_footsteps", False))
+            course = course_tensors(
+                env,
+                foot_separation_m=0.16,
+                flat_ground=flat,
+            )
+            targets, feet, valid = runtime.targets(**course, flat_ground=flat)
 
             advanced = getattr(env, "_g1_footstep_last_advanced", None)
 
@@ -346,8 +351,13 @@ class GeometryTrace:
                 course_tensors,
             )
 
-            course = course_tensors(env, foot_separation_m=0.16)
-            targets, feet, valid = coordinator.runtime.targets(**course)
+            flat = bool(getattr(env.cfg, "flat_ground_footsteps", False))
+            course = course_tensors(
+                env,
+                foot_separation_m=0.16,
+                flat_ground=flat,
+            )
+            targets, feet, valid = coordinator.runtime.targets(**course, flat_ground=flat)
 
             phase, swing, stance = coordinator.clock.features(
                 target_foot=feet[:, 0],
@@ -400,6 +410,13 @@ class GeometryTrace:
                     if hasattr(env, "_g1_footstep_last_advanced")
                     else None
                 ),
+            }
+
+        landing = getattr(env, "_g1_footstep_landing_audit", None)
+        if landing is not None and reward is not None:
+            row["footstep_landing_audit"] = {
+                key: self.values(value[0])
+                for key, value in landing.items()
             }
 
         self.stream.write(json.dumps(row, allow_nan=False) + "\n")

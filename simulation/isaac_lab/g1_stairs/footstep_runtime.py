@@ -46,12 +46,13 @@ class FootstepRuntime:
 
     def targets(self, *, first_riser_x: torch.Tensor, tread_depth: torch.Tensor,
                 riser_height: torch.Tensor, centre_y: torch.Tensor,
-                foot_separation: torch.Tensor):
+                foot_separation: torch.Tensor, flat_ground: bool = False):
         return planned_target_batch(
             first_riser_x=first_riser_x, tread_depth=tread_depth,
             riser_height=riser_height, step_count=self.step_count,
             first_foot=self.first_foot, target_index=self.target_index,
             centre_y=centre_y, foot_separation=foot_separation,
+            flat_ground=flat_ground,
         )
 
     def observation(self, *, targets: torch.Tensor, feet: torch.Tensor,
@@ -93,3 +94,85 @@ class FootstepRuntime:
         self.target_index += success.long()
         self.was_supported.copy_(supported)
         return success
+
+
+def evaluate_footstep_sequence(
+    *, required_feet, landings, destination_verified=None,
+    terminal_failure=None,
+):
+    """Assess externally measured landings, without inferring physics.
+
+    Each landing supplies target_index, foot, placement_valid,
+    support_valid, slip_valid and clearance_valid.
+    Values must be actual evaluator measurements: True/False/None.
+    None denotes missing evidence, not failure or success.
+
+    No contact, persistence or collision measurement is made here.
+    """
+    if not required_feet or any(f not in (0, 1) for f in required_feet):
+        raise ValueError("invalid required foot sequence")
+    if any(a == b for a, b in zip(required_feet, required_feet[1:])):
+        raise ValueError("required foot sequence must alternate")
+    if destination_verified not in (None, True, False):
+        raise ValueError("invalid destination evidence")
+    if terminal_failure is not None and (
+        not isinstance(terminal_failure, str) or not terminal_failure
+    ):
+        raise ValueError("invalid terminal failure")
+
+    required = (
+        "placement_valid", "support_valid",
+        "slip_valid", "clearance_valid",
+    )
+    verified = 0
+    reason = terminal_failure
+    missing = False
+
+    for event in landings:
+        if not isinstance(event, dict) or any(k not in event for k in (
+            "target_index", "foot", *required
+        )):
+            raise ValueError("incomplete landing event")
+        if any(event[k] not in (None, True, False) for k in required):
+            raise ValueError("invalid physical evidence")
+        if not isinstance(event["target_index"], int) or (
+            type(event["foot"]) is not int or event["foot"] not in (0, 1)
+        ):
+            raise ValueError("invalid landing identity")
+
+        if reason is not None or missing:
+            break
+        if verified >= len(required_feet):
+            reason = "extra_landing"
+            break
+        if event["target_index"] != verified:
+            reason = "wrong_target_order"
+            break
+        if event["foot"] != required_feet[verified]:
+            reason = "wrong_foot"
+            break
+        if any(event[k] is False for k in required):
+            reason = next(k for k in required if event[k] is False)
+            break
+        if any(event[k] is None for k in required):
+            missing = True
+            break
+        verified += 1
+
+    if reason is not None:
+        outcome = "FAILURE"
+    elif missing or verified < len(required_feet) or destination_verified is None:
+        outcome = "NOT_VERIFIED"
+    elif destination_verified is False:
+        outcome = "FAILURE"
+        reason = "destination_invalid"
+    else:
+        outcome = "SUCCESS"
+
+    return {
+        "contract": "planned_footsteps_v1",
+        "outcome": outcome,
+        "verified_landings": verified,
+        "required_landings": len(required_feet),
+        "failure_reason": reason,
+    }

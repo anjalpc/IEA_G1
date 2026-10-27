@@ -49,3 +49,53 @@ def qualified_tread_mask(*, sole_bounds, vertical_force, targets, feet, valid,
             (vertical_force >= support_force_n))
     assigned = torch.arange(2, device=feet.device)[None, :] == feet[:, 0, None]
     return good & assigned & good_level[:, None] & valid[:, :1]
+
+
+def qualified_flat_mask(
+    *, sole_centre, sole_bounds, vertical_force, targets, feet, valid,
+    half_width, xy_tolerance_m=0.08, ground_tolerance_m=0.025,
+    support_force_n=30.0,
+):
+    """Qualify assigned-foot placement on flat ground.
+
+    Geometric/contact-force approximation, not contact-patch proof.
+    New touchdown detection remains the FootstepRuntime's responsibility.
+    """
+    n = sole_centre.shape[0]
+    if (
+        sole_centre.shape != (n, 2, 3)
+        or sole_bounds.shape != (n, 2, 6)
+        or vertical_force.shape != (n, 2)
+        or targets.shape != (n, 2, 4)
+        or feet.shape != (n, 2)
+        or valid.shape != (n, 2)
+    ):
+        raise ValueError("invalid flat landing shapes")
+    if min(half_width, xy_tolerance_m, ground_tolerance_m, support_force_n) <= 0:
+        raise ValueError("invalid flat landing parameters")
+
+    target = targets[:, 0, :3]
+    xy_error = torch.linalg.vector_norm(
+        sole_centre[..., :2] - target[:, None, :2], dim=-1
+    )
+    ground_error = (
+        sole_bounds[..., 4] - target[:, None, 2]
+    ).abs()
+
+    lateral_ok = (
+        (sole_bounds[..., 2] >= -half_width)
+        & (sole_bounds[..., 3] <= half_width)
+    )
+    assigned = (
+        torch.arange(2, device=feet.device)[None, :]
+        == feet[:, 0, None]
+    )
+
+    return (
+        assigned
+        & valid[:, :1]
+        & (xy_error <= xy_tolerance_m)
+        & (ground_error <= ground_tolerance_m)
+        & lateral_ok
+        & (vertical_force >= support_force_n)
+    )

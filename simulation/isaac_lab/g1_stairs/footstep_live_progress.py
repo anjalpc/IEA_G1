@@ -9,7 +9,7 @@ from .footstep_live import ensure_runtime
 from .footstep_coordinator import FootstepCoordinator
 from .footstep_gait_clock import FootstepGaitClock
 from .footstep_isaac_adapter import course_tensors
-from .footstep_tread import qualified_tread_mask
+from .footstep_tread import qualified_tread_mask, qualified_flat_mask
 from .contact_sensor_contract import FOOT_BODY_NAMES
 from .motion_reference import sole_state
 from .terrain_state import stair_cfg
@@ -36,8 +36,13 @@ def reset_coordinator(env, env_ids):
 def audit_after_step(env):
     """Read post-physics state; do not mutate the returned policy observation."""
     coordinator = ensure_coordinator(env)
-    course = course_tensors(env, foot_separation_m=0.16)
-    targets, feet, valid = coordinator.runtime.targets(**course)
+    flat = bool(getattr(env.cfg, "flat_ground_footsteps", False))
+    course = course_tensors(
+        env, foot_separation_m=0.16, flat_ground=flat,
+    )
+    targets, feet, valid = coordinator.runtime.targets(
+        **course, flat_ground=flat,
+    )
     robot = env.scene['robot']
     sensor = env.scene.sensors['contact_forces']
     foot_ids = [list(robot.body_names).index(name) for name in FOOT_BODY_NAMES]
@@ -54,12 +59,22 @@ def audit_after_step(env):
     force_z = sensor.data.net_forces_w[:, sensor_ids, 2]
     supported = force_z >= 30.0
     cfg = stair_cfg(env)
-    qualified = qualified_tread_mask(
-        sole_bounds=bounds, vertical_force=force_z, targets=targets,
-        feet=feet, valid=valid, step_count=coordinator.runtime.step_count,
-        first_riser_x=course['first_riser_x'], tread_depth=course['tread_depth'],
-        riser_height=course['riser_height'], half_width=float(cfg.size[1]) / 2,
-    )
+    if flat:
+        qualified = qualified_flat_mask(
+            sole_centre=centre, sole_bounds=bounds,
+            vertical_force=force_z, targets=targets,
+            feet=feet, valid=valid,
+            half_width=float(cfg.size[1]) / 2,
+        )
+    else:
+        qualified = qualified_tread_mask(
+            sole_bounds=bounds, vertical_force=force_z, targets=targets,
+            feet=feet, valid=valid, step_count=coordinator.runtime.step_count,
+            first_riser_x=course['first_riser_x'],
+            tread_depth=course['tread_depth'],
+            riser_height=course['riser_height'],
+            half_width=float(cfg.size[1]) / 2,
+        )
     # Called after termination calculation and before reward/reset.
     # Exclude terminating environments from target acquisition.
     resets = env.termination_manager.terminated | env.termination_manager.time_outs
@@ -167,6 +182,10 @@ def audit_after_step(env):
         torch.zeros_like(improvement),
     )
 
+    if flat:
+        clearance = torch.zeros_like(clearance)
+        eligible = torch.zeros_like(eligible)
+
     env._g1_footstep_clearance_progress = clearance
     env._g1_footstep_peak_clearance = torch.where(
         eligible,
@@ -182,12 +201,34 @@ def audit_after_step(env):
     env._g1_footstep_failure_event = (
         env.termination_manager.terminated & ~env.termination_manager.time_outs
     ).float()
+    # Preserve evidence before target-index progression.
+    pre_target_index = coordinator.runtime.target_index.clone()
+    pre_supported = coordinator.runtime.was_supported.clone()
+    pre_primed = coordinator._primed.clone()
+
     advanced = coordinator.step(
         step_id=int(env.common_step_counter), dt=float(env.step_dt),
         targets=targets, feet=feet, valid=valid, sole_xyz=centre,
         supported=supported, qualified_tread=qualified,
-        xy_tolerance=0.08, z_tolerance=0.01,
+        xy_tolerance=0.08,
+        z_tolerance=0.025 if flat else 0.01,
     )
+    env._g1_footstep_landing_audit = {
+        "target_index_before": pre_target_index,
+        "assigned_foot": feet[:, 0].clone(),
+        "target_xyz_before": targets[:, 0, :3].clone(),
+        "target_valid_before": valid[:, 0].clone(),
+        "sole_centre_local": centre.clone(),
+        "sole_bounds_local": bounds.clone(),
+        "supported_lr": supported.clone(),
+        "support_before_lr": pre_supported,
+        "support_primed_before": pre_primed,
+        "qualified_geometry_lr": qualified.clone(),
+        "foot_planar_speed_lr_mps": torch.linalg.vector_norm(
+            sole_velocity[..., :2], dim=-1
+        ),
+        "raw_acquisition": advanced.clone(),
+    }
     env._g1_footstep_best_distance[advanced] = float("inf")
     env._g1_footstep_last_advanced = advanced
     return advanced

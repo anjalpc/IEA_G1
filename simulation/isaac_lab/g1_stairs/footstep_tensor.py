@@ -16,7 +16,8 @@ def planned_target_batch(*, first_riser_x: torch.Tensor,
                          tread_depth: torch.Tensor, riser_height: torch.Tensor,
                          step_count: int, first_foot: torch.Tensor,
                          target_index: torch.Tensor, centre_y: torch.Tensor,
-                         foot_separation: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+                         foot_separation: torch.Tensor,
+                         flat_ground: bool = False) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Return [N,2,4] world-course target poses, [N,2] assigned feet,
     and [N,2] validity. First-foot and target index may differ by env.
     """
@@ -26,15 +27,19 @@ def planned_target_batch(*, first_riser_x: torch.Tensor,
     if any(x.shape != (n,) for x in (first_riser_x, tread_depth, riser_height,
                                     first_foot, centre_y, foot_separation)):
         raise ValueError("all inputs must be per-environment vectors")
-    if torch.any(tread_depth <= 0) or torch.any(riser_height <= 0):
+    if torch.any(tread_depth <= 0) or (not flat_ground and torch.any(riser_height <= 0)):
         raise ValueError("course dimensions must be positive")
     idx = target_index[:, None] + torch.arange(2, device=target_index.device)
     valid = (idx >= 0) & (idx < step_count + 2)
     foot = (first_foot[:, None] + idx) % 2
     level = (idx + 1).clamp(1, step_count)
-    x = first_riser_x[:, None] + (idx + .5) * tread_depth[:, None]
+    if flat_ground:
+        x = first_riser_x[:, None] + (idx + 1) * tread_depth[:, None]
+        z = torch.zeros_like(x)
+    else:
+        x = first_riser_x[:, None] + (idx + .5) * tread_depth[:, None]
+        z = level * riser_height[:, None]
     y = centre_y[:, None] + torch.where(foot == 0, .5, -.5) * foot_separation[:, None]
-    z = level * riser_height[:, None]
     yaw = torch.zeros_like(x)
     targets = torch.stack((x, y, z, yaw), dim=-1)
     return torch.where(valid[..., None], targets, torch.zeros_like(targets)), foot, valid

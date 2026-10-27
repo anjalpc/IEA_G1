@@ -1401,6 +1401,7 @@ class FootstepEnvCfg(StairEnvCfg):
     """
 
     rewards: FootstepRewardsCfg = FootstepRewardsCfg()
+    flat_ground_footsteps: bool = False
 
     def __post_init__(self):
         super().__post_init__()
@@ -1422,6 +1423,32 @@ class FootstepEnvCfg(StairEnvCfg):
 @configclass
 class FootstepPlayEnvCfg(FootstepEnvCfg):
     """Small separate environment for non-training runtime checks."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.num_envs = 32
+        self.scene.terrain.terrain_generator.num_rows = 2
+        self.scene.terrain.terrain_generator.num_cols = 16
+
+
+@configclass
+class FlatFootstepEnvCfg(FootstepEnvCfg):
+    """Isolated zero-riser footstep diagnostic; not yet PPO-qualified."""
+
+    flat_ground_footsteps: bool = True
+
+    def __post_init__(self):
+        super().__post_init__()
+        generator = copy.deepcopy(self.scene.terrain.terrain_generator)
+        terrain = generator.sub_terrains["three_step_ascent"]
+        terrain.riser_height_range = (0.0, 0.0)
+        terrain.riser_heights = (0.0,)
+        self.scene.terrain.terrain_generator = generator
+
+
+@configclass
+class FlatFootstepPlayEnvCfg(FlatFootstepEnvCfg):
+    """Small zero-riser environment for runtime diagnostics."""
 
     def __post_init__(self):
         super().__post_init__()

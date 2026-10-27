@@ -11,11 +11,25 @@ import torch
 from .terrain_state import riser_height_per_env, stair_cfg
 
 
-def course_tensors(env, *, foot_separation_m: float):
+def course_tensors(
+    env, *, foot_separation_m: float, flat_ground: bool = False,
+    flat_start_x_m: float = 0.0, flat_step_length_m: float = 0.20,
+):
     """Geometry in the per-env course frame used by terrain observations."""
     if not 0.0 < foot_separation_m:
         raise ValueError("foot_separation_m must be positive")
     cfg = stair_cfg(env)
+    if flat_ground:
+        if flat_step_length_m <= 0:
+            raise ValueError("flat step length must be positive")
+        height = torch.zeros(env.num_envs, device=env.device)
+        return dict(
+            first_riser_x=torch.full_like(height, flat_start_x_m),
+            tread_depth=torch.full_like(height, flat_step_length_m),
+            riser_height=height,
+            centre_y=torch.zeros_like(height),
+            foot_separation=torch.full_like(height, foot_separation_m),
+        )
     height = riser_height_per_env(env)
     if height.shape != (env.num_envs,):
         raise ValueError("riser height must have one value per environment")
@@ -40,13 +54,19 @@ def course_root_pose(env):
 
 
 def target_observation(env, runtime, *, position_scale_m: float,
-                       foot_separation_m: float):
+                       foot_separation_m: float, flat_ground: bool = False,
+                       flat_start_x_m: float = 0.0,
+                       flat_step_length_m: float = 0.20):
     """Read-only [N,14] target observation; never updates progress."""
     cfg = stair_cfg(env)
     if runtime.num_envs != env.num_envs or runtime.step_count != int(cfg.step_count):
         raise ValueError("footstep runtime and resolved stair course disagree")
-    args = course_tensors(env, foot_separation_m=foot_separation_m)
-    targets, feet, valid = runtime.targets(**args)
+    args = course_tensors(
+        env, foot_separation_m=foot_separation_m,
+        flat_ground=flat_ground, flat_start_x_m=flat_start_x_m,
+        flat_step_length_m=flat_step_length_m,
+    )
+    targets, feet, valid = runtime.targets(**args, flat_ground=flat_ground)
     xyz, yaw = course_root_pose(env)
     return runtime.observation(targets=targets, feet=feet, valid=valid,
                                root_xyz=xyz, root_yaw=yaw,

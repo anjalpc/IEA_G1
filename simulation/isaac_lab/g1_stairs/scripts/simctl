@@ -558,186 +558,39 @@ cmd_status() {
     fi
 
     if [ -f "$METRICS" ]; then
-        python3 - "$METRICS" "${RUN_DIR}/resolved_config.yaml" "$MANIFEST" <<'PY'
+        python3 - "$METRICS" <<'STATUS_PY'
 import csv
-import json
-import re
+import math
 import sys
-from pathlib import Path
 
-metrics = Path(sys.argv[1])
-config = Path(sys.argv[2])
-manifest = Path(sys.argv[3])
+with open(sys.argv[1], newline="") as stream:
+    rows = list(csv.DictReader(stream))
 
-with metrics.open(newline="") as f:
-    rows = list(csv.DictReader(f))
-
-if not rows:
-    raise SystemExit
-
-row = rows[-1]
-
-iteration = int(float(row["iteration"]))
-wall = float(row.get("wall_time_s") or 0)
-reward = row.get("episode_return_mean", "")
-max_x = (
-    row.get("maximum_x_any_m")
-    or row.get("maximum_x_mean_m", "")
-)
-step = (
-    row.get("maximum_step_reached_any")
-    or row.get("maximum_step_reached_mean", "")
-)
-platform = row.get("platform_reached_rate", "")
-action_rate = row.get("action_rate_mean", "")
-power = row.get("mechanical_power_mean", "")
-axis_velocity = row.get("stair_axis_velocity_mean_mps", "")
-lateral_offset = row.get("lateral_offset_abs_mean_m", "")
-heading_error = row.get("heading_error_abs_mean_rad", "")
-curriculum_level = row.get("curriculum_level_mean", "")
-extra = {}
-try:
-    extra = json.loads(row.get("extra_json") or "{}")
-except json.JSONDecodeError:
-    extra = {}
-
-# The run manifest is authoritative because it records the command
-# that was actually executed.
-target = None
-
-if manifest.exists():
-    manifest_text = manifest.read_text()
-    match = re.search(
-        r"(?m)^\s*-\s*--max_iterations\s*$\n"
-        r"^\s*-\s*['\"]?(\d+)['\"]?\s*$",
-        manifest_text,
-    )
-    if match:
-        target = int(match.group(1))
-
-# Fallback for older manifests. The top-level training value is the
-# first maximum_iterations entry in our resolved experiment schema.
-if target is None and config.exists():
-    config_text = config.read_text()
-    values = re.findall(r"maximum_iterations:\s*(\d+)", config_text)
-    if values:
-        target = int(values[0])
-
-# Count updates recorded in this run, independently of checkpoint numbering.
-logged_iterations = set()
-with metrics.open(newline="") as progress_stream:
-    for sample in csv.DictReader(progress_stream):
-        try:
-            logged_iteration = int(sample.get("iteration", ""))
-        except (TypeError, ValueError):
-            continue
-        if 0 <= logged_iteration <= iteration:
-            logged_iterations.add(logged_iteration)
-
-completed = len(logged_iterations)
 print()
-if target:
-    pct = 100.0 * completed / target
-    print(f"Updates: {completed}/{target}  ({pct:.1f}%)")
-    print(f"Global iteration: {iteration}")
+print("TRAINING / EXECUTION")
 
-    if wall > 0 and completed > 0:
-        eta = wall / completed * max(target - completed, 0)
-        h = int(eta // 3600)
-        m = int((eta % 3600) // 60)
-        s = int(eta % 60)
-        print(f"Estimated remaining: {h:02d}:{m:02d}:{s:02d}")
+if rows:
+    row = rows[-1]
+    print("  Latest iteration:", row.get("iteration") or "NOT RECORDED")
+    print("  Recorded metric rows:", len(rows))
+
+    try:
+        reward = float(row.get("episode_return_mean", ""))
+        if math.isfinite(reward):
+            print(f"  PPO mean return: {reward:.4f} (learning signal only)")
+        else:
+            print("  PPO mean return: NOT RECORDED")
+    except (ValueError, TypeError):
+        print("  PPO mean return: NOT RECORDED")
 else:
-    print(f"Iteration: {iteration}")
+    print("  Training metrics: NOT RECORDED")
 
-if reward:
-    print(f"Mean return: {reward}")
-if max_x:
-    print(f"Maximum X (any env): {max_x} m")
-if step:
-    print(f"Maximum X-based step index (not verified ascent): {step}")
-if platform:
-    print(f"X-only platform crossing (includes flat; not success): {platform}")
-if "verified_stair_attempts" in extra:
-    stable_finish_enabled = False
-    if config.exists():
-        stable_finish_enabled = bool(
-            re.search(r"(?m)^\s*stable_finish:\s*true\s*$", config.read_text())
-        )
-    finish_label = "Strict stable stair finishes" if stable_finish_enabled else "Verified stair completions"
-    flat_label = "Strict stable flat finishes" if stable_finish_enabled else "Flat traversals"
-    print(f"{finish_label}: {extra['verified_stair_successes']} / {extra['verified_stair_attempts']}")
-    print(f"{flat_label}: {extra['flat_traversal_successes']} / {extra['flat_traversal_attempts']}")
-    print("Per-height episode outcomes:")
-    for key, value in sorted(extra.items()):
-        if key.startswith("outcome_h") and key.endswith("_attempts"):
-            prefix = key[:-len("_attempts")]
-            success = extra.get(prefix + "_successes", 0)
-            contact = extra.get(prefix + "_upper_platform_contact_episodes")
-            supported = extra.get(prefix + "_supported_platform_episodes")
-            fields = [f"success={success}/{value}"]
-            if contact is not None:
-                fields.append(f"upper_platform_contact={contact}/{value}")
-            if supported is not None:
-                label = "stable_finish_pose_seen" if stable_finish_enabled else "supported_platform"
-                fields.append(f"{label}={supported}/{value}")
-            curriculum_prefix = "curriculum_" + prefix.removeprefix("outcome_")
-            stages = [
-                extra.get(curriculum_prefix + "_supported_step1_episodes"),
-                extra.get(curriculum_prefix + "_supported_step2_episodes"),
-                extra.get(curriculum_prefix + "_supported_step3_episodes"),
-                extra.get(curriculum_prefix + "_alternating_three_stairs_episodes"),
-            ]
-            if all(v is not None for v in stages):
-                fields.append(
-                    "supported_steps=" + "/".join(str(v) for v in stages[:3])
-                    + f" alternating3={stages[3]}/{value}"
-                )
-            failures = []
-            for name in (
-                "fall", "forbidden_contact", "course_boundary",
-                "joint_limit", "velocity_limit", "torque_limit",
-                "wrong_direction", "stall", "timeout", "invalid_state",
-                "step_over_contract",
-            ):
-                count = extra.get(prefix + "_" + name, 0)
-                if count:
-                    failures.append(f"{name}={count}")
-            suffix = f" failures[{', '.join(failures)}]" if failures else ""
-            print(f"  {prefix}: {' '.join(fields)}{suffix}")
-if action_rate:
-    print(f"Action rate: {action_rate}")
-if power:
-    print(f"Mechanical power: {power}")
-if axis_velocity:
-    print(f"Stair-axis velocity: {axis_velocity} m/s")
-if lateral_offset:
-    print(f"Mean |centerline offset|: {lateral_offset} m")
-if heading_error:
-    print(f"Mean |heading error|: {heading_error} rad")
-if curriculum_level:
-    print(f"Curriculum level mean: {curriculum_level}")
-
-height_keys = []
-for key in extra:
-    match = re.fullmatch(r"curriculum_h(\d+)cm_success_rate", key)
-    if match:
-        height_keys.append((int(match.group(1)), key))
-
-if height_keys:
-    print("Per-height curriculum success:")
-    for height_cm, key in sorted(height_keys):
-        prefix = f"curriculum_h{height_cm:02d}cm"
-        attempts = extra.get(f"{prefix}_attempts", 0)
-        successes = extra.get(f"{prefix}_successes", 0)
-        rate = extra.get(key, 0.0)
-        fraction = extra.get(f"{prefix}_env_fraction", 0.0)
-        print(
-            f"  {height_cm:02d} cm: "
-            f"success={successes}/{attempts} ({rate:.3f}) "
-            f"current_env_fraction={fraction:.3f}"
-        )
-PY
+print()
+print("PLANNED-FOOTSTEP EVALUATION")
+print("  Status: NOT MEASURED")
+print("  No validated planned_footsteps_v1 report integration.")
+print("  Legacy success and progression counters excluded.")
+STATUS_PY
     fi
 
     echo

@@ -5,6 +5,7 @@ import gymnasium as gym
 from .contracts import TASK_ID
 
 FOOTSTEP_TASK_ID = TASK_ID.removesuffix("-v0") + "-Footsteps-v0"
+FLAT_FOOTSTEP_TASK_ID = TASK_ID.removesuffix("-v0") + "-Flat-Footsteps-v0"
 
 
 def register() -> None:
@@ -41,5 +42,24 @@ def register_footsteps() -> None:
     )
 
 
+
+
+def register_flat_footsteps() -> None:
+    """Register the isolated flat-footstep runtime diagnostic."""
+    if FLAT_FOOTSTEP_TASK_ID in gym.registry:
+        return
+    gym.register(
+        id=FLAT_FOOTSTEP_TASK_ID,
+        entry_point="isaac_lab.g1_stairs.snapshot_reset_env:FootstepManagerBasedRLEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": "isaac_lab.g1_stairs.env_cfg:FlatFootstepEnvCfg",
+            "play_env_cfg_entry_point": "isaac_lab.g1_stairs.env_cfg:FlatFootstepPlayEnvCfg",
+            "rsl_rl_cfg_entry_point": "isaac_lab.g1_stairs.agent_cfg:StairPPORunnerCfg",
+        },
+    )
+
+
 register()
 register_footsteps()
+register_flat_footsteps()
