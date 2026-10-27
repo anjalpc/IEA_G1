@@ -1324,6 +1324,15 @@ class FootstepRewardsCfg(StairRewardsCfg):
         for name, term in vars(self).items():
             if not name.startswith("_") and term is not None:
                 setattr(self, name, None)
+        # Nonzero weights are for reward-activation SMOKE only.
+        # Training remains blocked until physical landing and weight audits.
+        from . import footstep_rewards
+        self.footstep_acquisition = RewTerm(
+            func=footstep_rewards.cached_acquisition, weight=1.0
+        )
+        self.clock_swing_motion = RewTerm(
+            func=footstep_rewards.cached_directed_swing, weight=1.0
+        )
 
 
 @configclass
@@ -1358,9 +1367,37 @@ class StairPlayEnvCfg(StairEnvCfg):
 
 @configclass
 class FootstepEnvCfg(StairEnvCfg):
-    """New footstep task shell with all legacy rewards disabled.
+    """Isolated footstep observation diagnostic; PPO remains blocked.
 
-    No training entry point until independent physical/reward audits pass.
+    Observation callback owns a policy-step gate, but can mutate footstep state.
+    Do not enable PPO rewards until pre-reward lifecycle is established.
     """
 
     rewards: FootstepRewardsCfg = FootstepRewardsCfg()
+
+    def __post_init__(self):
+        super().__post_init__()
+        from . import footstep_phase_observation
+
+        # Appended after the pretrained 480-D prefix and 192 terrain channels.
+        # Both actor and critic use the same assigned targets and gait clock.
+        for group in (self.observations.policy, self.observations.critic):
+            group.planned_footsteps = ObsTerm(
+                func=footstep_phase_observation.planned_footsteps_with_phase,
+                history_length=1,
+            )
+        self.events.footstep_reset = EventTerm(
+            func=footstep_phase_observation.reset_footsteps_with_phase,
+            mode="reset",
+        )
+
+
+@configclass
+class FootstepPlayEnvCfg(FootstepEnvCfg):
+    """Small separate environment for non-training runtime checks."""
+
+    def __post_init__(self):
+        super().__post_init__()
+        self.scene.num_envs = 32
+        self.scene.terrain.terrain_generator.num_rows = 2
+        self.scene.terrain.terrain_generator.num_cols = 16

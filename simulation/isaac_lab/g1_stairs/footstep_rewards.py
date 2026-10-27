@@ -70,3 +70,46 @@ def assert_paper_only_rewards(active_names):
     if unexpected:
         raise RuntimeError("Legacy or unreviewed reward terms enabled: "+", ".join(unexpected))
     return True
+
+
+def cached_acquisition(env):
+    """Read qualified assigned-foot touchdown from post-physics hook."""
+    value = getattr(env, "_g1_footstep_last_advanced", None)
+    if value is None:
+        raise RuntimeError("footstep acquisition reward evaluated before physics hook")
+    if value.shape != (env.num_envs,):
+        raise RuntimeError("invalid cached acquisition shape")
+    return value.float()
+
+
+def cached_directed_swing(env):
+    """Read target-directed swing measurement; never update coordinator."""
+    value = getattr(env, "_g1_footstep_directed_swing", None)
+    if value is None or value.shape != (env.num_envs,):
+        raise RuntimeError("missing post-physics swing measurement")
+    return value
+
+
+def new_target_progress(previous_distance, current_distance, best_distance, valid, *, scale_m=0.10):
+    """One-way improvement against best distance reached for the CURRENT target.
+
+    Returns (score, updated_best).  Distance increases never pay, and
+    retracing previously rewarded ground cannot pay again. The caller must
+    reset best distance only when the target changes or an episode resets.
+    """
+    if (previous_distance.shape != current_distance.shape
+            or previous_distance.shape != best_distance.shape
+            or previous_distance.shape != valid.shape):
+        raise ValueError("progress tensors have different shapes")
+    if scale_m <= 0:
+        raise ValueError("scale_m must be positive")
+    if not torch.isfinite(previous_distance).all() or not torch.isfinite(current_distance).all():
+        raise ValueError("nonfinite target distance")
+    if not torch.isfinite(best_distance).all():
+        raise ValueError("nonfinite best distance")
+    if valid.dtype != torch.bool:
+        raise ValueError("valid must be boolean")
+    new_best = torch.minimum(best_distance, current_distance)
+    improvement = (best_distance - new_best).clamp(min=0)
+    reward = torch.where(valid, improvement / scale_m, torch.zeros_like(improvement))
+    return reward, torch.where(valid, new_best, best_distance)

@@ -60,16 +60,62 @@ def audit_after_step(env):
         first_riser_x=course['first_riser_x'], tread_depth=course['tread_depth'],
         riser_height=course['riser_height'], half_width=float(cfg.size[1]) / 2,
     )
-    # super().step() has ALREADY auto-reset terminating envs. Suppress progress
-    # in those rows; no reset frame may manufacture an acquisition.
-    resets = env.reset_buf.bool()
+    # Called after termination calculation and before reward/reset.
+    # Exclude terminating environments from target acquisition.
+    resets = env.termination_manager.terminated | env.termination_manager.time_outs
     valid = valid.clone()
     valid[resets] = False
+    # Diagnostic reward measurement uses the pre-transition assigned target.
+    # No old stair reward functions; no planner update from a reward callback.
+    sole_velocity = sole_state(
+        data.body_pos_w[:, foot_ids], data.body_quat_w[:, foot_ids],
+        data.body_lin_vel_w[:, foot_ids], data.body_ang_vel_w[:, foot_ids],
+    )[2].mean(dim=-2)
+    clock, swing, stance = coordinator.clock.features(
+        target_foot=feet[:, 0], valid=valid[:, 0]
+    )
+    from .footstep_rewards import clock_contact_scores
+    _stance_score, directed_swing = clock_contact_scores(
+        force_z, centre, sole_velocity, targets, feet, valid,
+        swing, stance,
+    )
+    directed_swing = torch.where(resets, torch.zeros_like(directed_swing), directed_swing)
+    env._g1_footstep_directed_swing = directed_swing
+    # Pre-transition assigned foothold; reward only new best distance.
+    from .footstep_rewards import new_target_progress
+
+    rows = torch.arange(env.num_envs, device=env.device)
+    assigned = feet[:, 0].long()
+    distance = torch.linalg.vector_norm(
+        centre[rows, assigned] - targets[:, 0, :3], dim=-1
+    )
+
+    previous_best = getattr(env, "_g1_footstep_best_distance", None)
+    previous_index = getattr(env, "_g1_footstep_progress_target_index", None)
+
+    if previous_best is None or previous_index is None:
+        previous_best = distance.clone()
+    else:
+        assert previous_best.shape == distance.shape
+        changed = previous_index != coordinator.runtime.target_index
+        previous_best = torch.where(changed | resets, distance, previous_best)
+
+    progress, new_best = new_target_progress(
+        distance, distance, previous_best, valid[:, 0] & ~resets
+    )
+
+    env._g1_footstep_net_progress = progress
+    env._g1_footstep_best_distance = new_best.detach().clone()
+    env._g1_footstep_progress_target_index = (
+        coordinator.runtime.target_index.clone()
+    )
+
     advanced = coordinator.step(
         step_id=int(env.common_step_counter), dt=float(env.step_dt),
         targets=targets, feet=feet, valid=valid, sole_xyz=centre,
         supported=supported, qualified_tread=qualified,
         xy_tolerance=0.08, z_tolerance=0.01,
     )
+    env._g1_footstep_best_distance[advanced] = float("inf")
     env._g1_footstep_last_advanced = advanced
     return advanced

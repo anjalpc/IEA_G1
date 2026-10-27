@@ -4,6 +4,8 @@ import gymnasium as gym
 
 from .contracts import TASK_ID
 
+FOOTSTEP_TASK_ID = TASK_ID.removesuffix("-v0") + "-Footsteps-v0"
+
 
 def register() -> None:
     if TASK_ID in gym.registry:
@@ -22,4 +24,22 @@ def register() -> None:
     )
 
 
+
+def register_footsteps() -> None:
+    """Register separate task for inspection; training is blocked."""
+    if FOOTSTEP_TASK_ID in gym.registry:
+        return
+    gym.register(
+        id=FOOTSTEP_TASK_ID,
+        entry_point="isaac_lab.g1_stairs.snapshot_reset_env:FootstepManagerBasedRLEnv",
+        disable_env_checker=True,
+        kwargs={
+            "env_cfg_entry_point": "isaac_lab.g1_stairs.env_cfg:FootstepEnvCfg",
+            "play_env_cfg_entry_point": "isaac_lab.g1_stairs.env_cfg:FootstepPlayEnvCfg",
+            "rsl_rl_cfg_entry_point": "isaac_lab.g1_stairs.agent_cfg:StairPPORunnerCfg",
+        },
+    )
+
+
 register()
+register_footsteps()

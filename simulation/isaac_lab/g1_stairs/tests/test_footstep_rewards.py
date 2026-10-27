@@ -34,6 +34,26 @@ class PaperScoreTests(unittest.TestCase):
         vel[0,1]=torch.tensor([.4,0.,0.])
         valid[0,0]=False
         self.assertEqual(score()[1].item(),0.)
+    def test_new_progress_no_recycling(self):
+        from simulation.isaac_lab.g1_stairs.footstep_rewards import new_target_progress
+        previous=torch.tensor([1.0])
+        best=torch.tensor([1.0])
+        valid=torch.tensor([True])
+        total=0.0
+        for current in (0.8, 0.95, 0.8, 0.75):
+            score,best=new_target_progress(previous,torch.tensor([current]),best,valid)
+            total+=score.item()
+            previous=torch.tensor([current])
+        self.assertAlmostEqual(total,2.5,places=5)
+        self.assertAlmostEqual(best.item(),0.75,places=5)
+
+    def test_new_progress_invalid_is_zero(self):
+        from simulation.isaac_lab.g1_stairs.footstep_rewards import new_target_progress
+        score,best=new_target_progress(torch.tensor([1.]),torch.tensor([.5]),
+                                      torch.tensor([1.]),torch.tensor([False]))
+        self.assertEqual(score.item(),0.)
+        self.assertEqual(best.item(),1.)
+
     def test_reject_legacy_rewards(self):
         with self.assertRaises(RuntimeError):
             assert_paper_only_rewards(["track_lin_vel_xy"])

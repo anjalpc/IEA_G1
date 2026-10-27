@@ -71,6 +71,13 @@ def main() -> None:
             "IEA_G1_RESOLVED_CONFIG are required"
         )
 
+    from simulation.isaac_lab.g1_stairs.register import FOOTSTEP_TASK_ID
+    if args.task == FOOTSTEP_TASK_ID:
+        raise RuntimeError(
+            "Footstep task is inspection-only. PPO blocked until live "
+            "contact/observation synchronization and rewards are validated."
+        )
+
     env_cfg = parse_env_cfg(
         args.task,
         device=args.device,
