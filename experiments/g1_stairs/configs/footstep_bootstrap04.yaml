@@ -63,10 +63,23 @@ reward_experiment:
       # Plan: 2 ground approach targets + 3 treads + 2 platform = 7 targets.
       # Full plan estimate (audit before training): 14 acq + ~13 progress
       #   + ~3 clearance. After the plan the command is zeroed (stand).
-      # Velocity tracking: Unitree's own terms and weights (all envs).
+      # Unitree's own objective and weights (unitree_rl_lab 4960b84), all envs,
+      # so the prior's gait is still rewarded. Left out because they fight
+      # stair rise: base_height, lin_vel_z; feet_clearance is flat-only.
       footstep_bootstrap04:
         track_lin_vel_xy: 1.0
         track_ang_vel_z: 0.5
+        alive: 0.15
+        base_angular_velocity: -0.05
+        joint_vel: -0.001
+        joint_acc: -2.5e-07
+        energy: -2.0e-05
+        joint_deviation_arms: -0.1
+        joint_deviation_waists: -1.0
+        joint_deviation_legs: -1.0
+        gait: 0.5
+        flat_feet_clearance: 1.0
+        undesired_contacts: -1.0
         footstep_acquisition: 2.0
         footstep_target_progress: 0.5
         upright: -5.0

@@ -1333,6 +1333,18 @@ class FootstepRewardsCfg(StairRewardsCfg):
             # keeps flat joystick walking rewarded during stair training.
             "track_lin_vel_xy",
             "track_ang_vel_z",
+            # Rest of the prior's native objective that is terrain-compatible
+            # (no absolute base height / vertical velocity / foot height).
+            "alive",
+            "base_angular_velocity",
+            "joint_vel",
+            "joint_acc",
+            "energy",
+            "joint_deviation_arms",
+            "joint_deviation_waists",
+            "joint_deviation_legs",
+            "gait",
+            "undesired_contacts",
         )
         retained = {
             name: copy.deepcopy(getattr(self, name))
@@ -1363,6 +1375,17 @@ class FootstepRewardsCfg(StairRewardsCfg):
         )
         self.clock_stance_support = RewTerm(
             func=footstep_rewards.cached_stance_support, weight=1.0
+        )
+        # Unitree feet_clearance parameters (unitree_rl_lab 4960b84), flat only.
+        self.flat_feet_clearance = RewTerm(
+            func=footstep_rewards.flat_feet_clearance,
+            weight=1.0,
+            params={
+                "std": 0.05,
+                "tanh_mult": 2.0,
+                "target_height": 0.1,
+                "asset_cfg": SceneEntityCfg("robot", body_names=".*ankle_roll.*"),
+            },
         )
 
 
@@ -1429,6 +1452,11 @@ class FootstepEnvCfg(StairEnvCfg):
         # episode as a time-out instead of walking into stairs or off the edge.
         self.terminations.course_exit = DoneTerm(
             func=footstep_live_progress.course_exit, time_out=True,
+        )
+        # Stair envs that leave the corridor or turn away fail (penalised),
+        # so avoiding the stairs is never cheaper than attempting them.
+        self.terminations.stair_course_escape = DoneTerm(
+            func=footstep_live_progress.stair_course_escape,
         )
 
 

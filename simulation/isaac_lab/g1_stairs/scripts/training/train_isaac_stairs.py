@@ -771,6 +771,17 @@ def main() -> None:
             "feet_slide",
             "track_lin_vel_xy",
             "track_ang_vel_z",
+            "alive",
+            "base_angular_velocity",
+            "joint_vel",
+            "joint_acc",
+            "energy",
+            "joint_deviation_arms",
+            "joint_deviation_waists",
+            "joint_deviation_legs",
+            "gait",
+            "undesired_contacts",
+            "flat_feet_clearance",
         }
         from simulation.isaac_lab.g1_stairs.reward_runtime import (
             active_reward_weights,

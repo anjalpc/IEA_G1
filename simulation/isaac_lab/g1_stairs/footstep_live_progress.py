@@ -11,12 +11,12 @@ from .footstep_gait_clock import (
     FootstepGaitClock, NOMINAL_DOUBLE_SUPPORT_S, NOMINAL_SINGLE_SUPPORT_S,
 )
 from .footstep_isaac_adapter import course_root_pose, course_tensors
-from .footstep_mixing import outside_safe_region
+from .footstep_mixing import course_exit_timeout, stair_escape
 from .footstep_tensor import NOMINAL_FOOT_SEPARATION_M
 from .footstep_tread import qualified_tread_mask, qualified_flat_mask
 from .contact_sensor_contract import FOOT_BODY_NAMES
 from .motion_reference import sole_state
-from .terrain_state import stair_cfg
+from .terrain_state import riser_height_per_env, stair_cfg
 
 
 def ensure_coordinator(env):
@@ -34,8 +34,14 @@ def ensure_coordinator(env):
 
 def course_exit(env):
     """Time-out (not failure) when the root leaves the safe tile region."""
-    xyz, _ = course_root_pose(env)
-    return outside_safe_region(xyz[:, :2])
+    xyz, yaw = course_root_pose(env)
+    return course_exit_timeout(xyz[:, :2], yaw, riser_height_per_env(env) > 0)
+
+
+def stair_course_escape(env):
+    """Failure when a stair env leaves its corridor or turns away."""
+    xyz, yaw = course_root_pose(env)
+    return stair_escape(xyz[:, :2], yaw, riser_height_per_env(env) > 0)
 
 
 def reset_coordinator(env, env_ids):

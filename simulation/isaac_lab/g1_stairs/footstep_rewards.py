@@ -156,6 +156,19 @@ def cached_clearance_progress(env):
     return _per_event(env, value)
 
 
+def flat_feet_clearance(env, asset_cfg, target_height, std, tanh_mult):
+    """Unitree's foot_clearance_reward, flat tiles only.
+
+    It targets an absolute world height, which is only meaningful on flat
+    ground; stair envs get 0 (their lift comes from footstep clearance).
+    """
+    from unitree_rl_lab.tasks.locomotion import mdp
+    from .terrain_state import riser_height_per_env
+
+    value = mdp.foot_clearance_reward(env, asset_cfg, target_height, std, tanh_mult)
+    return value * (riser_height_per_env(env) <= 0).to(value.dtype)
+
+
 def cached_failure_event(env):
     """Non-timeout termination; 1.0 per failure after dt scaling."""
     value = getattr(env, "_g1_footstep_failure_event", None)

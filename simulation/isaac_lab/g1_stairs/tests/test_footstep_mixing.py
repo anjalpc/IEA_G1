@@ -4,7 +4,8 @@ import unittest
 import torch
 
 from simulation.isaac_lab.g1_stairs.footstep_mixing import (
-    apply_stair_forward_commands, outside_safe_region, validate_terrain_split,
+    apply_stair_forward_commands, course_exit_timeout, outside_safe_region,
+    stair_escape, validate_terrain_split,
 )
 from simulation.isaac_lab.g1_stairs.footstep_tensor import planned_target_batch
 from simulation.isaac_lab.g1_stairs.footstep_tread import qualified_tread_mask
@@ -63,6 +64,32 @@ class SafeRegionTests(unittest.TestCase):
     def test_bounds(self):
         xy = torch.tensor([[0.0, 0.0], [4.6, 0.0], [-1.6, 0.0], [1.0, 1.6], [4.4, -1.4]])
         self.assertEqual(outside_safe_region(xy).tolist(), [False, True, True, True, False])
+
+
+class StairEscapeTests(unittest.TestCase):
+    def test_stair_envs_fail_when_leaving_corridor_or_turning_away(self):
+        xy = torch.tensor([[0.5, 0.0], [0.5, 0.7], [-0.6, 0.0], [0.5, 0.0], [4.6, 0.0]])
+        yaw = torch.tensor([0.0, 0.0, 0.0, 1.2, 0.0])
+        stairs = torch.ones(5, dtype=torch.bool)
+        self.assertEqual(stair_escape(xy, yaw, stairs).tolist(),
+                         [False, True, True, True, False])
+        # Past the platform end on stairs is a time-out, not an escape.
+        self.assertEqual(course_exit_timeout(xy, yaw, stairs).tolist(),
+                         [False, False, False, False, True])
+
+    def test_flat_envs_never_escape_only_time_out(self):
+        xy = torch.tensor([[0.5, 0.7], [0.5, 1.6], [-1.6, 0.0]])
+        yaw = torch.tensor([2.0, 0.0, 3.0])
+        flat = torch.zeros(3, dtype=torch.bool)
+        self.assertEqual(stair_escape(xy, yaw, flat).tolist(), [False, False, False])
+        self.assertEqual(course_exit_timeout(xy, yaw, flat).tolist(), [False, True, True])
+
+    def test_stair_escape_and_timeout_are_exclusive(self):
+        xy = torch.tensor([[-1.6, 1.6]])
+        yaw = torch.zeros(1)
+        stairs = torch.ones(1, dtype=torch.bool)
+        self.assertTrue(bool(stair_escape(xy, yaw, stairs)[0]))
+        self.assertFalse(bool(course_exit_timeout(xy, yaw, stairs)[0]))
 
 
 class NoPlanOnFlatRowsTests(unittest.TestCase):

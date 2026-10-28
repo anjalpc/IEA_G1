@@ -21,6 +21,12 @@ UNITREE_LIMITS = {
 # [-1.0, 4.75] with a 1 m border, and the next row's stairs start at 6.75.
 SAFE_X_M = (-1.5, 4.5)
 SAFE_ABS_Y_M = 1.5
+# Stair envs: the course is straight ahead. Leaving the 1.2 m wide tile,
+# walking back past the start, or turning more than 60 degrees away is
+# avoiding the stairs and counts as a failure, not a free time-out.
+STAIR_ABS_Y_M = 0.6
+STAIR_MIN_X_M = -0.5
+STAIR_MAX_ABS_YAW_RAD = 1.0471975511965976
 
 
 def _range(value, name):
@@ -75,3 +81,17 @@ def outside_safe_region(root_xy_local, *, x_range=SAFE_X_M, abs_y=SAFE_ABS_Y_M):
     """[N] True when the root left the safe course region (course frame)."""
     x, y = root_xy_local[:, 0], root_xy_local[:, 1]
     return (x < x_range[0]) | (x > x_range[1]) | (y.abs() > abs_y)
+
+
+def stair_escape(root_xy_local, root_yaw, on_stairs):
+    """[N] Stair env left the corridor, walked back, or turned away (failure)."""
+    x, y = root_xy_local[:, 0], root_xy_local[:, 1]
+    away = ((y.abs() > STAIR_ABS_Y_M) | (x < STAIR_MIN_X_M)
+            | (root_yaw.abs() > STAIR_MAX_ABS_YAW_RAD))
+    return on_stairs & away
+
+
+def course_exit_timeout(root_xy_local, root_yaw, on_stairs):
+    """[N] Safe-region exit that is NOT a stair escape (time-out, no penalty)."""
+    return (outside_safe_region(root_xy_local)
+            & ~stair_escape(root_xy_local, root_yaw, on_stairs))
