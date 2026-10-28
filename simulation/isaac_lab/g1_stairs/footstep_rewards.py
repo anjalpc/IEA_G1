@@ -148,8 +148,33 @@ def cached_stance_support(env):
     return value
 
 
+# Sole clearance above the riser edge that earns full lift credit. The
+# Unitree prior's swing sole clearance is ~1.5-2 cm, so a lift capped at
+# exactly the riser height still stubs the edge.
+TREAD_LIFT_MARGIN_M = 0.03
+
+
+def tread_lift(sole_bottom_z, target_z, riser_height, plan_index, step_count,
+               *, margin_m=TREAD_LIFT_MARGIN_M):
+    """Assigned-sole lift above the level it climbs from, for tread targets.
+
+    Returns (lift [N] in [0, goal], goal [N]) with goal = riser + margin.
+    Ground-approach and platform targets (no riser to cross) return 0, and
+    lift is measured from the tread below, not from the ground.
+    """
+    if not (sole_bottom_z.shape == target_z.shape == riser_height.shape
+            == plan_index.shape):
+        raise ValueError("tread lift tensors have different shapes")
+    if margin_m <= 0:
+        raise ValueError("margin_m must be positive")
+    is_tread = (plan_index >= 0) & (plan_index < step_count) & (riser_height > 0)
+    goal = riser_height + margin_m
+    lift = torch.minimum((sole_bottom_z - (target_z - riser_height)).clamp_min(0), goal)
+    return torch.where(is_tread, lift, torch.zeros_like(lift)), goal
+
+
 def cached_clearance_progress(env):
-    """New peak clearance; at most 1.0 per target after dt scaling."""
+    """New peak tread lift (riser + margin); at most 1.0 per tread after dt scaling."""
     value = getattr(env, "_g1_footstep_clearance_progress", None)
     if value is None or value.shape != (env.num_envs,):
         raise RuntimeError("missing cached footstep clearance")
@@ -174,9 +199,10 @@ def flat_feet_clearance(env, asset_cfg, target_height, std, tanh_mult):
 def cached_stall_event(env):
     """Stair plan stall (target time limit); 1.0 per stall after dt scaling.
 
-    Added on top of the generic failure penalty: stalling must cost more
-    than a failed attempt, because a stalled robot first collects ~4 s of
-    per-second rewards (alive, tracking, gait) that a quick fall does not.
+    Added on top of the generic failure penalty. Note: under gamma 0.99
+    a stall penalty 4 s ahead is heavily discounted, so it only discourages
+    stalling near the limit; it does not make an unclimbable riser worth
+    attempting.
     """
     value = getattr(env, "_g1_footstep_stall_event", None)
     if value is None or value.shape != (env.num_envs,):

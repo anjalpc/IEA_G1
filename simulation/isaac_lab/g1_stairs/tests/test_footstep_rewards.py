@@ -144,3 +144,27 @@ class PaperScoreTests(unittest.TestCase):
         self.assertTrue(assert_paper_only_rewards(["footstep_acquisition"]))
 if __name__=="__main__":
     unittest.main()
+
+
+class TreadLiftTests(unittest.TestCase):
+    def lift(self, z, target_z, riser, index):
+        from simulation.isaac_lab.g1_stairs.footstep_rewards import tread_lift
+        f = lambda v: torch.tensor([float(v)])
+        return tread_lift(f(z), f(target_z), f(riser), f(index), 3)
+
+    def test_riser_height_alone_is_not_full_credit(self):
+        lift, goal = self.lift(0.04, 0.04, 0.04, 0)
+        self.assertAlmostEqual(goal.item(), 0.07, places=6)
+        self.assertLess((lift / goal).item(), 0.6)
+        lift, goal = self.lift(0.09, 0.04, 0.04, 0)
+        self.assertAlmostEqual((lift / goal).item(), 1.0, places=6)
+
+    def test_lift_is_measured_from_the_tread_below(self):
+        # Foot resting on tread 1 (z = 0.04) while targeting tread 2.
+        lift, _ = self.lift(0.04, 0.08, 0.04, 1)
+        self.assertAlmostEqual(lift.item(), 0.0, places=6)
+
+    def test_no_credit_without_a_riser(self):
+        for index in (-2, -1, 3, 4):  # approach and platform targets
+            self.assertEqual(self.lift(0.12, 0.12, 0.04, index)[0].item(), 0.0)
+        self.assertEqual(self.lift(0.05, 0.0, 0.0, 0)[0].item(), 0.0)  # flat

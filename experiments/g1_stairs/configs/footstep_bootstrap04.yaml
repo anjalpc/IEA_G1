@@ -16,10 +16,16 @@ task:
   custom_stair_task_active: true
 terrain:
   riser_height_m: 0.04
-  # Mixed: ~half the envs on flat tiles (no plan, joystick range),
-  # half on 4 cm stairs (footstep plan). Levels are assigned at random.
+  # Flat tiles (no plan, joystick range) plus stairs of 1-4 cm (footstep
+  # plan); each level gets ~1/5 of the envs at random. The prior's swing
+  # sole clearance is ~1.5-2 cm (measured), so 4 cm alone is a wall: models
+  # 200-499 learned to stop before it. 1-2 cm treads are reachable with the
+  # prior's lift, so climbing gets rewarded and lift can grow with height.
   riser_heights_m:
   - 0.0
+  - 0.01
+  - 0.02
+  - 0.03
   - 0.04
   tread_depth_m: 0.25
   step_count: 3
@@ -132,9 +138,9 @@ reward_experiment:
         feet_slide: -0.2
         footstep_clearance_progress: 1.0
         footstep_failure_termination: -5.0
-        # Extra on stalls (total -12): model 300 parked before the riser
-        # because ~4 s of per-second reward (~1.35/s measured) then -5 beat
-        # attempting and falling quickly (-5 after ~1 s).
+        # Extra on stalls (total -12). Weak on its own: with gamma 0.99
+        # (~2 s horizon) a penalty 4 s ahead counts ~15%; reachable treads
+        # (1-2 cm levels) are the actual fix for stopping before the riser.
         footstep_stall_termination: -7.0
 # 4 cm prior baseline reviewed (2026-10-28): gait intact, trips at riser.
 launch_gates:

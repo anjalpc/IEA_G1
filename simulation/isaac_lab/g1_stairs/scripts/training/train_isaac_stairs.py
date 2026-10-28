@@ -793,8 +793,11 @@ def main() -> None:
                 "Footstep training reward contract mismatch: "
                 + str(sorted(set(expected_weights) ^ required))
             )
-        if resolved_config["terrain"]["riser_heights_m"] != [0.0, 0.04]:
-            raise RuntimeError("Footstep bootstrap must mix flat and 4 cm stairs")
+        heights = resolved_config["terrain"]["riser_heights_m"]
+        if heights[0] != 0.0 or heights[-1] != 0.04:
+            raise RuntimeError(
+                "Footstep bootstrap must mix flat with stairs up to 4 cm"
+            )
         if "terrain_split" not in resolved_config.get("command", {}):
             raise RuntimeError("Footstep bootstrap requires command.terrain_split")
         if resolved_config["execution"]["maximum_iterations"] != 500:

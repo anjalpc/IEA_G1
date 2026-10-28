@@ -172,9 +172,12 @@ def audit_after_step(env):
     )
 
 
-    # Assigned-foot peak clearance, only before crossing the riser.
-    # Opposite-foot support is required; repeated lift/drop earns no
-    # additional credit. This is measured before target acquisition.
+    # Assigned-foot peak lift over the riser of its tread target, only in
+    # the 0.25 m before that riser. Opposite-foot support is required;
+    # repeated lift/drop earns no additional credit. Measured before target
+    # acquisition. Approach and platform targets have no riser: no credit.
+    from .footstep_rewards import tread_lift
+
     target_foot = feet[:, 0].long()
     other_foot = 1 - target_foot
     rows = torch.arange(env.num_envs, device=env.device)
@@ -189,7 +192,10 @@ def audit_after_step(env):
         - coordinator.runtime.approach_for(flat)
     ).to(foot_front.dtype)
     riser_x = course["first_riser_x"] + plan_index * course["tread_depth"]
-    height_target = targets[:, 0, 2]
+    lift, lift_goal = tread_lift(
+        foot_bottom, targets[:, 0, 2], course["riser_height"], plan_index,
+        coordinator.runtime.step_count,
+    )
     approach_window = (
         (foot_front >= riser_x - 0.25)
         & (foot_front <= riser_x)
@@ -201,6 +207,8 @@ def audit_after_step(env):
         & other_supported
         & assigned_unloaded
         & approach_window
+        & (plan_index >= 0)
+        & (plan_index < coordinator.runtime.step_count)
     )
 
     old_peak = getattr(env, "_g1_footstep_peak_clearance", None)
@@ -216,13 +224,11 @@ def audit_after_step(env):
             old_peak,
         )
 
-    capped_height = foot_bottom.clamp(min=0.0)
-    capped_height = torch.minimum(capped_height, height_target)
-    improvement = (capped_height - old_peak).clamp_min(0.0)
+    improvement = (lift - old_peak).clamp_min(0.0)
 
     clearance = torch.where(
         eligible,
-        improvement / height_target.clamp_min(0.01),
+        improvement / lift_goal,
         torch.zeros_like(improvement),
     )
 
@@ -233,7 +239,7 @@ def audit_after_step(env):
     env._g1_footstep_clearance_progress = clearance
     env._g1_footstep_peak_clearance = torch.where(
         eligible,
-        torch.maximum(old_peak, capped_height),
+        torch.maximum(old_peak, lift),
         old_peak,
     ).detach().clone()
     env._g1_footstep_clearance_target_index = (
