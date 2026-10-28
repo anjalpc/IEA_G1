@@ -1329,6 +1329,10 @@ class FootstepRewardsCfg(StairRewardsCfg):
             "dof_pos_limits",
             "feet_slide",
             "posture_envelope_guard",
+            # Unitree's own velocity-tracking objective (prior's native task):
+            # keeps flat joystick walking rewarded during stair training.
+            "track_lin_vel_xy",
+            "track_ang_vel_z",
         )
         retained = {
             name: copy.deepcopy(getattr(self, name))
@@ -1417,6 +1421,14 @@ class FootstepEnvCfg(StairEnvCfg):
         self.events.footstep_reset = EventTerm(
             func=footstep_phase_observation.reset_footsteps_with_phase,
             mode="reset",
+        )
+        from isaaclab.managers import TerminationTermCfg as DoneTerm
+        from . import footstep_live_progress
+
+        # Flat envs use the full joystick range; leaving the tile ends the
+        # episode as a time-out instead of walking into stairs or off the edge.
+        self.terminations.course_exit = DoneTerm(
+            func=footstep_live_progress.course_exit, time_out=True,
         )
 
 

@@ -522,6 +522,20 @@ def main() -> None:
             flush=True,
         )
 
+    if "terrain_split" in command_cfg:
+        from simulation.isaac_lab.g1_stairs.footstep_mixing import (
+            validate_terrain_split,
+        )
+        from simulation.isaac_lab.g1_stairs.footstep_command_term import (
+            build_terrain_split_command_cfg,
+        )
+
+        split = validate_terrain_split(command_cfg["terrain_split"])
+        env_cfg.commands.base_velocity = build_terrain_split_command_cfg(
+            env_cfg.commands.base_velocity, split,
+        )
+        print("[INFO] Terrain-split velocity command:", split, flush=True)
+
     from simulation.isaac_lab.g1_stairs.command_runtime import (
         apply_stair_heading_command,
     )
@@ -755,6 +769,8 @@ def main() -> None:
             "action_rate",
             "dof_pos_limits",
             "feet_slide",
+            "track_lin_vel_xy",
+            "track_ang_vel_z",
         }
         from simulation.isaac_lab.g1_stairs.reward_runtime import (
             active_reward_weights,
@@ -765,8 +781,10 @@ def main() -> None:
                 "Footstep training reward contract mismatch: "
                 + str(sorted(set(expected_weights) ^ required))
             )
-        if resolved_config["terrain"]["riser_heights_m"] != [0.04]:
-            raise RuntimeError("Footstep bootstrap must use 4 cm stairs")
+        if resolved_config["terrain"]["riser_heights_m"] != [0.0, 0.04]:
+            raise RuntimeError("Footstep bootstrap must mix flat and 4 cm stairs")
+        if "terrain_split" not in resolved_config.get("command", {}):
+            raise RuntimeError("Footstep bootstrap requires command.terrain_split")
         if resolved_config["execution"]["maximum_iterations"] != 500:
             raise RuntimeError("Footstep bootstrap must use 500 iterations")
         if resolved_config["policy_initialization"]["type"] != (

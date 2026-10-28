@@ -885,6 +885,7 @@ cd /workspace/IEA_G1
 /workspace/isaaclab/isaaclab.sh -p \
   simulation/isaac_lab/g1_stairs/scripts/visualization/record_view.py \
   --task ${VIDEO_TASK} \
+  --trace \
   --view side \
   --output_dir '${OUTPUT_DIR}' \
   --video_length 600 \

@@ -66,11 +66,14 @@ def planned_target_batch(*, first_riser_x: torch.Tensor,
     if any(x.shape != (n,) for x in (first_riser_x, tread_depth, riser_height,
                                     first_foot, centre_y, foot_separation)):
         raise ValueError("all inputs must be per-environment vectors")
-    if torch.any(tread_depth <= 0) or (not flat_ground and torch.any(riser_height <= 0)):
+    if torch.any(tread_depth <= 0) or torch.any(riser_height < 0):
         raise ValueError("course dimensions must be positive")
     runtime_idx = target_index[:, None] + torch.arange(2, device=target_index.device)
     idx = runtime_idx - approach_steps
     valid = (runtime_idx >= 0) & (idx < step_count + 2)
+    if not flat_ground:
+        # Mixed training: zero-riser rows are flat tiles with no footstep plan.
+        valid = valid & (riser_height > 0)[:, None]
     foot = (first_foot[:, None] + runtime_idx) % 2
     level = torch.where(idx < 0, torch.zeros_like(idx), (idx + 1).clamp(1, step_count))
     if flat_ground:

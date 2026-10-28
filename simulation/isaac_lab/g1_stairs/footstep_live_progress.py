@@ -10,7 +10,8 @@ from .footstep_coordinator import FootstepCoordinator
 from .footstep_gait_clock import (
     FootstepGaitClock, NOMINAL_DOUBLE_SUPPORT_S, NOMINAL_SINGLE_SUPPORT_S,
 )
-from .footstep_isaac_adapter import course_tensors
+from .footstep_isaac_adapter import course_root_pose, course_tensors
+from .footstep_mixing import outside_safe_region
 from .footstep_tensor import NOMINAL_FOOT_SEPARATION_M
 from .footstep_tread import qualified_tread_mask, qualified_flat_mask
 from .contact_sensor_contract import FOOT_BODY_NAMES
@@ -29,6 +30,12 @@ def ensure_coordinator(env):
         )
         env._g1_footstep_coordinator = coord
     return coord
+
+
+def course_exit(env):
+    """Time-out (not failure) when the root leaves the safe tile region."""
+    xyz, _ = course_root_pose(env)
+    return outside_safe_region(xyz[:, :2])
 
 
 def reset_coordinator(env, env_ids):

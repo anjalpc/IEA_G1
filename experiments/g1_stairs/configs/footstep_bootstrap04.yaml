@@ -16,11 +16,26 @@ task:
   custom_stair_task_active: true
 terrain:
   riser_height_m: 0.04
+  # Mixed: ~half the envs on flat tiles (no plan, joystick range),
+  # half on 4 cm stairs (footstep plan). Levels are assigned at random.
   riser_heights_m:
+  - 0.0
   - 0.04
   tread_depth_m: 0.25
   step_count: 3
   curriculum_enabled: false
+command:
+  terrain_split:
+    # Unitree's own joystick limits, so flat walking keeps all its skills.
+    flat:
+      lin_vel_x: [-0.5, 1.0]
+      lin_vel_y: [-0.3, 0.3]
+      ang_vel_z: [-0.2, 0.2]
+      rel_standing_envs: 0.02
+    # Stairs: forward only; speed varies per command so climbing is not
+    # tied to one speed.
+    stairs:
+      lin_vel_x: [0.2, 0.5]
 execution:
   environments: 2048
   maximum_iterations: 500
@@ -48,7 +63,10 @@ reward_experiment:
       # Plan: 2 ground approach targets + 3 treads + 2 platform = 7 targets.
       # Full plan estimate (audit before training): 14 acq + ~13 progress
       #   + ~3 clearance. After the plan the command is zeroed (stand).
+      # Velocity tracking: Unitree's own terms and weights (all envs).
       footstep_bootstrap04:
+        track_lin_vel_xy: 1.0
+        track_ang_vel_z: 0.5
         footstep_acquisition: 2.0
         footstep_target_progress: 0.5
         upright: -5.0
@@ -57,7 +75,6 @@ reward_experiment:
         feet_slide: -0.2
         footstep_clearance_progress: 1.0
         footstep_failure_termination: -5.0
-# Blocks simctl train until the 4 cm prior baseline is reviewed.
-# simctl baseline passes --allow-blocked (no PPO updates).
+# 4 cm prior baseline reviewed (2026-10-28): gait intact, trips at riser.
 launch_gates:
-  allow_launch: false
+  allow_launch: true

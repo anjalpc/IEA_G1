@@ -30,7 +30,7 @@ def qualified_tread_mask(*, sole_bounds, vertical_force, targets, feet, valid,
             raise ValueError('course parameters must be per-environment')
     if step_count < 1 or half_width <= 0 or margin_m < 0 or height_tolerance_m <= 0 or support_force_n <= 0:
         raise ValueError('invalid geometry or support parameters')
-    if bool((tread_depth <= 2 * margin_m).any()) or bool((riser_height <= 0).any()):
+    if bool((tread_depth <= 2 * margin_m).any()) or bool((riser_height < 0).any()):
         raise ValueError('invalid stair dimensions')
     target_z = targets[:, 0, 2]
     # Use target sequence's actual X to distinguish the two platform goals.
@@ -53,7 +53,9 @@ def qualified_tread_mask(*, sole_bounds, vertical_force, targets, feet, valid,
             ((z_max - target_z[:, None]).abs() <= height_tolerance_m) &
             (vertical_force >= support_force_n))
     assigned = torch.arange(2, device=feet.device)[None, :] == feet[:, 0, None]
-    return good & assigned & good_level[:, None] & valid[:, :1]
+    # Zero-riser rows are flat tiles in mixed training: nothing to qualify.
+    stairs = (riser_height > 0)[:, None]
+    return good & assigned & good_level[:, None] & valid[:, :1] & stairs
 
 
 def qualified_flat_mask(
