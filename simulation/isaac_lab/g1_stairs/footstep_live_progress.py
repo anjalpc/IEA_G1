@@ -15,7 +15,9 @@ from .footstep_gait_clock import (
     FootstepGaitClock, NOMINAL_DOUBLE_SUPPORT_S, NOMINAL_SINGLE_SUPPORT_S,
 )
 from .footstep_isaac_adapter import course_root_pose, course_tensors
-from .footstep_mixing import course_exit_timeout, stair_escape, target_stalled
+from .footstep_mixing import (
+    course_exit_timeout, stair_escape, stair_steering, target_stalled,
+)
 from .footstep_tensor import NOMINAL_FOOT_SEPARATION_M
 from .footstep_tread import qualified_tread_mask, qualified_flat_mask
 from .contact_sensor_contract import FOOT_BODY_NAMES
@@ -294,8 +296,29 @@ def audit_after_step(env):
     since = since + float(env.step_dt)
     since[advanced] = 0.0
     env._g1_footstep_since_advance = since
+    steer_stair_command(env, coordinator.runtime, flat, resets)
     stop_command_after_plan(env, coordinator.runtime, flat, resets)
     return advanced
+
+
+def steer_stair_command(env, runtime, flat_ground, resets):
+    """Stair envs with an active plan: lateral and yaw command steer back to
+    the centre line facing the stairs (see footstep_mixing.stair_steering).
+
+    Runs every policy step in training and evaluation (same hook), so a
+    command resample is overwritten within one step. Flat tiles keep their
+    joystick command.
+    """
+    active = (
+        (riser_height_per_env(env) > 0)
+        & (runtime.target_index < runtime.plan_length(flat_ground))
+        & ~resets
+    )
+    if bool(active.any()):
+        xyz, yaw = course_root_pose(env)
+        command = env.command_manager.get_command("base_velocity")
+        command[active, 1:3] = stair_steering(xyz[active, 1], yaw[active])
+    return active
 
 
 def stop_command_after_plan(env, runtime, flat_ground, resets):

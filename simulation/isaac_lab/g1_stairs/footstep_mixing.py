@@ -33,6 +33,17 @@ STAIR_MAX_ABS_YAW_RAD = 1.0471975511965976
 # 4 s covers the first target (0.625 m) at the slowest 0.2 m/s command.
 TARGET_TIME_LIMIT_S = 4.0
 
+# Stair steering: like a joystick operator, keep a stair env facing the
+# stairs and on the centre line while its plan is active. The frozen Unitree
+# teacher tracks yaw RATE, so with a zero command it holds any heading it
+# drifted to; feet then land beside the planned treads (model 150/300:
+# 10-20 deg yaw, 0.15-0.25 m lateral miss) and the plan never advances.
+# Limits stay inside Unitree's trained command ranges.
+STAIR_YAW_GAIN = 1.0          # rad/s per rad of heading error
+STAIR_MAX_YAW_RATE = 0.2      # rad/s
+STAIR_LATERAL_GAIN = 1.0      # m/s per m off the centre line
+STAIR_MAX_LATERAL_SPEED = 0.2  # m/s
+
 
 def _range(value, name):
     if (not isinstance(value, (list, tuple)) or len(value) != 2
@@ -105,3 +116,18 @@ def course_exit_timeout(root_xy_local, root_yaw, on_stairs):
     """[N] Safe-region exit that is NOT a stair escape (time-out, no penalty)."""
     return (outside_safe_region(root_xy_local)
             & ~stair_escape(root_xy_local, root_yaw, on_stairs))
+
+
+def stair_steering(root_y, root_yaw):
+    """[N,2] (vy, wz) command steering back to the centre line and heading 0.
+
+    Course frame; for the small yaw errors involved, course +y and body +y
+    agree closely enough for a lateral correction.
+    """
+    if root_y.shape != root_yaw.shape:
+        raise ValueError("root_y and root_yaw must have the same shape")
+    vy = (-STAIR_LATERAL_GAIN * root_y).clamp(
+        -STAIR_MAX_LATERAL_SPEED, STAIR_MAX_LATERAL_SPEED)
+    wz = (-STAIR_YAW_GAIN * root_yaw).clamp(
+        -STAIR_MAX_YAW_RATE, STAIR_MAX_YAW_RATE)
+    return torch.stack((vy, wz), dim=-1)

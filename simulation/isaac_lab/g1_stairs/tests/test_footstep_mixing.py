@@ -136,3 +136,16 @@ class NoPlanOnFlatRowsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class StairSteeringTests(unittest.TestCase):
+    def test_steers_back_within_unitree_ranges(self):
+        from simulation.isaac_lab.g1_stairs.footstep_mixing import stair_steering
+        y = torch.tensor([0.0, 0.1, -0.5])
+        yaw = torch.tensor([0.0, 0.35, -0.05])
+        out = stair_steering(y, yaw)
+        self.assertEqual(out[0].tolist(), [0.0, 0.0])
+        self.assertAlmostEqual(out[1, 0].item(), -0.1, places=6)
+        self.assertAlmostEqual(out[1, 1].item(), -0.2, places=6)   # clipped
+        self.assertAlmostEqual(out[2, 0].item(), 0.2, places=6)    # clipped
+        self.assertAlmostEqual(out[2, 1].item(), 0.05, places=6)
