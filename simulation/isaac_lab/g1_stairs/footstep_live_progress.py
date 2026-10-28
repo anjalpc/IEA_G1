@@ -153,8 +153,20 @@ def audit_after_step(env):
     distance = torch.linalg.vector_norm(
         centre[rows, assigned] - targets[:, 0, :3], dim=-1
     )
-    # Forward gap of the assigned foot to its target (stair pace command).
-    pace_gap_x = targets[:, 0, 0] - centre[rows, assigned, 0]
+    # Stair pace: forward gap of the assigned foot to its target, frozen
+    # when the target is assigned, so the command is constant for the whole
+    # step instead of shrinking as the foot swings (which would pulse the
+    # speed every step and, on average, ask for half the needed stride).
+    gap_now = targets[:, 0, 0] - centre[rows, assigned, 0]
+    pace_gap_x = getattr(env, "_g1_footstep_pace_gap", None)
+    pace_index = getattr(env, "_g1_footstep_pace_target_index", None)
+    if pace_gap_x is None or pace_index is None:
+        pace_gap_x = gap_now
+    else:
+        new_target = (pace_index != coordinator.runtime.target_index) | resets
+        pace_gap_x = torch.where(new_target, gap_now, pace_gap_x)
+    env._g1_footstep_pace_gap = pace_gap_x.detach().clone()
+    env._g1_footstep_pace_target_index = coordinator.runtime.target_index.clone()
 
     previous_best = getattr(env, "_g1_footstep_best_distance", None)
     previous_index = getattr(env, "_g1_footstep_progress_target_index", None)

@@ -147,7 +147,8 @@ def stair_steering(root_y, root_yaw):
 
 def stair_pace(gap_x, current_vx):
     """[N] forward command moving toward the speed at which the assigned
-    foot covers its remaining forward gap to the target in one swing."""
+    foot covers its forward gap to the target in one swing. gap_x is the
+    gap measured when the target was assigned (constant during the step)."""
     if gap_x.shape != current_vx.shape:
         raise ValueError("gap_x and current_vx must have the same shape")
     goal = (gap_x / PACE_SWING_TIME_S).clamp(PACE_MIN_MPS, PACE_MAX_MPS)
