@@ -2,7 +2,7 @@ import math
 import unittest
 import torch
 from simulation.isaac_lab.g1_stairs.footstep_tensor import (
-    planned_target_batch, footstep_observation, footstep_scores, OBS_WIDTH)
+    planned_target_batch, footstep_observation, footstep_scores, OBS_WIDTH, speed_conditioned_step_length)
 from simulation.isaac_lab.g1_stairs.footstep_targets import StairCourse, FootstepProgress, planned_targets
 from simulation.isaac_lab.g1_stairs.footstep_learning import (
     FootstepLearningConfig, observation, learning_scores)
@@ -54,6 +54,33 @@ class BatchedFootstepTests(unittest.TestCase):
             stairs[:, :, 2],
             torch.tensor([[0.20, 0.40], [0.20, 0.40]])
         ))
+
+    def test_speed_conditioned_step_length(self):
+        speeds = torch.tensor([0.0, 0.20, 0.35, 0.50])
+        intervals = torch.full((4,), 0.282)
+        result = speed_conditioned_step_length(speeds, intervals)
+
+        torch.testing.assert_close(
+            result,
+            speeds * 0.282,
+        )
+        self.assertAlmostEqual(result[2].item(), 0.0987, places=4)
+        self.assertGreater(result[3].item(), result[2].item())
+
+        with self.assertRaises(ValueError):
+            speed_conditioned_step_length(
+                speeds, torch.tensor([0.282])
+            )
+
+        with self.assertRaises(ValueError):
+            speed_conditioned_step_length(
+                speeds, torch.tensor([0.282, 0.282, 0.0, 0.282])
+            )
+
+        with self.assertRaises(ValueError):
+            speed_conditioned_step_length(
+                torch.tensor([-0.2]), torch.tensor([0.282])
+            )
 
     def test_per_environment_geometry_and_foot(self):
         target, foot, valid = self.build()

@@ -12,6 +12,31 @@ OBS_WIDTH = 22
 METRIC_CONTRACT = "footstep_target_v1"
 
 
+
+def speed_conditioned_step_length(
+    forward_velocity: torch.Tensor,
+    touchdown_interval_s: torch.Tensor,
+) -> torch.Tensor:
+    """Forward displacement between alternating touchdowns.
+
+    The interval must come from measured or explicitly calibrated gait
+    timing. This function does not estimate cadence or move any target.
+    """
+    if forward_velocity.shape != touchdown_interval_s.shape:
+        raise ValueError("velocity and touchdown interval shapes differ")
+    if forward_velocity.ndim != 1:
+        raise ValueError("expected per-environment vectors")
+    if not bool(torch.isfinite(forward_velocity).all()):
+        raise ValueError("nonfinite forward velocity")
+    if not bool(torch.isfinite(touchdown_interval_s).all()):
+        raise ValueError("nonfinite touchdown interval")
+    if bool((touchdown_interval_s <= 0).any()):
+        raise ValueError("touchdown interval must be positive")
+    if bool((forward_velocity < 0).any()):
+        raise ValueError("reverse walking is not calibrated")
+    return forward_velocity * touchdown_interval_s
+
+
 def planned_target_batch(*, first_riser_x: torch.Tensor,
                          tread_depth: torch.Tensor, riser_height: torch.Tensor,
                          step_count: int, first_foot: torch.Tensor,
