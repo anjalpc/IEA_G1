@@ -32,9 +32,22 @@ def planned_footsteps_with_phase(env) -> torch.Tensor:
     return result
 
 
+def random_first_foot(count: int, device) -> torch.Tensor:
+    """0=left / 1=right with equal probability, one per resetting env."""
+    return torch.randint(0, 2, (count,), device=device, dtype=torch.long)
+
+
 def reset_footsteps_with_phase(env, env_ids):
-    """Isaac reset event; clears target state and clock for selected rows."""
-    ensure_coordinator(env).reset(env_ids)
+    """Isaac reset event; clears target state and clock for selected rows.
+
+    The plan's lead foot is drawn 50/50 per episode. A fixed left lead
+    taught a left/right asymmetry (short left steps, leftward turn) that
+    leaked into flat walking through the shared network.
+    """
+    count = env.num_envs if env_ids is None else len(env_ids)
+    ensure_coordinator(env).reset(
+        env_ids, first_foot=random_first_foot(count, env.device)
+    )
     ids = slice(None) if env_ids is None else env_ids
 
     if hasattr(env, "_g1_footstep_best_distance"):

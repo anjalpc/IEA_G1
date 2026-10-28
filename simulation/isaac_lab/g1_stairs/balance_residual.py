@@ -132,6 +132,60 @@ def load_frozen_rsl_actor(
     return actor, metadata
 
 
+def load_frozen_unitree_onnx_teacher(
+    onnx_path: str | Path,
+    *,
+    device: str | torch.device,
+    observation_dim: int,
+) -> tuple[torch.nn.Module, dict[str, Any]]:
+    """Frozen official Unitree velocity actor (480 -> 29) as the teacher.
+
+    The teacher reads only the leading ``observation_dim`` policy channels,
+    which must be the Unitree locomotion prefix of the runtime observation.
+    """
+    from .policy_initialization import LOCOMOTION_OBS_DIM, load_frozen_unitree_actor
+
+    if int(observation_dim) != LOCOMOTION_OBS_DIM:
+        raise ValueError(
+            f"Unitree ONNX teacher reads {LOCOMOTION_OBS_DIM} channels, "
+            f"got teacher_observation_dim={observation_dim}"
+        )
+    path = Path(onnx_path).resolve()
+    actor = load_frozen_unitree_actor(path, str(device))
+    metadata = {
+        "teacher_type": "unitree_onnx",
+        "source": str(path),
+        "source_sha256": _sha256(path),
+        "observation_dim": LOCOMOTION_OBS_DIM,
+        "observation_slice": "prefix",
+        "action_dim": len(BODY_JOINTS),
+        "frozen": True,
+    }
+    return actor, metadata
+
+
+def teacher_observation(policy_obs: torch.Tensor, expected_dim: int,
+                        prefix: bool) -> torch.Tensor:
+    """Select the teacher input: exact match, or the leading prefix."""
+    if policy_obs.ndim != 2:
+        raise RuntimeError(
+            f"policy observations must be rank-2, got {tuple(policy_obs.shape)}"
+        )
+    width = int(policy_obs.shape[1])
+    if prefix:
+        if width < expected_dim:
+            raise RuntimeError(
+                f"teacher needs a {expected_dim}-channel prefix, runtime={width}"
+            )
+        return policy_obs[:, :expected_dim]
+    if width != expected_dim:
+        raise RuntimeError(
+            "balance teacher observation dimension mismatch: "
+            f"teacher={expected_dim}, runtime={width}"
+        )
+    return policy_obs
+
+
 def residual_scale_vector(
     scale_by_joint: dict[str, float],
     *,
@@ -232,16 +286,29 @@ class FrozenBalanceResidualWrapper:
         self,
         wrapped,
         *,
-        teacher_checkpoint: str | Path,
+        teacher_checkpoint: str | Path | None = None,
+        teacher_onnx: str | Path | None = None,
+        teacher_observation_dim: int | None = None,
         scale_by_joint: dict[str, float],
         residual_clip: float = 1.0,
         executed_clip: float = 5.0,
     ) -> None:
         self._wrapped = wrapped
-        self._teacher, self.teacher_metadata = load_frozen_rsl_actor(
-            teacher_checkpoint,
-            device=self.device,
-        )
+        if (teacher_checkpoint is None) == (teacher_onnx is None):
+            raise ValueError("set exactly one of teacher_checkpoint or teacher_onnx")
+        if teacher_onnx is not None:
+            self._teacher, self.teacher_metadata = load_frozen_unitree_onnx_teacher(
+                teacher_onnx,
+                device=self.device,
+                observation_dim=int(teacher_observation_dim or 0),
+            )
+            self._teacher_prefix = True
+        else:
+            self._teacher, self.teacher_metadata = load_frozen_rsl_actor(
+                teacher_checkpoint,
+                device=self.device,
+            )
+            self._teacher_prefix = False
         self._scale = residual_scale_vector(
             scale_by_joint,
             device=self.device,
@@ -286,17 +353,11 @@ class FrozenBalanceResidualWrapper:
             # explicit get_observations() after construction/reset.
             self._last_observations = self._wrapped.get_observations()
 
-        policy_obs = _policy_observation(self._last_observations)
-        if policy_obs.ndim != 2:
-            raise RuntimeError(
-                f"policy observations must be rank-2, got {tuple(policy_obs.shape)}"
-            )
-        expected_obs = int(self.teacher_metadata["observation_dim"])
-        if policy_obs.shape[1] != expected_obs:
-            raise RuntimeError(
-                "balance teacher observation dimension mismatch: "
-                f"teacher={expected_obs}, runtime={policy_obs.shape[1]}"
-            )
+        policy_obs = teacher_observation(
+            _policy_observation(self._last_observations),
+            int(self.teacher_metadata["observation_dim"]),
+            self._teacher_prefix,
+        )
 
         with torch.no_grad():
             teacher_actions = self._teacher(policy_obs)
@@ -335,10 +396,13 @@ def wrap_balance_residual_from_config(wrapped, resolved_config: dict[str, Any]):
         return wrapped
 
     teacher = cfg.get("teacher_checkpoint")
+    teacher_onnx = cfg.get("teacher_onnx")
     scale_by_joint = cfg.get("scale_by_joint")
-    if not isinstance(teacher, str) or not teacher.strip():
+    given = [v for v in (teacher, teacher_onnx) if isinstance(v, str) and v.strip()]
+    if len(given) != 1:
         raise ValueError(
-            "balance_residual_control.teacher_checkpoint is required"
+            "balance_residual_control needs exactly one of "
+            "teacher_checkpoint or teacher_onnx"
         )
     if not isinstance(scale_by_joint, dict):
         raise ValueError(
@@ -347,7 +411,9 @@ def wrap_balance_residual_from_config(wrapped, resolved_config: dict[str, Any]):
 
     return FrozenBalanceResidualWrapper(
         wrapped,
-        teacher_checkpoint=teacher,
+        teacher_checkpoint=teacher if teacher_onnx is None else None,
+        teacher_onnx=teacher_onnx,
+        teacher_observation_dim=cfg.get("teacher_observation_dim"),
         scale_by_joint=scale_by_joint,
         residual_clip=float(cfg.get("residual_clip", 1.0)),
         executed_clip=float(cfg.get("executed_clip", 5.0)),

@@ -28,6 +28,12 @@ class CoordinatorTests(unittest.TestCase):
                            supported=self.support, qualified_tread=self.good,
                            xy_tolerance=.08,z_tolerance=.05)
 
+    def test_reset_sets_lead_foot_for_selected_envs_only(self):
+        self.x.reset(torch.tensor([1]), first_foot=torch.tensor([1]))
+        self.assertEqual(self.r.first_foot.tolist(), [0, 1])
+        self.x.reset(None, first_foot=torch.tensor([1, 0]))
+        self.assertEqual(self.r.first_foot.tolist(), [1, 0])
+
     def test_initial_contact_never_advances(self):
         self.support[:,0] = True
         self.good[:,0] = True

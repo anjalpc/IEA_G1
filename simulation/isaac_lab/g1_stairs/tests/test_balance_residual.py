@@ -144,3 +144,68 @@ class BalanceResidualConfigTests(unittest.TestCase):
             resolved["observations"]["proprioception_history_steps"],
             1,
         )
+
+
+class UnitreeOnnxTeacherTests(unittest.TestCase):
+    def _write_onnx(self, directory: Path) -> Path:
+        import numpy as np
+        import onnx
+        from onnx import helper, numpy_helper
+
+        from simulation.isaac_lab.g1_stairs.policy_initialization import (
+            EXPECTED_ONNX_SHAPES,
+        )
+
+        rng = np.random.default_rng(0)
+        initializers = [
+            numpy_helper.from_array(
+                rng.standard_normal(shape).astype(np.float32) * 0.05, name
+            )
+            for name, shape in EXPECTED_ONNX_SHAPES.items()
+        ]
+        graph = helper.make_graph([], "unitree_actor", [], [], initializers)
+        path = directory / "policy.onnx"
+        onnx.save(helper.make_model(graph), str(path))
+        return path
+
+    def test_teacher_reads_only_the_480_channel_prefix(self):
+        from simulation.isaac_lab.g1_stairs.balance_residual import (
+            load_frozen_unitree_onnx_teacher, teacher_observation,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write_onnx(Path(tmp))
+            teacher, meta = load_frozen_unitree_onnx_teacher(
+                path, device="cpu", observation_dim=480
+            )
+        self.assertEqual(meta["observation_dim"], 480)
+        self.assertEqual(meta["teacher_type"], "unitree_onnx")
+        self.assertFalse(any(p.requires_grad for p in teacher.parameters()))
+
+        obs = torch.randn(3, 688)
+        changed = obs.clone()
+        changed[:, 480:] = torch.randn(3, 208)   # height scan / footsteps etc.
+        a = teacher(teacher_observation(obs, 480, prefix=True))
+        b = teacher(teacher_observation(changed, 480, prefix=True))
+        self.assertEqual(tuple(a.shape), (3, len(BODY_JOINTS)))
+        self.assertTrue(torch.equal(a, b))
+
+    def test_prefix_and_exact_dimension_checks(self):
+        from simulation.isaac_lab.g1_stairs.balance_residual import teacher_observation
+
+        with self.assertRaises(RuntimeError):
+            teacher_observation(torch.zeros(2, 400), 480, prefix=True)
+        with self.assertRaises(RuntimeError):
+            teacher_observation(torch.zeros(2, 688), 480, prefix=False)
+        self.assertEqual(tuple(teacher_observation(torch.zeros(2, 480), 480,
+                                                   prefix=False).shape), (2, 480))
+
+    def test_onnx_teacher_rejects_wrong_observation_dim(self):
+        from simulation.isaac_lab.g1_stairs.balance_residual import (
+            load_frozen_unitree_onnx_teacher,
+        )
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self._write_onnx(Path(tmp))
+            with self.assertRaises(ValueError):
+                load_frozen_unitree_onnx_teacher(path, device="cpu", observation_dim=688)

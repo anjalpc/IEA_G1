@@ -24,11 +24,20 @@ class PhaseBindingTests(TestCase):
         self.assertEqual(a[:, 14:].abs().sum().item(), 0.0)
         self.assertEqual(obs.call_args.kwargs['foot_separation_m'], 0.235)
 
-    def test_reset_calls_coordinator_reset(self):
+    def test_reset_calls_coordinator_reset_with_random_lead_foot(self):
         env, coord = self.build()
+        env.device = torch.device("cpu")
         selected = torch.tensor([1])
         calls = []
-        coord.reset = lambda ids: calls.append(ids)
+        coord.reset = lambda ids, first_foot=None: calls.append((ids, first_foot))
         with patch.object(phase, 'ensure_coordinator', return_value=coord):
             phase.reset_footsteps_with_phase(env, selected)
-        self.assertIs(calls[0], selected)
+        self.assertIs(calls[0][0], selected)
+        self.assertEqual(tuple(calls[0][1].shape), (1,))
+        self.assertIn(int(calls[0][1][0]), (0, 1))
+
+    def test_lead_foot_is_balanced(self):
+        torch.manual_seed(0)
+        feet = phase.random_first_foot(10000, torch.device("cpu"))
+        self.assertTrue(bool(((feet == 0) | (feet == 1)).all()))
+        self.assertAlmostEqual(feet.float().mean().item(), 0.5, delta=0.03)

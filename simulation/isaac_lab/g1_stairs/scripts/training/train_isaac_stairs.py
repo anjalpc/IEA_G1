@@ -798,9 +798,17 @@ def main() -> None:
             raise RuntimeError("Footstep bootstrap requires command.terrain_split")
         if resolved_config["execution"]["maximum_iterations"] != 500:
             raise RuntimeError("Footstep bootstrap must use 500 iterations")
-        if resolved_config["policy_initialization"]["type"] != (
-            "unitree_velocity_onnx_transfer"
-        ):
+        initialization = resolved_config["policy_initialization"]
+        official_onnx = initialization.get("source", {}).get("path")
+        if initialization["type"] == "zero_residual_actor":
+            residual = resolved_config.get("balance_residual_control", {})
+            if not residual.get("enabled", False) or (
+                residual.get("teacher_onnx") != official_onnx
+            ):
+                raise RuntimeError(
+                    "Footstep residual must use the official ONNX prior as teacher"
+                )
+        elif initialization["type"] != "unitree_velocity_onnx_transfer":
             raise RuntimeError("Footstep bootstrap requires official ONNX prior")
         if not resolved_config["reward_experiment"]["strict_runtime_set"]:
             raise RuntimeError("Footstep training requires strict reward selection")

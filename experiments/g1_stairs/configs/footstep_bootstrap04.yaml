@@ -40,8 +40,14 @@ execution:
   environments: 2048
   maximum_iterations: 500
   training_seed: 42
+# Residual on the frozen official Unitree policy: the teacher always produces
+# its normal walking from the 480-D locomotion prefix; the trained actor sees
+# all 688 inputs (height scan, stair geometry, footsteps) and adds a bounded
+# correction. Iteration 0 equals the Unitree policy exactly.
 policy_initialization:
-  type: unitree_velocity_onnx_transfer
+  type: zero_residual_actor
+  critic_initialization: fresh
+  optimizer_initialization: fresh
   locomotion_observations: 480
   terrain_observations: 187
   explicit_geometry_observations: 5
@@ -49,6 +55,44 @@ policy_initialization:
   gait_clock_observations: 2
   stair_observations: 688
   actions: 29
+balance_residual_control:
+  enabled: true
+  teacher_onnx: /workspace/unitree_rl_lab/deploy/robots/g1_29dof/config/policy/velocity/v0/exported/policy.onnx
+  teacher_observation_dim: 480
+  # Raw Unitree action units (x 0.25 rad). Legs: up to +-2 units = +-0.5 rad
+  # for riser lift and foot placement; waist and arms stay near the teacher.
+  residual_clip: 2.0
+  executed_clip: 5.0
+  scale_by_joint:
+    left_hip_pitch_joint: 1.00
+    right_hip_pitch_joint: 1.00
+    waist_yaw_joint: 0.15
+    left_hip_roll_joint: 0.30
+    right_hip_roll_joint: 0.30
+    waist_roll_joint: 0.15
+    left_hip_yaw_joint: 0.30
+    right_hip_yaw_joint: 0.30
+    waist_pitch_joint: 0.15
+    left_knee_joint: 1.00
+    right_knee_joint: 1.00
+    left_shoulder_pitch_joint: 0.10
+    right_shoulder_pitch_joint: 0.10
+    left_ankle_pitch_joint: 1.00
+    right_ankle_pitch_joint: 1.00
+    left_shoulder_roll_joint: 0.10
+    right_shoulder_roll_joint: 0.10
+    left_ankle_roll_joint: 0.30
+    right_ankle_roll_joint: 0.30
+    left_shoulder_yaw_joint: 0.10
+    right_shoulder_yaw_joint: 0.10
+    left_elbow_joint: 0.10
+    right_elbow_joint: 0.10
+    left_wrist_roll_joint: 0.05
+    right_wrist_roll_joint: 0.05
+    left_wrist_pitch_joint: 0.05
+    right_wrist_pitch_joint: 0.05
+    left_wrist_yaw_joint: 0.05
+    right_wrist_yaw_joint: 0.05
 ppo:
   initial_action_noise_std: 0.15
   learning_rate: 0.0001

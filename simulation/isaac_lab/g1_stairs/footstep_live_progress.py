@@ -1,7 +1,11 @@
-"""Opt-in post-step footstep/gait diagnostic.
+"""Footstep progress hook for the footstep tasks.
 
-Called after super().step(), hence returned observations are NOT recomputed.
-Never enable for training until a pre-observation lifecycle hook is validated.
+Training path (FootstepManagerBasedRLEnv): audit_after_step runs inside
+termination_manager.compute(), i.e. after physics and terminations and
+BEFORE reward computation, resets and observation computation of the same
+Isaac Lab 2.3 step. Rewards and the next observation therefore see the
+updated plan. (The legacy footstep_progress_diagnostic flag, which called
+this after super().step(), is not used by the footstep tasks.)
 """
 import torch
 

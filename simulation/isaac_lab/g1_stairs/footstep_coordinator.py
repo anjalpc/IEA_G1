@@ -22,8 +22,9 @@ class FootstepCoordinator:
         self.last_step = -1
         self._primed = torch.zeros(runtime.num_envs, device=runtime.device, dtype=torch.bool)
 
-    def reset(self, env_ids: torch.Tensor | None = None):
-        self.runtime.reset(env_ids)
+    def reset(self, env_ids: torch.Tensor | None = None,
+              first_foot: torch.Tensor | None = None):
+        self.runtime.reset(env_ids, first_foot=first_foot)
         self.clock.reset(env_ids)
         self._primed[slice(None) if env_ids is None else env_ids] = False
 
