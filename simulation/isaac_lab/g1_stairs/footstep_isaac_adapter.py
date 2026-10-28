@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import torch
 
+from .footstep_gait_clock import NOMINAL_STEP_LENGTH_M
 from .terrain_state import riser_height_per_env, stair_cfg
 
 
 def course_tensors(
     env, *, foot_separation_m: float, flat_ground: bool = False,
-    flat_start_x_m: float = 0.0, flat_step_length_m: float = 0.20,
+    flat_start_x_m: float = 0.0,
+    flat_step_length_m: float = NOMINAL_STEP_LENGTH_M,
 ):
     """Geometry in the per-env course frame used by terrain observations."""
     if not 0.0 < foot_separation_m:
@@ -56,7 +58,7 @@ def course_root_pose(env):
 def target_observation(env, runtime, *, position_scale_m: float,
                        foot_separation_m: float, flat_ground: bool = False,
                        flat_start_x_m: float = 0.0,
-                       flat_step_length_m: float = 0.20):
+                       flat_step_length_m: float = NOMINAL_STEP_LENGTH_M):
     """Read-only [N,14] target observation; never updates progress."""
     cfg = stair_cfg(env)
     if runtime.num_envs != env.num_envs or runtime.step_count != int(cfg.step_count):

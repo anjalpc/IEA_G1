@@ -7,7 +7,9 @@ import torch
 
 from .footstep_live import ensure_runtime
 from .footstep_coordinator import FootstepCoordinator
-from .footstep_gait_clock import FootstepGaitClock
+from .footstep_gait_clock import (
+    FootstepGaitClock, NOMINAL_DOUBLE_SUPPORT_S, NOMINAL_SINGLE_SUPPORT_S,
+)
 from .footstep_isaac_adapter import course_tensors
 from .footstep_tread import qualified_tread_mask, qualified_flat_mask
 from .contact_sensor_contract import FOOT_BODY_NAMES
@@ -21,7 +23,8 @@ def ensure_coordinator(env):
         coord = FootstepCoordinator(
             runtime=ensure_runtime(env),
             clock=FootstepGaitClock(num_envs=env.num_envs, device=env.device,
-                                    single_support_s=0.8, double_support_s=0.2),
+                                    single_support_s=NOMINAL_SINGLE_SUPPORT_S,
+                                    double_support_s=NOMINAL_DOUBLE_SUPPORT_S),
         )
         env._g1_footstep_coordinator = coord
     return coord

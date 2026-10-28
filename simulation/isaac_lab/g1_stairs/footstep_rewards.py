@@ -29,6 +29,9 @@ def clock_contact_scores(force_z, sole_xyz, sole_vel_xyz, targets, feet, valid,
     Positive GRF: scheduled stance; negative GRF: scheduled swing.
     Positive speed: scheduled swing; negative speed: scheduled stance.
     Target assignment does not determine which leg receives gait credit.
+    Swing/stance masks fully define the mode: after the plan is complete the
+    clock requests double stance (stand still, both feet loaded), as in the
+    reference STANDING mode. Reset rows are zeroed by the caller.
     """
     n = force_z.shape[0]
     if (force_z.shape != (n, 2) or sole_xyz.shape != (n, 2, 3)
@@ -49,12 +52,7 @@ def clock_contact_scores(force_z, sole_xyz, sole_vel_xyz, targets, feet, valid,
 
     force_score = ((stance - swing) * force).sum(dim=1) / 2
     speed_score = ((swing - stance) * speed).sum(dim=1) / 2
-
-    active = valid[:, 0]
-    return (
-        torch.where(active, force_score, torch.zeros_like(force_score)),
-        torch.where(active, speed_score, torch.zeros_like(speed_score)),
-    )
+    return force_score, speed_score
 
 
 # Stage 19 intentionally does not change PPO reward registration, losses, or training.
@@ -82,14 +80,23 @@ def assert_paper_only_rewards(active_names):
     return True
 
 
+def _per_event(env, value):
+    """Cancel the reward manager's dt so weight == reward per event/metre unit.
+
+    Same convention as geometry_failure_termination_event. Use only for
+    one-step events and non-recycling increments, never for per-step rates.
+    """
+    return value / float(env.step_dt)
+
+
 def cached_acquisition(env):
-    """Read qualified assigned-foot touchdown from post-physics hook."""
+    """Qualified assigned-foot touchdown; 1.0 per acquisition after dt scaling."""
     value = getattr(env, "_g1_footstep_last_advanced", None)
     if value is None:
         raise RuntimeError("footstep acquisition reward evaluated before physics hook")
     if value.shape != (env.num_envs,):
         raise RuntimeError("invalid cached acquisition shape")
-    return value.float()
+    return _per_event(env, value.float())
 
 
 def cached_directed_swing(env):
@@ -126,11 +133,11 @@ def new_target_progress(previous_distance, current_distance, best_distance, vali
 
 
 def cached_net_progress(env):
-    """Non-recycling progress computed once after physics."""
+    """Non-recycling progress; 1.0 per 0.10 m of new best distance after dt scaling."""
     value = getattr(env, "_g1_footstep_net_progress", None)
     if value is None or value.shape != (env.num_envs,):
         raise RuntimeError("missing cached footstep net progress")
-    return value
+    return _per_event(env, value)
 
 
 def cached_stance_support(env):
@@ -142,16 +149,16 @@ def cached_stance_support(env):
 
 
 def cached_clearance_progress(env):
-    """New peak assigned-foot clearance with opposite-foot support."""
+    """New peak clearance; at most 1.0 per target after dt scaling."""
     value = getattr(env, "_g1_footstep_clearance_progress", None)
     if value is None or value.shape != (env.num_envs,):
         raise RuntimeError("missing cached footstep clearance")
-    return value
+    return _per_event(env, value)
 
 
 def cached_failure_event(env):
-    """Non-timeout termination event."""
+    """Non-timeout termination; 1.0 per failure after dt scaling."""
     value = getattr(env, "_g1_footstep_failure_event", None)
     if value is None or value.shape != (env.num_envs,):
         raise RuntimeError("missing cached failure event")
-    return value
+    return _per_event(env, value)

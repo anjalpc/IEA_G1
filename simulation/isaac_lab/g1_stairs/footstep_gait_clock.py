@@ -9,6 +9,13 @@ from __future__ import annotations
 import math
 import torch
 
+# Nominal cadence: one touchdown per planned footstep at the fixed forward
+# command. Step period = step length / command = 0.25 m / 0.35 m/s ~= 0.71 s.
+# Single source of truth for the clock and the flat-ground step length.
+NOMINAL_STEP_LENGTH_M = 0.25
+NOMINAL_SINGLE_SUPPORT_S = 0.50
+NOMINAL_DOUBLE_SUPPORT_S = 0.20
+
 
 class FootstepGaitClock:
     """Per-environment stance/swing clock synchronized to target assignments.
@@ -80,7 +87,8 @@ class FootstepGaitClock:
         right_swing = ((self.elapsed_s >= ss + 2 * ds)
                        & (self.elapsed_s < 2 * (ss + ds)))
         swing = torch.stack((left_swing, right_swing), dim=-1) & valid[:, None]
-        stance = valid[:, None] & ~swing
+        # No valid target (plan complete): stand, both feet in stance.
+        stance = ~swing
         return (torch.where(valid[:, None], clock, torch.zeros_like(clock)),
                 swing.to(self.elapsed_s.dtype),
                 stance.to(self.elapsed_s.dtype))

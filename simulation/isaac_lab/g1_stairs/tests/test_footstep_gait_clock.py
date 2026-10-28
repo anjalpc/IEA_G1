@@ -3,7 +3,22 @@ import unittest
 
 import torch
 
-from simulation.isaac_lab.g1_stairs.footstep_gait_clock import FootstepGaitClock
+from simulation.isaac_lab.g1_stairs.contracts import FIXED_FORWARD_COMMAND_MPS
+from simulation.isaac_lab.g1_stairs.footstep_gait_clock import (
+    FootstepGaitClock, NOMINAL_DOUBLE_SUPPORT_S, NOMINAL_SINGLE_SUPPORT_S,
+    NOMINAL_STEP_LENGTH_M,
+)
+
+
+class NominalCadenceTests(unittest.TestCase):
+    def test_step_length_period_and_command_agree(self):
+        period = NOMINAL_SINGLE_SUPPORT_S + NOMINAL_DOUBLE_SUPPORT_S
+        implied = NOMINAL_STEP_LENGTH_M / period
+        self.assertLess(abs(implied - FIXED_FORWARD_COMMAND_MPS), 0.02)
+
+    def test_step_length_matches_nominal_tread(self):
+        # Reciprocal plan: one foot per 0.25 m tread.
+        self.assertAlmostEqual(NOMINAL_STEP_LENGTH_M, 0.25)
 
 
 class GaitClockTests(unittest.TestCase):
@@ -60,7 +75,8 @@ class GaitClockTests(unittest.TestCase):
                                              valid=torch.tensor([True, False]))
         self.assertEqual(obs[1].tolist(), [0., 0.])
         self.assertEqual(swing[1].tolist(), [0., 0.])
-        self.assertEqual(stance[1].tolist(), [0., 0.])
+        # Plan complete: stand mode requests both feet in stance.
+        self.assertEqual(stance[1].tolist(), [1., 1.])
 
     def test_rejects_bad_parameters(self):
         with self.assertRaises(ValueError):

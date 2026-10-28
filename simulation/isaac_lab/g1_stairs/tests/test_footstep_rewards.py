@@ -53,9 +53,24 @@ class PaperScoreTests(unittest.TestCase):
         self.assertAlmostEqual(scores()[0].item(), 0.)
         self.assertAlmostEqual(scores()[1].item(), 0.)
 
-        valid[0, 0] = False
-        self.assertEqual(scores()[0].item(), 0.)
-        self.assertEqual(scores()[1].item(), 0.)
+    def test_plan_complete_stand_mode_rewards_standing(self):
+        # Stand mode = double stance masks from the clock after the plan ends.
+        force = torch.tensor([[100., 100.]])
+        sole = torch.zeros((1, 2, 3))
+        still = torch.zeros((1, 2, 3))
+        moving = torch.tensor([[[.3, 0., 0.], [0., 0., 0.]]])
+        targets = torch.zeros((1, 2, 4))
+        feet = torch.tensor([[0, 1]])
+        done = torch.tensor([[False, False]])
+        swing = torch.zeros((1, 2))
+        stance = torch.ones((1, 2))
+        frc, vel = clock_contact_scores(
+            force, sole, still, targets, feet, done, swing, stance)
+        self.assertAlmostEqual(frc.item(), 1.)
+        self.assertAlmostEqual(vel.item(), 0.)
+        _, vel = clock_contact_scores(
+            force, sole, moving, targets, feet, done, swing, stance)
+        self.assertAlmostEqual(vel.item(), -.5)
 
     def test_double_support_penalizes_foot_motion(self):
         force = torch.tensor([[100., 100.]])
@@ -97,6 +112,29 @@ class PaperScoreTests(unittest.TestCase):
                                       torch.tensor([1.]),torch.tensor([False]))
         self.assertEqual(score.item(),0.)
         self.assertEqual(best.item(),1.)
+
+    def test_event_terms_cancel_manager_dt(self):
+        from types import SimpleNamespace
+        from simulation.isaac_lab.g1_stairs import footstep_rewards as fr
+        flag = torch.tensor([True, False])
+        env = SimpleNamespace(
+            num_envs=2, step_dt=0.02,
+            _g1_footstep_last_advanced=flag,
+            _g1_footstep_net_progress=torch.tensor([0.5, 0.]),
+            _g1_footstep_clearance_progress=torch.tensor([0.25, 0.]),
+            _g1_footstep_failure_event=flag.float(),
+            _g1_footstep_directed_swing=torch.tensor([0.5, 0.]),
+            _g1_footstep_stance_support=torch.tensor([0.5, 0.]),
+        )
+        # Reward manager multiplies by step_dt: event terms become per-event.
+        for fn, per_event in ((fr.cached_acquisition, 1.0),
+                              (fr.cached_net_progress, 0.5),
+                              (fr.cached_clearance_progress, 0.25),
+                              (fr.cached_failure_event, 1.0)):
+            self.assertAlmostEqual(fn(env)[0].item() * env.step_dt, per_event, places=6)
+        # Per-step rate terms are NOT rescaled.
+        self.assertAlmostEqual(fr.cached_directed_swing(env)[0].item(), 0.5)
+        self.assertAlmostEqual(fr.cached_stance_support(env)[0].item(), 0.5)
 
     def test_reject_legacy_rewards(self):
         with self.assertRaises(RuntimeError):
