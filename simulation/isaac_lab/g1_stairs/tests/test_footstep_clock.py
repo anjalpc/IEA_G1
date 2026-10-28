@@ -56,48 +56,44 @@ class ScheduleTests(unittest.TestCase):
         self.assertEqual(fc.moving(cmd).tolist(), [False, True, True])
 
 
-class ReferenceTargetTests(unittest.TestCase):
-    def test_straight_ahead_quarter_stride_ahead_of_reference(self):
+class HeadingTargetTests(unittest.TestCase):
+    def test_straight_ahead_one_step_from_stance(self):
         cmd = torch.tensor([[0.4, 0.0, 0.0]])
-        targets, feet = fc.reference_targets(
-            torch.tensor([[1.0, 0.0]]), torch.tensor([0.0]), torch.tensor([0]),
+        targets, feet = fc.heading_targets(
+            torch.tensor([[1.0, -0.1175]]), torch.tensor([0]), torch.tensor([0.0]),
             cmd, torch.tensor([1.0]), 0.235)
         self.assertEqual(feet.tolist(), [[0, 1]])
-        # touchdown half a cycle later: reference at 1.2, foot 0.1 ahead
-        self.assertAlmostEqual(targets[0, 0, 0].item(), 1.3, places=6)
+        self.assertAlmostEqual(targets[0, 0, 0].item(), 1.2, places=6)
         self.assertAlmostEqual(targets[0, 0, 1].item(), 0.1175, places=6)
-        self.assertAlmostEqual(targets[0, 1, 0].item(), 1.5, places=6)
+        self.assertAlmostEqual(targets[0, 1, 0].item(), 1.4, places=6)
         self.assertAlmostEqual(targets[0, 1, 1].item(), -0.1175, places=6)
         self.assertEqual(targets[0, 0, 2].item(), 0.0)
 
-    def test_turn_command_rotates_targets(self):
-        cmd = torch.tensor([[0.0, 0.0, 0.5]])
-        targets, _ = fc.reference_targets(
-            torch.tensor([[0.0, 0.0]]), torch.tensor([0.0]), torch.tensor([1]),
-            cmd, torch.tensor([1.0]), 0.235)
+    def test_commanded_heading_not_robot_heading(self):
+        # Commanded heading 90 deg: forward is +y, the right foot lies at +x.
+        targets, _ = fc.heading_targets(
+            torch.tensor([[0.0, 0.0]]), torch.tensor([1]), torch.tensor([math.pi / 2]),
+            torch.tensor([[0.2, 0.0, 0.0]]), torch.tensor([2.0]), 0.235)
+        self.assertAlmostEqual(targets[0, 0, 0].item(), 0.235, places=5)
+        self.assertAlmostEqual(targets[0, 0, 1].item(), 0.2, places=5)
+        self.assertAlmostEqual(targets[0, 0, 3].item(), math.pi / 2, places=6)
+
+    def test_turn_command_turns_heading_at_touchdown(self):
+        targets, _ = fc.heading_targets(
+            torch.tensor([[0.0, 0.0]]), torch.tensor([0]), torch.tensor([0.0]),
+            torch.tensor([[0.0, 0.0, 0.5]]), torch.tensor([1.0]), 0.235)
         self.assertAlmostEqual(targets[0, 0, 3].item(), 0.25, places=6)
         self.assertAlmostEqual(targets[0, 1, 3].item(), 0.5, places=6)
-        # right foot in place: half the separation to the right of a 0.25 rad heading
-        self.assertAlmostEqual(targets[0, 0, 0].item(), 0.1175 * math.sin(0.25), places=5)
-        self.assertAlmostEqual(targets[0, 0, 1].item(), -0.1175 * math.cos(0.25), places=5)
 
-    def test_follow_reference_integrates_body_command(self):
-        xy, yaw = fc.follow_reference(torch.tensor([[0.0, 0.0]]), torch.tensor([math.pi / 2]),
-                                      torch.tensor([[0.5, 0.0, 0.0]]), 2.0)
-        self.assertAlmostEqual(xy[0, 0].item(), 0.0, places=5)
-        self.assertAlmostEqual(xy[0, 1].item(), 1.0, places=5)
-        self.assertAlmostEqual(yaw[0].item(), math.pi / 2, places=6)
-
-    def test_sync_reference_leash(self):
+    def test_sync_reference_heading_leash(self):
         state = fc.RollingClockState(3, "cpu")
         rows = torch.tensor([True, True, False])
-        fc.sync_reference(state, torch.tensor([[1.0, 0.0]] * 3), torch.zeros(3), rows)
-        self.assertEqual(state.ref_xy[0].tolist(), [1.0, 0.0])      # fresh: synced
-        self.assertEqual(state.ref_xy[2].tolist(), [0.0, 0.0])      # not a clock row
-        root = torch.tensor([[1.2, 0.0], [1.5, 0.0], [0.0, 0.0]])  # 0.2 m and 0.5 m off
-        fc.sync_reference(state, root, torch.zeros(3), rows)
-        self.assertEqual(state.ref_xy[0].tolist(), [1.0, 0.0])      # inside leash: kept
-        self.assertEqual(state.ref_xy[1].tolist(), [1.5, 0.0])      # beyond: re-synced
+        fc.sync_reference(state, torch.tensor([0.1, 0.1, 0.1]), rows)
+        self.assertAlmostEqual(state.ref_yaw[0].item(), 0.1, places=6)  # fresh: synced
+        self.assertEqual(state.ref_yaw[2].item(), 0.0)                   # not a clock row
+        fc.sync_reference(state, torch.tensor([0.3, 0.8, 0.0]), rows)    # 0.2 / 0.7 rad off
+        self.assertAlmostEqual(state.ref_yaw[0].item(), 0.1, places=6)  # inside leash: kept
+        self.assertAlmostEqual(state.ref_yaw[1].item(), 0.8, places=6)  # beyond: re-synced
         self.assertEqual(state.ref_resyncs.tolist(), [0, 1, 0])
 
 
@@ -120,15 +116,15 @@ class StateTests(unittest.TestCase):
         self.assertAlmostEqual(state.base_period_s[0].item(), 0.8, places=6)
         self.assertEqual(state.assigned[0].item(), -1)
 
-    def test_advance_moves_phase_and_reference_of_walking_rows(self):
+    def test_advance_moves_phase_and_heading_of_walking_rows(self):
         state = fc.RollingClockState(2, "cpu")
         state.period_s[:] = 1.0
         walking = torch.tensor([True, False])
-        state.advance(0.25, walking, torch.tensor([[0.4, 0.0, 0.0]] * 2))
+        state.advance(0.25, walking, torch.tensor([[0.4, 0.0, 0.2]] * 2))
         self.assertAlmostEqual(state.phase[0].item(), 0.25, places=6)
         self.assertEqual(state.phase[1].item(), 0.0)
-        self.assertAlmostEqual(state.ref_xy[0, 0].item(), 0.1, places=6)
-        self.assertEqual(state.ref_xy[1, 0].item(), 0.0)
+        self.assertAlmostEqual(state.ref_yaw[0].item(), 0.05, places=6)
+        self.assertEqual(state.ref_yaw[1].item(), 0.0)
 
 
 if __name__ == "__main__":
@@ -155,31 +151,31 @@ class ApplyRollingClockTests(unittest.TestCase):
             mock.patch.object(lp, "riser_height_per_env",
                               lambda env: torch.tensor([0.0, 0.04, 0.0])),
             mock.patch.object(lp, "course_root_pose",
-                              lambda env: (self.root, torch.zeros(3))),
+                              lambda env: (torch.zeros(3, 3), self.yaw)),
         ]
         for p in patches:
             p.start()
             self.addCleanup(p.stop)
         self.state = lp.ensure_rolling_clock(self.env)
         self.state.phase[:] = 0.0        # left assigned first
-        self.root = torch.zeros(3, 3)
+        self.yaw = torch.zeros(3)
+        self.centre = torch.tensor([[[0.0, 0.1175, 0.0], [0.0, -0.1175, 0.0]]] * 3)
 
     def run_once(self):
         targets = torch.full((3, 2, 4), 9.0)
         feet = torch.zeros((3, 2), dtype=torch.long)
         valid = torch.ones((3, 2), dtype=torch.bool)
         rows, walking, swing = self.lp.apply_rolling_clock(
-            self.env, self.state, targets=targets,
+            self.env, self.state, centre=self.centre, targets=targets,
             feet=feet, valid=valid, resets=torch.zeros(3, dtype=torch.bool))
         return rows, walking, targets, feet, valid
 
-    def test_first_window_targets_swing_foot_from_reference(self):
+    def test_first_window_targets_swing_foot_from_stance(self):
         rows, walking, targets, feet, valid = self.run_once()
         self.assertEqual(rows.tolist(), [True, False, True])
         self.assertEqual(walking.tolist(), [True, False, False])
-        # reference starts at the robot (0, 0); touchdown half a cycle later
-        # at 0.2 m, foot a quarter stride (0.1 m) ahead of it
-        self.assertAlmostEqual(targets[0, 0, 0].item(), 0.3, places=6)
+        # left foot: from the right stance foot, step = 0.4 * 1.0 / 2
+        self.assertAlmostEqual(targets[0, 0, 0].item(), 0.2, places=6)
         self.assertAlmostEqual(targets[0, 0, 1].item(), 0.1175, places=6)
         self.assertEqual(feet[0].tolist(), [0, 1])
         self.assertEqual(valid[0].tolist(), [True, True])
@@ -204,20 +200,21 @@ class ApplyRollingClockTests(unittest.TestCase):
     def test_resume_after_standing_replans(self):
         self.run_once()
         self.command[0, 0] = 0.0
-        self.run_once()                                  # standing
+        self.yaw[0] = 0.3                                # turned while standing
+        self.run_once()                                  # standing: heading follows robot
         self.assertEqual(self.state.window[0].item(), 1)
         self.command[0, 0] = 0.4
-        self.root[0, 0] = 0.5                            # robot moved while standing
+        self.centre[0, 1, 0] = 0.5                       # stance foot moved
         _, _, targets, _, _ = self.run_once()
         self.assertEqual(self.state.window[0].item(), 2)
-        self.assertAlmostEqual(targets[0, 0, 0].item(), 0.8, places=6)
+        self.assertAlmostEqual(self.state.ref_yaw[0].item(), 0.3, places=6)
+        self.assertAlmostEqual(targets[0, 0, 3].item(), 0.3, places=6)
 
-    def test_drift_does_not_move_targets(self):
+    def test_heading_drift_does_not_turn_targets(self):
         self.run_once()
-        self.state.advance(0.02, torch.tensor([True, False, False]), self.command)
-        self.root[0, 1] = 0.2                            # robot drifted sideways
+        self.yaw[0] = 0.2                                # robot drifted 0.2 rad
         self.state.phase[0] = 0.6                        # next window
         _, _, targets, _, _ = self.run_once()
-        # target stays on the commanded line, not shifted by the drift
-        self.assertAlmostEqual(targets[0, 0, 1].item(), -0.1175, places=5)
+        # target keeps the commanded heading (0), not the drifted one
+        self.assertAlmostEqual(targets[0, 0, 3].item(), 0.0, places=6)
         self.assertEqual(self.state.ref_resyncs[0].item(), 0)
