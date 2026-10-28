@@ -536,6 +536,15 @@ def main() -> None:
         )
         print("[INFO] Terrain-split velocity command:", split, flush=True)
 
+    from simulation.isaac_lab.g1_stairs.footstep_clock import validate_clock_cfg
+
+    footstep_clock = validate_clock_cfg(resolved_config.get("footstep_clock"))
+    if footstep_clock is not None:
+        if not hasattr(env_cfg, "footstep_clock"):
+            raise RuntimeError("footstep_clock requires a footstep task")
+        env_cfg.footstep_clock = footstep_clock
+        print("[INFO] Footstep gait clock:", footstep_clock, flush=True)
+
     from simulation.isaac_lab.g1_stairs.command_runtime import (
         apply_stair_heading_command,
     )
@@ -785,6 +794,13 @@ def main() -> None:
             "flat_feet_clearance",
             "residual_magnitude",
         }
+        clock_stage = resolved_config.get("footstep_clock", {}).get("enabled", False)
+        if clock_stage:
+            # The clock sets the rhythm; Unitree's fixed 0.8 s gait term
+            # would fight every other cycle time.
+            required = (required - {"gait"}) | {
+                "clock_stance_support", "clock_swing_motion",
+            }
         from simulation.isaac_lab.g1_stairs.reward_runtime import (
             active_reward_weights,
         )
@@ -795,7 +811,9 @@ def main() -> None:
                 + str(sorted(set(expected_weights) ^ required))
             )
         heights = resolved_config["terrain"]["riser_heights_m"]
-        if len(heights) < 2 or heights[0] != 0.0 or heights[-1] > 0.04:
+        if clock_stage and heights == [0.0]:
+            pass  # flat clock stage: all tiles flat
+        elif len(heights) < 2 or heights[0] != 0.0 or heights[-1] > 0.04:
             raise RuntimeError(
                 "Footstep bootstrap must mix flat with stairs of at most 4 cm"
             )

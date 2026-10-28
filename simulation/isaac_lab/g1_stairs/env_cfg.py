@@ -1435,6 +1435,9 @@ class FootstepEnvCfg(StairEnvCfg):
 
     rewards: FootstepRewardsCfg = FootstepRewardsCfg()
     flat_ground_footsteps: bool = False
+    # Rolling gait clock for flat tiles (footstep_clock.validate_clock_cfg);
+    # set from the experiment YAML by training and replay. None = off.
+    footstep_clock: dict | None = None
 
     def __post_init__(self):
         super().__post_init__()

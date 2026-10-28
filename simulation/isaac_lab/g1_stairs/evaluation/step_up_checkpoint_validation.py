@@ -130,6 +130,15 @@ def apply_resolved_replay_config(env_cfg, path: Path) -> AppliedReplayConfig:
         resolved,
     )
 
+    from simulation.isaac_lab.g1_stairs.footstep_clock import validate_clock_cfg
+
+    # Same rolling gait clock as training (flat tiles), or off.
+    footstep_clock = validate_clock_cfg(resolved.get("footstep_clock"))
+    if footstep_clock is not None:
+        if not hasattr(env_cfg, "footstep_clock"):
+            raise RuntimeError("footstep_clock requires a footstep task")
+        env_cfg.footstep_clock = footstep_clock
+
     observations = resolved.get(
         "observations",
         {},

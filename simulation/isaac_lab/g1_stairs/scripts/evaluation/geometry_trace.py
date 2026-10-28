@@ -346,6 +346,26 @@ class GeometryTrace:
             }
 
 
+        rolling = getattr(env, "_g1_rolling_clock", None)
+        if rolling is not None:
+            from simulation.isaac_lab.g1_stairs.footstep_clock import clock_schedule
+
+            swing, assigned = clock_schedule(rolling.phase)
+            rows = getattr(env, "_g1_rolling_rows", None)
+            row["footstep_rolling_clock"] = {
+                "rolling_row": (bool(rows[0].item()) if rows is not None else None),
+                "phase": float(rolling.phase[0].item()),
+                "period_s": float(rolling.period_s[0].item()),
+                "episode_period_s": float(rolling.base_period_s[0].item()),
+                "walking": bool(rolling.active[0].item()),
+                "scheduled_swing_lr": self.values(swing[0]),
+                "assigned_foot": int(assigned[0].item()),
+                "window": int(rolling.window[0].item()),
+                "acquired": bool(rolling.acquired[0].item()),
+                "target_xyz": self.values(rolling.targets[0, 0, :3]),
+                "next_target_xyz": self.values(rolling.targets[0, 1, :3]),
+            }
+
         coordinator = getattr(env, "_g1_footstep_coordinator", None)
         if coordinator is not None:
             from simulation.isaac_lab.g1_stairs.footstep_isaac_adapter import (

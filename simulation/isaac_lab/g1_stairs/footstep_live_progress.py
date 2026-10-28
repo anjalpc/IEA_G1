@@ -15,6 +15,10 @@ from .footstep_gait_clock import (
     FootstepGaitClock, NOMINAL_DOUBLE_SUPPORT_S, NOMINAL_SINGLE_SUPPORT_S,
 )
 from .footstep_isaac_adapter import course_root_pose, course_tensors
+from .footstep_clock import (
+    RollingClockState, clock_schedule, effective_period, moving,
+    rolling_targets,
+)
 from .footstep_mixing import (
     course_exit_timeout, stair_escape, stair_pace, stair_steering,
     target_stalled,
@@ -61,6 +65,57 @@ def stair_course_escape(env):
     return stair_escape(xyz[:, :2], yaw, riser_height_per_env(env) > 0)
 
 
+def ensure_rolling_clock(env):
+    """Rolling clock state when ``env.cfg.footstep_clock`` is enabled."""
+    if getattr(env.cfg, "footstep_clock", None) is None:
+        return None
+    state = getattr(env, "_g1_rolling_clock", None)
+    if state is None:
+        state = RollingClockState(env.num_envs, env.device)
+        state.reset(None, env.cfg.footstep_clock["period_s"])
+        env._g1_rolling_clock = state
+    return state
+
+
+def apply_rolling_clock(env, state, *, centre, targets, feet, valid, resets):
+    """Flat tiles under the clock: assign the swing foot its target.
+
+    A new target is placed from the stance foot whenever the clock hands
+    the swing to the other foot. Returns (rows, walking, swing_schedule);
+    targets/feet/valid are updated in place for those rows.
+    """
+    rows = riser_height_per_env(env) <= 0
+    command = env.command_manager.get_command("base_velocity")
+    walking = moving(command) & rows & ~resets
+    state.period_s = effective_period(
+        state.base_period_s, command[:, 0], env.cfg.footstep_clock["max_stride_m"]
+    )
+    schedule, assigned = clock_schedule(state.phase)
+    # New target when the clock hands the swing to the other foot, and when
+    # walking resumes after standing (the held target would be stale).
+    new_window = rows & ((assigned != state.assigned) | (walking & ~state.active))
+    if bool(new_window.any()):
+        index = torch.arange(env.num_envs, device=env.device)
+        _, yaw = course_root_pose(env)
+        fresh, fresh_feet = rolling_targets(
+            centre[index, 1 - assigned, :2], assigned, yaw,
+            command[:, 0] * state.period_s / 2,
+            command[:, 1] * state.period_s / 2,
+            NOMINAL_FOOT_SEPARATION_M,
+        )
+        state.targets[new_window] = fresh[new_window]
+        state.feet[new_window] = fresh_feet[new_window]
+        state.window[new_window] += 1
+        state.acquired[new_window] = False
+        state.assigned[new_window] = assigned[new_window]
+    state.active = walking
+    targets[rows] = state.targets[rows]
+    feet[rows] = state.feet[rows]
+    valid[rows, 0] = walking[rows] & ~state.acquired[rows]
+    valid[rows, 1] = walking[rows]
+    return rows, walking, schedule
+
+
 def reset_coordinator(env, env_ids):
     """Called after existing reset events; reset both runtime and clock."""
     if getattr(env, '_g1_footstep_coordinator', None) is not None:
@@ -93,6 +148,20 @@ def audit_after_step(env):
     force_z = sensor.data.net_forces_w[:, sensor_ids, 2]
     supported = force_z >= 30.0
     cfg = stair_cfg(env)
+    # Flat tiles under the gait clock get a target on every step. The
+    # target id is the clock window, so progress resets per target.
+    clock_state = ensure_rolling_clock(env)
+    rolling_rows = None
+    if clock_state is not None:
+        resets_now = (env.termination_manager.terminated
+                      | env.termination_manager.time_outs)
+        targets, feet, valid = targets.clone(), feet.clone(), valid.clone()
+        rolling_rows, rolling_walking, clock_swing = apply_rolling_clock(
+            env, clock_state, centre=centre, targets=targets, feet=feet,
+            valid=valid, resets=resets_now,
+        )
+        coordinator.runtime.target_index[rolling_rows] = clock_state.window[rolling_rows]
+    env._g1_rolling_rows = rolling_rows
     if flat:
         qualified = qualified_flat_mask(
             sole_centre=centre, sole_bounds=bounds,
@@ -121,6 +190,16 @@ def audit_after_step(env):
             half_width=float(cfg.size[1]) / 2,
             approach_steps=coordinator.runtime.approach_for(flat),
         )
+    if rolling_rows is not None:
+        rolling_qualified = qualified_flat_mask(
+            sole_centre=centre, sole_bounds=bounds,
+            vertical_force=force_z, targets=targets,
+            feet=feet, valid=valid,
+            half_width=float(cfg.size[1]) / 2,
+        )
+        qualified = torch.where(rolling_rows[:, None], rolling_qualified, qualified)
+        if not flat:
+            strict = torch.where(rolling_rows[:, None], rolling_qualified, strict)
     # Called after termination calculation and before reward/reset.
     # Exclude terminating environments from target acquisition.
     resets = env.termination_manager.terminated | env.termination_manager.time_outs
@@ -145,6 +224,20 @@ def audit_after_step(env):
     env._g1_footstep_stance_support = torch.where(
         resets, torch.zeros_like(_stance_score), _stance_score
     )
+    if rolling_rows is not None:
+        # Clock rewards come from the rolling clock (the phase the policy
+        # observed); standing rows request double stance and still feet.
+        # Rows outside the clock get none.
+        clock_swing_f = (clock_swing & rolling_walking[:, None]).to(force_z.dtype)
+        clock_stance, clock_motion = clock_contact_scores(
+            force_z, centre, sole_velocity, targets, feet, valid,
+            clock_swing_f, 1.0 - clock_swing_f,
+        )
+        keep = rolling_rows & ~resets
+        env._g1_footstep_stance_support = torch.where(
+            keep, clock_stance, torch.zeros_like(clock_stance))
+        env._g1_footstep_directed_swing = torch.where(
+            keep, clock_motion, torch.zeros_like(clock_motion))
     # Pre-transition assigned foothold; reward only new best distance.
     from .footstep_rewards import new_target_progress
 
@@ -306,6 +399,11 @@ def audit_after_step(env):
     }
     env._g1_footstep_best_distance[advanced] = float("inf")
     env._g1_footstep_last_advanced = advanced
+    if rolling_rows is not None:
+        # One acquisition per clock window; the id stays the window.
+        clock_state.acquired |= advanced & rolling_rows
+        coordinator.runtime.target_index[rolling_rows] = clock_state.window[rolling_rows]
+        clock_state.advance(float(env.step_dt), rolling_walking)
     # Stall terminations this step (same condition the termination term saw:
     # the timer is only advanced below).
     env._g1_footstep_stall_event = (
@@ -352,6 +450,10 @@ def stop_command_after_plan(env, runtime, flat_ground, resets):
     observe the resampled value before it is zeroed again.
     """
     done = (runtime.target_index >= runtime.plan_length(flat_ground)) & ~resets
+    rolling = getattr(env, "_g1_rolling_rows", None)
+    if rolling is not None:
+        # Clock-driven flat tiles never complete: they follow the joystick.
+        done = done & ~rolling
     if bool(done.any()):
         command = env.command_manager.get_command("base_velocity")
         command[done] = 0.0
