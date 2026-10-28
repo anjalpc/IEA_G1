@@ -35,7 +35,7 @@ Usage:
   simctl runs
   simctl use <run_id>
   simctl tensorboard {start|status|stop}
-  simctl video <checkpoint>
+  simctl video <checkpoint> [--height <m>] [--seed <n>] [--trace-only]
   simctl baseline [config.yaml]
   simctl evaluate <checkpoint>
   simctl help
@@ -858,22 +858,48 @@ resolve_train_dir() {
 }
 
 cmd_video() {
-    if [ $# -ne 1 ] && [ $# -ne 3 ]; then
-        echo "Usage: simctl video <checkpoint> [--height <m>]"
+    local VIDEO_USAGE="Usage: simctl video <checkpoint> [--height <m>] [--seed <n>] [--trace-only]"
+    if [ $# -lt 1 ]; then
+        echo "$VIDEO_USAGE"
         exit 1
     fi
 
     CHECKPOINT="$1"
+    shift
     HEIGHT=""
+    SEED=42
+    SEED_SUFFIX=""
+    TRACE_MODE="--trace"
 
-    if [ $# -eq 3 ]; then
-        if [ "$2" != "--height" ]; then
-            echo "Usage: simctl video <checkpoint> [--height <m>]"
-            exit 1
-        fi
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --height)
+                [ $# -ge 2 ] || { echo "$VIDEO_USAGE"; exit 1; }
+                HEIGHT="$2"
+                shift 2
+                ;;
+            --seed)
+                if [ $# -lt 2 ] || ! [[ "$2" =~ ^[0-9]+$ ]]; then
+                    echo "Seed must be a non-negative integer"
+                    exit 1
+                fi
+                SEED="$2"
+                # Seeded runs get their own output folder.
+                SEED_SUFFIX="_seed${SEED}"
+                shift 2
+                ;;
+            --trace-only)
+                TRACE_MODE="--trace-only"
+                shift
+                ;;
+            *)
+                echo "$VIDEO_USAGE"
+                exit 1
+                ;;
+        esac
+    done
 
-        HEIGHT="$3"
-
+    if [ -n "$HEIGHT" ]; then
         if ! awk -v h="$HEIGHT" 'BEGIN {
             exit !(h ~ /^([0-9]+([.][0-9]*)?|[.][0-9]+)$/ &&
                    h >= 0.0 && h <= 0.20)
@@ -911,7 +937,7 @@ cmd_video() {
         HEIGHT_OPTION="--riser_height_override ${HEIGHT}"
     fi
 
-    OUTPUT_DIR="/workspace/IEA_G1/experiments/g1_stairs/outputs/videos/${RUN_ID}/model_${CHECKPOINT}${HEIGHT_SUFFIX}_side"
+    OUTPUT_DIR="/workspace/IEA_G1/experiments/g1_stairs/outputs/videos/${RUN_ID}/model_${CHECKPOINT}${HEIGHT_SUFFIX}${SEED_SUFFIX}_side"
 
     PROJECT_COMMIT="$(git rev-parse HEAD)"
     ISAACLAB_COMMIT="3c6e67bb5c7ada942a6d1884ab69338f57596f77"
@@ -955,6 +981,8 @@ PYTASK
     echo "Run:        $RUN_ID"
     echo "Checkpoint: model_${CHECKPOINT}.pt"
     echo "View:       side"
+    echo "Seed:       $SEED"
+    echo "Mode:       ${TRACE_MODE#--}"
     if [ -n "$HEIGHT" ]; then
         echo "Height:     $HEIGHT m"
     fi
@@ -969,11 +997,11 @@ cd /workspace/IEA_G1
 /workspace/isaaclab/isaaclab.sh -p \
   simulation/isaac_lab/g1_stairs/scripts/visualization/record_view.py \
   --task ${VIDEO_TASK} \
-  --trace \
+  ${TRACE_MODE} \
   --view side \
   --output_dir '${OUTPUT_DIR}' \
   --video_length 600 \
-  --seed 42 \
+  --seed ${SEED} \
   --num_envs 1 \
   --checkpoint '${CONTAINER_MODEL}' \
   --resolved_config '${CONTAINER_RESOLVED_CONFIG}' \
@@ -992,7 +1020,14 @@ cd /workspace/IEA_G1
         find "$HOST_OUTPUT" -type f -name '*.mp4' -print -quit 2>/dev/null || true
     )"
 
-    if [ -z "$VIDEO_FILE" ]; then
+    if [ "$TRACE_MODE" = "--trace-only" ]; then
+        VIDEO_FILE="(trace only, no video)"
+        if [ ! -s "${HOST_OUTPUT}/trace.jsonl" ]; then
+            echo "ERROR: trace-only run produced no trace:" >&2
+            echo "  ${HOST_OUTPUT}/trace.jsonl" >&2
+            exit 1
+        fi
+    elif [ -z "$VIDEO_FILE" ]; then
         echo "ERROR: video command exited without producing an MP4:" >&2
         echo "  $HOST_OUTPUT" >&2
         exit 1
@@ -1021,6 +1056,8 @@ PY
     echo
     echo "Video output:"
     echo "  $VIDEO_FILE"
+    echo "Trace:"
+    echo "  ${HOST_OUTPUT}/trace.jsonl"
 }
 
 
