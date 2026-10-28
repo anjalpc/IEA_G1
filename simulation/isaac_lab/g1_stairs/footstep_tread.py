@@ -9,13 +9,17 @@ import torch
 def qualified_tread_mask(*, sole_bounds, vertical_force, targets, feet, valid,
                          first_riser_x, tread_depth, riser_height, step_count,
                          half_width, margin_m=0.005, height_tolerance_m=0.01,
-                         support_force_n=30.0):
+                         support_force_n=30.0, approach_steps=0):
     """Return [N,2] valid full-sole support on CURRENT target's level/tread.
 
     Target XYZ denotes a planned sole centre. The active stair level comes from
     the current target's height; platform targets are checked against the
-    platform surface. Only the assigned foot may pass.
+    platform surface. Only the assigned foot may pass. Approach targets are
+    level-0 ground cells of one tread depth before the first riser, checked
+    exactly like treads.
     """
+    if approach_steps < 0:
+        raise ValueError('approach_steps must be non-negative')
     n = sole_bounds.shape[0]
     if sole_bounds.shape != (n, 2, 6) or vertical_force.shape != (n, 2):
         raise ValueError('invalid sole/contact shapes')
@@ -33,8 +37,9 @@ def qualified_tread_mask(*, sole_bounds, vertical_force, targets, feet, valid,
     # Both have the same upper-platform height but different tread intervals.
     index_float = ((targets[:, 0, 0] - first_riser_x) / tread_depth - 0.5)
     index = torch.round(index_float).long()
-    good_index = ((index_float - index.to(index_float.dtype)).abs() < 1e-3) & (index >= 0) & (index < step_count + 2)
-    level = (index + 1).clamp(1, step_count)
+    good_index = (((index_float - index.to(index_float.dtype)).abs() < 1e-3)
+                  & (index >= -approach_steps) & (index < step_count + 2))
+    level = torch.where(index < 0, torch.zeros_like(index), (index + 1).clamp(1, step_count))
     plausible_height = ((target_z - level.to(target_z.dtype) * riser_height).abs() <= height_tolerance_m)
     good_level = good_index & plausible_height
     start = first_riser_x + index.to(target_z.dtype) * tread_depth

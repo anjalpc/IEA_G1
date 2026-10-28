@@ -42,13 +42,11 @@ reward_experiment:
   strict_runtime_set: true
   rewards:
     stage_plan:
-      # Same terms and weights as footstep_bootstrap04. On flat ground the
+      # Same terms and weights as footstep_bootstrap04 (no clock terms). On flat ground the
       # clearance term is zero by construction (footstep_live_progress).
       footstep_flat_bootstrap:
         footstep_acquisition: 2.0
         footstep_target_progress: 0.5
-        clock_swing_motion: 0.5
-        clock_stance_support: 0.5
         upright: -5.0
         action_rate: -0.05
         dof_pos_limits: -5.0

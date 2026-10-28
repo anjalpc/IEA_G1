@@ -44,20 +44,20 @@ reward_experiment:
     stage_plan:
       # Units after dt cancellation: acquisition/failure per event,
       # progress per 0.10 m new-best distance, clearance <=1 per target.
-      # Clock terms are per-second rates (~1.0/s when gait-consistent).
-      # Per 18 s episode, 4 cm, 5 targets (estimate, audit before training):
-      #   follow plan ~9 clock + 10 acq + ~15 progress + ~5 clearance
-      #   march in place ~9; stand still mid-plan ~2.6; stand after plan ~0.5/s
+      # No clock terms: the plan says WHERE, the policy chooses WHEN.
+      # Plan: 2 ground approach targets + 3 treads + 2 platform = 7 targets.
+      # Full plan estimate (audit before training): 14 acq + ~13 progress
+      #   + ~3 clearance. After the plan the command is zeroed (stand).
       footstep_bootstrap04:
         footstep_acquisition: 2.0
         footstep_target_progress: 0.5
-        clock_swing_motion: 0.5
-        clock_stance_support: 0.5
         upright: -5.0
         action_rate: -0.05
         dof_pos_limits: -5.0
         feet_slide: -0.2
         footstep_clearance_progress: 1.0
         footstep_failure_termination: -5.0
+# Blocks simctl train until the 4 cm prior baseline is reviewed.
+# simctl baseline passes --allow-blocked (no PPO updates).
 launch_gates:
-  allow_launch: true
+  allow_launch: false

@@ -318,12 +318,13 @@ class GeometryTrace:
         coordinator = getattr(env, "_g1_footstep_coordinator", None)
         if coordinator is not None:
             from simulation.isaac_lab.g1_stairs.footstep_isaac_adapter import course_tensors
+            from simulation.isaac_lab.g1_stairs.footstep_tensor import NOMINAL_FOOT_SEPARATION_M
 
             runtime = coordinator.runtime
             flat = bool(getattr(env.cfg, "flat_ground_footsteps", False))
             course = course_tensors(
                 env,
-                foot_separation_m=0.16,
+                foot_separation_m=NOMINAL_FOOT_SEPARATION_M,
                 flat_ground=flat,
             )
             targets, feet, valid = runtime.targets(**course, flat_ground=flat)
@@ -350,11 +351,12 @@ class GeometryTrace:
             from simulation.isaac_lab.g1_stairs.footstep_isaac_adapter import (
                 course_tensors,
             )
+            from simulation.isaac_lab.g1_stairs.footstep_tensor import NOMINAL_FOOT_SEPARATION_M
 
             flat = bool(getattr(env.cfg, "flat_ground_footsteps", False))
             course = course_tensors(
                 env,
-                foot_separation_m=0.16,
+                foot_separation_m=NOMINAL_FOOT_SEPARATION_M,
                 flat_ground=flat,
             )
             targets, feet, valid = coordinator.runtime.targets(**course, flat_ground=flat)

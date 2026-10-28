@@ -1,0 +1,129 @@
+"""Approach targets before the first riser, plan length, and post-plan stop."""
+import unittest
+from types import SimpleNamespace as NS
+
+import torch
+
+from simulation.isaac_lab.g1_stairs.footstep_tensor import (
+    NOMINAL_APPROACH_STEPS, NOMINAL_FOOT_SEPARATION_M, planned_target_batch,
+)
+from simulation.isaac_lab.g1_stairs.footstep_tread import qualified_tread_mask
+from simulation.isaac_lab.g1_stairs.footstep_runtime import FootstepRuntime
+from simulation.isaac_lab.g1_stairs.footstep_live_progress import stop_command_after_plan
+
+
+def course(n=1):
+    return dict(first_riser_x=torch.ones(n), tread_depth=torch.full((n,), .25),
+                riser_height=torch.full((n,), .2), centre_y=torch.zeros(n),
+                foot_separation=torch.full((n,), NOMINAL_FOOT_SEPARATION_M))
+
+
+def plan(index, approach=2, first_foot=0):
+    return planned_target_batch(**course(), step_count=3,
+                                first_foot=torch.tensor([first_foot]),
+                                target_index=torch.tensor([index]),
+                                approach_steps=approach)
+
+
+class ApproachPlanTests(unittest.TestCase):
+    def test_constants(self):
+        self.assertEqual(NOMINAL_APPROACH_STEPS, 2)
+        self.assertAlmostEqual(NOMINAL_FOOT_SEPARATION_M, 0.235)
+
+    def test_full_sequence_ground_then_treads_then_platform(self):
+        xs, zs, feet = [], [], []
+        for i in range(7):
+            t, f, v = plan(i)
+            self.assertTrue(bool(v[0, 0]))
+            xs.append(round(t[0, 0, 0].item(), 4))
+            zs.append(round(t[0, 0, 2].item(), 4))
+            feet.append(int(f[0, 0]))
+        self.assertEqual(xs, [0.625, 0.875, 1.125, 1.375, 1.625, 1.875, 2.125])
+        self.assertEqual(zs, [0.0, 0.0, 0.2, 0.4, 0.6, 0.6, 0.6])
+        # Lead foot on approach 0 lands on tread 1 two steps later; strict alternation.
+        self.assertEqual(feet, [0, 1, 0, 1, 0, 1, 0])
+        _, _, v = plan(7)
+        self.assertFalse(bool(v[0, 0]))
+
+    def test_lateral_targets_use_prior_stance_width(self):
+        t, _, _ = plan(0)
+        self.assertAlmostEqual(t[0, 0, 1].item(), NOMINAL_FOOT_SEPARATION_M / 2, places=6)
+        self.assertAlmostEqual(t[0, 1, 1].item(), -NOMINAL_FOOT_SEPARATION_M / 2, places=6)
+
+    def test_zero_approach_keeps_original_stair_plan(self):
+        t, f, _ = plan(0, approach=0)
+        self.assertAlmostEqual(t[0, 0, 0].item(), 1.125)
+        self.assertAlmostEqual(t[0, 0, 2].item(), 0.2, places=6)
+
+    def test_approach_is_stairs_only(self):
+        with self.assertRaises(ValueError):
+            planned_target_batch(**course(), step_count=3, first_foot=torch.tensor([0]),
+                                 target_index=torch.tensor([0]), flat_ground=True,
+                                 approach_steps=2)
+
+
+class ApproachQualificationTests(unittest.TestCase):
+    def test_ground_cell_before_riser_qualifies_assigned_foot(self):
+        # Approach target 1 (x=0.875) is right foot: ground cell [0.75, 1.0].
+        targets, feet, _ = plan(1)
+        self.assertEqual(int(feet[0, 0]), 1)
+        bounds = torch.tensor([[[0., .1, .06, .17, 0., 0.],
+                                [0.78, 0.96, -.17, -.06, 0., 0.]]])
+        m = qualified_tread_mask(
+            sole_bounds=bounds, vertical_force=torch.tensor([[110., 110.]]),
+            targets=targets, feet=feet, valid=torch.ones((1, 2), dtype=torch.bool),
+            first_riser_x=torch.ones(1), tread_depth=torch.full((1,), .25),
+            riser_height=torch.full((1,), .2), step_count=3, half_width=.6,
+            approach_steps=2)
+        self.assertEqual(m.tolist(), [[False, True]])
+
+    def test_ground_cell_touching_riser_rejected(self):
+        targets, feet, _ = plan(1)
+        bounds = torch.tensor([[[0., .1, .06, .17, 0., 0.],
+                                [0.83, 0.999, -.17, -.06, 0., 0.]]])
+        m = qualified_tread_mask(
+            sole_bounds=bounds, vertical_force=torch.tensor([[110., 110.]]),
+            targets=targets, feet=feet, valid=torch.ones((1, 2), dtype=torch.bool),
+            first_riser_x=torch.ones(1), tread_depth=torch.full((1,), .25),
+            riser_height=torch.full((1,), .2), step_count=3, half_width=.6,
+            approach_steps=2)
+        self.assertEqual(m.tolist(), [[False, False]])
+
+    def test_ground_target_rejected_when_approach_disabled(self):
+        targets, feet, _ = plan(1)
+        bounds = torch.tensor([[[0., .1, .06, .17, 0., 0.],
+                                [0.78, 0.96, -.17, -.06, 0., 0.]]])
+        m = qualified_tread_mask(
+            sole_bounds=bounds, vertical_force=torch.tensor([[110., 110.]]),
+            targets=targets, feet=feet, valid=torch.ones((1, 2), dtype=torch.bool),
+            first_riser_x=torch.ones(1), tread_depth=torch.full((1,), .25),
+            riser_height=torch.full((1,), .2), step_count=3, half_width=.6,
+            approach_steps=0)
+        self.assertEqual(m.tolist(), [[False, False]])
+
+
+class PlanLengthAndStopTests(unittest.TestCase):
+    def runtime(self):
+        return FootstepRuntime(num_envs=3, device='cpu', step_count=3,
+                               first_foot=torch.zeros(3, dtype=torch.long),
+                               approach_steps=2)
+
+    def test_plan_length_stairs_and_flat(self):
+        r = self.runtime()
+        self.assertEqual(r.plan_length(False), 7)
+        self.assertEqual(r.plan_length(True), 5)
+
+    def test_command_zeroed_only_for_completed_non_resetting_envs(self):
+        r = self.runtime()
+        r.target_index[:] = torch.tensor([7, 6, 7])
+        command = torch.full((3, 3), 0.35)
+        env = NS(command_manager=NS(get_command=lambda name: command))
+        done = stop_command_after_plan(env, r, False, torch.tensor([False, False, True]))
+        self.assertEqual(done.tolist(), [True, False, False])
+        self.assertEqual(command[0].tolist(), [0., 0., 0.])
+        self.assertAlmostEqual(command[1, 0].item(), 0.35, places=6)
+        self.assertAlmostEqual(command[2, 0].item(), 0.35, places=6)
+
+
+if __name__ == "__main__":
+    unittest.main()

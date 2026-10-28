@@ -8,42 +8,27 @@ from simulation.isaac_lab.g1_stairs import footstep_phase_observation as phase
 
 class PhaseBindingTests(TestCase):
     def build(self):
-        coord = NS(last_step=3, runtime=NS())
-        coord.clock = NS(features=lambda **kwargs: (
-            torch.tensor([[0., 1.], [1., 0.]]), None, None))
-        coord.runtime.targets = lambda **kwargs: (
-            None, torch.tensor([[0, 1], [1, 0]]),
-            torch.ones((2, 2), dtype=torch.bool))
-        return NS(num_envs=2, common_step_counter=3), coord
+        coord = NS(runtime=NS())
+        env = NS(num_envs=2, cfg=NS(flat_ground_footsteps=False))
+        return env, coord
 
-    def test_width_and_order_without_duplicate_update(self):
+    def test_width_targets_then_zero_timing(self):
         env, coord = self.build()
+        targets = torch.arange(28, dtype=torch.float32).reshape(2, 14)
         with (patch.object(phase, 'ensure_coordinator', return_value=coord),
-              patch.object(phase, 'audit_after_step') as audit,
-              patch.object(phase, 'target_observation', return_value=torch.ones((2,14))),
-              patch.object(phase, 'course_tensors', return_value={})):
+              patch.object(phase, 'target_observation', return_value=targets) as obs):
             a = phase.planned_footsteps_with_phase(env)
-            self.assertEqual(a.shape, (2,16))
-            self.assertEqual(a[0,-2:].tolist(), [0.,1.])
-            audit.assert_not_called()
-
-    def test_update_before_observation_on_new_policy_step(self):
-        env, coord = self.build()
-        coord.last_step = 2
-        order = []
-        with (patch.object(phase, 'ensure_coordinator', return_value=coord),
-              patch.object(phase, 'audit_after_step', side_effect=lambda e: order.append('contact')),
-              patch.object(phase, 'target_observation', side_effect=lambda *a, **k: (
-                  order.append('read') or torch.ones((2,14)))),
-              patch.object(phase, 'course_tensors', return_value={})):
-            phase.planned_footsteps_with_phase(env)
-        self.assertEqual(order, ['contact','read'])
+        self.assertEqual(tuple(a.shape), (2, 16))
+        self.assertTrue(torch.equal(a[:, :14], targets))
+        # Timing is policy-chosen: former clock channels carry no signal.
+        self.assertEqual(a[:, 14:].abs().sum().item(), 0.0)
+        self.assertEqual(obs.call_args.kwargs['foot_separation_m'], 0.235)
 
     def test_reset_calls_coordinator_reset(self):
         env, coord = self.build()
         selected = torch.tensor([1])
-        calls=[]
-        coord.reset=lambda ids: calls.append(ids)
+        calls = []
+        coord.reset = lambda ids: calls.append(ids)
         with patch.object(phase, 'ensure_coordinator', return_value=coord):
             phase.reset_footsteps_with_phase(env, selected)
         self.assertIs(calls[0], selected)

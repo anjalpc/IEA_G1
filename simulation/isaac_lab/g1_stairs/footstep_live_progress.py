@@ -11,6 +11,7 @@ from .footstep_gait_clock import (
     FootstepGaitClock, NOMINAL_DOUBLE_SUPPORT_S, NOMINAL_SINGLE_SUPPORT_S,
 )
 from .footstep_isaac_adapter import course_tensors
+from .footstep_tensor import NOMINAL_FOOT_SEPARATION_M
 from .footstep_tread import qualified_tread_mask, qualified_flat_mask
 from .contact_sensor_contract import FOOT_BODY_NAMES
 from .motion_reference import sole_state
@@ -41,7 +42,7 @@ def audit_after_step(env):
     coordinator = ensure_coordinator(env)
     flat = bool(getattr(env.cfg, "flat_ground_footsteps", False))
     course = course_tensors(
-        env, foot_separation_m=0.16, flat_ground=flat,
+        env, foot_separation_m=NOMINAL_FOOT_SEPARATION_M, flat_ground=flat,
     )
     targets, feet, valid = coordinator.runtime.targets(
         **course, flat_ground=flat,
@@ -77,6 +78,7 @@ def audit_after_step(env):
             tread_depth=course['tread_depth'],
             riser_height=course['riser_height'],
             half_width=float(cfg.size[1]) / 2,
+            approach_steps=coordinator.runtime.approach_for(flat),
         )
     # Called after termination calculation and before reward/reset.
     # Exclude terminating environments from target acquisition.
@@ -144,10 +146,11 @@ def audit_after_step(env):
     other_supported = supported[rows, other_foot]
     assigned_unloaded = ~supported[rows, target_foot]
 
-    riser_x = course["first_riser_x"] + (
-        coordinator.runtime.target_index.to(foot_front.dtype)
-        * course["tread_depth"]
-    )
+    plan_index = (
+        coordinator.runtime.target_index
+        - coordinator.runtime.approach_for(flat)
+    ).to(foot_front.dtype)
+    riser_x = course["first_riser_x"] + plan_index * course["tread_depth"]
     height_target = targets[:, 0, 2]
     approach_window = (
         (foot_front >= riser_x - 0.25)
@@ -234,4 +237,19 @@ def audit_after_step(env):
     }
     env._g1_footstep_best_distance[advanced] = float("inf")
     env._g1_footstep_last_advanced = advanced
+    stop_command_after_plan(env, coordinator.runtime, flat, resets)
     return advanced
+
+
+def stop_command_after_plan(env, runtime, flat_ground, resets):
+    """Plan complete: zero the velocity command so the prior stands still.
+
+    Replaces the removed clock stand mode. The command term may resample
+    on its own timer; this runs every policy step, so at most one step can
+    observe the resampled value before it is zeroed again.
+    """
+    done = (runtime.target_index >= runtime.plan_length(flat_ground)) & ~resets
+    if bool(done.any()):
+        command = env.command_manager.get_command("base_velocity")
+        command[done] = 0.0
+    return done

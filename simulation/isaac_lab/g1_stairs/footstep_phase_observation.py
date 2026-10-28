@@ -8,30 +8,25 @@ from __future__ import annotations
 import torch
 
 from .footstep_live_progress import ensure_coordinator
-from .footstep_isaac_adapter import target_observation, course_tensors
+from .footstep_isaac_adapter import target_observation
+from .footstep_tensor import NOMINAL_FOOT_SEPARATION_M
 
 
 def planned_footsteps_with_phase(env) -> torch.Tensor:
-    """[N,16] = next-two 14-D targets + assigned-foot 2-D gait clock.
+    """[N,16] = next-two 14-D targets + 2 timing inputs held at zero.
 
-    Observation evaluation never mutates planner or phase state.
+    Timing is chosen by the policy: the plan says WHERE, not WHEN. The two
+    former gait-clock channels stay in the layout (688-D actor, prior
+    transfer unchanged) but carry no signal. Never mutates planner state.
     """
     coord = ensure_coordinator(env)
     flat = bool(getattr(env.cfg, "flat_ground_footsteps", False))
     targets = target_observation(
-        env, coord.runtime, position_scale_m=1.0, foot_separation_m=0.16,
-        flat_ground=flat,
+        env, coord.runtime, position_scale_m=1.0,
+        foot_separation_m=NOMINAL_FOOT_SEPARATION_M, flat_ground=flat,
     )
-    course = course_tensors(
-        env, foot_separation_m=0.16, flat_ground=flat,
-    )
-    _poses, feet, valid = coord.runtime.targets(
-        **course, flat_ground=flat,
-    )
-    clock, _swing, _stance = coord.clock.features(
-        target_foot=feet[:, 0], valid=valid[:, 0]
-    )
-    result = torch.cat((targets, clock), dim=-1)
+    timing = torch.zeros((env.num_envs, 2), dtype=targets.dtype, device=targets.device)
+    result = torch.cat((targets, timing), dim=-1)
     if result.shape != (env.num_envs, 16) or not bool(torch.isfinite(result).all()):
         raise RuntimeError('invalid planned footsteps plus gait phase observation')
     return result

@@ -749,8 +749,6 @@ def main() -> None:
         required = {
             "footstep_acquisition",
             "footstep_target_progress",
-            "clock_swing_motion",
-            "clock_stance_support",
             "footstep_clearance_progress",
             "footstep_failure_termination",
             "upright",

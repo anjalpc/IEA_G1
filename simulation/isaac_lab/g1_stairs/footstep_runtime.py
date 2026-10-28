@@ -17,14 +17,19 @@ class FootstepRuntime:
     """Per-env alternating planned-footstep progress; no Isaac imports."""
 
     def __init__(self, *, num_envs: int, device: torch.device | str,
-                 step_count: int, first_foot: torch.Tensor):
+                 step_count: int, first_foot: torch.Tensor,
+                 approach_steps: int = 0):
         if num_envs < 1 or step_count < 1 or first_foot.shape != (num_envs,):
             raise ValueError("invalid environment count, step count or first-foot shape")
+        if approach_steps < 0:
+            raise ValueError("approach_steps must be non-negative")
         if first_foot.device != torch.device(device) or torch.any((first_foot != 0) & (first_foot != 1)):
             raise ValueError("first_foot must be 0=L / 1=R on runtime device")
         self.num_envs = num_envs
         self.device = torch.device(device)
         self.step_count = step_count
+        # Stair plans only; flat plans never use approach targets.
+        self.approach_steps = int(approach_steps)
         self.first_foot = first_foot.to(torch.long).clone()
         self.target_index = torch.zeros(num_envs, dtype=torch.long, device=self.device)
         self.was_supported = torch.zeros((num_envs, 2), dtype=torch.bool, device=self.device)
@@ -44,6 +49,13 @@ class FootstepRuntime:
         self.completed[ids] = 0
         self.attempted[ids] = 0
 
+    def approach_for(self, flat_ground: bool) -> int:
+        return 0 if flat_ground else self.approach_steps
+
+    def plan_length(self, flat_ground: bool) -> int:
+        """Total targets: approach (stairs only) + treads + two platform."""
+        return self.approach_for(flat_ground) + self.step_count + 2
+
     def targets(self, *, first_riser_x: torch.Tensor, tread_depth: torch.Tensor,
                 riser_height: torch.Tensor, centre_y: torch.Tensor,
                 foot_separation: torch.Tensor, flat_ground: bool = False):
@@ -53,6 +65,7 @@ class FootstepRuntime:
             first_foot=self.first_foot, target_index=self.target_index,
             centre_y=centre_y, foot_separation=foot_separation,
             flat_ground=flat_ground,
+            approach_steps=self.approach_for(flat_ground),
         )
 
     def observation(self, *, targets: torch.Tensor, feet: torch.Tensor,

@@ -11,6 +11,13 @@ import torch
 OBS_WIDTH = 22
 METRIC_CONTRACT = "footstep_target_v1"
 
+# Lateral distance between left and right sole centres. Measured from the
+# Unitree prior's own stance (flat baseline trace: y = +0.116 / -0.119 m).
+NOMINAL_FOOT_SEPARATION_M = 0.235
+# Ground targets before the first riser so the planned lead foot reaches
+# tread 1 (parity). They are level-0 cells one tread depth apart.
+NOMINAL_APPROACH_STEPS = 2
+
 
 
 def speed_conditioned_step_length(
@@ -42,22 +49,30 @@ def planned_target_batch(*, first_riser_x: torch.Tensor,
                          step_count: int, first_foot: torch.Tensor,
                          target_index: torch.Tensor, centre_y: torch.Tensor,
                          foot_separation: torch.Tensor,
-                         flat_ground: bool = False) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+                         flat_ground: bool = False,
+                         approach_steps: int = 0) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Return [N,2,4] world-course target poses, [N,2] assigned feet,
     and [N,2] validity. First-foot and target index may differ by env.
+
+    Stairs only: ``approach_steps`` ground targets (level 0) precede tread 1,
+    centred one tread depth apart before the first riser. Runtime target
+    index 0 is the first approach target; first_foot is assigned to it.
     """
     if step_count <= 0:
         raise ValueError("step_count must be positive")
+    if approach_steps < 0 or (flat_ground and approach_steps):
+        raise ValueError("approach_steps must be >= 0 and stairs-only")
     n = target_index.shape[0]
     if any(x.shape != (n,) for x in (first_riser_x, tread_depth, riser_height,
                                     first_foot, centre_y, foot_separation)):
         raise ValueError("all inputs must be per-environment vectors")
     if torch.any(tread_depth <= 0) or (not flat_ground and torch.any(riser_height <= 0)):
         raise ValueError("course dimensions must be positive")
-    idx = target_index[:, None] + torch.arange(2, device=target_index.device)
-    valid = (idx >= 0) & (idx < step_count + 2)
-    foot = (first_foot[:, None] + idx) % 2
-    level = (idx + 1).clamp(1, step_count)
+    runtime_idx = target_index[:, None] + torch.arange(2, device=target_index.device)
+    idx = runtime_idx - approach_steps
+    valid = (runtime_idx >= 0) & (idx < step_count + 2)
+    foot = (first_foot[:, None] + runtime_idx) % 2
+    level = torch.where(idx < 0, torch.zeros_like(idx), (idx + 1).clamp(1, step_count))
     if flat_ground:
         x = first_riser_x[:, None] + (idx + 1) * tread_depth[:, None]
         z = torch.zeros_like(x)
