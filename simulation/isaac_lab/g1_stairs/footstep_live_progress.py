@@ -16,7 +16,8 @@ from .footstep_gait_clock import (
 )
 from .footstep_isaac_adapter import course_root_pose, course_tensors
 from .footstep_mixing import (
-    course_exit_timeout, stair_escape, stair_steering, target_stalled,
+    course_exit_timeout, stair_escape, stair_pace, stair_steering,
+    target_stalled,
 )
 from .footstep_tensor import NOMINAL_FOOT_SEPARATION_M
 from .footstep_tread import qualified_tread_mask, qualified_flat_mask
@@ -152,6 +153,8 @@ def audit_after_step(env):
     distance = torch.linalg.vector_norm(
         centre[rows, assigned] - targets[:, 0, :3], dim=-1
     )
+    # Forward gap of the assigned foot to its target (stair pace command).
+    pace_gap_x = targets[:, 0, 0] - centre[rows, assigned, 0]
 
     previous_best = getattr(env, "_g1_footstep_best_distance", None)
     previous_index = getattr(env, "_g1_footstep_progress_target_index", None)
@@ -296,14 +299,15 @@ def audit_after_step(env):
     since = since + float(env.step_dt)
     since[advanced] = 0.0
     env._g1_footstep_since_advance = since
-    steer_stair_command(env, coordinator.runtime, flat, resets)
+    steer_stair_command(env, coordinator.runtime, flat, resets, pace_gap_x)
     stop_command_after_plan(env, coordinator.runtime, flat, resets)
     return advanced
 
 
-def steer_stair_command(env, runtime, flat_ground, resets):
-    """Stair envs with an active plan: lateral and yaw command steer back to
-    the centre line facing the stairs (see footstep_mixing.stair_steering).
+def steer_stair_command(env, runtime, flat_ground, resets, gap_x):
+    """Stair envs with an active plan: forward command paced by the plan
+    (footstep_mixing.stair_pace), lateral and yaw command steer back to the
+    centre line facing the stairs (footstep_mixing.stair_steering).
 
     Runs every policy step in training and evaluation (same hook), so a
     command resample is overwritten within one step. Flat tiles keep their
@@ -317,6 +321,7 @@ def steer_stair_command(env, runtime, flat_ground, resets):
     if bool(active.any()):
         xyz, yaw = course_root_pose(env)
         command = env.command_manager.get_command("base_velocity")
+        command[active, 0] = stair_pace(gap_x[active], command[active, 0])
         command[active, 1:3] = stair_steering(xyz[active, 1], yaw[active])
     return active
 

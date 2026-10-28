@@ -149,3 +149,22 @@ class StairSteeringTests(unittest.TestCase):
         self.assertAlmostEqual(out[1, 1].item(), -0.2, places=6)   # clipped
         self.assertAlmostEqual(out[2, 0].item(), 0.2, places=6)    # clipped
         self.assertAlmostEqual(out[2, 1].item(), 0.05, places=6)
+
+
+class StairPaceTests(unittest.TestCase):
+    def test_pace_follows_gap_within_limits(self):
+        from simulation.isaac_lab.g1_stairs import footstep_mixing as m
+        gap = torch.tensor([0.5, 0.0, 2.0])
+        vx = torch.tensor([0.35, 0.35, 0.35])
+        out = m.stair_pace(gap, vx)
+        # One-tread gap (0.5 m per foot) asks ~0.9 m/s; small gap the minimum.
+        self.assertAlmostEqual(out[0].item(), 0.35 + 0.1 * (min(0.5 / 0.55, 0.9) - 0.35), places=5)
+        self.assertAlmostEqual(out[1].item(), 0.35 + 0.1 * (0.2 - 0.35), places=5)
+        self.assertAlmostEqual(out[2].item(), 0.35 + 0.1 * (0.9 - 0.35), places=5)
+
+    def test_pace_converges_to_goal(self):
+        from simulation.isaac_lab.g1_stairs.footstep_mixing import stair_pace
+        vx = torch.tensor([0.2])
+        for _ in range(100):
+            vx = stair_pace(torch.tensor([0.33]), vx)
+        self.assertAlmostEqual(vx.item(), 0.6, places=3)

@@ -44,6 +44,18 @@ STAIR_MAX_YAW_RATE = 0.2      # rad/s
 STAIR_LATERAL_GAIN = 1.0      # m/s per m off the centre line
 STAIR_MAX_LATERAL_SPEED = 0.2  # m/s
 
+# Stair pace: the forward command follows the plan instead of a fixed speed.
+# Unitree's walking keeps its rhythm (each foot swings every ~0.52-0.58 s,
+# measured at 0.35 m/s) and lengthens its stride with speed, so the speed
+# that lets the next foot reach its target in one swing is gap / swing time.
+# At a fixed 0.35 m/s the stride is ~0.16 m and one-foot-per-tread targets
+# (0.5 m per foot) are never reached (model 450, 2 cm). Smoothed so the
+# command changes like a joystick, not in jumps.
+PACE_SWING_TIME_S = 0.55
+PACE_MIN_MPS = 0.2
+PACE_MAX_MPS = 0.9
+PACE_SMOOTHING = 0.1          # per policy step (~0.2 s time constant)
+
 
 def _range(value, name):
     if (not isinstance(value, (list, tuple)) or len(value) != 2
@@ -131,3 +143,12 @@ def stair_steering(root_y, root_yaw):
     wz = (-STAIR_YAW_GAIN * root_yaw).clamp(
         -STAIR_MAX_YAW_RATE, STAIR_MAX_YAW_RATE)
     return torch.stack((vy, wz), dim=-1)
+
+
+def stair_pace(gap_x, current_vx):
+    """[N] forward command moving toward the speed at which the assigned
+    foot covers its remaining forward gap to the target in one swing."""
+    if gap_x.shape != current_vx.shape:
+        raise ValueError("gap_x and current_vx must have the same shape")
+    goal = (gap_x / PACE_SWING_TIME_S).clamp(PACE_MIN_MPS, PACE_MAX_MPS)
+    return current_vx + PACE_SMOOTHING * (goal - current_vx)
