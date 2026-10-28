@@ -51,3 +51,5 @@ def reset_footsteps_with_phase(env, env_ids):
 
     if hasattr(env, "_g1_footstep_net_progress"):
         env._g1_footstep_net_progress[ids] = 0.0
+    if hasattr(env, "_g1_footstep_since_advance"):
+        env._g1_footstep_since_advance[ids] = 0.0

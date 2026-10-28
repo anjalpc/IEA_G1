@@ -1458,6 +1458,10 @@ class FootstepEnvCfg(StairEnvCfg):
         self.terminations.stair_course_escape = DoneTerm(
             func=footstep_live_progress.stair_course_escape,
         )
+        # Stair envs must keep advancing the plan (no inching/standing).
+        self.terminations.stair_target_stall = DoneTerm(
+            func=footstep_live_progress.stair_target_stall,
+        )
 
 
 @configclass

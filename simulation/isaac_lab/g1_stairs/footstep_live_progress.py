@@ -11,7 +11,7 @@ from .footstep_gait_clock import (
     FootstepGaitClock, NOMINAL_DOUBLE_SUPPORT_S, NOMINAL_SINGLE_SUPPORT_S,
 )
 from .footstep_isaac_adapter import course_root_pose, course_tensors
-from .footstep_mixing import course_exit_timeout, stair_escape
+from .footstep_mixing import course_exit_timeout, stair_escape, target_stalled
 from .footstep_tensor import NOMINAL_FOOT_SEPARATION_M
 from .footstep_tread import qualified_tread_mask, qualified_flat_mask
 from .contact_sensor_contract import FOOT_BODY_NAMES
@@ -36,6 +36,16 @@ def course_exit(env):
     """Time-out (not failure) when the root leaves the safe tile region."""
     xyz, yaw = course_root_pose(env)
     return course_exit_timeout(xyz[:, :2], yaw, riser_height_per_env(env) > 0)
+
+
+def stair_target_stall(env):
+    """Failure when a stair env makes no plan progress for too long."""
+    since = getattr(env, "_g1_footstep_since_advance", None)
+    if since is None:
+        return torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
+    runtime = ensure_coordinator(env).runtime
+    active = runtime.target_index < runtime.plan_length(False)
+    return target_stalled(since, active, riser_height_per_env(env) > 0)
 
 
 def stair_course_escape(env):
@@ -250,6 +260,12 @@ def audit_after_step(env):
     }
     env._g1_footstep_best_distance[advanced] = float("inf")
     env._g1_footstep_last_advanced = advanced
+    since = getattr(env, "_g1_footstep_since_advance", None)
+    if since is None:
+        since = torch.zeros(env.num_envs, device=env.device)
+    since = since + float(env.step_dt)
+    since[advanced] = 0.0
+    env._g1_footstep_since_advance = since
     stop_command_after_plan(env, coordinator.runtime, flat, resets)
     return advanced
 

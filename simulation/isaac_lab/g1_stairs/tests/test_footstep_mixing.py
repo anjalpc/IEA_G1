@@ -4,8 +4,8 @@ import unittest
 import torch
 
 from simulation.isaac_lab.g1_stairs.footstep_mixing import (
-    apply_stair_forward_commands, course_exit_timeout, outside_safe_region,
-    stair_escape, validate_terrain_split,
+    apply_stair_forward_commands, course_exit_timeout, on_level_ground,
+    outside_safe_region, stair_escape, target_stalled, validate_terrain_split,
 )
 from simulation.isaac_lab.g1_stairs.footstep_tensor import planned_target_batch
 from simulation.isaac_lab.g1_stairs.footstep_tread import qualified_tread_mask
@@ -90,6 +90,26 @@ class StairEscapeTests(unittest.TestCase):
         stairs = torch.ones(1, dtype=torch.bool)
         self.assertTrue(bool(stair_escape(xy, yaw, stairs)[0]))
         self.assertFalse(bool(course_exit_timeout(xy, yaw, stairs)[0]))
+
+
+class TargetStallTests(unittest.TestCase):
+    def test_only_active_stair_plans_stall_after_limit(self):
+        since = torch.tensor([4.1, 4.1, 4.1, 3.9])
+        active = torch.tensor([True, False, True, True])
+        stairs = torch.tensor([True, True, False, True])
+        # env1: plan complete (standing); env2: flat; env3: under the limit.
+        self.assertEqual(target_stalled(since, active, stairs).tolist(),
+                         [True, False, False, False])
+
+
+class LevelGroundTests(unittest.TestCase):
+    def test_flat_tiles_and_stair_approach_only(self):
+        riser = torch.tensor([0.0, 0.04, 0.04, 0.04])
+        ankle_x = torch.tensor([[2.0, 2.0], [0.5, 0.8], [0.5, 0.9], [1.1, 1.0]])
+        first = torch.ones(4)
+        # env2: right toes at 1.025 cross the riser; env3: on the treads.
+        self.assertEqual(on_level_ground(riser, ankle_x, first).tolist(),
+                         [True, True, False, False])
 
 
 class NoPlanOnFlatRowsTests(unittest.TestCase):
