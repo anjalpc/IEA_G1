@@ -558,38 +558,122 @@ cmd_status() {
     fi
 
     if [ -f "$METRICS" ]; then
-        python3 - "$METRICS" <<'STATUS_PY'
+        python3 - "$METRICS" "${RUN_DIR}/resolved_config.yaml" "${RUN_DIR}/reward_components.csv" "$LOG" <<'STATUS_PY'
 import csv
 import math
+import re
 import sys
+from pathlib import Path
 
-with open(sys.argv[1], newline="") as stream:
-    rows = list(csv.DictReader(stream))
+metrics_path, resolved_path, rewards_path, log_path = (Path(a) for a in sys.argv[1:5])
+
+
+def read_csv(path):
+    if not path.is_file():
+        return []
+    with path.open(newline="") as stream:
+        return list(csv.DictReader(stream))
+
+
+def num(row, key):
+    try:
+        value = float(row.get(key, ""))
+    except (TypeError, ValueError):
+        return None
+    return value if math.isfinite(value) else None
+
+
+def hms(seconds):
+    seconds = int(max(seconds, 0))
+    return f"{seconds // 3600}h {seconds % 3600 // 60:02d}m {seconds % 60:02d}s"
+
+
+rows = read_csv(metrics_path)
+max_iterations = None
+if resolved_path.is_file():
+    try:
+        import yaml
+        resolved = yaml.safe_load(resolved_path.read_text(encoding="utf-8")) or {}
+        max_iterations = int(resolved["execution"]["maximum_iterations"])
+    except Exception:
+        max_iterations = None
 
 print()
-print("TRAINING / EXECUTION")
-
+print("PROGRESS")
 if rows:
-    row = rows[-1]
-    print("  Latest iteration:", row.get("iteration") or "NOT RECORDED")
-    print("  Recorded metric rows:", len(rows))
-
-    try:
-        reward = float(row.get("episode_return_mean", ""))
-        if math.isfinite(reward):
-            print(f"  PPO mean return: {reward:.4f} (learning signal only)")
-        else:
-            print("  PPO mean return: NOT RECORDED")
-    except (ValueError, TypeError):
-        print("  PPO mean return: NOT RECORDED")
+    last = rows[-1]
+    iteration = int(float(last.get("iteration") or 0))
+    wall = num(last, "wall_time_s")
+    done = iteration + 1
+    if max_iterations:
+        frac = min(done / max_iterations, 1.0)
+        bar = "#" * int(frac * 30) + "-" * (30 - int(frac * 30))
+        print(f"  Iteration:  {iteration} / {max_iterations - 1}  [{bar}] {100 * frac:5.1f}%")
+    else:
+        print(f"  Iteration:  {iteration} (maximum not found in resolved config)")
+    if wall is not None and done > 0:
+        per_iteration = wall / done
+        print(f"  Elapsed:    {hms(wall)}   ({per_iteration:.1f} s / iteration)")
+        if max_iterations:
+            print(f"  Remaining:  ~{hms(per_iteration * (max_iterations - done))}")
+    steps_per_s = num(last, "environment_steps_per_second")
+    if steps_per_s:
+        print(f"  Env steps/s: {steps_per_s:,.0f}")
 else:
-    print("  Training metrics: NOT RECORDED")
+    print("  Training metrics: NOT RECORDED yet")
+
+print()
+print("LEARNING SIGNAL (training only, not success)")
+if rows:
+    def trend(key, fmt):
+        now = num(rows[-1], key)
+        before = num(rows[max(len(rows) - 11, 0)], key)
+        if now is None:
+            return "NOT RECORDED"
+        text = format(now, fmt)
+        if before is not None and len(rows) > 1:
+            text += f"   (10 it ago: {format(before, fmt)})"
+        return text
+    print("  Mean return:        ", trend("episode_return_mean", ".3f"))
+    length = num(rows[-1], "episode_length_mean")
+    if length is not None:
+        print(f"  Mean episode length: {length:.0f} steps = {length * 0.02:.1f} s (max 18.0 s)")
+    print("  Fall rate (per step):", trend("fall_rate", ".5f"))
+
+reward_rows = read_csv(rewards_path)
+if reward_rows:
+    latest_it = max(int(float(r["iteration"])) for r in reward_rows)
+    past_it = max(latest_it - 10, min(int(float(r["iteration"])) for r in reward_rows))
+    def values(it):
+        return {r["name"]: float(r["weighted_value"]) for r in reward_rows
+                if int(float(r["iteration"])) == it and r.get("weighted_value") not in (None, "")}
+    now, past = values(latest_it), values(past_it)
+    print()
+    print(f"REWARD TERMS (weighted, as logged; iteration {latest_it} vs {past_it})")
+    for name in sorted(now, key=lambda n: -abs(now[n])):
+        before = past.get(name)
+        delta = "" if before is None else f"{now[name] - before:+10.4f}"
+        print(f"  {name:30s}{now[name]:10.4f} {delta}")
+
+if log_path.is_file():
+    pattern = re.compile(r"(Episode_(?:Reward|Termination)/[A-Za-z0-9_]+):\s+(-?[0-9.]+(?:e-?[0-9]+)?)")
+    found = {}
+    with log_path.open(errors="replace") as stream:
+        for line in stream:
+            match = pattern.search(line)
+            if match:
+                found[match.group(1)] = float(match.group(2))
+    terminations = {k: v for k, v in found.items() if k.startswith("Episode_Termination/")}
+    if terminations:
+        print()
+        print("EPISODE ENDINGS (latest Episode_Termination values from the log; compare over time)")
+        for key, value in sorted(terminations.items()):
+            print(f"  {key.split('/', 1)[1]:30s}{value:10.4f}")
 
 print()
 print("PLANNED-FOOTSTEP EVALUATION")
-print("  Status: NOT MEASURED")
-print("  No validated planned_footsteps_v1 report integration.")
-print("  Legacy success and progression counters excluded.")
+print("  Not measured during training. Use: simctl video <checkpoint> --height 0.04")
+print("  and footstep_gait_report.py on its trace.jsonl.")
 STATUS_PY
     fi
 
