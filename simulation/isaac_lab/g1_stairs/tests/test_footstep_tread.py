@@ -26,6 +26,21 @@ class TreadTests(unittest.TestCase):
         x=self.setup();x['vertical_force'][0,0]=0
         self.assertEqual(qualified_tread_mask(**x).tolist(),[[False,False]])
 
+    def test_centre_on_tread_passes_only_lenient_check(self):
+        # Tread 1 spans [1.0, 1.25]; sole [1.02, 1.20] would pass both,
+        # sole [0.98, 1.16] (heel over the riser edge, centre 1.07) only lenient.
+        x=self.setup();x['sole_bounds'][0,0,0:2]=torch.tensor([.98,1.16])
+        self.assertEqual(qualified_tread_mask(**x).tolist(),[[False,False]])
+        self.assertEqual(qualified_tread_mask(**x,full_sole=False).tolist(),[[True,False]])
+
+    def test_lenient_check_still_needs_correct_tread_level_and_load(self):
+        x=self.setup();x['sole_bounds'][0,0,0:2]=torch.tensor([1.27,1.45])
+        self.assertEqual(qualified_tread_mask(**x,full_sole=False).tolist(),[[False,False]])
+        x=self.setup();x['sole_bounds'][0,0,4:]=.05
+        self.assertEqual(qualified_tread_mask(**x,full_sole=False).tolist(),[[False,False]])
+        x=self.setup();x['vertical_force'][0,0]=0
+        self.assertEqual(qualified_tread_mask(**x,full_sole=False).tolist(),[[False,False]])
+
 
 class FlatLandingTests(unittest.TestCase):
     def inputs(self):

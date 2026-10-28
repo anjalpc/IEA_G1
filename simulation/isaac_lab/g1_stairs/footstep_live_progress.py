@@ -102,6 +102,17 @@ def audit_after_step(env):
             riser_height=course['riser_height'],
             half_width=float(cfg.size[1]) / 2,
             approach_steps=coordinator.runtime.approach_for(flat),
+            full_sole=False,
+        )
+        # Strict full-sole placement, recorded for evaluation only.
+        strict = qualified_tread_mask(
+            sole_bounds=bounds, vertical_force=force_z, targets=targets,
+            feet=feet, valid=valid, step_count=coordinator.runtime.step_count,
+            first_riser_x=course['first_riser_x'],
+            tread_depth=course['tread_depth'],
+            riser_height=course['riser_height'],
+            half_width=float(cfg.size[1]) / 2,
+            approach_steps=coordinator.runtime.approach_for(flat),
         )
     # Called after termination calculation and before reward/reset.
     # Exclude terminating environments from target acquisition.
@@ -239,7 +250,8 @@ def audit_after_step(env):
         step_id=int(env.common_step_counter), dt=float(env.step_dt),
         targets=targets, feet=feet, valid=valid, sole_xyz=centre,
         supported=supported, qualified_tread=qualified,
-        xy_tolerance=0.08,
+        # Stairs: anywhere on the tread along x (half tread depth).
+        xy_tolerance=0.08 if flat else 0.125,
         z_tolerance=0.025 if flat else 0.01,
     )
     env._g1_footstep_landing_audit = {
@@ -253,6 +265,7 @@ def audit_after_step(env):
         "support_before_lr": pre_supported,
         "support_primed_before": pre_primed,
         "qualified_geometry_lr": qualified.clone(),
+        "strict_full_sole_lr": (qualified if flat else strict).clone(),
         "foot_planar_speed_lr_mps": torch.linalg.vector_norm(
             sole_velocity[..., :2], dim=-1
         ),

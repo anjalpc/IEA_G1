@@ -9,8 +9,13 @@ import torch
 def qualified_tread_mask(*, sole_bounds, vertical_force, targets, feet, valid,
                          first_riser_x, tread_depth, riser_height, step_count,
                          half_width, margin_m=0.005, height_tolerance_m=0.01,
-                         support_force_n=30.0, approach_steps=0):
-    """Return [N,2] valid full-sole support on CURRENT target's level/tread.
+                         support_force_n=30.0, approach_steps=0, full_sole=True):
+    """Return [N,2] valid support on CURRENT target's level/tread.
+
+    full_sole=True: the whole sole lies inside the cell (strict, evaluation).
+    full_sole=False: the sole centre lies on the cell (training advancement;
+    a 25 cm window instead of ~6 cm, cf. the reference's 0.20 m radius).
+    Both require the sole flat on that level, loaded, and inside the course.
 
     Target XYZ denotes a planned sole centre. The active stair level comes from
     the current target's height; platform targets are checked against the
@@ -45,8 +50,13 @@ def qualified_tread_mask(*, sole_bounds, vertical_force, targets, feet, valid,
     start = first_riser_x + index.to(target_z.dtype) * tread_depth
     end = start + tread_depth
     x_min, x_max, y_min, y_max, z_min, z_max = sole_bounds.unbind(-1)
-    good = ((x_min >= (start[:, None] + margin_m)) &
-            (x_max <= (end[:, None] - margin_m)) &
+    if full_sole:
+        in_cell = ((x_min >= (start[:, None] + margin_m)) &
+                   (x_max <= (end[:, None] - margin_m)))
+    else:
+        centre_x = 0.5 * (x_min + x_max)
+        in_cell = (centre_x >= start[:, None]) & (centre_x <= end[:, None])
+    good = (in_cell &
             (y_min >= (-half_width + margin_m)) &
             (y_max <= (half_width - margin_m)) &
             ((z_min - target_z[:, None]).abs() <= height_tolerance_m) &

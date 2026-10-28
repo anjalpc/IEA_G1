@@ -32,8 +32,6 @@ STAIR_MAX_ABS_YAW_RAD = 1.0471975511965976
 # per-second reward (alive, partial velocity tracking) than climbing.
 # 4 s covers the first target (0.625 m) at the slowest 0.2 m/s command.
 TARGET_TIME_LIMIT_S = 4.0
-# Ankle-roll origin to sole front (sole sphere x 0.12 m + radius 0.005).
-ANKLE_TO_TOE_M = 0.125
 
 
 def _range(value, name):
@@ -101,13 +99,6 @@ def stair_escape(root_xy_local, root_yaw, on_stairs):
 def target_stalled(since_advance_s, plan_active, on_stairs, limit_s=TARGET_TIME_LIMIT_S):
     """[N] Stair env with an unfinished plan and no new target for limit_s."""
     return on_stairs & plan_active & (since_advance_s > limit_s)
-
-
-def on_level_ground(riser_height, ankle_x_local, first_riser_x):
-    """[N] Flat tile, or both feet still fully before the first riser."""
-    toes = ankle_x_local + ANKLE_TO_TOE_M
-    before_riser = (toes < first_riser_x[:, None]).all(dim=1)
-    return (riser_height <= 0) | before_riser
 
 
 def course_exit_timeout(root_xy_local, root_yaw, on_stairs):

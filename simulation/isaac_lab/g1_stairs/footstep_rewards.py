@@ -157,23 +157,18 @@ def cached_clearance_progress(env):
 
 
 def flat_feet_clearance(env, asset_cfg, target_height, std, tanh_mult):
-    """Unitree's foot_clearance_reward on level ground only.
+    """Unitree's foot_clearance_reward, flat tiles only.
 
-    It targets an absolute world height, valid on flat tiles and on the
-    stair approach while both feet are before the first riser (ground z=0).
-    Elsewhere 0; on treads lift comes from footstep clearance.
+    It targets an absolute world height. It must not depend on position
+    within a stair tile: it is ~1 whenever the feet are still or near the
+    target height, so paying it only before the riser would reward stopping
+    there. Stair envs get 0; their lift comes from footstep clearance.
     """
     from unitree_rl_lab.tasks.locomotion import mdp
-    from .footstep_mixing import on_level_ground
-    from .terrain_state import riser_height_per_env, stair_cfg
+    from .terrain_state import riser_height_per_env
 
     value = mdp.foot_clearance_reward(env, asset_cfg, target_height, std, tanh_mult)
-    asset = env.scene[asset_cfg.name]
-    ankle_x = (asset.data.body_pos_w[:, asset_cfg.body_ids, 0]
-               - env.scene.env_origins[:, None, 0])
-    first_riser = torch.full_like(value, float(stair_cfg(env).start_clearance))
-    level = on_level_ground(riser_height_per_env(env), ankle_x, first_riser)
-    return value * level.to(value.dtype)
+    return value * (riser_height_per_env(env) <= 0).to(value.dtype)
 
 
 def cached_failure_event(env):
