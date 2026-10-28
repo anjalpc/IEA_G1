@@ -803,8 +803,8 @@ def main() -> None:
             raise RuntimeError("residual_magnitude requires balance_residual_control")
         if "terrain_split" not in resolved_config.get("command", {}):
             raise RuntimeError("Footstep bootstrap requires command.terrain_split")
-        if resolved_config["execution"]["maximum_iterations"] != 500:
-            raise RuntimeError("Footstep bootstrap must use 500 iterations")
+        if resolved_config["execution"]["maximum_iterations"] not in (500, 1500):
+            raise RuntimeError("Footstep bootstrap must use 500 or 1500 iterations")
         initialization = resolved_config["policy_initialization"]
         official_onnx = initialization.get("source", {}).get("path")
         if initialization["type"] == "zero_residual_actor":

@@ -153,20 +153,26 @@ def audit_after_step(env):
     distance = torch.linalg.vector_norm(
         centre[rows, assigned] - targets[:, 0, :3], dim=-1
     )
-    # Stair pace: forward gap of the assigned foot to its target, frozen
-    # when the target is assigned, so the command is constant for the whole
-    # step instead of shrinking as the foot swings (which would pulse the
-    # speed every step and, on average, ask for half the needed stride).
+    # Stair pace: forward gap of the assigned foot to its target, held
+    # constant during a swing instead of shrinking as the foot moves (which
+    # would pulse the speed every step and, on average, ask for half the
+    # needed stride). Re-measured when a new target is assigned and each
+    # time the assigned foot touches down, so a short or long landing gets
+    # a corrected pace for its next swing.
     gap_now = targets[:, 0, 0] - centre[rows, assigned, 0]
+    assigned_supported = supported[rows, assigned]
     pace_gap_x = getattr(env, "_g1_footstep_pace_gap", None)
     pace_index = getattr(env, "_g1_footstep_pace_target_index", None)
-    if pace_gap_x is None or pace_index is None:
+    pace_support = getattr(env, "_g1_footstep_pace_assigned_supported", None)
+    if pace_gap_x is None or pace_index is None or pace_support is None:
         pace_gap_x = gap_now
     else:
         new_target = (pace_index != coordinator.runtime.target_index) | resets
-        pace_gap_x = torch.where(new_target, gap_now, pace_gap_x)
+        touchdown = assigned_supported & ~pace_support & ~new_target
+        pace_gap_x = torch.where(new_target | touchdown, gap_now, pace_gap_x)
     env._g1_footstep_pace_gap = pace_gap_x.detach().clone()
     env._g1_footstep_pace_target_index = coordinator.runtime.target_index.clone()
+    env._g1_footstep_pace_assigned_supported = assigned_supported.clone()
 
     previous_best = getattr(env, "_g1_footstep_best_distance", None)
     previous_index = getattr(env, "_g1_footstep_progress_target_index", None)
