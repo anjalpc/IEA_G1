@@ -402,6 +402,11 @@ def audit_after_step(env):
     if rolling_rows is not None:
         # One acquisition per clock window; the id stays the window.
         clock_state.acquired |= advanced & rolling_rows
+        # Stair rows mark the best distance infinite because their target
+        # id changes next step and resets it. A rolling target keeps its id
+        # until the clock hands over, so mark it reached instead (no further
+        # progress credit, finite); the next window resets it.
+        env._g1_footstep_best_distance[advanced & rolling_rows] = 0.0
         coordinator.runtime.target_index[rolling_rows] = clock_state.window[rolling_rows]
         clock_state.advance(float(env.step_dt), rolling_walking)
     # Stall terminations this step (same condition the termination term saw:
