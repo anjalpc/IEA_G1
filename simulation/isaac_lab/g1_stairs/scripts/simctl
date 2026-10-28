@@ -960,6 +960,8 @@ cmd_baseline() {
     local METADATA_FILE
 
     STAMP="$(date -u +%Y%m%d_%H%M%S)"
+    local BASELINE_TASK="Unitree-IEA-G1-29dof-Stairs-v0"
+    local -a BASELINE_TRACE=()
 
     if [ -n "$CONFIG" ]; then
         if [ ! -f "$CONFIG" ]; then
@@ -974,7 +976,8 @@ cmd_baseline() {
           simulation/isaac_lab/g1_stairs/scripts/training/prepare_experiment.py \
           "$CONFIG" \
           --output-root "$RUN_ROOT" \
-          --run-id "$BASELINE_ID"
+          --run-id "$BASELINE_ID" \
+          --allow-blocked
 
         RESOLVED_CONFIG="${RUN_DIR}/resolved_config.yaml"
         if [ ! -f "$RESOLVED_CONFIG" ]; then
@@ -984,6 +987,27 @@ cmd_baseline() {
         fi
 
         CONTAINER_RESOLVED_CONFIG="${RESOLVED_CONFIG/$REPO/\/workspace\/IEA_G1}"
+
+        # Baseline replays the config's own task (no PPO updates), with trace.
+        BASELINE_TASK="$(python3 - "$RESOLVED_CONFIG" <<'PYTASK'
+import sys
+import yaml
+
+with open(sys.argv[1], encoding="utf-8") as stream:
+    config = yaml.safe_load(stream)
+
+task = config.get("task", {}).get("id")
+allowed = {
+    "Unitree-IEA-G1-29dof-Stairs-v0",
+    "Unitree-IEA-G1-29dof-Stairs-Footsteps-v0",
+    "Unitree-IEA-G1-29dof-Stairs-Flat-Footsteps-v0",
+}
+if task not in allowed:
+    raise SystemExit(f"Unsupported baseline task: {task!r}")
+print(task)
+PYTASK
+)"
+        BASELINE_TRACE=(--trace)
     else
         BASELINE_ID="t0_unitree_velocity_prior_${STAMP}"
     fi
@@ -1010,6 +1034,7 @@ cmd_baseline() {
     echo " G1 T0 LOCOMOTION PRIOR BASELINE"
     echo "========================================"
     echo "Baseline:    $BASELINE_ID"
+    echo "Task:        $BASELINE_TASK"
     echo "Policy:      Unitree-G1-29dof-Velocity"
     echo "PPO updates: 0"
     echo "Exploration: deterministic inference"
@@ -1028,7 +1053,8 @@ cmd_baseline() {
         "$CONTAINER"
         /workspace/isaaclab/isaaclab.sh -p
         simulation/isaac_lab/g1_stairs/scripts/visualization/record_view.py
-        --task Unitree-IEA-G1-29dof-Stairs-v0
+        --task "$BASELINE_TASK"
+        "${BASELINE_TRACE[@]}"
         --view side
         --output_dir "$OUTPUT_DIR"
         --video_length 600
