@@ -1379,6 +1379,9 @@ class FootstepRewardsCfg(StairRewardsCfg):
         self.clock_stance_support = RewTerm(
             func=footstep_rewards.cached_stance_support, weight=1.0
         )
+        self.residual_magnitude = RewTerm(
+            func=footstep_rewards.residual_magnitude, weight=-1.0
+        )
         # Unitree feet_clearance parameters (unitree_rl_lab 4960b84), flat only.
         self.flat_feet_clearance = RewTerm(
             func=footstep_rewards.flat_feet_clearance,

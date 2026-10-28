@@ -168,3 +168,22 @@ class TreadLiftTests(unittest.TestCase):
         for index in (-2, -1, 3, 4):  # approach and platform targets
             self.assertEqual(self.lift(0.12, 0.12, 0.04, index)[0].item(), 0.0)
         self.assertEqual(self.lift(0.05, 0.0, 0.0, 0)[0].item(), 0.0)  # flat
+
+
+class ResidualMagnitudeTests(unittest.TestCase):
+    def test_squared_difference_from_teacher(self):
+        from types import SimpleNamespace
+        from simulation.isaac_lab.g1_stairs.footstep_rewards import residual_magnitude
+        teacher = torch.zeros((2, 29))
+        executed = teacher.clone()
+        executed[1, 0] = 2.0
+        executed[1, 9] = -1.0
+        env = SimpleNamespace(num_envs=2, _g1_balance_teacher_action=teacher,
+                              _g1_balance_executed_action=executed)
+        self.assertEqual(residual_magnitude(env).tolist(), [0.0, 5.0])
+
+    def test_requires_residual_wrapper(self):
+        from types import SimpleNamespace
+        from simulation.isaac_lab.g1_stairs.footstep_rewards import residual_magnitude
+        with self.assertRaises(RuntimeError):
+            residual_magnitude(SimpleNamespace(num_envs=1))

@@ -16,17 +16,15 @@ task:
   custom_stair_task_active: true
 terrain:
   riser_height_m: 0.04
-  # Flat tiles (no plan, joystick range) plus stairs of 1-4 cm (footstep
-  # plan); each level gets ~1/5 of the envs at random. The prior's swing
-  # sole clearance is ~1.5-2 cm (measured), so 4 cm alone is a wall: models
-  # 200-499 learned to stop before it. 1-2 cm treads are reachable with the
-  # prior's lift, so climbing gets rewarded and lift can grow with height.
+  # Stage 1: flat tiles (no plan, joystick range) plus 1 and 2 cm stairs
+  # (footstep plan), ~1/3 of the envs each, at random. Add 3 and 4 cm only
+  # after 2 cm is climbed: with all of 0-4 cm at once (model 100 of
+  # footstep_bootstrap04_20261028_141115) falls on 3-4 cm taught the policy
+  # to shuffle everywhere (flat lift 0.4-0.8 cm, 5-6 cm steps).
   riser_heights_m:
   - 0.0
   - 0.01
   - 0.02
-  - 0.03
-  - 0.04
   tread_depth_m: 0.25
   step_count: 3
   curriculum_enabled: false
@@ -137,11 +135,16 @@ reward_experiment:
         dof_pos_limits: -5.0
         feet_slide: -0.2
         footstep_clearance_progress: 1.0
-        footstep_failure_termination: -5.0
+        footstep_failure_termination: -1.0
         # Extra on stalls (total -12). Weak on its own: with gamma 0.99
         # (~2 s horizon) a penalty 4 s ahead counts ~15%; reachable treads
         # (1-2 cm levels) are the actual fix for stopping before the riser.
-        footstep_stall_termination: -7.0
+        footstep_stall_termination: -1.0
+        # Cost of changing the frozen Unitree action, per second, raw action
+        # units squared. Exploration noise alone costs ~0.1/s; a 1-unit
+        # lift correction on 3 leg joints for a 0.3 s swing costs ~0.5,
+        # less than one tread acquisition (+2).
+        residual_magnitude: -0.5
 # 4 cm prior baseline reviewed (2026-10-28): gait intact, trips at riser.
 launch_gates:
   allow_launch: true

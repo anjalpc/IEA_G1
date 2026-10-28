@@ -783,6 +783,7 @@ def main() -> None:
             "gait",
             "undesired_contacts",
             "flat_feet_clearance",
+            "residual_magnitude",
         }
         from simulation.isaac_lab.g1_stairs.reward_runtime import (
             active_reward_weights,
@@ -794,10 +795,12 @@ def main() -> None:
                 + str(sorted(set(expected_weights) ^ required))
             )
         heights = resolved_config["terrain"]["riser_heights_m"]
-        if heights[0] != 0.0 or heights[-1] != 0.04:
+        if len(heights) < 2 or heights[0] != 0.0 or heights[-1] > 0.04:
             raise RuntimeError(
-                "Footstep bootstrap must mix flat with stairs up to 4 cm"
+                "Footstep bootstrap must mix flat with stairs of at most 4 cm"
             )
+        if not resolved_config.get("balance_residual_control", {}).get("enabled", False):
+            raise RuntimeError("residual_magnitude requires balance_residual_control")
         if "terrain_split" not in resolved_config.get("command", {}):
             raise RuntimeError("Footstep bootstrap requires command.terrain_split")
         if resolved_config["execution"]["maximum_iterations"] != 500:

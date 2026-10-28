@@ -216,3 +216,23 @@ def cached_failure_event(env):
     if value is None or value.shape != (env.num_envs,):
         raise RuntimeError("missing cached failure event")
     return _per_event(env, value)
+
+
+def residual_magnitude(env):
+    """Squared size of the correction applied on top of the frozen Unitree
+    action, in raw action units (x 0.25 rad), summed over the 29 joints.
+
+    Executed minus teacher action, i.e. what actually reached the robot
+    after clipping. With a negative weight the correction stays near zero
+    wherever it earns nothing (flat walking stays Unitree's) and is spent
+    only where it pays (lift and placement at the stairs).
+    """
+    teacher = getattr(env, "_g1_balance_teacher_action", None)
+    executed = getattr(env, "_g1_balance_executed_action", None)
+    if teacher is None or executed is None:
+        raise RuntimeError(
+            "residual_magnitude needs the frozen-teacher residual wrapper"
+        )
+    if teacher.shape != executed.shape or teacher.shape[0] != env.num_envs:
+        raise RuntimeError("invalid teacher/executed action shapes")
+    return torch.sum(torch.square(executed - teacher), dim=1)
