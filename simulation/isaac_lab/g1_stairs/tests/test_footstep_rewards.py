@@ -123,11 +123,13 @@ class PaperScoreTests(unittest.TestCase):
             _g1_footstep_net_progress=torch.tensor([0.5, 0.]),
             _g1_footstep_clearance_progress=torch.tensor([0.25, 0.]),
             _g1_footstep_failure_event=flag.float(),
+            _g1_footstep_stall_event=flag.float(),
             _g1_footstep_directed_swing=torch.tensor([0.5, 0.]),
             _g1_footstep_stance_support=torch.tensor([0.5, 0.]),
         )
         # Reward manager multiplies by step_dt: event terms become per-event.
-        for fn, per_event in ((fr.cached_acquisition, 1.0),
+        for fn, per_event in ((fr.cached_stall_event, 1.0),
+                              (fr.cached_acquisition, 1.0),
                               (fr.cached_net_progress, 0.5),
                               (fr.cached_clearance_progress, 0.25),
                               (fr.cached_failure_event, 1.0)):

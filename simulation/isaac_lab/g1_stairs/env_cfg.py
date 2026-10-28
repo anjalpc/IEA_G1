@@ -1373,6 +1373,9 @@ class FootstepRewardsCfg(StairRewardsCfg):
         self.footstep_failure_termination = RewTerm(
             func=footstep_rewards.cached_failure_event, weight=-1.0
         )
+        self.footstep_stall_termination = RewTerm(
+            func=footstep_rewards.cached_stall_event, weight=-1.0
+        )
         self.clock_stance_support = RewTerm(
             func=footstep_rewards.cached_stance_support, weight=1.0
         )

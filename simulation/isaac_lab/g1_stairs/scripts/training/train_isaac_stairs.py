@@ -765,6 +765,7 @@ def main() -> None:
             "footstep_target_progress",
             "footstep_clearance_progress",
             "footstep_failure_termination",
+            "footstep_stall_termination",
             "upright",
             "action_rate",
             "dof_pos_limits",

@@ -171,6 +171,19 @@ def flat_feet_clearance(env, asset_cfg, target_height, std, tanh_mult):
     return value * (riser_height_per_env(env) <= 0).to(value.dtype)
 
 
+def cached_stall_event(env):
+    """Stair plan stall (target time limit); 1.0 per stall after dt scaling.
+
+    Added on top of the generic failure penalty: stalling must cost more
+    than a failed attempt, because a stalled robot first collects ~4 s of
+    per-second rewards (alive, tracking, gait) that a quick fall does not.
+    """
+    value = getattr(env, "_g1_footstep_stall_event", None)
+    if value is None or value.shape != (env.num_envs,):
+        raise RuntimeError("missing cached stall event")
+    return _per_event(env, value)
+
+
 def cached_failure_event(env):
     """Non-timeout termination; 1.0 per failure after dt scaling."""
     value = getattr(env, "_g1_footstep_failure_event", None)

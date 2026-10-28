@@ -277,6 +277,11 @@ def audit_after_step(env):
     }
     env._g1_footstep_best_distance[advanced] = float("inf")
     env._g1_footstep_last_advanced = advanced
+    # Stall terminations this step (same condition the termination term saw:
+    # the timer is only advanced below).
+    env._g1_footstep_stall_event = (
+        env.termination_manager.terminated & stair_target_stall(env)
+    ).float()
     since = getattr(env, "_g1_footstep_since_advance", None)
     if since is None:
         since = torch.zeros(env.num_envs, device=env.device)

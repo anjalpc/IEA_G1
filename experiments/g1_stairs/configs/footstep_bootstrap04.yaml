@@ -132,6 +132,10 @@ reward_experiment:
         feet_slide: -0.2
         footstep_clearance_progress: 1.0
         footstep_failure_termination: -5.0
+        # Extra on stalls (total -12): model 300 parked before the riser
+        # because ~4 s of per-second reward (~1.35/s measured) then -5 beat
+        # attempting and falling quickly (-5 after ~1 s).
+        footstep_stall_termination: -7.0
 # 4 cm prior baseline reviewed (2026-10-28): gait intact, trips at riser.
 launch_gates:
   allow_launch: true
