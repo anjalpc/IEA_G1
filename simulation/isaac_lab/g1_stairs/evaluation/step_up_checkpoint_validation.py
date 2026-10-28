@@ -249,8 +249,15 @@ def apply_resolved_replay_config(env_cfg, path: Path) -> AppliedReplayConfig:
         values = resolved["commands"]["forward_velocity_mps"]
         forward_velocity_mps = float(values[0])
 
-    if not 0.0 <= forward_velocity_mps <= 0.50:
+    # Unitree's trained forward limit; stair training itself stays <= 0.5.
+    if not 0.0 <= forward_velocity_mps <= 1.0:
         raise ValueError("invalid resolved forward velocity")
+    # Optional fixed turn command for evaluation (default: none).
+    yaw_velocity_radps = float(
+        (resolved.get("commands", {}).get("yaw_velocity_radps") or [0.0])[0]
+    )
+    if not -1.0 <= yaw_velocity_radps <= 1.0:
+        raise ValueError("invalid resolved yaw velocity")
 
     terrain_generator = env_cfg.scene.terrain.terrain_generator
     stair_cfg = terrain_generator.sub_terrains["three_step_ascent"]
@@ -269,6 +276,14 @@ def apply_resolved_replay_config(env_cfg, path: Path) -> AppliedReplayConfig:
     env_cfg.commands.base_velocity.limit_ranges.lin_vel_x = (
         forward_velocity_mps,
         forward_velocity_mps,
+    )
+    env_cfg.commands.base_velocity.ranges.ang_vel_z = (
+        yaw_velocity_radps,
+        yaw_velocity_radps,
+    )
+    env_cfg.commands.base_velocity.limit_ranges.ang_vel_z = (
+        yaw_velocity_radps,
+        yaw_velocity_radps,
     )
 
     from simulation.isaac_lab.g1_stairs.command_runtime import (
