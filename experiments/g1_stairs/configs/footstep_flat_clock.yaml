@@ -128,8 +128,11 @@ reward_experiment:
         joint_deviation_legs: -1.0
         # Unitree's gait term (fixed 0.8 s cycle) is replaced by the clock:
         # loaded stance foot, moving swing foot, per the scheduled phase.
-        clock_stance_support: 1.0
-        clock_swing_motion: 1.0
+        # 3.0 (was 1.0): at 1.0 the target terms (~5/s) outweighed the clock
+        # (~0.8/s) and the policy kept a foot loaded through its swing window
+        # (run 20261028_222026: left foot loaded 58% of its window by 1499).
+        clock_stance_support: 3.0
+        clock_swing_motion: 3.0
         flat_feet_clearance: 1.0
         undesired_contacts: -1.0
         # One target per step now (was 7 per course): 1.0 per hit.
