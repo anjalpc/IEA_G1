@@ -46,7 +46,7 @@ footstep_clock:
   max_stride_m: 0.55
 execution:
   environments: 2048
-  maximum_iterations: 1500
+  maximum_iterations: 500
   training_seed: 42
 # Residual on the frozen official Unitree policy: the teacher always produces
 # its normal walking from the 480-D locomotion prefix; the trained actor sees

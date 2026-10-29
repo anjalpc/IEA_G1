@@ -364,6 +364,7 @@ class GeometryTrace:
                 "acquired": bool(rolling.acquired[0].item()),
                 "target_xyz": self.values(rolling.targets[0, 0, :3]),
                 "next_target_xyz": self.values(rolling.targets[0, 1, :3]),
+                "reference_xy": self.values(rolling.ref_xy[0]),
                 "reference_yaw": float(rolling.ref_yaw[0].item()),
                 "reference_resyncs": int(rolling.ref_resyncs[0].item()),
             }
