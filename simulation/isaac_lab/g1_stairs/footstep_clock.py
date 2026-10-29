@@ -17,9 +17,11 @@ rhythm gets quicker).
 
 Stair tiles run the same clock at a fixed, slower cycle (``period_stairs_s``)
 with the stair plan's targets: one tread per step, the foot fixed per tread.
-The plan decides which foot swings: when the clock would hand the swing to
-the other foot while the plan still waits for this one (a miss), the clock
-is shifted half a cycle so the same foot gets the next window.
+The plan decides which foot swings: when a swing window opens for a foot
+the plan is not waiting for (after a miss), the clock is shifted half a
+cycle so the foot the plan waits for swings instead. Deciding when the
+swing opens, not at the hand-over, leaves the double support for a late
+touchdown to count (a hit registered just after the hand-over).
 
 Pure tensors; no Isaac imports.
 """
@@ -108,14 +110,14 @@ def clock_schedule(phase):
     return torch.stack((left, right), dim=-1), assigned
 
 
-def follow_plan_foot(phase, previous_assigned, plan_foot, rows):
-    """[N] phase shifted half a cycle where, at a hand-over, the clock would
-    give the swing to a foot the plan is not waiting for (after a miss the
-    same foot swings again). Only rows in ``rows`` are touched; mid-window
-    nothing moves (an early hit already switches the plan to the next foot)."""
-    _, assigned = clock_schedule(phase)
-    handover = assigned != previous_assigned
-    shift = rows & handover & (assigned != plan_foot)
+def follow_plan_foot(phase, was_swinging, plan_foot, rows):
+    """[N] phase shifted half a cycle where a swing window has just opened
+    for a foot the plan is not waiting for (after a miss the same foot
+    swings again). Only rows in ``rows`` are touched; inside a swing nothing
+    moves (an early hit already switches the plan to the next foot)."""
+    swing, assigned = clock_schedule(phase)
+    opened = swing.any(dim=-1) & ~was_swinging
+    shift = rows & opened & (assigned != plan_foot)
     return torch.where(shift, torch.remainder(phase + 0.5, 1.0), phase)
 
 
@@ -185,6 +187,7 @@ class RollingClockState:
         self.targets = torch.zeros((num_envs, 2, 4), device=self.device)
         self.feet = torch.zeros((num_envs, 2), dtype=torch.long, device=self.device)
         self.active = torch.zeros(num_envs, dtype=torch.bool, device=self.device)
+        self.swinging = torch.zeros(num_envs, dtype=torch.bool, device=self.device)
         self.yaw_error_sum = torch.zeros(num_envs, device=self.device)
         self.yaw_error_time = torch.zeros(num_envs, device=self.device)
         self.cycle_yaw_error = torch.zeros(num_envs, device=self.device)
@@ -203,6 +206,7 @@ class RollingClockState:
         self.acquired[ids] = False
         self.targets[ids] = 0.0
         self.active[ids] = False
+        self.swinging[ids] = False
         self.yaw_error_sum[ids] = 0.0
         self.yaw_error_time[ids] = 0.0
         self.cycle_yaw_error[ids] = 0.0

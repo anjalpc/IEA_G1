@@ -97,13 +97,14 @@ def apply_rolling_clock(env, state, *, centre, targets, feet, valid, resets,
         rows, speed_period(command[:, 0], state.period_scale, cfg),
         cfg["period_stairs_s"] * state.period_scale)
     state.phase = follow_plan_foot(
-        state.phase, state.assigned, feet[:, 0], stairs & plan_started)
+        state.phase, state.swinging, feet[:, 0], stairs & plan_started)
     schedule, assigned = clock_schedule(state.phase)
+    state.swinging = schedule.any(dim=-1)
     _, yaw = course_root_pose(env)
     # New target when the clock hands the swing to the other foot, and when
     # walking resumes after standing (the held target would be stale).
     new_window = rows & ((assigned != state.assigned) | (walking & ~state.active))
-    state.assigned[stairs] = assigned[stairs]
+    state.assigned[stairs] = assigned[stairs]   # trace and tests only
     if bool(new_window.any()):
         index = torch.arange(env.num_envs, device=env.device)
         fresh, fresh_feet = heading_targets(

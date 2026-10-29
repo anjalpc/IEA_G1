@@ -63,17 +63,19 @@ class ScheduleTests(unittest.TestCase):
         self.assertAlmostEqual(out[5].item(), 0.935, places=6)     # jitter scale
 
     def test_follow_plan_foot(self):
-        # rows: miss at hand-over (shift), hand-over to the planned foot (keep),
-        # mid-window with the plan already on the next foot (keep), not a row.
-        phase = torch.tensor([0.55, 0.55, 0.30, 0.55])
-        previous = torch.tensor([0, 0, 0, 0])
-        plan_foot = torch.tensor([0, 1, 1, 0])
-        rows = torch.tensor([True, True, True, False])
-        out = fc.follow_plan_foot(phase, previous, plan_foot, rows)
-        self.assertAlmostEqual(out[0].item(), 0.05, places=6)   # left swings again
+        # rows: right swing opens but the plan waits for left (shift); right
+        # swing opens for the planned right foot (keep); inside the right
+        # swing with the plan already on left (keep); double support (keep,
+        # a late touchdown can still count); not a stair row (keep).
+        phase = torch.tensor([0.66, 0.66, 0.80, 0.55, 0.66])
+        was_swinging = torch.tensor([False, False, True, False, False])
+        plan_foot = torch.tensor([0, 1, 0, 0, 0])
+        rows = torch.tensor([True, True, True, True, False])
+        out = fc.follow_plan_foot(phase, was_swinging, plan_foot, rows)
+        self.assertAlmostEqual(out[0].item(), 0.16, places=5)   # left swings again
         self.assertEqual(out[1:].tolist(), phase[1:].tolist())
-        _, assigned = fc.clock_schedule(out)
-        self.assertEqual(assigned[0].item(), 0)
+        swing, _ = fc.clock_schedule(out)
+        self.assertEqual(swing[0].tolist(), [True, False])
 
     def test_moving(self):
         cmd = torch.tensor([[0.0, 0.0, 0.0], [0.3, 0.0, 0.0], [0.0, 0.0, 0.2]])
@@ -282,11 +284,22 @@ class ApplyRollingClockTests(unittest.TestCase):
     def test_miss_on_stairs_gives_the_same_foot_the_next_window(self):
         self.state.phase[1] = 0.45                                # left swinging
         self.run_once(plan_foot=0, plan_started=True)
-        self.state.phase[1] = 0.55                                # clock hands over to right
-        self.run_once(plan_foot=0, plan_started=True)             # plan still waits for left
-        _, assigned = self.lp.clock_schedule(self.state.phase)
-        self.assertEqual(assigned[1].item(), 0)
-        self.assertAlmostEqual(self.state.phase[1].item(), 0.05, places=6)
+        self.state.phase[1] = 0.55                                # double support:
+        self.run_once(plan_foot=0, plan_started=True)             # no shift yet
+        self.assertAlmostEqual(self.state.phase[1].item(), 0.55, places=6)
+        self.state.phase[1] = 0.66                                # right swing opens,
+        self.run_once(plan_foot=0, plan_started=True)             # plan waits for left
+        swing, _ = self.lp.clock_schedule(self.state.phase)
+        self.assertEqual(swing[1].tolist(), [True, False])
+
+    def test_late_touchdown_in_double_support_needs_no_shift(self):
+        self.state.phase[1] = 0.45                                # left swinging
+        self.run_once(plan_foot=0, plan_started=True)
+        self.state.phase[1] = 0.55                                # left lands late: hit,
+        self.run_once(plan_foot=1, plan_started=True)             # plan now on right
+        self.state.phase[1] = 0.66                                # right swing opens
+        self.run_once(plan_foot=1, plan_started=True)
+        self.assertAlmostEqual(self.state.phase[1].item(), 0.66, places=6)
 
 
 if __name__ == "__main__":
