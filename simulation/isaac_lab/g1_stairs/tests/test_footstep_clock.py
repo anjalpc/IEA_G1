@@ -7,7 +7,8 @@ from simulation.isaac_lab.g1_stairs import footstep_clock as fc
 
 
 class ClockConfigTests(unittest.TestCase):
-    GOOD = {"enabled": True, "period_slow_s": 1.0, "period_fast_s": 0.7, "period_jitter": 0.1, "max_stride_m": 0.55}
+    GOOD = {"enabled": True, "period_slow_s": 1.0, "period_fast_s": 0.7,
+            "period_stairs_s": 1.3, "period_jitter": 0.1, "max_stride_m": 0.55}
 
     def test_disabled_and_valid(self):
         self.assertIsNone(fc.validate_clock_cfg(None))
@@ -17,6 +18,7 @@ class ClockConfigTests(unittest.TestCase):
     def test_rejects_bad_values(self):
         for change in ({"period_fast_s": 1.2},            # faster than slow
                        {"period_jitter": 0.5},
+                       {"period_stairs_s": 3.0},
                        {"max_stride_m": 2.0},
                        {"typo": 1},
                        {"period_s": [0.6, 1.2]}):          # old key
@@ -59,6 +61,19 @@ class ScheduleTests(unittest.TestCase):
         self.assertAlmostEqual(out[3].item(), 0.7, places=6)       # fast end
         self.assertAlmostEqual(out[4].item(), 0.55, places=6)      # stride cap 0.55 m
         self.assertAlmostEqual(out[5].item(), 0.935, places=6)     # jitter scale
+
+    def test_follow_plan_foot(self):
+        # rows: miss at hand-over (shift), hand-over to the planned foot (keep),
+        # mid-window with the plan already on the next foot (keep), not a row.
+        phase = torch.tensor([0.55, 0.55, 0.30, 0.55])
+        previous = torch.tensor([0, 0, 0, 0])
+        plan_foot = torch.tensor([0, 1, 1, 0])
+        rows = torch.tensor([True, True, True, False])
+        out = fc.follow_plan_foot(phase, previous, plan_foot, rows)
+        self.assertAlmostEqual(out[0].item(), 0.05, places=6)   # left swings again
+        self.assertEqual(out[1:].tolist(), phase[1:].tolist())
+        _, assigned = fc.clock_schedule(out)
+        self.assertEqual(assigned[0].item(), 0)
 
     def test_moving(self):
         cmd = torch.tensor([[0.0, 0.0, 0.0], [0.3, 0.0, 0.0], [0.0, 0.0, 0.2]])
@@ -175,8 +190,8 @@ class ApplyRollingClockTests(unittest.TestCase):
             num_envs=3, device="cpu",
             # slow == fast and no jitter: a fixed 1.0 s cycle at any speed
             cfg=SimpleNamespace(footstep_clock={"enabled": True, "period_slow_s": 1.0,
-                                                "period_fast_s": 1.0, "period_jitter": 0.0,
-                                                "max_stride_m": 0.55}),
+                                                "period_fast_s": 1.0, "period_stairs_s": 1.3,
+                                                "period_jitter": 0.0, "max_stride_m": 0.55}),
             command_manager=SimpleNamespace(get_command=lambda name: self.command),
         )
         # rows 0 and 2 flat (clock), row 1 a stair tile
@@ -194,19 +209,22 @@ class ApplyRollingClockTests(unittest.TestCase):
         self.yaw = torch.zeros(3)
         self.centre = torch.tensor([[[0.0, 0.1175, 0.0], [0.0, -0.1175, 0.0]]] * 3)
 
-    def run_once(self):
+    def run_once(self, plan_foot=0, plan_started=False):
         targets = torch.full((3, 2, 4), 9.0)
         feet = torch.zeros((3, 2), dtype=torch.long)
+        feet[:, 0] = plan_foot
         valid = torch.ones((3, 2), dtype=torch.bool)
         rows, walking, swing = self.lp.apply_rolling_clock(
             self.env, self.state, centre=self.centre, targets=targets,
-            feet=feet, valid=valid, resets=torch.zeros(3, dtype=torch.bool))
+            feet=feet, valid=valid, resets=torch.zeros(3, dtype=torch.bool),
+            plan_started=torch.full((3,), plan_started))
         return rows, walking, targets, feet, valid
 
     def test_first_window_targets_swing_foot_from_stance(self):
         rows, walking, targets, feet, valid = self.run_once()
         self.assertEqual(rows.tolist(), [True, False, True])
-        self.assertEqual(walking.tolist(), [True, False, False])
+        # stair row walks while its plan has a target; standing flat row does not
+        self.assertEqual(walking.tolist(), [True, True, False])
         # left foot: from the right stance foot, step = 0.4 * 1.0 / 2
         self.assertAlmostEqual(targets[0, 0, 0].item(), 0.2, places=6)
         self.assertAlmostEqual(targets[0, 0, 1].item(), 0.1175, places=6)
@@ -255,6 +273,20 @@ class ApplyRollingClockTests(unittest.TestCase):
         self.command[0, 0] = 0.6
         self.run_once()
         self.assertAlmostEqual(self.state.period_s[0].item(), 0.7, places=6)
+
+    def test_stair_row_keeps_plan_and_stair_cycle(self):
+        _, _, targets, _, _ = self.run_once()
+        self.assertEqual(targets[1, 0, 0].item(), 9.0)            # stair plan untouched
+        self.assertAlmostEqual(self.state.period_s[1].item(), 1.3, places=6)
+
+    def test_miss_on_stairs_gives_the_same_foot_the_next_window(self):
+        self.state.phase[1] = 0.45                                # left swinging
+        self.run_once(plan_foot=0, plan_started=True)
+        self.state.phase[1] = 0.55                                # clock hands over to right
+        self.run_once(plan_foot=0, plan_started=True)             # plan still waits for left
+        _, assigned = self.lp.clock_schedule(self.state.phase)
+        self.assertEqual(assigned[1].item(), 0)
+        self.assertAlmostEqual(self.state.phase[1].item(), 0.05, places=6)
 
 
 if __name__ == "__main__":

@@ -16,11 +16,11 @@ from .footstep_gait_clock import (
 )
 from .footstep_isaac_adapter import course_root_pose, course_tensors
 from .footstep_clock import (
-    RollingClockState, clock_schedule, heading_targets, moving, speed_period,
+    RollingClockState, clock_schedule, follow_plan_foot, heading_targets,
+    moving, speed_period,
 )
 from .footstep_mixing import (
-    course_exit_timeout, stair_escape, stair_pace, stair_steering,
-    target_stalled,
+    course_exit_timeout, stair_escape, stair_steering, target_stalled,
 )
 from .footstep_tensor import NOMINAL_FOOT_SEPARATION_M
 from .footstep_tread import qualified_tread_mask, qualified_flat_mask
@@ -76,23 +76,34 @@ def ensure_rolling_clock(env):
     return state
 
 
-def apply_rolling_clock(env, state, *, centre, targets, feet, valid, resets):
-    """Flat tiles under the clock: assign the swing foot its target.
+def apply_rolling_clock(env, state, *, centre, targets, feet, valid, resets,
+                        plan_started):
+    """One clock for all tiles.
 
-    A new target is placed one step ahead of the stance foot, along the
-    robot's heading plus the commanded turn, whenever the clock hands the
-    swing to the other foot. Returns (rows, walking, swing_schedule);
-    targets/feet/valid are updated in place for those rows.
+    Flat tiles: a new target is placed one step ahead of the stance foot,
+    along the robot's heading plus the commanded turn, whenever the clock
+    hands the swing to the other foot (targets/feet/valid updated in place).
+    Stair tiles keep the stair plan's targets, walk while the plan is
+    unfinished, use the fixed stair cycle, and once the plan has started the
+    plan decides which foot gets the swing window.
+    Returns (flat_rows, walking, swing_schedule).
     """
     rows = riser_height_per_env(env) <= 0
+    stairs = ~rows
     command = env.command_manager.get_command("base_velocity")
-    walking = moving(command) & rows & ~resets
-    state.period_s = speed_period(command[:, 0], state.period_scale, env.cfg.footstep_clock)
+    walking = ((moving(command) & rows) | (stairs & valid[:, 0])) & ~resets
+    cfg = env.cfg.footstep_clock
+    state.period_s = torch.where(
+        rows, speed_period(command[:, 0], state.period_scale, cfg),
+        cfg["period_stairs_s"] * state.period_scale)
+    state.phase = follow_plan_foot(
+        state.phase, state.assigned, feet[:, 0], stairs & plan_started)
     schedule, assigned = clock_schedule(state.phase)
     _, yaw = course_root_pose(env)
     # New target when the clock hands the swing to the other foot, and when
     # walking resumes after standing (the held target would be stale).
     new_window = rows & ((assigned != state.assigned) | (walking & ~state.active))
+    state.assigned[stairs] = assigned[stairs]
     if bool(new_window.any()):
         index = torch.arange(env.num_envs, device=env.device)
         fresh, fresh_feet = heading_targets(
@@ -155,6 +166,7 @@ def audit_after_step(env):
         rolling_rows, rolling_walking, clock_swing = apply_rolling_clock(
             env, clock_state, centre=centre, targets=targets, feet=feet,
             valid=valid, resets=resets_now,
+            plan_started=coordinator.runtime.target_index > 0,
         )
         coordinator.runtime.target_index[rolling_rows] = clock_state.window[rolling_rows]
     env._g1_rolling_rows = rolling_rows
@@ -222,14 +234,14 @@ def audit_after_step(env):
     )
     if rolling_rows is not None:
         # Clock rewards come from the rolling clock (the phase the policy
-        # observed); standing rows request double stance and still feet.
-        # Rows outside the clock get none.
+        # observed) on all tiles; standing rows and finished stair plans
+        # request double stance and still feet.
         clock_swing_f = (clock_swing & rolling_walking[:, None]).to(force_z.dtype)
         clock_stance, clock_motion = clock_contact_scores(
             force_z, centre, sole_velocity, targets, feet, valid,
             clock_swing_f, 1.0 - clock_swing_f,
         )
-        keep = rolling_rows & ~resets
+        keep = ~resets
         env._g1_footstep_stance_support = torch.where(
             keep, clock_stance, torch.zeros_like(clock_stance))
         env._g1_footstep_directed_swing = torch.where(
@@ -246,27 +258,6 @@ def audit_after_step(env):
     distance = torch.linalg.vector_norm(
         centre[rows, assigned] - targets[:, 0, :3], dim=-1
     )
-    # Stair pace: forward gap of the assigned foot to its target, held
-    # constant during a swing instead of shrinking as the foot moves (which
-    # would pulse the speed every step and, on average, ask for half the
-    # needed stride). Re-measured when a new target is assigned and each
-    # time the assigned foot touches down, so a short or long landing gets
-    # a corrected pace for its next swing.
-    gap_now = targets[:, 0, 0] - centre[rows, assigned, 0]
-    assigned_supported = supported[rows, assigned]
-    pace_gap_x = getattr(env, "_g1_footstep_pace_gap", None)
-    pace_index = getattr(env, "_g1_footstep_pace_target_index", None)
-    pace_support = getattr(env, "_g1_footstep_pace_assigned_supported", None)
-    if pace_gap_x is None or pace_index is None or pace_support is None:
-        pace_gap_x = gap_now
-    else:
-        new_target = (pace_index != coordinator.runtime.target_index) | resets
-        touchdown = assigned_supported & ~pace_support & ~new_target
-        pace_gap_x = torch.where(new_target | touchdown, gap_now, pace_gap_x)
-    env._g1_footstep_pace_gap = pace_gap_x.detach().clone()
-    env._g1_footstep_pace_target_index = coordinator.runtime.target_index.clone()
-    env._g1_footstep_pace_assigned_supported = assigned_supported.clone()
-
     previous_best = getattr(env, "_g1_footstep_best_distance", None)
     previous_index = getattr(env, "_g1_footstep_progress_target_index", None)
 
@@ -424,15 +415,18 @@ def audit_after_step(env):
     since = since + float(env.step_dt)
     since[advanced] = 0.0
     env._g1_footstep_since_advance = since
-    steer_stair_command(env, coordinator.runtime, flat, resets, pace_gap_x)
+    steer_stair_command(env, coordinator.runtime, flat, resets,
+                        course["tread_depth"], clock_state)
     stop_command_after_plan(env, coordinator.runtime, flat, resets)
     return advanced
 
 
-def steer_stair_command(env, runtime, flat_ground, resets, gap_x):
-    """Stair envs with an active plan: forward command paced by the plan
-    (footstep_mixing.stair_pace), lateral and yaw command steer back to the
-    centre line facing the stairs (footstep_mixing.stair_steering).
+def steer_stair_command(env, runtime, flat_ground, resets, tread_depth, clock_state):
+    """Stair envs with an active plan: lateral and yaw command steer back to
+    the centre line facing the stairs (footstep_mixing.stair_steering), like
+    an operator lining the robot up. With the gait clock, the forward
+    command is one tread per step: 2 x tread / cycle time. Without it, the
+    sampled stair speed stays.
 
     Runs every policy step in training and evaluation (same hook), so a
     command resample is overwritten within one step. Flat tiles keep their
@@ -446,7 +440,8 @@ def steer_stair_command(env, runtime, flat_ground, resets, gap_x):
     if bool(active.any()):
         xyz, yaw = course_root_pose(env)
         command = env.command_manager.get_command("base_velocity")
-        command[active, 0] = stair_pace(gap_x[active], command[active, 0])
+        if clock_state is not None:
+            command[active, 0] = 2.0 * tread_depth[active] / clock_state.period_s[active]
         command[active, 1:3] = stair_steering(xyz[active, 1], yaw[active])
     return active
 

@@ -19,8 +19,8 @@ def planned_footsteps_with_phase(env) -> torch.Tensor:
     """[N,16] = next-two 14-D targets + 2 gait-clock inputs (sin, cos).
 
     Without ``footstep_clock`` the clock inputs stay zero (the plan says
-    WHERE, the policy chooses WHEN). With it, flat tiles see the rolling
-    clock and their rolling targets; stair rows are unchanged. Never
+    WHERE, the policy chooses WHEN). With it, every tile sees the clock;
+    flat tiles see their rolling targets, stair tiles the stair plan. Never
     mutates planner state.
     """
     coord = ensure_coordinator(env)
@@ -47,7 +47,7 @@ def planned_footsteps_with_phase(env) -> torch.Tensor:
             targets=plan, feet=feet, valid=valid, root_xyz=xyz,
             root_yaw=yaw, position_scale=1.0,
         )
-        timing = clock_features(state.phase, state.active & rows).to(targets.dtype)
+        timing = clock_features(state.phase, state.active).to(targets.dtype)
     result = torch.cat((targets, timing), dim=-1)
     if result.shape != (env.num_envs, 16) or not bool(torch.isfinite(result).all()):
         raise RuntimeError('invalid planned footsteps plus gait phase observation')
@@ -79,8 +79,6 @@ def reset_footsteps_with_phase(env, env_ids):
         env._g1_footstep_best_distance[ids] = float("inf")
     if hasattr(env, "_g1_footstep_progress_target_index"):
         env._g1_footstep_progress_target_index[ids] = -1
-    if hasattr(env, "_g1_footstep_pace_target_index"):
-        env._g1_footstep_pace_target_index[ids] = -1
 
     if hasattr(env, "_g1_footstep_peak_clearance"):
         env._g1_footstep_peak_clearance[ids] = 0.0

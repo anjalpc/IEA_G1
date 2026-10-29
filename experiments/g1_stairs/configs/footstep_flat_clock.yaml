@@ -46,6 +46,8 @@ footstep_clock:
   # ~21 cm at 0.6.
   period_slow_s: 1.0
   period_fast_s: 0.7
+  # Stair tiles (none in this stage): fixed cycle, one tread per step.
+  period_stairs_s: 1.3
   period_jitter: 0.1
   # Stride (two steps) = speed x cycle time, capped here: above the cap only
   # the rhythm gets quicker.

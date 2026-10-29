@@ -15,6 +15,12 @@ quicker at high speed, with a small per-episode jitter); step length is
 speed x half a cycle, capped by ``max_stride_m`` (above the cap only the
 rhythm gets quicker).
 
+Stair tiles run the same clock at a fixed, slower cycle (``period_stairs_s``)
+with the stair plan's targets: one tread per step, the foot fixed per tread.
+The plan decides which foot swings: when the clock would hand the swing to
+the other foot while the plan still waits for this one (a miss), the clock
+is shifted half a cycle so the same foot gets the next window.
+
 Pure tensors; no Isaac imports.
 """
 from __future__ import annotations
@@ -43,7 +49,8 @@ def validate_clock_cfg(cfg) -> dict | None:
         raise ValueError("footstep_clock must be a mapping")
     if not bool(cfg.get("enabled", False)):
         return None
-    keys = {"enabled", "period_slow_s", "period_fast_s", "period_jitter", "max_stride_m"}
+    keys = {"enabled", "period_slow_s", "period_fast_s", "period_stairs_s",
+            "period_jitter", "max_stride_m"}
     unknown = set(cfg) - keys
     if unknown:
         raise ValueError(f"unknown footstep_clock keys: {sorted(unknown)}")
@@ -52,6 +59,9 @@ def validate_clock_cfg(cfg) -> dict | None:
     slow, fast = float(cfg["period_slow_s"]), float(cfg["period_fast_s"])
     if not 0.4 <= fast <= slow <= 2.0:
         raise ValueError("footstep_clock needs 0.4 <= period_fast_s <= period_slow_s <= 2.0")
+    stairs = float(cfg["period_stairs_s"])
+    if not 0.6 <= stairs <= 2.0:
+        raise ValueError("footstep_clock.period_stairs_s must be in [0.6, 2.0]")
     jitter = float(cfg["period_jitter"])
     if not 0.0 <= jitter <= 0.3:
         raise ValueError("footstep_clock.period_jitter must be in [0, 0.3]")
@@ -59,7 +69,7 @@ def validate_clock_cfg(cfg) -> dict | None:
     if not 0.2 <= stride <= 0.8:
         raise ValueError("footstep_clock.max_stride_m must be in [0.2, 0.8]")
     return {"enabled": True, "period_slow_s": slow, "period_fast_s": fast,
-            "period_jitter": jitter, "max_stride_m": stride}
+            "period_stairs_s": stairs, "period_jitter": jitter, "max_stride_m": stride}
 
 
 def speed_period(forward_speed, scale, cfg):
@@ -96,6 +106,17 @@ def clock_schedule(phase):
     right = (phase >= 2 * ds + ss) & (phase < 1.0)
     assigned = torch.where(phase < ds + ss, 0, 1).to(torch.long)
     return torch.stack((left, right), dim=-1), assigned
+
+
+def follow_plan_foot(phase, previous_assigned, plan_foot, rows):
+    """[N] phase shifted half a cycle where, at a hand-over, the clock would
+    give the swing to a foot the plan is not waiting for (after a miss the
+    same foot swings again). Only rows in ``rows`` are touched; mid-window
+    nothing moves (an early hit already switches the plan to the next foot)."""
+    _, assigned = clock_schedule(phase)
+    handover = assigned != previous_assigned
+    shift = rows & handover & (assigned != plan_foot)
+    return torch.where(shift, torch.remainder(phase + 0.5, 1.0), phase)
 
 
 def clock_features(phase, active):
