@@ -356,7 +356,7 @@ class GeometryTrace:
                 "rolling_row": (bool(rows[0].item()) if rows is not None else None),
                 "phase": float(rolling.phase[0].item()),
                 "period_s": float(rolling.period_s[0].item()),
-                "episode_period_s": float(rolling.base_period_s[0].item()),
+                "period_scale": float(rolling.period_scale[0].item()),
                 "walking": bool(rolling.active[0].item()),
                 "scheduled_swing_lr": self.values(swing[0]),
                 "assigned_foot": int(assigned[0].item()),
@@ -364,9 +364,6 @@ class GeometryTrace:
                 "acquired": bool(rolling.acquired[0].item()),
                 "target_xyz": self.values(rolling.targets[0, 0, :3]),
                 "next_target_xyz": self.values(rolling.targets[0, 1, :3]),
-                "reference_xy": self.values(rolling.ref_xy[0]),
-                "reference_yaw": float(rolling.ref_yaw[0].item()),
-                "reference_resyncs": int(rolling.ref_resyncs[0].item()),
                 "cycle_yaw_error_radps": float(rolling.cycle_yaw_error[0].item()),
             }
 

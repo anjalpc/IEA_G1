@@ -73,7 +73,7 @@ def reset_footsteps_with_phase(env, env_ids):
     ids = slice(None) if env_ids is None else env_ids
     state = ensure_rolling_clock(env)
     if state is not None:
-        state.reset(env_ids, env.cfg.footstep_clock["period_s"])
+        state.reset(env_ids, env.cfg.footstep_clock["period_jitter"])
 
     if hasattr(env, "_g1_footstep_best_distance"):
         env._g1_footstep_best_distance[ids] = float("inf")

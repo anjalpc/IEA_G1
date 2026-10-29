@@ -16,8 +16,7 @@ from .footstep_gait_clock import (
 )
 from .footstep_isaac_adapter import course_root_pose, course_tensors
 from .footstep_clock import (
-    RollingClockState, clock_schedule, effective_period, moving,
-    reference_targets, sync_reference,
+    RollingClockState, clock_schedule, heading_targets, moving, speed_period,
 )
 from .footstep_mixing import (
     course_exit_timeout, stair_escape, stair_pace, stair_steering,
@@ -72,37 +71,33 @@ def ensure_rolling_clock(env):
     state = getattr(env, "_g1_rolling_clock", None)
     if state is None:
         state = RollingClockState(env.num_envs, env.device)
-        state.reset(None, env.cfg.footstep_clock["period_s"])
+        state.reset(None, env.cfg.footstep_clock["period_jitter"])
         env._g1_rolling_clock = state
     return state
 
 
-def apply_rolling_clock(env, state, *, targets, feet, valid, resets):
+def apply_rolling_clock(env, state, *, centre, targets, feet, valid, resets):
     """Flat tiles under the clock: assign the swing foot its target.
 
-    A new target is placed from the commanded reference pose whenever the
-    clock hands the swing to the other foot. Returns (rows, walking,
-    swing_schedule); targets/feet/valid are updated in place for those rows.
+    A new target is placed one step ahead of the stance foot, along the
+    robot's heading plus the commanded turn, whenever the clock hands the
+    swing to the other foot. Returns (rows, walking, swing_schedule);
+    targets/feet/valid are updated in place for those rows.
     """
     rows = riser_height_per_env(env) <= 0
     command = env.command_manager.get_command("base_velocity")
     walking = moving(command) & rows & ~resets
-    state.period_s = effective_period(
-        state.base_period_s, command[:, 0], env.cfg.footstep_clock["max_stride_m"]
-    )
+    state.period_s = speed_period(command[:, 0], state.period_scale, env.cfg.footstep_clock)
     schedule, assigned = clock_schedule(state.phase)
-    # Standing rows (and fresh episodes) hold the reference at the robot;
-    # walking rows keep it unless the robot left the leash.
-    xyz, yaw = course_root_pose(env)
-    state.ref_valid[rows & ~walking] = False
-    sync_reference(state, xyz[:, :2], yaw, rows)
+    _, yaw = course_root_pose(env)
     # New target when the clock hands the swing to the other foot, and when
     # walking resumes after standing (the held target would be stale).
     new_window = rows & ((assigned != state.assigned) | (walking & ~state.active))
     if bool(new_window.any()):
-        fresh, fresh_feet = reference_targets(
-            state.ref_xy, state.ref_yaw, assigned, command, state.period_s,
-            NOMINAL_FOOT_SEPARATION_M,
+        index = torch.arange(env.num_envs, device=env.device)
+        fresh, fresh_feet = heading_targets(
+            centre[index, 1 - assigned, :2], assigned, yaw,
+            command, state.period_s, NOMINAL_FOOT_SEPARATION_M,
         )
         state.targets[new_window] = fresh[new_window]
         state.feet[new_window] = fresh_feet[new_window]
@@ -158,7 +153,7 @@ def audit_after_step(env):
                       | env.termination_manager.time_outs)
         targets, feet, valid = targets.clone(), feet.clone(), valid.clone()
         rolling_rows, rolling_walking, clock_swing = apply_rolling_clock(
-            env, clock_state, targets=targets, feet=feet,
+            env, clock_state, centre=centre, targets=targets, feet=feet,
             valid=valid, resets=resets_now,
         )
         coordinator.runtime.target_index[rolling_rows] = clock_state.window[rolling_rows]
@@ -415,7 +410,7 @@ def audit_after_step(env):
         coordinator.runtime.target_index[rolling_rows] = clock_state.window[rolling_rows]
         command = env.command_manager.get_command("base_velocity")
         clock_state.advance(
-            float(env.step_dt), rolling_walking, command,
+            float(env.step_dt), rolling_walking,
             yaw_rate_error=data.root_ang_vel_b[:, 2] - command[:, 2],
         )
     # Stall terminations this step (same condition the termination term saw:

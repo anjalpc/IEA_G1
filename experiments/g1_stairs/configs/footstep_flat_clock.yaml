@@ -38,11 +38,17 @@ command:
       lin_vel_x: [0.2, 0.5]
 footstep_clock:
   enabled: true
-  # One cycle = left swing + right swing with two double supports. Each
-  # episode draws its own cycle time, so the policy learns to follow any
-  # clock in the range (calm stairs will need the slow end).
-  period_s: [0.6, 1.2]
-  # Stride = speed x cycle time, capped here by shortening the cycle.
+  # One cycle = left swing + right swing with two double supports. The
+  # cycle time follows the commanded speed, as a joystick needs: linear from
+  # period_slow_s (at <= 0.1 m/s) to period_fast_s (at >= 0.6 m/s), times a
+  # per-episode jitter of +-period_jitter so no single rhythm is memorised.
+  # Steps = speed x half a cycle: ~7 cm at 0.15 m/s, ~15 cm at 0.35,
+  # ~21 cm at 0.6.
+  period_slow_s: 1.0
+  period_fast_s: 0.7
+  period_jitter: 0.1
+  # Stride (two steps) = speed x cycle time, capped here: above the cap only
+  # the rhythm gets quicker.
   max_stride_m: 0.55
 execution:
   environments: 2048

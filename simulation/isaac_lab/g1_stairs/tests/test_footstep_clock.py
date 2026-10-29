@@ -7,20 +7,25 @@ from simulation.isaac_lab.g1_stairs import footstep_clock as fc
 
 
 class ClockConfigTests(unittest.TestCase):
+    GOOD = {"enabled": True, "period_slow_s": 1.0, "period_fast_s": 0.7, "period_jitter": 0.1, "max_stride_m": 0.55}
+
     def test_disabled_and_valid(self):
         self.assertIsNone(fc.validate_clock_cfg(None))
         self.assertIsNone(fc.validate_clock_cfg({"enabled": False}))
-        cfg = fc.validate_clock_cfg(
-            {"enabled": True, "period_s": [0.6, 1.2], "max_stride_m": 0.55})
-        self.assertEqual(cfg["period_s"], (0.6, 1.2))
+        self.assertEqual(fc.validate_clock_cfg(dict(self.GOOD)), self.GOOD)
 
     def test_rejects_bad_values(self):
-        for bad in ({"enabled": True, "period_s": [1.2, 0.6], "max_stride_m": 0.5},
-                    {"enabled": True, "period_s": [0.6, 1.2], "max_stride_m": 2.0},
-                    {"enabled": True, "period_s": [0.6, 1.2], "max_stride_m": 0.5,
-                     "typo": 1}):
+        for change in ({"period_fast_s": 1.2},            # faster than slow
+                       {"period_jitter": 0.5},
+                       {"max_stride_m": 2.0},
+                       {"typo": 1},
+                       {"period_s": [0.6, 1.2]}):          # old key
             with self.assertRaises(ValueError):
-                fc.validate_clock_cfg(bad)
+                fc.validate_clock_cfg({**self.GOOD, **change})
+        missing = dict(self.GOOD)
+        del missing["period_jitter"]
+        with self.assertRaises(ValueError):
+            fc.validate_clock_cfg(missing)
 
 
 class ScheduleTests(unittest.TestCase):
@@ -43,92 +48,78 @@ class ScheduleTests(unittest.TestCase):
         self.assertAlmostEqual(out[0, 0].item(), 1.0, places=6)
         self.assertEqual(out[1].tolist(), [0.0, 0.0])
 
-    def test_effective_period_caps_stride(self):
-        base = torch.tensor([1.2, 1.2, 0.6])
-        speed = torch.tensor([0.3, 0.6, 0.6])
-        out = fc.effective_period(base, speed, 0.55)
-        self.assertAlmostEqual(out[0].item(), 1.2, places=6)       # 0.36 m stride
-        self.assertAlmostEqual(out[1].item(), 0.55 / 0.6, places=6)  # capped
-        self.assertAlmostEqual(out[2].item(), 0.6, places=6)
+    def test_speed_period(self):
+        cfg = {"enabled": True, "period_slow_s": 1.0, "period_fast_s": 0.7, "period_jitter": 0.1, "max_stride_m": 0.55}
+        speed = torch.tensor([0.0, 0.1, 0.35, 0.6, 1.0, 0.35])
+        scale = torch.tensor([1.0, 1.0, 1.0, 1.0, 1.0, 1.1])
+        out = fc.speed_period(speed, scale, cfg)
+        self.assertAlmostEqual(out[0].item(), 1.0, places=6)       # slow end
+        self.assertAlmostEqual(out[1].item(), 1.0, places=6)
+        self.assertAlmostEqual(out[2].item(), 0.85, places=6)      # halfway
+        self.assertAlmostEqual(out[3].item(), 0.7, places=6)       # fast end
+        self.assertAlmostEqual(out[4].item(), 0.55, places=6)      # stride cap 0.55 m
+        self.assertAlmostEqual(out[5].item(), 0.935, places=6)     # jitter scale
 
     def test_moving(self):
         cmd = torch.tensor([[0.0, 0.0, 0.0], [0.3, 0.0, 0.0], [0.0, 0.0, 0.2]])
         self.assertEqual(fc.moving(cmd).tolist(), [False, True, True])
 
 
-class ReferenceTargetTests(unittest.TestCase):
-    def test_straight_ahead_quarter_stride_ahead_of_reference(self):
+class HeadingTargetTests(unittest.TestCase):
+    def test_straight_ahead_one_step_from_stance(self):
         cmd = torch.tensor([[0.4, 0.0, 0.0]])
-        targets, feet = fc.reference_targets(
-            torch.tensor([[1.0, 0.0]]), torch.tensor([0.0]), torch.tensor([0]),
+        targets, feet = fc.heading_targets(
+            torch.tensor([[1.0, -0.1175]]), torch.tensor([0]), torch.tensor([0.0]),
             cmd, torch.tensor([1.0]), 0.235)
         self.assertEqual(feet.tolist(), [[0, 1]])
-        # touchdown half a cycle later: reference at 1.2, foot 0.1 ahead
-        self.assertAlmostEqual(targets[0, 0, 0].item(), 1.3, places=6)
+        self.assertAlmostEqual(targets[0, 0, 0].item(), 1.2, places=6)
         self.assertAlmostEqual(targets[0, 0, 1].item(), 0.1175, places=6)
-        self.assertAlmostEqual(targets[0, 1, 0].item(), 1.5, places=6)
+        self.assertAlmostEqual(targets[0, 1, 0].item(), 1.4, places=6)
         self.assertAlmostEqual(targets[0, 1, 1].item(), -0.1175, places=6)
         self.assertEqual(targets[0, 0, 2].item(), 0.0)
 
-    def test_turn_command_rotates_targets(self):
-        cmd = torch.tensor([[0.0, 0.0, 0.5]])
-        targets, _ = fc.reference_targets(
-            torch.tensor([[0.0, 0.0]]), torch.tensor([0.0]), torch.tensor([1]),
-            cmd, torch.tensor([1.0]), 0.235)
+    def test_robot_heading_rotates_steps(self):
+        # Robot heading 90 deg: forward is +y, the right foot lies at +x.
+        targets, _ = fc.heading_targets(
+            torch.tensor([[0.0, 0.0]]), torch.tensor([1]), torch.tensor([math.pi / 2]),
+            torch.tensor([[0.2, 0.0, 0.0]]), torch.tensor([2.0]), 0.235)
+        self.assertAlmostEqual(targets[0, 0, 0].item(), 0.235, places=5)
+        self.assertAlmostEqual(targets[0, 0, 1].item(), 0.2, places=5)
+        self.assertAlmostEqual(targets[0, 0, 3].item(), math.pi / 2, places=6)
+
+    def test_turn_command_turns_heading_at_touchdown(self):
+        targets, _ = fc.heading_targets(
+            torch.tensor([[0.0, 0.0]]), torch.tensor([0]), torch.tensor([0.0]),
+            torch.tensor([[0.0, 0.0, 0.5]]), torch.tensor([1.0]), 0.235)
         self.assertAlmostEqual(targets[0, 0, 3].item(), 0.25, places=6)
         self.assertAlmostEqual(targets[0, 1, 3].item(), 0.5, places=6)
-        # right foot in place: half the separation to the right of a 0.25 rad heading
-        self.assertAlmostEqual(targets[0, 0, 0].item(), 0.1175 * math.sin(0.25), places=5)
-        self.assertAlmostEqual(targets[0, 0, 1].item(), -0.1175 * math.cos(0.25), places=5)
-
-    def test_follow_reference_integrates_body_command(self):
-        xy, yaw = fc.follow_reference(torch.tensor([[0.0, 0.0]]), torch.tensor([math.pi / 2]),
-                                      torch.tensor([[0.5, 0.0, 0.0]]), 2.0)
-        self.assertAlmostEqual(xy[0, 0].item(), 0.0, places=5)
-        self.assertAlmostEqual(xy[0, 1].item(), 1.0, places=5)
-        self.assertAlmostEqual(yaw[0].item(), math.pi / 2, places=6)
-
-    def test_sync_reference_leash(self):
-        state = fc.RollingClockState(3, "cpu")
-        rows = torch.tensor([True, True, False])
-        fc.sync_reference(state, torch.tensor([[1.0, 0.0]] * 3), torch.zeros(3), rows)
-        self.assertEqual(state.ref_xy[0].tolist(), [1.0, 0.0])      # fresh: synced
-        self.assertEqual(state.ref_xy[2].tolist(), [0.0, 0.0])      # not a clock row
-        root = torch.tensor([[1.2, 0.0], [1.5, 0.0], [0.0, 0.0]])  # 0.2 m and 0.5 m off
-        fc.sync_reference(state, root, torch.zeros(3), rows)
-        self.assertEqual(state.ref_xy[0].tolist(), [1.0, 0.0])      # inside leash: kept
-        self.assertEqual(state.ref_xy[1].tolist(), [1.5, 0.0])      # beyond: re-synced
-        self.assertEqual(state.ref_resyncs.tolist(), [0, 1, 0])
 
 
 class StateTests(unittest.TestCase):
     def test_reset_and_advance(self):
         torch.manual_seed(0)
         state = fc.RollingClockState(64, "cpu")
-        state.reset(None, (0.6, 1.2))
-        self.assertTrue(bool(((state.base_period_s >= 0.6) & (state.base_period_s <= 1.2)).all()))
+        state.reset(None, 0.1)
+        self.assertTrue(bool(((state.period_scale >= 0.9) & (state.period_scale <= 1.1)).all()))
         self.assertTrue(set(state.phase.tolist()) <= {0.0, 0.5})
         self.assertEqual(set(state.phase.tolist()), {0.0, 0.5})  # both leads occur
         state.period_s[:] = 1.0
         walking = torch.zeros(64, dtype=torch.bool)
         walking[0] = True
         before = state.phase.clone()
-        state.advance(0.25, walking, torch.zeros(64, 3))
+        state.advance(0.25, walking)
         self.assertAlmostEqual(state.phase[0].item(), (before[0].item() + 0.25) % 1.0, places=6)
         self.assertEqual(state.phase[1].item(), before[1].item())   # standing holds
-        state.reset(torch.tensor([0]), (0.8, 0.8))
-        self.assertAlmostEqual(state.base_period_s[0].item(), 0.8, places=6)
+        state.reset(torch.tensor([0]), 0.0)
+        self.assertEqual(state.period_scale[0].item(), 1.0)
         self.assertEqual(state.assigned[0].item(), -1)
 
-    def test_advance_moves_phase_and_reference_of_walking_rows(self):
+    def test_advance_moves_phase_of_walking_rows(self):
         state = fc.RollingClockState(2, "cpu")
         state.period_s[:] = 1.0
-        walking = torch.tensor([True, False])
-        state.advance(0.25, walking, torch.tensor([[0.4, 0.0, 0.0]] * 2))
+        state.advance(0.25, torch.tensor([True, False]))
         self.assertAlmostEqual(state.phase[0].item(), 0.25, places=6)
         self.assertEqual(state.phase[1].item(), 0.0)
-        self.assertAlmostEqual(state.ref_xy[0, 0].item(), 0.1, places=6)
-        self.assertEqual(state.ref_xy[1, 0].item(), 0.0)
 
 
 class YawDriftTests(unittest.TestCase):
@@ -137,8 +128,7 @@ class YawDriftTests(unittest.TestCase):
         state.period_s[:] = 1.0
         rows = torch.tensor(walking)
         for err in errors:   # 4 steps of 0.25 s = one full cycle (exact in float)
-            state.advance(0.25, rows, torch.zeros(len(walking), 3),
-                          yaw_rate_error=torch.tensor(err))
+            state.advance(0.25, rows, yaw_rate_error=torch.tensor(err))
         return state
 
     def test_steady_drift_is_held_after_the_cycle(self):
@@ -155,14 +145,14 @@ class YawDriftTests(unittest.TestCase):
     def test_no_value_before_a_full_cycle_and_standing_clears(self):
         state = self.run_cycle([[0.05, 0.05]] * 3)
         self.assertEqual(state.cycle_yaw_error.tolist(), [0.0, 0.0])
-        state.advance(0.25, torch.tensor([True, True]), torch.zeros(2, 3),
+        state.advance(0.25, torch.tensor([True, True]),
                       yaw_rate_error=torch.tensor([0.05, 0.05]))
         self.assertAlmostEqual(state.cycle_yaw_error[0].item(), 0.05, places=5)
-        state.advance(0.25, torch.tensor([True, False]), torch.zeros(2, 3),
+        state.advance(0.25, torch.tensor([True, False]),
                       yaw_rate_error=torch.tensor([0.05, 0.05]))
         self.assertAlmostEqual(state.cycle_yaw_error[0].item(), 0.05, places=5)
         self.assertEqual(state.cycle_yaw_error[1].item(), 0.0)   # standing row cleared
-        state.reset(torch.tensor([0]), (1.0, 1.0))
+        state.reset(torch.tensor([0]), 0.0)
         self.assertEqual(state.cycle_yaw_error[0].item(), 0.0)
 
     def test_cost(self):
@@ -170,10 +160,6 @@ class YawDriftTests(unittest.TestCase):
         self.assertEqual(cost[0].item(), 0.0)
         self.assertAlmostEqual(cost[1].item(), 1 - math.exp(-1), places=6)
         self.assertAlmostEqual(cost[2].item(), 1.0, places=6)
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 class ApplyRollingClockTests(unittest.TestCase):
@@ -187,7 +173,9 @@ class ApplyRollingClockTests(unittest.TestCase):
         self.command = torch.tensor([[0.4, 0.0, 0.0], [0.4, 0.0, 0.0], [0.0, 0.0, 0.0]])
         self.env = SimpleNamespace(
             num_envs=3, device="cpu",
-            cfg=SimpleNamespace(footstep_clock={"enabled": True, "period_s": (1.0, 1.0),
+            # slow == fast and no jitter: a fixed 1.0 s cycle at any speed
+            cfg=SimpleNamespace(footstep_clock={"enabled": True, "period_slow_s": 1.0,
+                                                "period_fast_s": 1.0, "period_jitter": 0.0,
                                                 "max_stride_m": 0.55}),
             command_manager=SimpleNamespace(get_command=lambda name: self.command),
         )
@@ -196,31 +184,31 @@ class ApplyRollingClockTests(unittest.TestCase):
             mock.patch.object(lp, "riser_height_per_env",
                               lambda env: torch.tensor([0.0, 0.04, 0.0])),
             mock.patch.object(lp, "course_root_pose",
-                              lambda env: (self.root, torch.zeros(3))),
+                              lambda env: (torch.zeros(3, 3), self.yaw)),
         ]
         for p in patches:
             p.start()
             self.addCleanup(p.stop)
         self.state = lp.ensure_rolling_clock(self.env)
         self.state.phase[:] = 0.0        # left assigned first
-        self.root = torch.zeros(3, 3)
+        self.yaw = torch.zeros(3)
+        self.centre = torch.tensor([[[0.0, 0.1175, 0.0], [0.0, -0.1175, 0.0]]] * 3)
 
     def run_once(self):
         targets = torch.full((3, 2, 4), 9.0)
         feet = torch.zeros((3, 2), dtype=torch.long)
         valid = torch.ones((3, 2), dtype=torch.bool)
         rows, walking, swing = self.lp.apply_rolling_clock(
-            self.env, self.state, targets=targets,
+            self.env, self.state, centre=self.centre, targets=targets,
             feet=feet, valid=valid, resets=torch.zeros(3, dtype=torch.bool))
         return rows, walking, targets, feet, valid
 
-    def test_first_window_targets_swing_foot_from_reference(self):
+    def test_first_window_targets_swing_foot_from_stance(self):
         rows, walking, targets, feet, valid = self.run_once()
         self.assertEqual(rows.tolist(), [True, False, True])
         self.assertEqual(walking.tolist(), [True, False, False])
-        # reference starts at the robot (0, 0); touchdown half a cycle later
-        # at 0.2 m, foot a quarter stride (0.1 m) ahead of it
-        self.assertAlmostEqual(targets[0, 0, 0].item(), 0.3, places=6)
+        # left foot: from the right stance foot, step = 0.4 * 1.0 / 2
+        self.assertAlmostEqual(targets[0, 0, 0].item(), 0.2, places=6)
         self.assertAlmostEqual(targets[0, 0, 1].item(), 0.1175, places=6)
         self.assertEqual(feet[0].tolist(), [0, 1])
         self.assertEqual(valid[0].tolist(), [True, True])
@@ -245,20 +233,29 @@ class ApplyRollingClockTests(unittest.TestCase):
     def test_resume_after_standing_replans(self):
         self.run_once()
         self.command[0, 0] = 0.0
+        self.yaw[0] = 0.3                                # turned while standing
         self.run_once()                                  # standing
         self.assertEqual(self.state.window[0].item(), 1)
         self.command[0, 0] = 0.4
-        self.root[0, 0] = 0.5                            # robot moved while standing
+        self.centre[0, 1, 0] = 0.5                       # stance foot moved
         _, _, targets, _, _ = self.run_once()
         self.assertEqual(self.state.window[0].item(), 2)
-        self.assertAlmostEqual(targets[0, 0, 0].item(), 0.8, places=6)
+        self.assertAlmostEqual(targets[0, 0, 3].item(), 0.3, places=6)
 
-    def test_drift_does_not_move_targets(self):
+    def test_targets_follow_the_robot_heading(self):
         self.run_once()
-        self.state.advance(0.02, torch.tensor([True, False, False]), self.command)
-        self.root[0, 1] = 0.2                            # robot drifted sideways
+        self.yaw[0] = 0.2                                # robot now faces 0.2 rad
         self.state.phase[0] = 0.6                        # next window
         _, _, targets, _, _ = self.run_once()
-        # target stays on the commanded line, not shifted by the drift
-        self.assertAlmostEqual(targets[0, 0, 1].item(), -0.1175, places=5)
-        self.assertEqual(self.state.ref_resyncs[0].item(), 0)
+        # body-relative: no stored heading pulls the step back
+        self.assertAlmostEqual(targets[0, 0, 3].item(), 0.2, places=6)
+
+    def test_period_follows_the_command(self):
+        self.env.cfg.footstep_clock.update(period_slow_s=1.0, period_fast_s=0.7)
+        self.command[0, 0] = 0.6
+        self.run_once()
+        self.assertAlmostEqual(self.state.period_s[0].item(), 0.7, places=6)
+
+
+if __name__ == "__main__":
+    unittest.main()
