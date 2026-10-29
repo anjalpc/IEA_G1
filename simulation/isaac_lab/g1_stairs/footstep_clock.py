@@ -32,6 +32,10 @@ STAND_SPEED_MPS = 0.1            # below this and STAND_YAW_RATE: stand
 STAND_YAW_RATE_RADPS = 0.1
 REFERENCE_LEASH_M = 0.3           # re-sync the reference beyond this offset
 REFERENCE_LEASH_YAW_RAD = 0.5     # or beyond this heading error (~29 deg)
+# Uncommanded rotation: yaw-rate error averaged over each full gait cycle.
+# The in-step pelvis twist cancels over a cycle; a steady drift does not.
+# Rates only: no heading is stored, a past turn is never undone.
+YAW_DRIFT_STD_RADPS = 0.035       # 2 deg/s cycle-average error costs 63%
 
 
 def validate_clock_cfg(cfg) -> dict | None:
@@ -94,6 +98,11 @@ def clock_features(phase, active):
     angle = 2 * math.pi * phase
     clock = torch.stack((torch.sin(angle), torch.cos(angle)), dim=-1)
     return torch.where(active[:, None], clock, torch.zeros_like(clock))
+
+
+def yaw_drift_cost(cycle_yaw_error):
+    """[N] cost in [0, 1): 0 when the cycle-average turn rate matches the command."""
+    return 1.0 - torch.exp(-(cycle_yaw_error / YAW_DRIFT_STD_RADPS) ** 2)
 
 
 def follow_reference(ref_xy, ref_yaw, command, dt):
@@ -179,6 +188,9 @@ class RollingClockState:
         self.ref_yaw = torch.zeros(num_envs, device=self.device)
         self.ref_valid = torch.zeros(num_envs, dtype=torch.bool, device=self.device)
         self.ref_resyncs = torch.zeros(num_envs, dtype=torch.long, device=self.device)
+        self.yaw_error_sum = torch.zeros(num_envs, device=self.device)
+        self.yaw_error_time = torch.zeros(num_envs, device=self.device)
+        self.cycle_yaw_error = torch.zeros(num_envs, device=self.device)
 
     def reset(self, env_ids, period_range_s):
         """New cycle time per episode; random lead foot via half-cycle offset."""
@@ -196,11 +208,32 @@ class RollingClockState:
         self.active[ids] = False
         self.ref_valid[ids] = False
         self.ref_resyncs[ids] = 0
+        self.yaw_error_sum[ids] = 0.0
+        self.yaw_error_time[ids] = 0.0
+        self.cycle_yaw_error[ids] = 0.0
 
-    def advance(self, dt, rows, command):
-        """Move the phase and the reference pose of walking rows by dt."""
+    def advance(self, dt, rows, command, yaw_rate_error=None):
+        """Move the phase and the reference pose of walking rows by dt.
+
+        ``yaw_rate_error`` [N] (measured minus commanded, rad/s) is averaged
+        over each cycle; the average is held for the next cycle. Rows not
+        walking clear it.
+        """
         step = torch.where(rows, dt / self.period_s, torch.zeros_like(self.phase))
+        previous = self.phase
         self.phase = torch.remainder(self.phase + step, 1.0)
+        if yaw_rate_error is not None:
+            self.yaw_error_sum = torch.where(
+                rows, self.yaw_error_sum + yaw_rate_error * dt, torch.zeros_like(self.yaw_error_sum))
+            self.yaw_error_time = torch.where(
+                rows, self.yaw_error_time + dt, torch.zeros_like(self.yaw_error_time))
+            wrapped = rows & (self.phase < previous)
+            average = self.yaw_error_sum / self.yaw_error_time.clamp_min(dt)
+            self.cycle_yaw_error = torch.where(
+                wrapped, average,
+                torch.where(rows, self.cycle_yaw_error, torch.zeros_like(average)))
+            self.yaw_error_sum = torch.where(wrapped, torch.zeros_like(average), self.yaw_error_sum)
+            self.yaw_error_time = torch.where(wrapped, torch.zeros_like(average), self.yaw_error_time)
         xy, yaw = follow_reference(self.ref_xy, self.ref_yaw, command, dt)
         self.ref_xy = torch.where(rows[:, None], xy, self.ref_xy)
         self.ref_yaw = torch.where(rows, yaw, self.ref_yaw)

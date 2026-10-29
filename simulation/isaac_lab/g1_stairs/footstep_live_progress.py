@@ -239,6 +239,10 @@ def audit_after_step(env):
             keep, clock_stance, torch.zeros_like(clock_stance))
         env._g1_footstep_directed_swing = torch.where(
             keep, clock_motion, torch.zeros_like(clock_motion))
+        # Uncommanded rotation: last full cycle's average yaw-rate error.
+        from .footstep_clock import yaw_drift_cost
+        drift = yaw_drift_cost(clock_state.cycle_yaw_error)
+        env._g1_footstep_yaw_drift = torch.where(keep, drift, torch.zeros_like(drift))
     # Pre-transition assigned foothold; reward only new best distance.
     from .footstep_rewards import new_target_progress
 
@@ -409,9 +413,10 @@ def audit_after_step(env):
         # progress credit, finite); the next window resets it.
         env._g1_footstep_best_distance[advanced & rolling_rows] = 0.0
         coordinator.runtime.target_index[rolling_rows] = clock_state.window[rolling_rows]
+        command = env.command_manager.get_command("base_velocity")
         clock_state.advance(
-            float(env.step_dt), rolling_walking,
-            env.command_manager.get_command("base_velocity"),
+            float(env.step_dt), rolling_walking, command,
+            yaw_rate_error=data.root_ang_vel_b[:, 2] - command[:, 2],
         )
     # Stall terminations this step (same condition the termination term saw:
     # the timer is only advanced below).

@@ -367,6 +367,7 @@ class GeometryTrace:
                 "reference_xy": self.values(rolling.ref_xy[0]),
                 "reference_yaw": float(rolling.ref_yaw[0].item()),
                 "reference_resyncs": int(rolling.ref_resyncs[0].item()),
+                "cycle_yaw_error_radps": float(rolling.cycle_yaw_error[0].item()),
             }
 
         coordinator = getattr(env, "_g1_footstep_coordinator", None)

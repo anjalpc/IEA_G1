@@ -131,6 +131,47 @@ class StateTests(unittest.TestCase):
         self.assertEqual(state.ref_xy[1, 0].item(), 0.0)
 
 
+class YawDriftTests(unittest.TestCase):
+    def run_cycle(self, errors, walking=(True, True)):
+        state = fc.RollingClockState(len(walking), "cpu")
+        state.period_s[:] = 1.0
+        rows = torch.tensor(walking)
+        for err in errors:   # 4 steps of 0.25 s = one full cycle (exact in float)
+            state.advance(0.25, rows, torch.zeros(len(walking), 3),
+                          yaw_rate_error=torch.tensor(err))
+        return state
+
+    def test_steady_drift_is_held_after_the_cycle(self):
+        state = self.run_cycle([[0.02, 0.0]] * 4)
+        self.assertAlmostEqual(state.cycle_yaw_error[0].item(), 0.02, places=5)
+        self.assertEqual(state.cycle_yaw_error[1].item(), 0.0)
+        self.assertEqual(state.yaw_error_time[0].item(), 0.0)    # new cycle started
+
+    def test_in_step_twist_cancels(self):
+        twist = [[0.3, 0.0], [-0.3, 0.0], [0.3, 0.0], [-0.3, 0.0]]
+        state = self.run_cycle(twist)
+        self.assertLess(abs(state.cycle_yaw_error[0].item()), 1e-3)
+
+    def test_no_value_before_a_full_cycle_and_standing_clears(self):
+        state = self.run_cycle([[0.05, 0.05]] * 3)
+        self.assertEqual(state.cycle_yaw_error.tolist(), [0.0, 0.0])
+        state.advance(0.25, torch.tensor([True, True]), torch.zeros(2, 3),
+                      yaw_rate_error=torch.tensor([0.05, 0.05]))
+        self.assertAlmostEqual(state.cycle_yaw_error[0].item(), 0.05, places=5)
+        state.advance(0.25, torch.tensor([True, False]), torch.zeros(2, 3),
+                      yaw_rate_error=torch.tensor([0.05, 0.05]))
+        self.assertAlmostEqual(state.cycle_yaw_error[0].item(), 0.05, places=5)
+        self.assertEqual(state.cycle_yaw_error[1].item(), 0.0)   # standing row cleared
+        state.reset(torch.tensor([0]), (1.0, 1.0))
+        self.assertEqual(state.cycle_yaw_error[0].item(), 0.0)
+
+    def test_cost(self):
+        cost = fc.yaw_drift_cost(torch.tensor([0.0, fc.YAW_DRIFT_STD_RADPS, -1.0]))
+        self.assertEqual(cost[0].item(), 0.0)
+        self.assertAlmostEqual(cost[1].item(), 1 - math.exp(-1), places=6)
+        self.assertAlmostEqual(cost[2].item(), 1.0, places=6)
+
+
 if __name__ == "__main__":
     unittest.main()
 

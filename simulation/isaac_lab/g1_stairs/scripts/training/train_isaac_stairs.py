@@ -799,7 +799,7 @@ def main() -> None:
             # The clock sets the rhythm; Unitree's fixed 0.8 s gait term
             # would fight every other cycle time.
             required = (required - {"gait"}) | {
-                "clock_stance_support", "clock_swing_motion",
+                "clock_stance_support", "clock_swing_motion", "uncommanded_yaw",
             }
         from simulation.isaac_lab.g1_stairs.reward_runtime import (
             active_reward_weights,

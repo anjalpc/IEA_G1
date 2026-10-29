@@ -133,6 +133,12 @@ reward_experiment:
         # (run 20261028_222026: left foot loaded 58% of its window by 1499).
         clock_stance_support: 3.0
         clock_swing_motion: 3.0
+        # Uncommanded rotation, per second, cost in [0, 1): yaw-rate error
+        # averaged over each gait cycle (std 2 deg/s). The per-step Unitree
+        # term (std 0.5 rad/s) cannot see a 1 deg/s drift under the in-step
+        # twist (run 20261029_110922: -12 deg in 10 s, cost 0.0005/s). Same
+        # scale as the clock terms. Rates only: no heading is stored.
+        uncommanded_yaw: -3.0
         flat_feet_clearance: 1.0
         undesired_contacts: -1.0
         # Acquisition 3.0 per hit (was 1.0) to match the clock weight: with

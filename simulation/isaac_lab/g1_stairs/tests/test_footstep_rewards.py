@@ -187,3 +187,13 @@ class ResidualMagnitudeTests(unittest.TestCase):
         from simulation.isaac_lab.g1_stairs.footstep_rewards import residual_magnitude
         with self.assertRaises(RuntimeError):
             residual_magnitude(SimpleNamespace(num_envs=1))
+
+
+class YawDriftRewardTests(unittest.TestCase):
+    def test_reads_cached_cost(self):
+        from types import SimpleNamespace
+        from simulation.isaac_lab.g1_stairs.footstep_rewards import cached_yaw_drift
+        env = SimpleNamespace(num_envs=2, _g1_footstep_yaw_drift=torch.tensor([0.0, 0.5]))
+        self.assertEqual(cached_yaw_drift(env).tolist(), [0.0, 0.5])
+        with self.assertRaises(RuntimeError):
+            cached_yaw_drift(SimpleNamespace(num_envs=2))

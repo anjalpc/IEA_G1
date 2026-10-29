@@ -140,6 +140,14 @@ def cached_net_progress(env):
     return _per_event(env, value)
 
 
+def cached_yaw_drift(env):
+    """Uncommanded rotation cost in [0, 1) (cycle-averaged yaw-rate error)."""
+    value = getattr(env, "_g1_footstep_yaw_drift", None)
+    if value is None or value.shape != (env.num_envs,):
+        raise RuntimeError("missing cached yaw drift")
+    return value
+
+
 def cached_stance_support(env):
     """Observed support during assigned gait-clock stance."""
     value = getattr(env, "_g1_footstep_stance_support", None)
