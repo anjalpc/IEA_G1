@@ -135,9 +135,13 @@ reward_experiment:
         clock_swing_motion: 3.0
         flat_feet_clearance: 1.0
         undesired_contacts: -1.0
-        # One target per step now (was 7 per course): 1.0 per hit.
-        footstep_acquisition: 1.0
-        footstep_target_progress: 0.5
+        # Pay for landing on the target, not for moving towards it.
+        # Acquisition 3.0 per hit (was 1.0) to match the clock weight; progress
+        # 0 (was 0.5): it paid on misses, and with clock 3.0 the policy let its
+        # path drift 12 cm sideways (run 20261029_082518, hits 7/25 at 0.35 m/s).
+        # Clock swing motion already pays for moving the swing foot.
+        footstep_acquisition: 3.0
+        footstep_target_progress: 0.0
         upright: -5.0
         action_rate: -0.05
         dof_pos_limits: -5.0
