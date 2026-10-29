@@ -162,8 +162,12 @@ reward_experiment:
         footstep_failure_termination: -1.0
         footstep_stall_termination: -1.0
         # Cost of changing the frozen Unitree action, per second, raw action
-        # units squared. Lower than the stair runs (-0.5): following a clock
-        # that differs from Unitree's own rhythm needs real corrections.
-        residual_magnitude: -0.1
+        # units squared. -0.5 (was -0.1): at -0.1 the correction cost was
+        # ~0.06/s against ~9/s of reward, and every run with good placement
+        # walked stop-and-go with a rocking pelvis (run 20261029_130700:
+        # speed std within a step 0.105 m/s vs Unitree 0.013, pitch rate
+        # 26 deg/s vs 7). Unitree's own motion is smooth; this keeps the
+        # policy closer to it. Same value as the stair runs.
+        residual_magnitude: -0.5
 launch_gates:
   allow_launch: true
