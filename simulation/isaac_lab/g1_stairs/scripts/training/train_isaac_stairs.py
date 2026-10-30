@@ -825,12 +825,24 @@ def main() -> None:
             raise RuntimeError("residual_magnitude requires balance_residual_control")
         if "terrain_split" not in resolved_config.get("command", {}):
             raise RuntimeError("Footstep bootstrap requires command.terrain_split")
-        if resolved_config["execution"]["maximum_iterations"] not in (500, 1500):
-            raise RuntimeError("Footstep bootstrap must use 500 or 1500 iterations")
         initialization = resolved_config["policy_initialization"]
+        # A resumed run continues a footstep run (its own policy, critic and
+        # optimizer) for 500 or 1000 more iterations; a fresh run starts from
+        # the official prior and trains 500 or 1500.
+        resumed = initialization["type"] == "rsl_rl_training_resume"
+        allowed_iterations = (500, 1000) if resumed else (500, 1500)
+        if resolved_config["execution"]["maximum_iterations"] not in allowed_iterations:
+            raise RuntimeError(
+                f"Footstep bootstrap must use {allowed_iterations} iterations")
         official_onnx = initialization.get("source", {}).get("path")
-        if initialization["type"] == "zero_residual_actor":
-            residual = resolved_config.get("balance_residual_control", {})
+        residual = resolved_config.get("balance_residual_control", {})
+        if resumed:
+            source = initialization.get("source", {})
+            if not source.get("path") or not source.get("sha256"):
+                raise RuntimeError("Footstep resume needs source.path and source.sha256")
+            if not residual.get("enabled", False) or not residual.get("teacher_onnx"):
+                raise RuntimeError("Footstep resume needs the residual on the ONNX teacher")
+        elif initialization["type"] == "zero_residual_actor":
             if not residual.get("enabled", False) or (
                 residual.get("teacher_onnx") != official_onnx
             ):
