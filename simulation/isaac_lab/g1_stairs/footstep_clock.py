@@ -15,13 +15,16 @@ quicker at high speed, with a small per-episode jitter); step length is
 speed x half a cycle, capped by ``max_stride_m`` (above the cap only the
 rhythm gets quicker).
 
-Stair tiles run the same clock at a fixed, slower cycle (``period_stairs_s``)
-with the stair plan's targets: one tread per step, the foot fixed per tread.
-The plan decides which foot swings: when a swing window opens for a foot
-the plan is not waiting for (after a miss), the clock is shifted half a
-cycle so the foot the plan waits for swings instead. Deciding when the
-swing opens, not at the hand-over, leaves the double support for a late
-touchdown to count (a hit registered just after the hand-over).
+Stair tiles: the approach is walked like a flat tile (rolling targets,
+speed-based cycle). When the stair plan's first ground target is within one
+normal step of the stance foot, the tile hands over to the stair plan, whose
+first foot is the foot about to swing; from then on the cycle is fixed
+(``period_stairs_s``) and one tread is one step. The plan decides which foot
+swings: when a swing window opens for a foot the plan is not waiting for
+(after a miss), the clock is shifted half a cycle. A stair target only
+counts during its foot's own swing window and the double support after it,
+so extra steps outside the rhythm earn nothing (as on flat tiles, where a
+target lives for one window).
 
 Pure tensors; no Isaac imports.
 """
@@ -41,6 +44,7 @@ PERIOD_FAST_SPEED_MPS = 0.6      # period_fast_s applies at or above this speed
 # The in-step pelvis twist cancels over a cycle; a steady drift does not.
 # Rates only: no heading is stored, a past turn is never undone.
 YAW_DRIFT_STD_RADPS = 0.035       # 2 deg/s cycle-average error costs 63%
+STAIR_HANDOVER_REACH_M = 0.30     # first plan target within this of the stance foot
 
 
 def validate_clock_cfg(cfg) -> dict | None:
@@ -121,6 +125,20 @@ def follow_plan_foot(phase, was_swinging, plan_foot, rows):
     return torch.where(shift, torch.remainder(phase + 0.5, 1.0), phase)
 
 
+def own_window(phase, foot):
+    """[N] True during ``foot``'s swing window and the double support after
+    it (left: phase 0.15-0.65, right: 0.65-1.0 and 0.0-0.15)."""
+    ds, ss = DOUBLE_SUPPORT_FRACTION, SINGLE_SUPPORT_FRACTION
+    left = (phase >= ds) & (phase < 2 * ds + ss)
+    return torch.where(foot == 0, left, ~left)
+
+
+def stair_handover(first_plan_x, stance_x, approach, new_window):
+    """[N] approach rows whose first stair target, at a new swing window, is
+    within one normal step of the stance foot (or already passed)."""
+    return approach & new_window & (first_plan_x - stance_x <= STAIR_HANDOVER_REACH_M)
+
+
 def clock_features(phase, active):
     """[N,2] sin/cos of the cycle; zero while standing."""
     angle = 2 * math.pi * phase
@@ -188,6 +206,7 @@ class RollingClockState:
         self.feet = torch.zeros((num_envs, 2), dtype=torch.long, device=self.device)
         self.active = torch.zeros(num_envs, dtype=torch.bool, device=self.device)
         self.swinging = torch.zeros(num_envs, dtype=torch.bool, device=self.device)
+        self.on_plan = torch.zeros(num_envs, dtype=torch.bool, device=self.device)
         self.yaw_error_sum = torch.zeros(num_envs, device=self.device)
         self.yaw_error_time = torch.zeros(num_envs, device=self.device)
         self.cycle_yaw_error = torch.zeros(num_envs, device=self.device)
@@ -207,6 +226,7 @@ class RollingClockState:
         self.targets[ids] = 0.0
         self.active[ids] = False
         self.swinging[ids] = False
+        self.on_plan[ids] = False
         self.yaw_error_sum[ids] = 0.0
         self.yaw_error_time[ids] = 0.0
         self.cycle_yaw_error[ids] = 0.0

@@ -38,7 +38,8 @@ command:
       ang_vel_z: [-0.2, 0.2]
       rel_standing_envs: 0.02
     # Stair tiles: sampled by the command term, then replaced every step by
-    # one tread per step (2 x 0.25 m / period_stairs_s, ~0.38 m/s).
+    # the climbing speed (2 x 0.25 m / period_stairs_s, ~0.45 m/s), also on
+    # the approach, which is walked like a flat tile until the hand-over.
     stairs:
       lin_vel_x: [0.2, 0.5]
 footstep_clock:
@@ -51,16 +52,19 @@ footstep_clock:
   # ~21 cm at 0.6.
   period_slow_s: 1.0
   period_fast_s: 0.7
-  # Stair tiles: fixed, slower cycle; one 0.25 m tread per step gives
-  # ~0.38 m/s and a 0.45 s swing window for the lift.
-  period_stairs_s: 1.3
+  # Stair tiles, once the stair plan has taken over: fixed cycle, one
+  # 0.25 m tread per step (~0.45 m/s, 0.39 s swing window). 1.1 s is the
+  # slowest cycle the flat stage demonstrated; 1.3 s was never followed
+  # (run 20261029_160519: steps every 0.18-0.22 s, lift-off in the own
+  # window at chance level).
+  period_stairs_s: 1.1
   period_jitter: 0.1
   # Stride (two steps) = speed x cycle time, capped here: above the cap only
   # the rhythm gets quicker.
   max_stride_m: 0.55
 execution:
   environments: 2048
-  maximum_iterations: 1500
+  maximum_iterations: 500
   training_seed: 42
 # Residual on the frozen official Unitree policy: the teacher always produces
 # its normal walking from the 480-D locomotion prefix; the trained actor sees

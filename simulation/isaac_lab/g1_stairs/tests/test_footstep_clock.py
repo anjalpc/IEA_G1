@@ -62,6 +62,19 @@ class ScheduleTests(unittest.TestCase):
         self.assertAlmostEqual(out[4].item(), 0.55, places=6)      # stride cap 0.55 m
         self.assertAlmostEqual(out[5].item(), 0.935, places=6)     # jitter scale
 
+    def test_own_window(self):
+        phase = torch.tensor([0.10, 0.20, 0.60, 0.70, 0.10, 0.60])
+        foot = torch.tensor([0, 0, 0, 0, 1, 1])
+        self.assertEqual(fc.own_window(phase, foot).tolist(),
+                         [False, True, True, False, True, False])
+
+    def test_stair_handover(self):
+        out = fc.stair_handover(torch.tensor([1.0, 1.0, 1.0, 1.0]),
+                                torch.tensor([0.75, 0.60, 0.75, 1.2]),
+                                torch.tensor([True, True, False, True]),
+                                torch.tensor([True, True, True, True]))
+        self.assertEqual(out.tolist(), [True, False, False, True])
+
     def test_follow_plan_foot(self):
         # rows: right swing opens but the plan waits for left (shift); right
         # swing opens for the planned right foot (keep); inside the right
@@ -211,21 +224,23 @@ class ApplyRollingClockTests(unittest.TestCase):
         self.yaw = torch.zeros(3)
         self.centre = torch.tensor([[[0.0, 0.1175, 0.0], [0.0, -0.1175, 0.0]]] * 3)
 
-    def run_once(self, plan_foot=0, plan_started=False):
+    def run_once(self, plan_foot=0, on_plan=None, first_plan_x=5.0):
+        if on_plan is not None:
+            self.state.on_plan[1] = on_plan
         targets = torch.full((3, 2, 4), 9.0)
         feet = torch.zeros((3, 2), dtype=torch.long)
         feet[:, 0] = plan_foot
         valid = torch.ones((3, 2), dtype=torch.bool)
-        rows, walking, swing = self.lp.apply_rolling_clock(
+        rows, walking, swing, self.handover = self.lp.apply_rolling_clock(
             self.env, self.state, centre=self.centre, targets=targets,
             feet=feet, valid=valid, resets=torch.zeros(3, dtype=torch.bool),
-            plan_started=torch.full((3,), plan_started))
+            first_plan_x=torch.full((3,), first_plan_x))
         return rows, walking, targets, feet, valid
 
     def test_first_window_targets_swing_foot_from_stance(self):
-        rows, walking, targets, feet, valid = self.run_once()
+        rows, walking, targets, feet, valid = self.run_once(on_plan=True)
         self.assertEqual(rows.tolist(), [True, False, True])
-        # stair row walks while its plan has a target; standing flat row does not
+        # stair row on its plan walks while the plan has a target; standing flat row does not
         self.assertEqual(walking.tolist(), [True, True, False])
         # left foot: from the right stance foot, step = 0.4 * 1.0 / 2
         self.assertAlmostEqual(targets[0, 0, 0].item(), 0.2, places=6)
@@ -276,31 +291,55 @@ class ApplyRollingClockTests(unittest.TestCase):
         self.run_once()
         self.assertAlmostEqual(self.state.period_s[0].item(), 0.7, places=6)
 
-    def test_stair_row_keeps_plan_and_stair_cycle(self):
-        _, _, targets, _, _ = self.run_once()
-        self.assertEqual(targets[1, 0, 0].item(), 9.0)            # stair plan untouched
+    def test_stair_approach_walks_like_a_flat_tile(self):
+        rows, _, targets, _, _ = self.run_once()                  # far from the stairs
+        self.assertEqual(rows.tolist(), [True, True, True])
+        self.assertAlmostEqual(targets[1, 0, 0].item(), 0.2, places=6)   # rolling target
+        self.assertAlmostEqual(self.state.period_s[1].item(), 1.0, places=6)
+        self.assertFalse(bool(self.handover[1]))
+
+    def test_handover_near_the_stairs_starts_the_plan_with_the_next_swing_foot(self):
+        _, _, _, _, valid = self.run_once(first_plan_x=0.25)      # stance at 0.0
+        self.assertTrue(bool(self.handover[1]))
+        self.assertFalse(bool(self.handover[0]))                  # flat tiles never hand over
+        self.assertTrue(bool(self.state.on_plan[1]))
+        self.assertEqual(self.state.assigned[1].item(), 0)        # left swings next
+        self.assertEqual(valid[1].tolist(), [False, False])       # plan targets next step
+        rows, _, targets, _, _ = self.run_once()
+        self.assertFalse(bool(rows[1]))
+        self.assertEqual(targets[1, 0, 0].item(), 9.0)            # stair plan kept
         self.assertAlmostEqual(self.state.period_s[1].item(), 1.3, places=6)
+
+    def test_stair_target_only_valid_in_its_own_window(self):
+        self.state.phase[1] = 0.05                                # double support before left
+        _, _, _, _, valid = self.run_once(plan_foot=0, on_plan=True)
+        self.assertFalse(bool(valid[1, 0]))
+        self.state.phase[1] = 0.30                                # left swinging
+        _, _, _, _, valid = self.run_once(plan_foot=0, on_plan=True)
+        self.assertTrue(bool(valid[1, 0]))
+        self.state.phase[1] = 0.55                                # double support after left
+        _, _, _, _, valid = self.run_once(plan_foot=0, on_plan=True)
+        self.assertTrue(bool(valid[1, 0]))
 
     def test_miss_on_stairs_gives_the_same_foot_the_next_window(self):
         self.state.phase[1] = 0.45                                # left swinging
-        self.run_once(plan_foot=0, plan_started=True)
+        self.run_once(plan_foot=0, on_plan=True)
         self.state.phase[1] = 0.55                                # double support:
-        self.run_once(plan_foot=0, plan_started=True)             # no shift yet
+        self.run_once(plan_foot=0, on_plan=True)                  # no shift yet
         self.assertAlmostEqual(self.state.phase[1].item(), 0.55, places=6)
         self.state.phase[1] = 0.66                                # right swing opens,
-        self.run_once(plan_foot=0, plan_started=True)             # plan waits for left
+        self.run_once(plan_foot=0, on_plan=True)                  # plan waits for left
         swing, _ = self.lp.clock_schedule(self.state.phase)
         self.assertEqual(swing[1].tolist(), [True, False])
 
     def test_late_touchdown_in_double_support_needs_no_shift(self):
         self.state.phase[1] = 0.45                                # left swinging
-        self.run_once(plan_foot=0, plan_started=True)
+        self.run_once(plan_foot=0, on_plan=True)
         self.state.phase[1] = 0.55                                # left lands late: hit,
-        self.run_once(plan_foot=1, plan_started=True)             # plan now on right
+        self.run_once(plan_foot=1, on_plan=True)                  # plan now on right
         self.state.phase[1] = 0.66                                # right swing opens
-        self.run_once(plan_foot=1, plan_started=True)
+        self.run_once(plan_foot=1, on_plan=True)
         self.assertAlmostEqual(self.state.phase[1].item(), 0.66, places=6)
-
 
 if __name__ == "__main__":
     unittest.main()

@@ -17,7 +17,7 @@ from .footstep_gait_clock import (
 from .footstep_isaac_adapter import course_root_pose, course_tensors
 from .footstep_clock import (
     RollingClockState, clock_schedule, follow_plan_foot, heading_targets,
-    moving, speed_period,
+    moving, own_window, speed_period, stair_handover,
 )
 from .footstep_mixing import (
     course_exit_timeout, stair_escape, stair_steering, target_stalled,
@@ -55,6 +55,9 @@ def stair_target_stall(env):
         return torch.zeros(env.num_envs, dtype=torch.bool, device=env.device)
     runtime = ensure_coordinator(env).runtime
     active = runtime.target_index < runtime.plan_length(False)
+    clock = getattr(env, "_g1_rolling_clock", None)
+    if clock is not None:
+        active = active & clock.on_plan      # the approach has no plan yet
     return target_stalled(since, active, riser_height_per_env(env) > 0)
 
 
@@ -77,36 +80,45 @@ def ensure_rolling_clock(env):
 
 
 def apply_rolling_clock(env, state, *, centre, targets, feet, valid, resets,
-                        plan_started):
+                        first_plan_x):
     """One clock for all tiles.
 
-    Flat tiles: a new target is placed one step ahead of the stance foot,
-    along the robot's heading plus the commanded turn, whenever the clock
-    hands the swing to the other foot (targets/feet/valid updated in place).
-    Stair tiles keep the stair plan's targets, walk while the plan is
-    unfinished, use the fixed stair cycle, and once the plan has started the
-    plan decides which foot gets the swing window.
-    Returns (flat_rows, walking, swing_schedule).
+    Rolling rows (flat tiles and the approach of stair tiles): a new target
+    is placed one step ahead of the stance foot, along the robot's heading
+    plus the commanded turn, whenever the clock hands the swing to the other
+    foot (targets/feet/valid updated in place). An approach row hands over
+    to its stair plan when the plan's first target (``first_plan_x``) comes
+    within one normal step; the caller then starts the plan with the
+    returned feet. Plan rows keep the plan's targets, use the fixed stair
+    cycle, the plan decides which foot gets the swing window, and a target
+    is only valid in its foot's own window.
+    Returns (rolling_rows, walking, swing_schedule, handover).
     """
-    rows = riser_height_per_env(env) <= 0
-    stairs = ~rows
+    stairs = riser_height_per_env(env) > 0
+    plan = stairs & state.on_plan
+    rows = ~plan
     command = env.command_manager.get_command("base_velocity")
-    walking = ((moving(command) & rows) | (stairs & valid[:, 0])) & ~resets
+    walking = ((moving(command) & rows) | (plan & valid[:, 0])) & ~resets
     cfg = env.cfg.footstep_clock
     state.period_s = torch.where(
         rows, speed_period(command[:, 0], state.period_scale, cfg),
         cfg["period_stairs_s"] * state.period_scale)
-    state.phase = follow_plan_foot(
-        state.phase, state.swinging, feet[:, 0], stairs & plan_started)
+    state.phase = follow_plan_foot(state.phase, state.swinging, feet[:, 0], plan)
     schedule, assigned = clock_schedule(state.phase)
     state.swinging = schedule.any(dim=-1)
     _, yaw = course_root_pose(env)
     # New target when the clock hands the swing to the other foot, and when
     # walking resumes after standing (the held target would be stale).
     new_window = rows & ((assigned != state.assigned) | (walking & ~state.active))
-    state.assigned[stairs] = assigned[stairs]   # trace and tests only
+    index = torch.arange(env.num_envs, device=env.device)
+    stance_x = centre[index, 1 - assigned, 0]
+    handover = stair_handover(first_plan_x, stance_x, stairs & rows, new_window)
+    state.on_plan |= handover
+    new_window = new_window & ~handover
+    state.assigned[plan | handover] = assigned[plan | handover]
+    valid[plan, 0] &= own_window(state.phase, feet[:, 0])[plan]
+    valid[handover] = False                 # the plan's targets start next step
     if bool(new_window.any()):
-        index = torch.arange(env.num_envs, device=env.device)
         fresh, fresh_feet = heading_targets(
             centre[index, 1 - assigned, :2], assigned, yaw,
             command, state.period_s, NOMINAL_FOOT_SEPARATION_M,
@@ -117,11 +129,12 @@ def apply_rolling_clock(env, state, *, centre, targets, feet, valid, resets,
         state.acquired[new_window] = False
         state.assigned[new_window] = assigned[new_window]
     state.active = walking
-    targets[rows] = state.targets[rows]
-    feet[rows] = state.feet[rows]
-    valid[rows, 0] = walking[rows] & ~state.acquired[rows]
-    valid[rows, 1] = walking[rows]
-    return rows, walking, schedule
+    rolling = rows & ~handover
+    targets[rolling] = state.targets[rolling]
+    feet[rolling] = state.feet[rolling]
+    valid[rolling, 0] = walking[rolling] & ~state.acquired[rolling]
+    valid[rolling, 1] = walking[rolling]
+    return rolling, walking, schedule, handover
 
 
 def reset_coordinator(env, env_ids):
@@ -164,12 +177,17 @@ def audit_after_step(env):
         resets_now = (env.termination_manager.terminated
                       | env.termination_manager.time_outs)
         targets, feet, valid = targets.clone(), feet.clone(), valid.clone()
-        rolling_rows, rolling_walking, clock_swing = apply_rolling_clock(
+        approach = coordinator.runtime.approach_for(flat)
+        rolling_rows, rolling_walking, clock_swing, handover = apply_rolling_clock(
             env, clock_state, centre=centre, targets=targets, feet=feet,
             valid=valid, resets=resets_now,
-            plan_started=coordinator.runtime.target_index > 0,
+            first_plan_x=course["first_riser_x"] + (0.5 - approach) * course["tread_depth"],
         )
         coordinator.runtime.target_index[rolling_rows] = clock_state.window[rolling_rows]
+        # Hand-over: the stair plan starts at its first target, with the foot
+        # the clock is about to swing.
+        coordinator.runtime.target_index[handover] = 0
+        coordinator.runtime.first_foot[handover] = clock_state.assigned[handover]
     env._g1_rolling_rows = rolling_rows
     if flat:
         qualified = qualified_flat_mask(
@@ -423,26 +441,29 @@ def audit_after_step(env):
 
 
 def steer_stair_command(env, runtime, flat_ground, resets, tread_depth, clock_state):
-    """Stair envs with an active plan: lateral and yaw command steer back to
-    the centre line facing the stairs (footstep_mixing.stair_steering), like
-    an operator lining the robot up. With the gait clock, the forward
-    command is one tread per step: 2 x tread / cycle time. Without it, the
-    sampled stair speed stays.
+    """Stair envs with an active plan (or still approaching it): lateral and
+    yaw command steer back to the centre line facing the stairs
+    (footstep_mixing.stair_steering), like an operator lining the robot up.
+    With the gait clock, the forward command is the climbing speed, one
+    tread per stair step: 2 x tread / stair cycle time, already on the
+    approach. Without it, the sampled stair speed stays.
 
     Runs every policy step in training and evaluation (same hook), so a
     command resample is overwritten within one step. Flat tiles keep their
     joystick command.
     """
-    active = (
-        (riser_height_per_env(env) > 0)
-        & (runtime.target_index < runtime.plan_length(flat_ground))
-        & ~resets
-    )
+    stairs = (riser_height_per_env(env) > 0) & ~resets
+    plan_active = runtime.target_index < runtime.plan_length(flat_ground)
+    if clock_state is not None:
+        # Approach rows (no plan yet) walk at the same speed as the climb.
+        plan_active = ~clock_state.on_plan | plan_active
+    active = stairs & plan_active
     if bool(active.any()):
         xyz, yaw = course_root_pose(env)
         command = env.command_manager.get_command("base_velocity")
         if clock_state is not None:
-            command[active, 0] = 2.0 * tread_depth[active] / clock_state.period_s[active]
+            stair_period = env.cfg.footstep_clock["period_stairs_s"] * clock_state.period_scale
+            command[active, 0] = 2.0 * tread_depth[active] / stair_period[active]
         command[active, 1:3] = stair_steering(xyz[active, 1], yaw[active])
     return active
 
