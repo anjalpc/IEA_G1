@@ -797,9 +797,13 @@ def main() -> None:
         clock_stage = resolved_config.get("footstep_clock", {}).get("enabled", False)
         if clock_stage:
             # The clock sets the rhythm; Unitree's fixed 0.8 s gait term
-            # would fight every other cycle time.
-            required = (required - {"gait"}) | {
+            # would fight every other cycle time. One terrain-relative swing
+            # clearance replaces Unitree's flat-only foot clearance and the
+            # once-per-tread lift credit.
+            required = (required - {"gait", "flat_feet_clearance",
+                                    "footstep_clearance_progress"}) | {
                 "clock_stance_support", "clock_swing_motion", "uncommanded_yaw",
+                "swing_clearance",
             }
         from simulation.isaac_lab.g1_stairs.reward_runtime import (
             active_reward_weights,

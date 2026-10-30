@@ -68,12 +68,12 @@ class ScheduleTests(unittest.TestCase):
         self.assertEqual(fc.own_window(phase, foot).tolist(),
                          [False, True, True, False, True, False])
 
-    def test_stair_handover(self):
-        out = fc.stair_handover(torch.tensor([1.0, 1.0, 1.0, 1.0]),
-                                torch.tensor([0.75, 0.60, 0.75, 1.2]),
-                                torch.tensor([True, True, False, True]),
-                                torch.tensor([True, True, True, True]))
-        self.assertEqual(out.tolist(), [True, False, False, True])
+    def test_approach_steps_left(self):
+        step = torch.full((6,), 0.2)
+        distance = torch.tensor([0.20, 0.25, 0.26, 0.90, 0.0, -0.3])
+        out = fc.approach_steps_left(distance, step)
+        # one step up to 25% long; 0.26 m becomes two; passed counts as one
+        self.assertEqual(out.tolist(), [1.0, 1.0, 2.0, 5.0, 1.0, 1.0])
 
     def test_follow_plan_foot(self):
         # rows: right swing opens but the plan waits for left (shift); right
@@ -298,8 +298,17 @@ class ApplyRollingClockTests(unittest.TestCase):
         self.assertAlmostEqual(self.state.period_s[1].item(), 1.0, places=6)
         self.assertFalse(bool(self.handover[1]))
 
+    def test_approach_counts_down_in_equal_steps(self):
+        # stance foot at 0.0, placement 0.9 m ahead, normal step 0.2 m:
+        # five steps of 0.18 m instead of four of 0.2 and one of 0.1
+        _, _, targets, _, _ = self.run_once(first_plan_x=0.9)
+        self.assertFalse(bool(self.handover[1]))
+        self.assertAlmostEqual(targets[1, 0, 0].item(), 0.18, places=6)
+        self.assertAlmostEqual(targets[1, 1, 0].item(), 0.36, places=6)
+        self.assertAlmostEqual(targets[0, 0, 0].item(), 0.2, places=6)  # flat tile unchanged
+
     def test_handover_near_the_stairs_starts_the_plan_with_the_next_swing_foot(self):
-        _, _, _, _, valid = self.run_once(first_plan_x=0.25)      # stance at 0.0
+        _, _, _, _, valid = self.run_once(first_plan_x=0.25)      # stance at 0.0, one long step
         self.assertTrue(bool(self.handover[1]))
         self.assertFalse(bool(self.handover[0]))                  # flat tiles never hand over
         self.assertTrue(bool(self.state.on_plan[1]))

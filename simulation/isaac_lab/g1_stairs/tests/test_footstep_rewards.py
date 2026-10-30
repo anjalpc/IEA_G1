@@ -197,3 +197,38 @@ class YawDriftRewardTests(unittest.TestCase):
         self.assertEqual(cached_yaw_drift(env).tolist(), [0.0, 0.5])
         with self.assertRaises(RuntimeError):
             cached_yaw_drift(SimpleNamespace(num_envs=2))
+
+
+class SwingClearanceTests(unittest.TestCase):
+    def test_ground_height_along_the_course(self):
+        from simulation.isaac_lab.g1_stairs.footstep_rewards import stair_ground_height
+        x = torch.tensor([[0.9, 1.1, 1.3, 1.6, 2.5], [0.9, 1.1, 1.3, 1.6, 2.5]])
+        h = stair_ground_height(x, torch.ones(2), torch.full((2,), .25),
+                                torch.tensor([0.2, 0.0]), 3)
+        self.assertEqual([round(v, 6) for v in h[0].tolist()], [0.0, 0.2, 0.4, 0.6, 0.6])
+        self.assertEqual(h[1].tolist(), [0.0] * 5)                     # flat tile
+
+    def test_fraction_of_needed_lift_for_the_swing_foot_only(self):
+        from simulation.isaac_lab.g1_stairs.footstep_rewards import swing_clearance
+        t = lambda *v: torch.tensor([list(v)])
+        swing = t(1.0, 0.0)
+        # flat: 2.5 cm of 5 cm
+        self.assertAlmostEqual(swing_clearance(t(.025, .1), t(0., 0.), t(0., 0.), swing).item(), .5)
+        # before a 20 cm riser: 12.5 cm of 25 cm, measured from the ground
+        self.assertAlmostEqual(swing_clearance(t(.125, 0.), t(0., 0.), t(.2, 0.), swing).item(), .5)
+        # above the margin pays no more; below the ground nothing
+        self.assertEqual(swing_clearance(t(.4, 0.), t(0., 0.), t(.2, 0.), swing).item(), 1.0)
+        self.assertEqual(swing_clearance(t(-.01, 0.), t(0., 0.), t(0., 0.), swing).item(), 0.0)
+        # a lifted foot outside its swing window earns nothing
+        self.assertEqual(swing_clearance(t(.1, .1), t(0., 0.), t(0., 0.), t(0., 0.)).item(), 0.0)
+        # over tread 1, lift counts from the tread
+        self.assertAlmostEqual(
+            swing_clearance(t(.225, 0.), t(.2, 0.), t(.2, 0.), swing).item(), .5, places=5)
+
+    def test_cached_value(self):
+        from types import SimpleNamespace
+        from simulation.isaac_lab.g1_stairs.footstep_rewards import cached_swing_clearance
+        env = SimpleNamespace(num_envs=2, _g1_footstep_swing_clearance=torch.tensor([0.0, 0.5]))
+        self.assertEqual(cached_swing_clearance(env).tolist(), [0.0, 0.5])
+        with self.assertRaises(RuntimeError):
+            cached_swing_clearance(SimpleNamespace(num_envs=2))

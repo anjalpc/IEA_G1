@@ -429,6 +429,9 @@ class GeometryTrace:
                 "cached_swing_reward": cached(
                     "_g1_footstep_directed_swing"
                 ),
+                "cached_swing_clearance": cached(
+                    "_g1_footstep_swing_clearance"
+                ),
                 "qualified_acquisition": (
                     bool(env._g1_footstep_last_advanced[0].item())
                     if hasattr(env, "_g1_footstep_last_advanced")

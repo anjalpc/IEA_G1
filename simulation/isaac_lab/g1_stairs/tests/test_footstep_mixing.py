@@ -123,8 +123,8 @@ class NoPlanOnFlatRowsTests(unittest.TestCase):
                 foot_separation=torch.full((1,), .235))
 
     def test_zero_riser_rows_never_qualify(self):
-        targets = torch.tensor([[[0.625, .1175, 0., 0.], [0.875, -.1175, 0., 0.]]] * 2)
-        bounds = torch.tensor([[[0.54, 0.71, .06, .17, 0., 0.], [0., .1, -.17, -.06, 0., 0.]]] * 2)
+        targets = torch.tensor([[[0.55, .1175, 0., 0.], [0.80, -.1175, 0., 0.]]] * 2)
+        bounds = torch.tensor([[[0.47, 0.64, .06, .17, 0., 0.], [0., .1, -.17, -.06, 0., 0.]]] * 2)
         m = qualified_tread_mask(
             sole_bounds=bounds, vertical_force=torch.full((2, 2), 110.),
             targets=targets, feet=torch.tensor([[0, 1]] * 2),

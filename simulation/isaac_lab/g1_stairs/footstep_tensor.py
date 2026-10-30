@@ -14,9 +14,20 @@ METRIC_CONTRACT = "footstep_target_v1"
 # Lateral distance between left and right sole centres. Measured from the
 # Unitree prior's own stance (flat baseline trace: y = +0.116 / -0.119 m).
 NOMINAL_FOOT_SEPARATION_M = 0.235
-# Ground targets before the first riser so the planned lead foot reaches
-# tread 1 (parity). They are level-0 cells one tread depth apart.
-NOMINAL_APPROACH_STEPS = 2
+# Stair tiles: one fixed ground placement before the first riser; the
+# rolling approach targets count down to it in equal steps (footstep_clock).
+NOMINAL_APPROACH_STEPS = 1
+# Sole centre of the last ground placement, this far before the first riser.
+# A ~0.19 m sole then leaves ~0.10 m between toe and riser for the other
+# foot's swing up. The tread grid (0.125 m) left 3 cm: toes jammed against
+# the riser (run 20261030_092747). Earlier approach targets, if any, are one
+# tread depth apart behind it.
+APPROACH_LAST_GAP_M = 0.20
+
+
+def approach_target_x(first_riser_x, tread_depth, index):
+    """Course x of approach target ``index`` (-1 = last before the riser)."""
+    return first_riser_x - APPROACH_LAST_GAP_M + (index + 1) * tread_depth
 
 
 
@@ -55,7 +66,7 @@ def planned_target_batch(*, first_riser_x: torch.Tensor,
     and [N,2] validity. First-foot and target index may differ by env.
 
     Stairs only: ``approach_steps`` ground targets (level 0) precede tread 1,
-    centred one tread depth apart before the first riser. Runtime target
+    the last APPROACH_LAST_GAP_M before the first riser. Runtime target
     index 0 is the first approach target; first_foot is assigned to it.
     """
     if step_count <= 0:
@@ -80,7 +91,10 @@ def planned_target_batch(*, first_riser_x: torch.Tensor,
         x = first_riser_x[:, None] + (idx + 1) * tread_depth[:, None]
         z = torch.zeros_like(x)
     else:
-        x = first_riser_x[:, None] + (idx + .5) * tread_depth[:, None]
+        x = torch.where(
+            idx < 0,
+            approach_target_x(first_riser_x[:, None], tread_depth[:, None], idx),
+            first_riser_x[:, None] + (idx + .5) * tread_depth[:, None])
         z = level * riser_height[:, None]
     y = centre_y[:, None] + torch.where(foot == 0, .5, -.5) * foot_separation[:, None]
     yaw = torch.zeros_like(x)

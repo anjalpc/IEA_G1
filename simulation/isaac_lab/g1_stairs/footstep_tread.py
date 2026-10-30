@@ -5,6 +5,8 @@ No dependency on legacy acquisition state machines.
 """
 import torch
 
+from .footstep_tensor import APPROACH_LAST_GAP_M
+
 
 def qualified_tread_mask(*, sole_bounds, vertical_force, targets, feet, valid,
                          first_riser_x, tread_depth, riser_height, step_count,
@@ -20,7 +22,7 @@ def qualified_tread_mask(*, sole_bounds, vertical_force, targets, feet, valid,
     Target XYZ denotes a planned sole centre. The active stair level comes from
     the current target's height; platform targets are checked against the
     platform surface. Only the assigned foot may pass. Approach targets are
-    level-0 ground cells of one tread depth before the first riser, checked
+    level-0 ground cells of one tread depth centred on the target, checked
     exactly like treads.
     """
     if approach_steps < 0:
@@ -38,16 +40,22 @@ def qualified_tread_mask(*, sole_bounds, vertical_force, targets, feet, valid,
     if bool((tread_depth <= 2 * margin_m).any()) or bool((riser_height < 0).any()):
         raise ValueError('invalid stair dimensions')
     target_z = targets[:, 0, 2]
+    target_x = targets[:, 0, 0]
     # Use target sequence's actual X to distinguish the two platform goals.
     # Both have the same upper-platform height but different tread intervals.
-    index_float = ((targets[:, 0, 0] - first_riser_x) / tread_depth - 0.5)
+    # Approach targets sit on their own grid (footstep_tensor.approach_target_x).
+    on_stairs = target_x >= first_riser_x
+    index_float = torch.where(
+        on_stairs, (target_x - first_riser_x) / tread_depth - 0.5,
+        (target_x - first_riser_x + APPROACH_LAST_GAP_M) / tread_depth - 1.0)
     index = torch.round(index_float).long()
     good_index = (((index_float - index.to(index_float.dtype)).abs() < 1e-3)
+                  & (on_stairs | (index < 0))
                   & (index >= -approach_steps) & (index < step_count + 2))
     level = torch.where(index < 0, torch.zeros_like(index), (index + 1).clamp(1, step_count))
     plausible_height = ((target_z - level.to(target_z.dtype) * riser_height).abs() <= height_tolerance_m)
     good_level = good_index & plausible_height
-    start = first_riser_x + index.to(target_z.dtype) * tread_depth
+    start = target_x - 0.5 * tread_depth      # one tread depth centred on the target
     end = start + tread_depth
     x_min, x_max, y_min, y_max, z_min, z_max = sole_bounds.unbind(-1)
     if full_sole:

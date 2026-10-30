@@ -16,9 +16,12 @@ speed x half a cycle, capped by ``max_stride_m`` (above the cap only the
 rhythm gets quicker).
 
 Stair tiles: the approach is walked like a flat tile (rolling targets,
-speed-based cycle). When the stair plan's first ground target is within one
-normal step of the stance foot, the tile hands over to the stair plan, whose
-first foot is the foot about to swing; from then on the cycle is fixed
+speed-based cycle), except that the steps count down to the plan's fixed
+ground placement before the first riser: the distance left is split into
+equal steps no longer than a normal step (the last may be 25% longer), so
+the adjustment to the stairs is spread over the run-up instead of one odd
+step at the end. When one step is left, the tile hands over to the stair
+plan, whose first foot is the foot about to swing; from then on the cycle is fixed
 (``period_stairs_s``) and one tread is one step. The plan decides which foot
 swings: when a swing window opens for a foot the plan is not waiting for
 (after a miss), the clock is shifted half a cycle. A stair target only
@@ -44,7 +47,7 @@ PERIOD_FAST_SPEED_MPS = 0.6      # period_fast_s applies at or above this speed
 # The in-step pelvis twist cancels over a cycle; a steady drift does not.
 # Rates only: no heading is stored, a past turn is never undone.
 YAW_DRIFT_STD_RADPS = 0.035       # 2 deg/s cycle-average error costs 63%
-STAIR_HANDOVER_REACH_M = 0.30     # first plan target within this of the stance foot
+APPROACH_STEP_TOLERANCE = 0.25    # last approach step may be this much longer than normal
 
 
 def validate_clock_cfg(cfg) -> dict | None:
@@ -133,10 +136,12 @@ def own_window(phase, foot):
     return torch.where(foot == 0, left, ~left)
 
 
-def stair_handover(first_plan_x, stance_x, approach, new_window):
-    """[N] approach rows whose first stair target, at a new swing window, is
-    within one normal step of the stance foot (or already passed)."""
-    return approach & new_window & (first_plan_x - stance_x <= STAIR_HANDOVER_REACH_M)
+def approach_steps_left(distance, step_len):
+    """[N] whole steps (>= 1) from the stance foot to the first stair
+    placement ``distance`` ahead; the last may be up to 25% longer than
+    ``step_len``. A passed placement counts as one step."""
+    return torch.ceil(distance / step_len.clamp_min(1e-3)
+                      - APPROACH_STEP_TOLERANCE).clamp_min(1.0)
 
 
 def clock_features(phase, active):
@@ -152,13 +157,14 @@ def yaw_drift_cost(cycle_yaw_error):
 
 
 def heading_targets(stance_xy, swing_foot, root_yaw, command, period_s,
-                    foot_separation_m):
+                    foot_separation_m, step_len=None):
     """[N,2,4] targets (x, y, z=0, yaw) and [N,2] feet for the next two steps.
 
-    Slot 0: the swing foot, one step (speed x cycle / 2) ahead of the stance
-    foot in its own lane, along the commanded heading at its touchdown (half
-    a cycle after assignment). Slot 1: the following step of the other foot.
-    A sideways command shifts each step by vy x cycle / 2.
+    Slot 0: the swing foot, one step (speed x cycle / 2, or ``step_len``)
+    ahead of the stance foot in its own lane, along the commanded heading at
+    its touchdown (half a cycle after assignment). Slot 1: the following
+    step of the other foot. A sideways command shifts each step by
+    vy x cycle / 2.
     """
     n = stance_xy.shape[0]
     if (stance_xy.shape != (n, 2) or swing_foot.shape != (n,) or root_yaw.shape != (n,)
@@ -168,7 +174,10 @@ def heading_targets(stance_xy, swing_foot, root_yaw, command, period_s,
         raise ValueError("foot_separation_m must be positive")
     side = torch.where(swing_foot == 0, 1.0, -1.0).to(stance_xy.dtype)
     half = 0.5 * period_s
-    step_len = command[:, 0] * half
+    if step_len is None:
+        step_len = command[:, 0] * half
+    elif step_len.shape != (n,):
+        raise ValueError("invalid step length shape")
     shift = command[:, 1] * half
 
     def step(origin, yaw, lane):

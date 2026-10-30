@@ -16,13 +16,13 @@ from .footstep_gait_clock import (
 )
 from .footstep_isaac_adapter import course_root_pose, course_tensors
 from .footstep_clock import (
-    RollingClockState, clock_schedule, follow_plan_foot, heading_targets,
-    moving, own_window, speed_period, stair_handover,
+    RollingClockState, approach_steps_left, clock_schedule, follow_plan_foot,
+    heading_targets, moving, own_window, speed_period,
 )
 from .footstep_mixing import (
     course_exit_timeout, stair_escape, stair_steering, target_stalled,
 )
-from .footstep_tensor import NOMINAL_FOOT_SEPARATION_M
+from .footstep_tensor import NOMINAL_FOOT_SEPARATION_M, approach_target_x
 from .footstep_tread import qualified_tread_mask, qualified_flat_mask
 from .contact_sensor_contract import FOOT_BODY_NAMES
 from .motion_reference import sole_state
@@ -86,12 +86,12 @@ def apply_rolling_clock(env, state, *, centre, targets, feet, valid, resets,
     Rolling rows (flat tiles and the approach of stair tiles): a new target
     is placed one step ahead of the stance foot, along the robot's heading
     plus the commanded turn, whenever the clock hands the swing to the other
-    foot (targets/feet/valid updated in place). An approach row hands over
-    to its stair plan when the plan's first target (``first_plan_x``) comes
-    within one normal step; the caller then starts the plan with the
-    returned feet. Plan rows keep the plan's targets, use the fixed stair
-    cycle, the plan decides which foot gets the swing window, and a target
-    is only valid in its foot's own window.
+    foot (targets/feet/valid updated in place). Approach rows count their
+    steps down to the plan's first target (``first_plan_x``) in equal steps
+    and hand over to the plan when one step is left; the caller then starts
+    the plan with the returned feet. Plan rows keep the plan's targets, use
+    the fixed stair cycle, the plan decides which foot gets the swing
+    window, and a target is only valid in its foot's own window.
     Returns (rolling_rows, walking, swing_schedule, handover).
     """
     stairs = riser_height_per_env(env) > 0
@@ -111,8 +111,12 @@ def apply_rolling_clock(env, state, *, centre, targets, feet, valid, resets,
     # walking resumes after standing (the held target would be stale).
     new_window = rows & ((assigned != state.assigned) | (walking & ~state.active))
     index = torch.arange(env.num_envs, device=env.device)
-    stance_x = centre[index, 1 - assigned, 0]
-    handover = stair_handover(first_plan_x, stance_x, stairs & rows, new_window)
+    distance = first_plan_x - centre[index, 1 - assigned, 0]
+    step_len = command[:, 0] * 0.5 * state.period_s
+    steps_left = approach_steps_left(distance, step_len)
+    approach = stairs & rows
+    handover = approach & new_window & (steps_left <= 1)
+    step_len = torch.where(approach, distance.clamp_min(0.0) / steps_left, step_len)
     state.on_plan |= handover
     new_window = new_window & ~handover
     state.assigned[plan | handover] = assigned[plan | handover]
@@ -121,7 +125,7 @@ def apply_rolling_clock(env, state, *, centre, targets, feet, valid, resets,
     if bool(new_window.any()):
         fresh, fresh_feet = heading_targets(
             centre[index, 1 - assigned, :2], assigned, yaw,
-            command, state.period_s, NOMINAL_FOOT_SEPARATION_M,
+            command, state.period_s, NOMINAL_FOOT_SEPARATION_M, step_len,
         )
         state.targets[new_window] = fresh[new_window]
         state.feet[new_window] = fresh_feet[new_window]
@@ -181,7 +185,8 @@ def audit_after_step(env):
         rolling_rows, rolling_walking, clock_swing, handover = apply_rolling_clock(
             env, clock_state, centre=centre, targets=targets, feet=feet,
             valid=valid, resets=resets_now,
-            first_plan_x=course["first_riser_x"] + (0.5 - approach) * course["tread_depth"],
+            first_plan_x=approach_target_x(
+                course["first_riser_x"], course["tread_depth"], -approach),
         )
         coordinator.runtime.target_index[rolling_rows] = clock_state.window[rolling_rows]
         # Hand-over: the stair plan starts at its first target, with the foot
@@ -269,6 +274,18 @@ def audit_after_step(env):
         from .footstep_clock import yaw_drift_cost
         drift = yaw_drift_cost(clock_state.cycle_yaw_error)
         env._g1_footstep_yaw_drift = torch.where(keep, drift, torch.zeros_like(drift))
+        # Swing clearance: each swinging sole above the ground under it, as a
+        # fraction of what it must clear (its target level, or the ground it
+        # is over if higher) plus a margin. Flat tiles: riser 0, ground 0.
+        from .footstep_rewards import stair_ground_height, swing_clearance
+        ground = stair_ground_height(
+            centre[..., 0], course["first_riser_x"], course["tread_depth"],
+            course["riser_height"], coordinator.runtime.step_count)
+        own_slot = (feet[:, 0:1] == torch.arange(2, device=env.device)[None, :])
+        goal = torch.maximum(
+            ground, torch.where(own_slot, targets[:, 0, 2:3], targets[:, 1, 2:3]))
+        lift = swing_clearance(bounds[..., 4], ground, goal, clock_swing_f)
+        env._g1_footstep_swing_clearance = torch.where(keep, lift, torch.zeros_like(lift))
     # Pre-transition assigned foothold; reward only new best distance.
     from .footstep_rewards import new_target_progress
 

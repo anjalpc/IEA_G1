@@ -1382,6 +1382,9 @@ class FootstepRewardsCfg(StairRewardsCfg):
         self.uncommanded_yaw = RewTerm(
             func=footstep_rewards.cached_yaw_drift, weight=-1.0
         )
+        self.swing_clearance = RewTerm(
+            func=footstep_rewards.cached_swing_clearance, weight=1.0
+        )
         self.residual_magnitude = RewTerm(
             func=footstep_rewards.residual_magnitude, weight=-1.0
         )

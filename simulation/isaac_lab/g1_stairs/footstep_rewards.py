@@ -156,6 +156,50 @@ def cached_stance_support(env):
     return value
 
 
+# Swing clearance (gait-clock stages). Full credit when the swinging sole
+# is this far above what it has to clear: the floor on flat ground, the
+# target level in front of a riser. The Unitree prior's sole clears ~1.5 cm,
+# and its foot_clearance_reward already pays ~0.97 there (ankle error^2 /
+# 0.05 inside exp), so it never asked for more; at 2 cm risers the toe
+# jammed against the riser (run 20261030_092747).
+SWING_CLEARANCE_MARGIN_M = 0.05
+
+
+def stair_ground_height(x, first_riser_x, tread_depth, riser_height, step_count):
+    """[N,K] terrain height at course x: 0 before the first riser, tread k
+    at k risers, the platform at step_count risers. Zero on flat tiles."""
+    level = torch.floor((x - first_riser_x[:, None]) / tread_depth[:, None]) + 1.0
+    return level.clamp(0.0, float(step_count)) * riser_height[:, None]
+
+
+def swing_clearance(sole_bottom, ground, goal, swing,
+                    *, margin_m=SWING_CLEARANCE_MARGIN_M):
+    """[N] in [0, 1]: lift of each scheduled swing sole above the ground
+    under it, as a fraction of the lift needed to clear ``goal`` + margin.
+
+    All inputs [N,2]; ``swing`` is the clock's swing schedule (0/1). Lift is
+    measured from the ground, not the goal, so a high riser still gives a
+    signal from the first centimetre. A loaded or still foot gets nothing:
+    only the clock's swing foot counts, and higher than the margin pays no
+    more.
+    """
+    if not (sole_bottom.shape == ground.shape == goal.shape == swing.shape):
+        raise ValueError("swing clearance tensors have different shapes")
+    if margin_m <= 0:
+        raise ValueError("margin_m must be positive")
+    need = (goal - ground).clamp_min(0.0) + margin_m
+    fraction = ((sole_bottom - ground) / need).clamp(0.0, 1.0)
+    return (fraction * swing).sum(dim=-1)
+
+
+def cached_swing_clearance(env):
+    """Clock swing-foot clearance in [0, 1], per second."""
+    value = getattr(env, "_g1_footstep_swing_clearance", None)
+    if value is None or value.shape != (env.num_envs,):
+        raise RuntimeError("missing cached swing clearance")
+    return value
+
+
 # Sole clearance above the riser edge that earns full lift credit. The
 # Unitree prior's swing sole clearance is ~1.5-2 cm, so a lift capped at
 # exactly the riser height still stubs the edge.
