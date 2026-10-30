@@ -604,11 +604,13 @@ if rows:
     last = rows[-1]
     iteration = int(float(last.get("iteration") or 0))
     wall = num(last, "wall_time_s")
-    done = iteration + 1
+    # A resumed run starts counting at its checkpoint's next iteration.
+    start = int(float(rows[0].get("iteration") or 0))
+    done = iteration + 1 - start
     if max_iterations:
         frac = min(done / max_iterations, 1.0)
         bar = "#" * int(frac * 30) + "-" * (30 - int(frac * 30))
-        print(f"  Iteration:  {iteration} / {max_iterations - 1}  [{bar}] {100 * frac:5.1f}%")
+        print(f"  Iteration:  {iteration} / {start + max_iterations - 1}  [{bar}] {100 * frac:5.1f}%")
     else:
         print(f"  Iteration:  {iteration} (maximum not found in resolved config)")
     if wall is not None and done > 0:
