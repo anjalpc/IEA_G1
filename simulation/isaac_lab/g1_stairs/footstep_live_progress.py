@@ -23,6 +23,7 @@ from .footstep_mixing import (
     course_exit_timeout, stair_escape, stair_steering, target_stalled,
 )
 from .footstep_tensor import NOMINAL_FOOT_SEPARATION_M, approach_target_x
+from .footstep_rewards import stair_ground_height
 from .footstep_tread import qualified_tread_mask, qualified_flat_mask
 from .contact_sensor_contract import FOOT_BODY_NAMES
 from .motion_reference import sole_state
@@ -80,7 +81,7 @@ def ensure_rolling_clock(env):
 
 
 def apply_rolling_clock(env, state, *, centre, targets, feet, valid, resets,
-                        first_plan_x):
+                        first_plan_x, terrain_z=None):
     """One clock for all tiles.
 
     Rolling rows (flat tiles and the approach of stair tiles): a new target
@@ -91,7 +92,9 @@ def apply_rolling_clock(env, state, *, centre, targets, feet, valid, resets,
     and hand over to the plan when one step is left; the caller then starts
     the plan with the returned feet. Plan rows keep the plan's targets, use
     the fixed stair cycle, the plan decides which foot gets the swing
-    window, and a target is only valid in its foot's own window.
+    window, and a target is only valid in its foot's own window. Rows that
+    completed their plan roll on like flat tiles. ``terrain_z`` maps [N,K]
+    course x to ground height for the rolling targets (None: 0).
     Returns (rolling_rows, walking, swing_schedule, handover).
     """
     stairs = riser_height_per_env(env) > 0
@@ -106,6 +109,7 @@ def apply_rolling_clock(env, state, *, centre, targets, feet, valid, resets,
     state.phase = follow_plan_foot(state.phase, state.swinging, feet[:, 0], plan)
     schedule, assigned = clock_schedule(state.phase)
     state.swinging = schedule.any(dim=-1)
+    state.landed &= schedule                # a new window starts a new swing
     _, yaw = course_root_pose(env)
     # New target when the clock hands the swing to the other foot, and when
     # walking resumes after standing (the held target would be stale).
@@ -114,7 +118,7 @@ def apply_rolling_clock(env, state, *, centre, targets, feet, valid, resets,
     distance = first_plan_x - centre[index, 1 - assigned, 0]
     step_len = command[:, 0] * 0.5 * state.period_s
     steps_left = approach_steps_left(distance, step_len)
-    approach = stairs & rows
+    approach = stairs & rows & ~state.climbed
     handover = approach & new_window & (steps_left <= 1)
     step_len = torch.where(approach, distance.clamp_min(0.0) / steps_left, step_len)
     state.on_plan |= handover
@@ -127,6 +131,8 @@ def apply_rolling_clock(env, state, *, centre, targets, feet, valid, resets,
             centre[index, 1 - assigned, :2], assigned, yaw,
             command, state.period_s, NOMINAL_FOOT_SEPARATION_M, step_len,
         )
+        if terrain_z is not None:
+            fresh[..., 2] = terrain_z(fresh[..., 0])
         state.targets[new_window] = fresh[new_window]
         state.feet[new_window] = fresh_feet[new_window]
         state.window[new_window] += 1
@@ -187,6 +193,9 @@ def audit_after_step(env):
             valid=valid, resets=resets_now,
             first_plan_x=approach_target_x(
                 course["first_riser_x"], course["tread_depth"], -approach),
+            terrain_z=lambda x: stair_ground_height(
+                x, course["first_riser_x"], course["tread_depth"],
+                course["riser_height"], coordinator.runtime.step_count),
         )
         coordinator.runtime.target_index[rolling_rows] = clock_state.window[rolling_rows]
         # Hand-over: the stair plan starts at its first target, with the foot
@@ -260,7 +269,8 @@ def audit_after_step(env):
         # Clock rewards come from the rolling clock (the phase the policy
         # observed) on all tiles; standing rows and finished stair plans
         # request double stance and still feet.
-        clock_swing_f = (clock_swing & rolling_walking[:, None]).to(force_z.dtype)
+        clock_swing_f = (clock_swing & rolling_walking[:, None]
+                         & ~clock_state.landed).to(force_z.dtype)
         clock_stance, clock_motion = clock_contact_scores(
             force_z, centre, sole_velocity, targets, feet, valid,
             clock_swing_f, 1.0 - clock_swing_f,
@@ -277,7 +287,7 @@ def audit_after_step(env):
         # Swing clearance: each swinging sole above the ground under it, as a
         # fraction of what it must clear (its target level, or the ground it
         # is over if higher) plus a margin. Flat tiles: riser 0, ground 0.
-        from .footstep_rewards import stair_ground_height, swing_clearance
+        from .footstep_rewards import swing_clearance
         ground = stair_ground_height(
             centre[..., 0], course["first_riser_x"], course["tread_depth"],
             course["riser_height"], coordinator.runtime.step_count)
@@ -399,9 +409,23 @@ def audit_after_step(env):
     pre_supported = coordinator.runtime.was_supported.clone()
     pre_primed = coordinator._primed.clone()
 
+    # Last platform target: a landing at or past it also counts (the
+    # tread mask accepts it; the distance check must too), so one
+    # overshoot on the platform does not leave the plan unfinished
+    # (run 20261030_133621: missed by 1 mm, then 15 cm past).
+    step_targets = targets
+    if not flat:
+        last = (coordinator.runtime.target_index
+                == coordinator.runtime.plan_length(flat) - 1) & valid[:, 0]
+        if rolling_rows is not None:
+            last &= ~rolling_rows
+        if bool(last.any()):
+            step_targets = targets.clone()
+            foot_x = centre[rows, feet[:, 0].long(), 0]
+            step_targets[last, 0, 0] = torch.maximum(targets[last, 0, 0], foot_x[last])
     advanced = coordinator.step(
         step_id=int(env.common_step_counter), dt=float(env.step_dt),
-        targets=targets, feet=feet, valid=valid, sole_xyz=centre,
+        targets=step_targets, feet=feet, valid=valid, sole_xyz=centre,
         supported=supported, qualified_tread=qualified,
         # Stairs: anywhere on the tread along x (half tread depth).
         xy_tolerance=0.08 if flat else 0.125,
@@ -429,6 +453,21 @@ def audit_after_step(env):
     if rolling_rows is not None:
         # One acquisition per clock window; the id stays the window.
         clock_state.acquired |= advanced & rolling_rows
+        # The foot that reached its target ends its swing.
+        hit = advanced[:, None] & (
+            feet[:, 0:1] == torch.arange(2, device=env.device)[None, :])
+        clock_state.landed |= hit
+        # Plan complete: walk on like a flat tile, straight ahead at the
+        # current forward command (the stair steering's side and turn
+        # corrections are cleared).
+        finished = (clock_state.on_plan & ~resets
+                    & (coordinator.runtime.target_index
+                       >= coordinator.runtime.plan_length(flat)))
+        if bool(finished.any()):
+            clock_state.on_plan[finished] = False
+            clock_state.climbed[finished] = True
+            clock_state.assigned[finished] = -1     # new rolling window next step
+            env.command_manager.get_command("base_velocity")[finished, 1:] = 0.0
         # Stair rows mark the best distance infinite because their target
         # id changes next step and resets it. A rolling target keeps its id
         # until the clock hands over, so mark it reached instead (no further
@@ -453,7 +492,10 @@ def audit_after_step(env):
     env._g1_footstep_since_advance = since
     steer_stair_command(env, coordinator.runtime, flat, resets,
                         course["tread_depth"], clock_state)
-    stop_command_after_plan(env, coordinator.runtime, flat, resets)
+    if clock_state is None:
+        # Without the clock a finished plan stands still; with it the row
+        # walks on (above).
+        stop_command_after_plan(env, coordinator.runtime, flat, resets)
     return advanced
 
 
@@ -472,8 +514,9 @@ def steer_stair_command(env, runtime, flat_ground, resets, tread_depth, clock_st
     stairs = (riser_height_per_env(env) > 0) & ~resets
     plan_active = runtime.target_index < runtime.plan_length(flat_ground)
     if clock_state is not None:
-        # Approach rows (no plan yet) walk at the same speed as the climb.
-        plan_active = ~clock_state.on_plan | plan_active
+        # Approach rows (no plan yet) walk at the same speed as the climb;
+        # rows past the stairs follow their own command.
+        plan_active = (~clock_state.on_plan | plan_active) & ~clock_state.climbed
     active = stairs & plan_active
     if bool(active.any()):
         xyz, yaw = course_root_pose(env)

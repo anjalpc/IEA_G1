@@ -1,22 +1,203 @@
 schema_version: 1
-# Continue a footstep_stair_clock run (same task, rewards and terrain) from
-# one of its checkpoints: policy, critic, optimizer and learning rate are
-# restored, the simulator state is not. Fill source.sha256 from the
-# checkpoint before training (training_resume.py checks it).
+# Full copy of footstep_stair_clock.yaml (same task, terrain, clock and
+# rewards, all listed here), continued from a checkpoint instead of starting
+# from the Unitree prior. Inherits from the same base as that file. Before
+# training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Continue footstep_stair_clock run 20261030_112528 from model_499
-    (riser jams 88% -> 33%, swing lift 1.3 -> 3.0 cm over 150-499; not
-    levelled off) for 1000 more iterations, to iteration 1499.
+  purpose: Continue the 2 cm stair clock stage from footstep_stair_clock_resume
+    run 20261030_133621 model_1499 (4/5 stair completions) for 1000 iterations
+    with patch 31 (swing ends at its hit, heel-on-tread acceptance, platform
+    overshoot completes, walk on after the climb).
+  type: footstep_curriculum_bootstrap
+  meaningful_stair_training: false
 inheritance:
-  base_config: experiments/g1_stairs/configs/footstep_stair_clock.yaml
+  base_config: experiments/g1_stairs/configs/nominal_stairs_base.yaml
   resolved_config_required: true
+code:
+  project_branch: g1-geometry-locomotion
+  require_clean_worktree: true
+task:
+  id: Unitree-IEA-G1-29dof-Stairs-Footsteps-v0
+  custom_stair_task_active: true
+terrain:
+  riser_height_m: 0.04
+  # Stage 1: flat tiles (rolling targets, joystick command) and 2 cm stairs
+  # (stair plan, one tread per step), at random. Flat walking at this
+  # height lifts 1.6-3.2 cm (run 20261029_142532), so 2 cm is reachable;
+  # 4 cm only after 2 cm is climbed with alternating feet (0-4 cm at once
+  # taught shuffling in footstep_bootstrap04_20261028_141115).
+  riser_heights_m:
+  - 0.0
+  - 0.02
+  tread_depth_m: 0.25
+  step_count: 3
+  curriculum_enabled: false
+command:
+  terrain_split:
+    # Forward walking and turning only for this stage; no backwards or
+    # sideways steps yet (the rolling targets support them, untested).
+    flat:
+      lin_vel_x: [0.0, 0.6]
+      lin_vel_y: [0.0, 0.0]
+      ang_vel_z: [-0.2, 0.2]
+      rel_standing_envs: 0.02
+    # Stair tiles: sampled by the command term, then replaced every step by
+    # the climbing speed (2 x 0.25 m / period_stairs_s, ~0.45 m/s), also on
+    # the approach, which is walked like a flat tile until the hand-over.
+    stairs:
+      lin_vel_x: [0.2, 0.5]
+footstep_clock:
+  enabled: true
+  # One cycle = left swing + right swing with two double supports. The
+  # cycle time follows the commanded speed, as a joystick needs: linear from
+  # period_slow_s (at <= 0.1 m/s) to period_fast_s (at >= 0.6 m/s), times a
+  # per-episode jitter of +-period_jitter so no single rhythm is memorised.
+  # Steps = speed x half a cycle: ~7 cm at 0.15 m/s, ~15 cm at 0.35,
+  # ~21 cm at 0.6.
+  period_slow_s: 1.0
+  period_fast_s: 0.7
+  # Stair tiles, once the stair plan has taken over: fixed cycle, one
+  # 0.25 m tread per step (~0.45 m/s, 0.39 s swing window). 1.1 s is the
+  # slowest cycle the flat stage demonstrated; 1.3 s was never followed
+  # (run 20261029_160519: steps every 0.18-0.22 s, lift-off in the own
+  # window at chance level).
+  period_stairs_s: 1.1
+  period_jitter: 0.1
+  # Stride (two steps) = speed x cycle time, capped here: above the cap only
+  # the rhythm gets quicker.
+  max_stride_m: 0.55
 execution:
+  environments: 2048
+  # Resumed run: 1000 more iterations after the checkpoint's own.
   maximum_iterations: 1000
+  training_seed: 42
+# Residual on the frozen official Unitree policy (balance_residual_control);
+# the actor sees all 688 inputs. Policy, critic, optimizer and learning rate
+# are restored from the checkpoint (training_resume.py checks the SHA256);
+# the simulator state is not.
 policy_initialization:
   type: rsl_rl_training_resume
   source:
-    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_20261030_112528/model_499.pt
-    sha256: eb21036d457a693198b3120b4085b6b6e20cb0187f373505016b3c1841ef4ada
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261030_133621/model_1499.pt
+    sha256: 4417848de8ca13e082b029828abef271caa8de1a66043107987dbba8792f8bf0
   critic_initialization: restored
   optimizer_initialization: restored
+  locomotion_observations: 480
+  terrain_observations: 187
+  explicit_geometry_observations: 5
+  planned_footstep_observations: 14
+  gait_clock_observations: 2
+  stair_observations: 688
+  actions: 29
+balance_residual_control:
+  enabled: true
+  teacher_onnx: /workspace/unitree_rl_lab/deploy/robots/g1_29dof/config/policy/velocity/v0/exported/policy.onnx
+  teacher_observation_dim: 480
+  # Raw Unitree action units (x 0.25 rad). Legs: up to +-2 units = +-0.5 rad
+  # for riser lift and foot placement; waist and arms stay near the teacher.
+  residual_clip: 2.0
+  executed_clip: 5.0
+  scale_by_joint:
+    left_hip_pitch_joint: 1.00
+    right_hip_pitch_joint: 1.00
+    waist_yaw_joint: 0.15
+    left_hip_roll_joint: 0.30
+    right_hip_roll_joint: 0.30
+    waist_roll_joint: 0.15
+    left_hip_yaw_joint: 0.30
+    right_hip_yaw_joint: 0.30
+    waist_pitch_joint: 0.15
+    left_knee_joint: 1.00
+    right_knee_joint: 1.00
+    left_shoulder_pitch_joint: 0.10
+    right_shoulder_pitch_joint: 0.10
+    left_ankle_pitch_joint: 1.00
+    right_ankle_pitch_joint: 1.00
+    left_shoulder_roll_joint: 0.10
+    right_shoulder_roll_joint: 0.10
+    left_ankle_roll_joint: 0.30
+    right_ankle_roll_joint: 0.30
+    left_shoulder_yaw_joint: 0.10
+    right_shoulder_yaw_joint: 0.10
+    left_elbow_joint: 0.10
+    right_elbow_joint: 0.10
+    left_wrist_roll_joint: 0.05
+    right_wrist_roll_joint: 0.05
+    left_wrist_pitch_joint: 0.05
+    right_wrist_pitch_joint: 0.05
+    left_wrist_yaw_joint: 0.05
+    right_wrist_yaw_joint: 0.05
+ppo:
+  initial_action_noise_std: 0.15
+  learning_rate: 0.0001
+reward_experiment:
+  active_stage: footstep_stair_clock
+  strict_runtime_set: true
+  rewards:
+    stage_plan:
+      # Units after dt cancellation: acquisition/failure per event,
+      # progress per 0.10 m new-best distance. Clock terms per second in
+      # [-1, 1]. The clock says WHEN, the targets say WHERE (rolling on
+      # flat tiles, the stair plan on stairs). Same weights as the flat
+      # clock stage (run 20261029_142532), so the only change is the stairs.
+      # Unitree's own objective and weights (unitree_rl_lab 4960b84) except
+      # its gait term and foot clearance (replaced by swing_clearance). Stall
+      # fires on stair tiles.
+      footstep_stair_clock:
+        track_lin_vel_xy: 1.0
+        track_ang_vel_z: 0.5
+        alive: 0.15
+        base_angular_velocity: -0.05
+        joint_vel: -0.001
+        joint_acc: -2.5e-07
+        energy: -2.0e-05
+        joint_deviation_arms: -0.1
+        joint_deviation_waists: -1.0
+        joint_deviation_legs: -1.0
+        # Unitree's gait term (fixed 0.8 s cycle) is replaced by the clock:
+        # loaded stance foot, moving swing foot, per the scheduled phase.
+        # 3.0 (was 1.0): at 1.0 the target terms (~5/s) outweighed the clock
+        # (~0.8/s) and the policy kept a foot loaded through its swing window
+        # (run 20261028_222026: left foot loaded 58% of its window by 1499).
+        clock_stance_support: 3.0
+        clock_swing_motion: 3.0
+        # Uncommanded rotation, per second, cost in [0, 1): yaw-rate error
+        # averaged over each gait cycle (std 2 deg/s). The per-step Unitree
+        # term (std 0.5 rad/s) cannot see a 1 deg/s drift under the in-step
+        # twist (run 20261029_110922: -12 deg in 10 s, cost 0.0005/s). Same
+        # scale as the clock terms. Rates only: no heading is stored.
+        uncommanded_yaw: -3.0
+        # Swing clearance, per second in [0, 1]: the clock's swing sole above
+        # the ground under it, as a fraction of (what it must clear + 5 cm):
+        # the floor on flat tiles, the target level in front of a riser.
+        # Replaces Unitree's foot clearance (pays ~0.97 at the prior's 1.5 cm,
+        # flat tiles only) and the once-per-tread lift credit. Run
+        # 20261030_092747: swing sole apex 0.9-1.3 cm on the steps that jammed
+        # against a 2 cm riser, 2.3 cm on those that got over. Same scale as
+        # the clock terms.
+        swing_clearance: 3.0
+        undesired_contacts: -1.0
+        # Acquisition 3.0 per hit (was 1.0) to match the clock weight: with
+        # clock 3.0 and acquisition 1.0 the path drifted 12 cm sideways (run
+        # 20261029_082518, hits 7/25 at 0.35 m/s). Progress stays 0.5: setting
+        # it to 0 removed the steering signal (run 20261029_094644: heading
+        # drift +47 deg in 12 s, right foot loaded 35-60% of its window).
+        footstep_acquisition: 3.0
+        footstep_target_progress: 0.5
+        upright: -5.0
+        action_rate: -0.05
+        dof_pos_limits: -5.0
+        feet_slide: -0.2
+        footstep_failure_termination: -1.0
+        footstep_stall_termination: -1.0
+        # Cost of changing the frozen Unitree action, per second, raw action
+        # units squared. -0.5 (was -0.1): at -0.1 the correction cost was
+        # ~0.06/s against ~9/s of reward, and every run with good placement
+        # walked stop-and-go with a rocking pelvis (run 20261029_130700:
+        # speed std within a step 0.105 m/s vs Unitree 0.013, pitch rate
+        # 26 deg/s vs 7). Unitree's own motion is smooth; this keeps the
+        # policy closer to it. Same value as the stair runs.
+        residual_magnitude: -0.5
+launch_gates:
+  allow_launch: true

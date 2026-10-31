@@ -27,7 +27,13 @@ swings: when a swing window opens for a foot the plan is not waiting for
 (after a miss), the clock is shifted half a cycle. A stair target only
 counts during its foot's own swing window and the double support after it,
 so extra steps outside the rhythm earn nothing (as on flat tiles, where a
-target lives for one window).
+target lives for one window). Once the plan is complete the tile walks on
+like a flat tile (rolling targets at the platform height, the joystick
+command), so one policy climbs and then walks.
+
+A swing ends when its foot reaches its target: the rest of that window
+counts as stance, so the clock never pays a foot to lift again after a
+good placement.
 
 Pure tensors; no Isaac imports.
 """
@@ -216,6 +222,11 @@ class RollingClockState:
         self.active = torch.zeros(num_envs, dtype=torch.bool, device=self.device)
         self.swinging = torch.zeros(num_envs, dtype=torch.bool, device=self.device)
         self.on_plan = torch.zeros(num_envs, dtype=torch.bool, device=self.device)
+        # Stair plan completed: the row walks on like a flat tile.
+        self.climbed = torch.zeros(num_envs, dtype=torch.bool, device=self.device)
+        # [N,2] foot reached its target in its current swing window: the
+        # swing is over, the rest of the window counts as stance.
+        self.landed = torch.zeros((num_envs, 2), dtype=torch.bool, device=self.device)
         self.yaw_error_sum = torch.zeros(num_envs, device=self.device)
         self.yaw_error_time = torch.zeros(num_envs, device=self.device)
         self.cycle_yaw_error = torch.zeros(num_envs, device=self.device)
@@ -236,6 +247,8 @@ class RollingClockState:
         self.active[ids] = False
         self.swinging[ids] = False
         self.on_plan[ids] = False
+        self.climbed[ids] = False
+        self.landed[ids] = False
         self.yaw_error_sum[ids] = 0.0
         self.yaw_error_time[ids] = 0.0
         self.cycle_yaw_error[ids] = 0.0

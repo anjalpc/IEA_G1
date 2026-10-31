@@ -136,3 +136,41 @@ class PlanLengthAndStopTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TrainingAcceptanceTests(unittest.TestCase):
+    """full_sole=False: heel on the tread, toe below the next riser, spot toe
+    clear of the first riser, last platform target open-ended."""
+
+    def mask(self, index, sole_x, z):
+        targets, feet, _ = plan(index)
+        f = int(feet[0, 0])
+        bounds = torch.zeros((1, 2, 6))
+        bounds[0, :, 2], bounds[0, :, 3] = -.17, -.06
+        bounds[0, f] = torch.tensor([sole_x[0], sole_x[1], .06 if f == 0 else -.17,
+                                     .17 if f == 0 else -.06, z, z])
+        m = qualified_tread_mask(
+            sole_bounds=bounds, vertical_force=torch.tensor([[110., 110.]]),
+            targets=targets, feet=feet, valid=torch.ones((1, 2), dtype=torch.bool),
+            first_riser_x=torch.ones(1), tread_depth=torch.full((1,), .25),
+            riser_height=torch.full((1,), .2), step_count=3, half_width=.6,
+            approach_steps=1, full_sole=False)
+        return bool(m[0, f])
+
+    def test_tread_heel_overhang_limit(self):
+        # tread 1 (index 1): front edge at 1.0, next riser at 1.25, z 0.2
+        self.assertTrue(self.mask(1, (0.98, 1.17), .2))     # heel 2 cm over
+        self.assertFalse(self.mask(1, (0.94, 1.13), .2))    # heel 6 cm over (centre on the tread)
+        self.assertFalse(self.mask(1, (1.08, 1.27), .2))    # toe past the next riser
+
+    def test_top_tread_has_no_toe_limit(self):
+        self.assertTrue(self.mask(3, (1.52, 1.78), .6))     # tread 3, platform ahead at the same level
+
+    def test_spot_toe_must_clear_the_riser(self):
+        self.assertTrue(self.mask(0, (0.70, 0.88), 0.))
+        self.assertFalse(self.mask(0, (0.80, 0.99), 0.))    # toe 1 cm from the riser
+
+    def test_last_platform_target_accepts_overshoot(self):
+        self.assertTrue(self.mask(5, (2.18, 2.37), .6))     # centre 2.27, past the cell
+        self.assertFalse(self.mask(5, (1.90, 2.09), .6))    # centre 1.995, before the cell
+        self.assertFalse(self.mask(4, (2.03, 2.21), .6))    # first platform target keeps its cell

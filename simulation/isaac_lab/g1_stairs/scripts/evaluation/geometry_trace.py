@@ -366,6 +366,8 @@ class GeometryTrace:
                 "next_target_xyz": self.values(rolling.targets[0, 1, :3]),
                 "cycle_yaw_error_radps": float(rolling.cycle_yaw_error[0].item()),
                 "on_stair_plan": bool(rolling.on_plan[0].item()),
+                "stairs_climbed": bool(rolling.climbed[0].item()),
+                "swing_landed_lr": self.values(rolling.landed[0]),
             }
 
         coordinator = getattr(env, "_g1_footstep_coordinator", None)

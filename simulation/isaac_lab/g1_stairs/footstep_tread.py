@@ -7,6 +7,12 @@ import torch
 
 from .footstep_tensor import APPROACH_LAST_GAP_M
 
+# Training acceptance (full_sole=False). A centre-only rule paid landings
+# with the heel 3-8 cm off the tread front, followed by forward replants and
+# toe-riser contact (run 20261030_133621: 15 of 17 tread hits).
+TREAD_HEEL_OVERHANG_M = 0.03     # heel may overhang the tread front edge
+SPOT_TOE_CLEARANCE_M = 0.02      # spot: toe this far before the first riser
+
 
 def qualified_tread_mask(*, sole_bounds, vertical_force, targets, feet, valid,
                          first_riser_x, tread_depth, riser_height, step_count,
@@ -15,8 +21,12 @@ def qualified_tread_mask(*, sole_bounds, vertical_force, targets, feet, valid,
     """Return [N,2] valid support on CURRENT target's level/tread.
 
     full_sole=True: the whole sole lies inside the cell (strict, evaluation).
-    full_sole=False: the sole centre lies on the cell (training advancement;
-    a 25 cm window instead of ~6 cm, cf. the reference's 0.20 m radius).
+    full_sole=False (training advancement): treads: heel at most
+    TREAD_HEEL_OVERHANG_M over the front edge and, below a further riser, toe
+    not past it; spot: centre on the cell and toe SPOT_TOE_CLEARANCE_M before
+    the first riser; first platform target: centre on the cell; last
+    platform target: centre at or past its cell start (an overshoot on the
+    platform still completes the plan).
     Both require the sole flat on that level, loaded, and inside the course.
 
     Target XYZ denotes a planned sole centre. The active stair level comes from
@@ -64,6 +74,16 @@ def qualified_tread_mask(*, sole_bounds, vertical_force, targets, feet, valid,
     else:
         centre_x = 0.5 * (x_min + x_max)
         in_cell = (centre_x >= start[:, None]) & (centre_x <= end[:, None])
+        k = index[:, None]
+        tread = (k >= 0) & (k < step_count)
+        heel_on = x_min >= start[:, None] - TREAD_HEEL_OVERHANG_M
+        toe_clear = (k >= step_count - 1) | (x_max <= end[:, None])
+        spot_toe = x_max <= first_riser_x[:, None] - SPOT_TOE_CLEARANCE_M
+        in_cell = torch.where(
+            tread, heel_on & toe_clear,
+            torch.where(k < 0, in_cell & spot_toe,
+                        torch.where(k == step_count + 1,
+                                    centre_x >= start[:, None], in_cell)))
     good = (in_cell &
             (y_min >= (-half_width + margin_m)) &
             (y_max <= (half_width - margin_m)) &

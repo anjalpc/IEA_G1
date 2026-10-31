@@ -341,6 +341,34 @@ class ApplyRollingClockTests(unittest.TestCase):
         swing, _ = self.lp.clock_schedule(self.state.phase)
         self.assertEqual(swing[1].tolist(), [True, False])
 
+    def test_landed_foot_is_cleared_when_its_window_ends(self):
+        self.state.phase[:] = 0.30                                # left swinging
+        self.state.landed[:, 0] = True                            # left reached its target
+        self.run_once()
+        self.assertTrue(bool(self.state.landed[0, 0]))            # still its window
+        self.state.phase[:] = 0.55                                # double support
+        self.run_once()
+        self.assertFalse(bool(self.state.landed[0, 0]))
+
+    def test_climbed_stair_row_rolls_on_without_a_new_handover(self):
+        self.state.climbed[1] = True
+        rows, walking, targets, _, valid = self.run_once(first_plan_x=0.25)
+        self.assertFalse(bool(self.handover[1]))                  # never re-enters a plan
+        self.assertTrue(bool(rows[1]) and bool(walking[1]))
+        self.assertAlmostEqual(targets[1, 0, 0].item(), 0.2, places=6)  # normal step
+
+    def test_rolling_targets_take_the_terrain_height(self):
+        targets = torch.full((3, 2, 4), 9.0)
+        feet = torch.zeros((3, 2), dtype=torch.long)
+        valid = torch.ones((3, 2), dtype=torch.bool)
+        self.lp.apply_rolling_clock(
+            self.env, self.state, centre=self.centre, targets=targets, feet=feet,
+            valid=valid, resets=torch.zeros(3, dtype=torch.bool),
+            first_plan_x=torch.full((3,), 5.0),
+            terrain_z=lambda x: torch.full_like(x, 0.06))
+        self.assertAlmostEqual(targets[0, 0, 2].item(), 0.06, places=6)
+        self.assertAlmostEqual(targets[0, 1, 2].item(), 0.06, places=6)
+
     def test_late_touchdown_in_double_support_needs_no_shift(self):
         self.state.phase[1] = 0.45                                # left swinging
         self.run_once(plan_foot=0, on_plan=True)
