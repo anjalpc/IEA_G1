@@ -95,6 +95,46 @@ class ScheduleTests(unittest.TestCase):
         self.assertEqual(fc.moving(cmd).tolist(), [False, True, True])
 
 
+class OffBeatStepTests(unittest.TestCase):
+    def step(self, prev, sup, turn, x, rows=(True,)):
+        b = lambda v: torch.tensor([v], dtype=torch.bool)
+        return fc.off_beat_steps(b(prev), b(sup), self.on_turn, self.x0,
+                                 torch.tensor([x]), b(turn), torch.tensor(rows))
+
+    def setUp(self):
+        self.on_turn = torch.ones((1, 2), dtype=torch.bool)
+        self.x0 = torch.zeros((1, 2))
+
+    def test_step_on_its_turn_is_free_and_off_turn_costs(self):
+        # left lifts on its turn, lands 25 cm on: free
+        n, self.on_turn, self.x0 = self.step([1, 1], [0, 1], [1, 0], [0.0, 0.0])
+        n, self.on_turn, self.x0 = self.step([0, 1], [1, 1], [0, 1], [0.25, 0.0])
+        self.assertEqual(n.item(), 0.0)
+        # right lifts while it is not its turn, lands 17 cm on: one off-beat step
+        n, self.on_turn, self.x0 = self.step([1, 1], [1, 0], [1, 0], [0.25, 0.0])
+        n, self.on_turn, self.x0 = self.step([1, 0], [1, 1], [1, 0], [0.25, 0.17])
+        self.assertEqual(n.item(), 1.0)
+
+    def test_replant_on_the_spot_and_other_rows_are_free(self):
+        n, self.on_turn, self.x0 = self.step([1, 1], [1, 0], [1, 0], [0.0, 0.10])
+        n, _, _ = self.step([1, 0], [1, 1], [1, 0], [0.0, 0.12])        # moved 2 cm
+        self.assertEqual(n.item(), 0.0)
+        n, _, _ = self.step([1, 0], [1, 1], [1, 0], [0.0, 0.30], rows=(False,))
+        self.assertEqual(n.item(), 0.0)                                    # not on the plan
+
+    def test_reset_clears_the_bookkeeping(self):
+        state = fc.RollingClockState(2, "cpu")
+        state.liftoff_on_turn[:] = False
+        state.prev_supported[:] = True
+        state.reset(torch.tensor([0]), 0.0)
+        self.assertEqual(state.liftoff_on_turn[0].tolist(), [True, True])
+        self.assertEqual(state.prev_supported[0].tolist(), [False, False])
+        self.assertEqual(state.liftoff_on_turn[1].tolist(), [False, False])
+        state.off_beat_since_hit[:] = True
+        state.reset(torch.tensor([1]), 0.0)
+        self.assertEqual(state.off_beat_since_hit.tolist(), [True, False])
+
+
 class HeadingTargetTests(unittest.TestCase):
     def test_straight_ahead_one_step_from_stance(self):
         cmd = torch.tensor([[0.4, 0.0, 0.0]])

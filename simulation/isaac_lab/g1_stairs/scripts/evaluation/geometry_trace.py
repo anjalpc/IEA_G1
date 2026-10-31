@@ -434,6 +434,14 @@ class GeometryTrace:
                 "cached_swing_clearance": cached(
                     "_g1_footstep_swing_clearance"
                 ),
+                "cached_off_beat_steps": cached(
+                    "_g1_footstep_off_beat"
+                ),
+                "acquisition_paid": (
+                    bool(env._g1_footstep_acquisition_paid[0].item())
+                    if hasattr(env, "_g1_footstep_acquisition_paid")
+                    else None
+                ),
                 "qualified_acquisition": (
                     bool(env._g1_footstep_last_advanced[0].item())
                     if hasattr(env, "_g1_footstep_last_advanced")

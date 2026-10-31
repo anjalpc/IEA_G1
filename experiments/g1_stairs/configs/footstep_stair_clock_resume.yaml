@@ -5,10 +5,10 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Continue the 2 cm stair clock stage from footstep_stair_clock_resume
-    run 20261031_083022 model_2499 (11/11 completions) for 1000 iterations
-    with patch 32 (foot neutral after its hit, Unitree-calibrated level-ground
-    cycle and lift, foot stumble cost).
+  purpose: Continue footstep_stair_clock run 20261031_112519 model_1499 (6/6
+    completions, Unitree-like flat stride, but both feet on every tread) for
+    1000 iterations with patch 33b (off-beat step cost on the stair plan; a
+    stair hit after an off-beat step pays no acquisition).
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -80,8 +80,8 @@ execution:
 policy_initialization:
   type: rsl_rl_training_resume
   source:
-    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261031_083022/model_2499.pt
-    sha256: a1cec4245ad70e1d216256aeffea058986a5480fc53631ca4f319ffc9a1238c0
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_20261031_112519/model_1499.pt
+    sha256: eb9759f852bc3f4e0cb3e684b002156147eeaee8cfeb2041c4ea6baf796a7acc
   critic_initialization: restored
   optimizer_initialization: restored
   locomotion_observations: 480
@@ -183,6 +183,15 @@ reward_experiment:
         # swing toes driven into riser faces in 1.2% of stair steps (up to
         # 1.8 kN horizontal), never on flat ground or for the Unitree prior.
         foot_stumble: -1.0
+        # Stair plan only: a step (moved >= 5 cm) lifted off outside its
+        # foot's turn (its swing window or the double support before it),
+        # 1 per step (a third of a target hit). Run 20261031_112519: with
+        # extra steps free, both feet landed on every tread (59 extra steps
+        # for 50 hits at model_1499) instead of one foot per tread. Also, a
+        # stair hit after an off-beat step pays no acquisition (the plan
+        # still advances): without that, step-to cost ~1.6 per target and
+        # could still beat a riskier 50 cm alternating stride.
+        off_beat_step: -1.0
         undesired_contacts: -1.0
         # Acquisition 3.0 per hit (was 1.0) to match the clock weight: with
         # clock 3.0 and acquisition 1.0 the path drifted 12 cm sideways (run

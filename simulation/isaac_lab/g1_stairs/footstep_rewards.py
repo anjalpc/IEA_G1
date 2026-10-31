@@ -90,8 +90,13 @@ def _per_event(env, value):
 
 
 def cached_acquisition(env):
-    """Qualified assigned-foot touchdown; 1.0 per acquisition after dt scaling."""
-    value = getattr(env, "_g1_footstep_last_advanced", None)
+    """Qualified assigned-foot touchdown; 1.0 per acquisition after dt scaling.
+
+    Pays ``_g1_footstep_acquisition_paid`` when the hook sets it (stair hits
+    after an off-beat step are not paid), else every advance."""
+    value = getattr(env, "_g1_footstep_acquisition_paid", None)
+    if value is None:
+        value = getattr(env, "_g1_footstep_last_advanced", None)
     if value is None:
         raise RuntimeError("footstep acquisition reward evaluated before physics hook")
     if value.shape != (env.num_envs,):
@@ -212,6 +217,15 @@ def foot_stumble(env, sensor_cfg):
     horizontal = torch.linalg.vector_norm(forces[..., :2], dim=-1)
     hit = (horizontal > 4.0 * forces[..., 2].abs()) & (horizontal > 1.0)
     return _per_event(env, hit.any(dim=-1).to(forces.dtype))
+
+
+def cached_off_beat_step(env):
+    """Stair-plan steps lifted off outside their foot's turn; 1.0 per step
+    after dt scaling."""
+    value = getattr(env, "_g1_footstep_off_beat", None)
+    if value is None or value.shape != (env.num_envs,):
+        raise RuntimeError("missing cached off-beat steps")
+    return _per_event(env, value)
 
 
 def cached_swing_clearance(env):

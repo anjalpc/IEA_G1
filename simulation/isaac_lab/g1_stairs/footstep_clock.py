@@ -150,6 +150,28 @@ def approach_steps_left(distance, step_len):
                       - APPROACH_STEP_TOLERANCE).clamp_min(1.0)
 
 
+OFF_BEAT_MIN_MOVE_M = 0.05       # a re-plant on the spot is not a step
+
+
+def off_beat_steps(prev_supported, supported, liftoff_on_turn, liftoff_x,
+                   foot_x, on_turn, rows):
+    """Count off-beat steps and update the lift-off bookkeeping.
+
+    All per-foot inputs are [N,2]; ``on_turn`` is True for the foot the clock
+    is giving its turn (its swing window or the double support before it),
+    ``rows`` [N] the rows where off-beat steps count. A step is off-beat
+    when its foot lifted off outside its turn and moved at least
+    OFF_BEAT_MIN_MOVE_M by touchdown. Returns ([N] count, liftoff_on_turn,
+    liftoff_x)."""
+    lifted = prev_supported & ~supported
+    landed = ~prev_supported & supported
+    liftoff_on_turn = torch.where(lifted, on_turn, liftoff_on_turn)
+    liftoff_x = torch.where(lifted, foot_x, liftoff_x)
+    moved = (foot_x - liftoff_x).abs() >= OFF_BEAT_MIN_MOVE_M
+    off = landed & ~liftoff_on_turn & moved & rows[:, None]
+    return off.sum(dim=-1).to(foot_x.dtype), liftoff_on_turn, liftoff_x
+
+
 def clock_features(phase, active):
     """[N,2] sin/cos of the cycle; zero while standing."""
     angle = 2 * math.pi * phase
@@ -227,6 +249,14 @@ class RollingClockState:
         # [N,2] foot reached its target in its current swing window: the
         # swing is over, the rest of the window counts as stance.
         self.landed = torch.zeros((num_envs, 2), dtype=torch.bool, device=self.device)
+        # Off-beat step bookkeeping: support last step, and per foot whether
+        # its last lift-off was on its turn and where it lifted off.
+        self.prev_supported = torch.zeros((num_envs, 2), dtype=torch.bool, device=self.device)
+        self.liftoff_on_turn = torch.ones((num_envs, 2), dtype=torch.bool, device=self.device)
+        self.liftoff_x = torch.zeros((num_envs, 2), device=self.device)
+        # An off-beat step happened since the last stair hit: the next hit
+        # advances the plan but pays no acquisition.
+        self.off_beat_since_hit = torch.zeros(num_envs, dtype=torch.bool, device=self.device)
         self.yaw_error_sum = torch.zeros(num_envs, device=self.device)
         self.yaw_error_time = torch.zeros(num_envs, device=self.device)
         self.cycle_yaw_error = torch.zeros(num_envs, device=self.device)
@@ -249,6 +279,10 @@ class RollingClockState:
         self.on_plan[ids] = False
         self.climbed[ids] = False
         self.landed[ids] = False
+        self.prev_supported[ids] = False
+        self.liftoff_on_turn[ids] = True
+        self.liftoff_x[ids] = 0.0
+        self.off_beat_since_hit[ids] = False
         self.yaw_error_sum[ids] = 0.0
         self.yaw_error_time[ids] = 0.0
         self.cycle_yaw_error[ids] = 0.0

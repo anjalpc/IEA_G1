@@ -302,6 +302,19 @@ def audit_after_step(env):
             ground, torch.where(own_slot, targets[:, 0, 2:3], targets[:, 1, 2:3]))
         lift = swing_clearance(bounds[..., 4], ground, goal, clock_swing_f)
         env._g1_footstep_swing_clearance = torch.where(keep, lift, torch.zeros_like(lift))
+        # Off-beat steps on the stair plan: one foot per window, so one tread
+        # per step. Extra steps were free and the policy kept its short flat
+        # stride, putting both feet on every tread (run 20261031_112519).
+        from .footstep_clock import off_beat_steps
+        _, turn_foot = clock_schedule(clock_state.phase)
+        on_turn = turn_foot[:, None] == torch.arange(2, device=env.device)[None, :]
+        plan_rows = (riser_height_per_env(env) > 0) & clock_state.on_plan & keep
+        off_beat, clock_state.liftoff_on_turn, clock_state.liftoff_x = off_beat_steps(
+            clock_state.prev_supported, supported, clock_state.liftoff_on_turn,
+            clock_state.liftoff_x, centre[..., 0], on_turn, plan_rows)
+        clock_state.prev_supported = supported.clone()
+        env._g1_footstep_off_beat = off_beat
+        clock_state.off_beat_since_hit |= off_beat > 0
     # Pre-transition assigned foothold; reward only new best distance.
     from .footstep_rewards import new_target_progress
 
@@ -456,7 +469,15 @@ def audit_after_step(env):
     }
     env._g1_footstep_best_distance[advanced] = float("inf")
     env._g1_footstep_last_advanced = advanced
+    env._g1_footstep_acquisition_paid = advanced
     if rolling_rows is not None:
+        # A stair hit after an off-beat step advances the plan but pays no
+        # acquisition: step-to walking (both feet on every tread) earned the
+        # same hits as alternating, only a step later (run 20261031_112519).
+        plan_hit = advanced & clock_state.on_plan
+        env._g1_footstep_acquisition_paid = advanced & ~(
+            plan_hit & clock_state.off_beat_since_hit)
+        clock_state.off_beat_since_hit &= ~plan_hit
         # One acquisition per clock window; the id stays the window.
         clock_state.acquired |= advanced & rolling_rows
         # The foot that reached its target ends its swing.

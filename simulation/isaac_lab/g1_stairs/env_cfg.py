@@ -1385,6 +1385,9 @@ class FootstepRewardsCfg(StairRewardsCfg):
         self.swing_clearance = RewTerm(
             func=footstep_rewards.cached_swing_clearance, weight=1.0
         )
+        self.off_beat_step = RewTerm(
+            func=footstep_rewards.cached_off_beat_step, weight=-1.0
+        )
         self.foot_stumble = RewTerm(
             func=footstep_rewards.foot_stumble, weight=-1.0,
             params={"sensor_cfg": SceneEntityCfg(

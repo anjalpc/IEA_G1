@@ -250,3 +250,23 @@ class FootStumbleTests(unittest.TestCase):
         cfg = SimpleNamespace(name="contact_forces", body_ids=[0, 1])
         out = foot_stumble(env, cfg) * env.step_dt
         self.assertEqual([round(v, 6) for v in out.tolist()], [1.0, 0.0, 0.0, 1.0])
+
+
+class OffBeatRewardTests(unittest.TestCase):
+    def test_reads_cached_count_per_event(self):
+        from types import SimpleNamespace
+        from simulation.isaac_lab.g1_stairs.footstep_rewards import cached_off_beat_step
+        env = SimpleNamespace(num_envs=2, step_dt=0.02, _g1_footstep_off_beat=torch.tensor([0.0, 2.0]))
+        self.assertEqual([round(v * env.step_dt, 6) for v in cached_off_beat_step(env).tolist()], [0.0, 2.0])
+        with self.assertRaises(RuntimeError):
+            cached_off_beat_step(SimpleNamespace(num_envs=2, step_dt=0.02))
+
+    def test_acquisition_pays_only_the_paid_hits_when_set(self):
+        from types import SimpleNamespace
+        from simulation.isaac_lab.g1_stairs.footstep_rewards import cached_acquisition
+        env = SimpleNamespace(num_envs=2, step_dt=0.02,
+                              _g1_footstep_last_advanced=torch.tensor([True, True]),
+                              _g1_footstep_acquisition_paid=torch.tensor([True, False]))
+        self.assertEqual([round(v * env.step_dt, 6) for v in cached_acquisition(env).tolist()], [1.0, 0.0])
+        del env._g1_footstep_acquisition_paid
+        self.assertEqual([round(v * env.step_dt, 6) for v in cached_acquisition(env).tolist()], [1.0, 1.0])

@@ -163,6 +163,15 @@ reward_experiment:
         # swing toes driven into riser faces in 1.2% of stair steps (up to
         # 1.8 kN horizontal), never on flat ground or for the Unitree prior.
         foot_stumble: -1.0
+        # Stair plan only: a step (moved >= 5 cm) lifted off outside its
+        # foot's turn (its swing window or the double support before it),
+        # 1 per step (a third of a target hit). Run 20261031_112519: with
+        # extra steps free, both feet landed on every tread (59 extra steps
+        # for 50 hits at model_1499) instead of one foot per tread. Also, a
+        # stair hit after an off-beat step pays no acquisition (the plan
+        # still advances): without that, step-to cost ~1.6 per target and
+        # could still beat a riskier 50 cm alternating stride.
+        off_beat_step: -1.0
         undesired_contacts: -1.0
         # Acquisition 3.0 per hit (was 1.0) to match the clock weight: with
         # clock 3.0 and acquisition 1.0 the path drifted 12 cm sideways (run
