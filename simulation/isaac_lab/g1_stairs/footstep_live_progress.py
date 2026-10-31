@@ -467,6 +467,10 @@ def audit_after_step(env):
             clock_state.on_plan[finished] = False
             clock_state.climbed[finished] = True
             clock_state.assigned[finished] = -1     # new rolling window next step
+            # Force a progress reset on the first rolling target: its window
+            # id can equal the finished plan's last index, whose best
+            # distance was just set to infinity.
+            env._g1_footstep_progress_target_index[finished] = -1
             env.command_manager.get_command("base_velocity")[finished, 1:] = 0.0
         # Stair rows mark the best distance infinite because their target
         # id changes next step and resets it. A rolling target keeps its id
