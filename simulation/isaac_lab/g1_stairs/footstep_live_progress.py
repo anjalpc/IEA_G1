@@ -269,11 +269,17 @@ def audit_after_step(env):
         # Clock rewards come from the rolling clock (the phase the policy
         # observed) on all tiles; standing rows and finished stair plans
         # request double stance and still feet.
-        clock_swing_f = (clock_swing & rolling_walking[:, None]
-                         & ~clock_state.landed).to(force_z.dtype)
+        # A foot that reached its target is neutral for the rest of its
+        # window: lifting again earns nothing, and loading earns nothing
+        # either (as stance it paid for dropping the weight onto the new
+        # foot at once: peak body acceleration after a hit 7.9 -> 11.4 m/s2,
+        # run 20261031_083022).
+        scheduled = clock_swing & rolling_walking[:, None]
+        clock_swing_f = (scheduled & ~clock_state.landed).to(force_z.dtype)
+        clock_stance_f = (~scheduled).to(force_z.dtype)
         clock_stance, clock_motion = clock_contact_scores(
             force_z, centre, sole_velocity, targets, feet, valid,
-            clock_swing_f, 1.0 - clock_swing_f,
+            clock_swing_f, clock_stance_f,
         )
         keep = ~resets
         env._g1_footstep_stance_support = torch.where(

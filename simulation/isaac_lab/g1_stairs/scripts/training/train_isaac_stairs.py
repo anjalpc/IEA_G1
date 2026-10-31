@@ -803,7 +803,7 @@ def main() -> None:
             required = (required - {"gait", "flat_feet_clearance",
                                     "footstep_clearance_progress"}) | {
                 "clock_stance_support", "clock_swing_motion", "uncommanded_yaw",
-                "swing_clearance",
+                "swing_clearance", "foot_stumble",
             }
         from simulation.isaac_lab.g1_stairs.reward_runtime import (
             active_reward_weights,

@@ -157,12 +157,14 @@ def cached_stance_support(env):
 
 
 # Swing clearance (gait-clock stages). Full credit when the swinging sole
-# is this far above what it has to clear: the floor on flat ground, the
-# target level in front of a riser. The Unitree prior's sole clears ~1.5 cm,
-# and its foot_clearance_reward already pays ~0.97 there (ankle error^2 /
-# 0.05 inside exp), so it never asked for more; at 2 cm risers the toe
-# jammed against the riser (run 20261030_092747).
+# is this far above what it has to clear. Over a higher target level: 5 cm
+# above it (at 2 cm risers with the prior's ~1.5 cm lift the toe jammed,
+# run 20261030_092747). On level ground: 2 cm, the Unitree prior's own lift
+# (1.2-1.8 cm at 0.25-0.6 m/s, model_0 sweeps 20261028); 5 cm there made
+# the residual fight the prior on every flat step (run 20261031_083022:
+# flat lift 5-6.7 cm, pitch rate sd 26 vs 7 deg/s for the prior).
 SWING_CLEARANCE_MARGIN_M = 0.05
+SWING_CLEARANCE_FLAT_MARGIN_M = 0.02
 
 
 def stair_ground_height(x, first_riser_x, tread_depth, riser_height, step_count):
@@ -173,9 +175,11 @@ def stair_ground_height(x, first_riser_x, tread_depth, riser_height, step_count)
 
 
 def swing_clearance(sole_bottom, ground, goal, swing,
-                    *, margin_m=SWING_CLEARANCE_MARGIN_M):
+                    *, margin_m=SWING_CLEARANCE_MARGIN_M,
+                    flat_margin_m=SWING_CLEARANCE_FLAT_MARGIN_M):
     """[N] in [0, 1]: lift of each scheduled swing sole above the ground
-    under it, as a fraction of the lift needed to clear ``goal`` + margin.
+    under it, as a fraction of the lift needed to clear ``goal`` + margin
+    (``flat_margin_m`` when the goal is the ground itself).
 
     All inputs [N,2]; ``swing`` is the clock's swing schedule (0/1). Lift is
     measured from the ground, not the goal, so a high riser still gives a
@@ -185,11 +189,29 @@ def swing_clearance(sole_bottom, ground, goal, swing,
     """
     if not (sole_bottom.shape == ground.shape == goal.shape == swing.shape):
         raise ValueError("swing clearance tensors have different shapes")
-    if margin_m <= 0:
-        raise ValueError("margin_m must be positive")
-    need = (goal - ground).clamp_min(0.0) + margin_m
+    if margin_m <= 0 or flat_margin_m <= 0:
+        raise ValueError("margins must be positive")
+    rise = (goal - ground).clamp_min(0.0)
+    need = rise + torch.where(rise > 1e-3, torch.full_like(rise, margin_m),
+                              torch.full_like(rise, flat_margin_m))
     fraction = ((sole_bottom - ground) / need).clamp(0.0, 1.0)
     return (fraction * swing).sum(dim=-1)
+
+
+def foot_stumble(env, sensor_cfg):
+    """Unitree's feet_stumble (unitree_rl_lab mdp): 1 per step while a foot's
+    horizontal contact force exceeds 4x its vertical force (a foot pushing
+    into a vertical face). Event scaled: weight = cost per contact step.
+
+    Run 20261031_083022 (model_2499): active in 1.2% of stair steps (swing
+    toes driven into riser faces, up to 1.8 kN), never on flat ground or for
+    the Unitree prior.
+    """
+    sensor = env.scene.sensors[sensor_cfg.name]
+    forces = sensor.data.net_forces_w[:, sensor_cfg.body_ids]
+    horizontal = torch.linalg.vector_norm(forces[..., :2], dim=-1)
+    hit = (horizontal > 4.0 * forces[..., 2].abs()) & (horizontal > 1.0)
+    return _per_event(env, hit.any(dim=-1).to(forces.dtype))
 
 
 def cached_swing_clearance(env):

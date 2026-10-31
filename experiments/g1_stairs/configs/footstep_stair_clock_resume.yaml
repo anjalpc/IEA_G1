@@ -6,9 +6,9 @@ schema_version: 1
 experiment:
   id: footstep_stair_clock_resume
   purpose: Continue the 2 cm stair clock stage from footstep_stair_clock_resume
-    run 20261030_133621 model_1499 (4/5 stair completions) for 1000 iterations
-    with patch 31 (swing ends at its hit, heel-on-tread acceptance, platform
-    overshoot completes, walk on after the climb).
+    run 20261031_083022 model_2499 (11/11 completions) for 1000 iterations
+    with patch 32 (foot neutral after its hit, Unitree-calibrated level-ground
+    cycle and lift, foot stumble cost).
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -49,14 +49,15 @@ command:
       lin_vel_x: [0.2, 0.5]
 footstep_clock:
   enabled: true
-  # One cycle = left swing + right swing with two double supports. The
-  # cycle time follows the commanded speed, as a joystick needs: linear from
-  # period_slow_s (at <= 0.1 m/s) to period_fast_s (at >= 0.6 m/s), times a
+  # One cycle = left swing + right swing with two double supports, times a
   # per-episode jitter of +-period_jitter so no single rhythm is memorised.
-  # Steps = speed x half a cycle: ~7 cm at 0.15 m/s, ~15 cm at 0.35,
-  # ~21 cm at 0.6.
-  period_slow_s: 1.0
-  period_fast_s: 0.7
+  # Level ground: the Unitree prior's own cycle, ~0.6 s at every speed it
+  # walks (model_0 sweeps 20261028: 0.62 / 0.57 / 0.59 / 0.60 s at 0.25 /
+  # 0.35 / 0.5 / 0.6 m/s; stride = speed x cycle). The earlier 1.0 -> 0.7 s
+  # schedule made the residual fight the prior on every flat step (run
+  # 20261031_083022: pitch rate sd 26 vs 7 deg/s for the prior).
+  period_slow_s: 0.6
+  period_fast_s: 0.6
   # Stair tiles, once the stair plan has taken over: fixed cycle, one
   # 0.25 m tread per step (~0.45 m/s, 0.39 s swing window). 1.1 s is the
   # slowest cycle the flat stage demonstrated; 1.3 s was never followed
@@ -79,8 +80,8 @@ execution:
 policy_initialization:
   type: rsl_rl_training_resume
   source:
-    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261030_133621/model_1499.pt
-    sha256: 4417848de8ca13e082b029828abef271caa8de1a66043107987dbba8792f8bf0
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261031_083022/model_2499.pt
+    sha256: a1cec4245ad70e1d216256aeffea058986a5480fc53631ca4f319ffc9a1238c0
   critic_initialization: restored
   optimizer_initialization: restored
   locomotion_observations: 480
@@ -177,6 +178,11 @@ reward_experiment:
         # against a 2 cm riser, 2.3 cm on those that got over. Same scale as
         # the clock terms.
         swing_clearance: 3.0
+        # Unitree's feet_stumble: a foot pushing into a vertical face, cost
+        # 1 per contact step (a third of a target hit). Run 20261031_083022:
+        # swing toes driven into riser faces in 1.2% of stair steps (up to
+        # 1.8 kN horizontal), never on flat ground or for the Unitree prior.
+        foot_stumble: -1.0
         undesired_contacts: -1.0
         # Acquisition 3.0 per hit (was 1.0) to match the clock weight: with
         # clock 3.0 and acquisition 1.0 the path drifted 12 cm sideways (run

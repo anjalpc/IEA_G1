@@ -212,18 +212,19 @@ class SwingClearanceTests(unittest.TestCase):
         from simulation.isaac_lab.g1_stairs.footstep_rewards import swing_clearance
         t = lambda *v: torch.tensor([list(v)])
         swing = t(1.0, 0.0)
-        # flat: 2.5 cm of 5 cm
-        self.assertAlmostEqual(swing_clearance(t(.025, .1), t(0., 0.), t(0., 0.), swing).item(), .5)
+        # level ground: 1 cm of the 2 cm flat margin
+        self.assertAlmostEqual(swing_clearance(t(.01, .1), t(0., 0.), t(0., 0.), swing).item(), .5, places=5)
         # before a 20 cm riser: 12.5 cm of 25 cm, measured from the ground
         self.assertAlmostEqual(swing_clearance(t(.125, 0.), t(0., 0.), t(.2, 0.), swing).item(), .5)
         # above the margin pays no more; below the ground nothing
         self.assertEqual(swing_clearance(t(.4, 0.), t(0., 0.), t(.2, 0.), swing).item(), 1.0)
         self.assertEqual(swing_clearance(t(-.01, 0.), t(0., 0.), t(0., 0.), swing).item(), 0.0)
+        self.assertEqual(swing_clearance(t(.03, 0.), t(0., 0.), t(0., 0.), swing).item(), 1.0)  # 3 cm on flat is full
         # a lifted foot outside its swing window earns nothing
         self.assertEqual(swing_clearance(t(.1, .1), t(0., 0.), t(0., 0.), t(0., 0.)).item(), 0.0)
-        # over tread 1, lift counts from the tread
+        # over tread 1 with its target on the same level: 1 cm of the flat 2 cm
         self.assertAlmostEqual(
-            swing_clearance(t(.225, 0.), t(.2, 0.), t(.2, 0.), swing).item(), .5, places=5)
+            swing_clearance(t(.21, 0.), t(.2, 0.), t(.2, 0.), swing).item(), .5, places=5)
 
     def test_cached_value(self):
         from types import SimpleNamespace
@@ -232,3 +233,20 @@ class SwingClearanceTests(unittest.TestCase):
         self.assertEqual(cached_swing_clearance(env).tolist(), [0.0, 0.5])
         with self.assertRaises(RuntimeError):
             cached_swing_clearance(SimpleNamespace(num_envs=2))
+
+
+class FootStumbleTests(unittest.TestCase):
+    def test_horizontal_push_into_a_face_counts_once_per_step(self):
+        from types import SimpleNamespace
+        from simulation.isaac_lab.g1_stairs.footstep_rewards import foot_stumble
+        forces = torch.tensor([
+            [[-60., 0., 0.], [0., 0., 300.]],     # toe pushed into a riser
+            [[-30., 5., 200.], [0., 0., 0.]],     # normal stance friction
+            [[0., 0., 0.], [0., 0., 0.]],         # both feet in the air
+            [[-50., 0., 10.], [40., 0., 5.]],     # both feet: still one event
+        ])
+        env = SimpleNamespace(step_dt=0.02, scene=SimpleNamespace(sensors={
+            "contact_forces": SimpleNamespace(data=SimpleNamespace(net_forces_w=forces))}))
+        cfg = SimpleNamespace(name="contact_forces", body_ids=[0, 1])
+        out = foot_stumble(env, cfg) * env.step_dt
+        self.assertEqual([round(v, 6) for v in out.tolist()], [1.0, 0.0, 0.0, 1.0])
