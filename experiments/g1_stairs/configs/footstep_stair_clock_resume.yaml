@@ -5,10 +5,12 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Continue footstep_stair_clock run 20261031_112519 model_1499 (6/6
-    completions, Unitree-like flat stride, but both feet on every tread) for
-    1000 iterations with patch 33b (off-beat step cost on the stair plan; a
-    stair hit after an off-beat step pays no acquisition).
+  purpose: Continue footstep_stair_clock_resume run 20261031_083022 model_2499
+    (11/11 completions, one foot per tread with 42 cm hits, but same-foot
+    replants after hits, riser contacts and hard landings) for 1000
+    iterations with the patch 32/33b rewards (foot_stumble, neutral foot after
+    its hit, off-beat step cost) and that run's 1.0 -> 0.7 s level-ground
+    cycle. Run 20261031_112519 (0.6 s cycle) lost the alternation.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -51,13 +53,13 @@ footstep_clock:
   enabled: true
   # One cycle = left swing + right swing with two double supports, times a
   # per-episode jitter of +-period_jitter so no single rhythm is memorised.
-  # Level ground: the Unitree prior's own cycle, ~0.6 s at every speed it
-  # walks (model_0 sweeps 20261028: 0.62 / 0.57 / 0.59 / 0.60 s at 0.25 /
-  # 0.35 / 0.5 / 0.6 m/s; stride = speed x cycle). The earlier 1.0 -> 0.7 s
-  # schedule made the residual fight the prior on every flat step (run
-  # 20261031_083022: pitch rate sd 26 vs 7 deg/s for the prior).
-  period_slow_s: 0.6
-  period_fast_s: 0.6
+  # Level ground: 1.0 s (<= 0.1 m/s) to 0.7 s (>= 0.6 m/s), as in run
+  # 20261031_083022, whose approach (~0.85 s at 0.45 m/s, longer strides)
+  # led into one foot per tread. The Unitree 0.6 s cycle (run
+  # 20261031_112519 and its resume 20261031_151508) gave smoother flat
+  # walking but both feet, then three touchdowns, on every tread.
+  period_slow_s: 1.0
+  period_fast_s: 0.7
   # Stair tiles, once the stair plan has taken over: fixed cycle, one
   # 0.25 m tread per step (~0.45 m/s, 0.39 s swing window). 1.1 s is the
   # slowest cycle the flat stage demonstrated; 1.3 s was never followed
@@ -80,8 +82,8 @@ execution:
 policy_initialization:
   type: rsl_rl_training_resume
   source:
-    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_20261031_112519/model_1499.pt
-    sha256: eb9759f852bc3f4e0cb3e684b002156147eeaee8cfeb2041c4ea6baf796a7acc
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261031_083022/model_2499.pt
+    sha256: a1cec4245ad70e1d216256aeffea058986a5480fc53631ca4f319ffc9a1238c0
   critic_initialization: restored
   optimizer_initialization: restored
   locomotion_observations: 480
