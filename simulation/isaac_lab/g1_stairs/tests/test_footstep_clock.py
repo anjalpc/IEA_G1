@@ -226,10 +226,14 @@ class YawDriftTests(unittest.TestCase):
         self.assertEqual(state.cycle_yaw_error[0].item(), 0.0)
 
     def test_cost(self):
-        cost = fc.yaw_drift_cost(torch.tensor([0.0, fc.YAW_DRIFT_STD_RADPS, -1.0]))
+        s = fc.YAW_DRIFT_STD_RADPS
+        cost = fc.yaw_drift_cost(torch.tensor([0.0, 0.5 * s, s, -s, 3 * s, -1.0]))
         self.assertEqual(cost[0].item(), 0.0)
-        self.assertAlmostEqual(cost[1].item(), 1 - math.exp(-1), places=6)
+        self.assertAlmostEqual(cost[1].item(), 0.25, places=6)
         self.assertAlmostEqual(cost[2].item(), 1.0, places=6)
+        self.assertAlmostEqual(cost[3].item(), 1.0, places=6)      # symmetric
+        self.assertAlmostEqual(cost[4].item(), 5.0, places=5)      # linear tail
+        self.assertAlmostEqual(cost[5].item(), 2.0 / s - 1.0, places=3)  # no saturation
 
 
 class ApplyRollingClockTests(unittest.TestCase):

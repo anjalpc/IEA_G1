@@ -5,12 +5,11 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Continue footstep_stair_clock_resume run 20261031_083022 model_2499
-    (11/11 completions, one foot per tread with 42 cm hits, but same-foot
-    replants after hits, riser contacts and hard landings) for 1000
-    iterations with the patch 32/33b rewards (foot_stumble, neutral foot after
-    its hit, off-beat step cost) and that run's 1.0 -> 0.7 s level-ground
-    cycle. Run 20261031_112519 (0.6 s cycle) lost the alternation.
+  purpose: Continue footstep_stair_clock_resume run 20261031_180640 model_3100
+    (5/5 completions, alternating feet one per tread, 0.03 extra steps per
+    hit) for 1000 iterations with the uncommanded_yaw cost made Huber instead
+    of 1 - exp(-q^2). That run's model_3499 drifted 6 deg/s on flat with the
+    saturated cost at 1.0 on every frame. Everything else as patch 34.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -82,8 +81,8 @@ execution:
 policy_initialization:
   type: rsl_rl_training_resume
   source:
-    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261031_083022/model_2499.pt
-    sha256: a1cec4245ad70e1d216256aeffea058986a5480fc53631ca4f319ffc9a1238c0
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261031_180640/model_3100.pt
+    sha256: 560eac029a03f30cce4172ccdfbdef826e15f2dfa0da69793e71c2fbac4634c1
   critic_initialization: restored
   optimizer_initialization: restored
   locomotion_observations: 480
@@ -165,7 +164,8 @@ reward_experiment:
         # (run 20261028_222026: left foot loaded 58% of its window by 1499).
         clock_stance_support: 3.0
         clock_swing_motion: 3.0
-        # Uncommanded rotation, per second, cost in [0, 1): yaw-rate error
+        # Uncommanded rotation, per second, cost >= 0 (quadratic to 2 deg/s,
+        # linear beyond; was 1 - exp(-q^2), saturated at model_3499): yaw-rate error
         # averaged over each gait cycle (std 2 deg/s). The per-step Unitree
         # term (std 0.5 rad/s) cannot see a 1 deg/s drift under the in-step
         # twist (run 20261029_110922: -12 deg in 10 s, cost 0.0005/s). Same

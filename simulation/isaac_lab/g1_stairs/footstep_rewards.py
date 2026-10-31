@@ -146,7 +146,7 @@ def cached_net_progress(env):
 
 
 def cached_yaw_drift(env):
-    """Uncommanded rotation cost in [0, 1) (cycle-averaged yaw-rate error)."""
+    """Uncommanded rotation cost >= 0 (cycle-averaged yaw-rate error, Huber)."""
     value = getattr(env, "_g1_footstep_yaw_drift", None)
     if value is None or value.shape != (env.num_envs,):
         raise RuntimeError("missing cached yaw drift")

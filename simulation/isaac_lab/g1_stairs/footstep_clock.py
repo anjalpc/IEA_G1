@@ -52,7 +52,7 @@ PERIOD_FAST_SPEED_MPS = 0.6      # period_fast_s applies at or above this speed
 # Uncommanded rotation: yaw-rate error averaged over each full gait cycle.
 # The in-step pelvis twist cancels over a cycle; a steady drift does not.
 # Rates only: no heading is stored, a past turn is never undone.
-YAW_DRIFT_STD_RADPS = 0.035       # 2 deg/s cycle-average error costs 63%
+YAW_DRIFT_STD_RADPS = 0.035       # 2 deg/s cycle-average error costs 1.0
 APPROACH_STEP_TOLERANCE = 0.25    # last approach step may be this much longer than normal
 
 
@@ -180,8 +180,15 @@ def clock_features(phase, active):
 
 
 def yaw_drift_cost(cycle_yaw_error):
-    """[N] cost in [0, 1): 0 when the cycle-average turn rate matches the command."""
-    return 1.0 - torch.exp(-(cycle_yaw_error / YAW_DRIFT_STD_RADPS) ** 2)
+    """[N] cost >= 0: 0 when the cycle-average turn rate matches the command.
+
+    Quadratic up to YAW_DRIFT_STD_RADPS, linear beyond (Huber), so the
+    gradient never vanishes. The former 1 - exp(-q^2) saturated above
+    ~4 deg/s: run 20261031_180640 model_3499 drifted 6 deg/s on flat with
+    the cost at 1.0 on 100% of frames and nothing pulling it back.
+    """
+    q = (cycle_yaw_error / YAW_DRIFT_STD_RADPS).abs()
+    return torch.where(q < 1.0, q * q, 2.0 * q - 1.0)
 
 
 def heading_targets(stance_xy, swing_foot, root_yaw, command, period_s,
