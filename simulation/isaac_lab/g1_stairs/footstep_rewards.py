@@ -179,7 +179,7 @@ def stair_ground_height(x, first_riser_x, tread_depth, riser_height, step_count)
     return level.clamp(0.0, float(step_count)) * riser_height[:, None]
 
 
-def swing_clearance(sole_bottom, ground, goal, swing,
+def swing_clearance(sole_bottom, ground, goal, swing, cap=None,
                     *, margin_m=SWING_CLEARANCE_MARGIN_M,
                     flat_margin_m=SWING_CLEARANCE_FLAT_MARGIN_M):
     """[N] in [0, 1]: lift of each scheduled swing sole above the ground
@@ -190,7 +190,8 @@ def swing_clearance(sole_bottom, ground, goal, swing,
     measured from the ground, not the goal, so a high riser still gives a
     signal from the first centimetre. A loaded or still foot gets nothing:
     only the clock's swing foot counts, and higher than the margin pays no
-    more.
+    more. ``cap`` [N,2] (optional) limits the credit per foot (late in the
+    window: a gradual descent pays as much as hovering).
     """
     if not (sole_bottom.shape == ground.shape == goal.shape == swing.shape):
         raise ValueError("swing clearance tensors have different shapes")
@@ -200,6 +201,10 @@ def swing_clearance(sole_bottom, ground, goal, swing,
     need = rise + torch.where(rise > 1e-3, torch.full_like(rise, margin_m),
                               torch.full_like(rise, flat_margin_m))
     fraction = ((sole_bottom - ground) / need).clamp(0.0, 1.0)
+    if cap is not None:
+        if cap.shape != fraction.shape:
+            raise ValueError("swing clearance cap has a different shape")
+        fraction = torch.minimum(fraction, cap)
     return (fraction * swing).sum(dim=-1)
 
 
@@ -225,6 +230,15 @@ def cached_off_beat_step(env):
     value = getattr(env, "_g1_footstep_off_beat", None)
     if value is None or value.shape != (env.num_envs,):
         raise RuntimeError("missing cached off-beat steps")
+    return _per_event(env, value)
+
+
+def cached_landing_impact(env):
+    """Touchdown impact cost (sum over landing feet of the squared excess
+    downward speed); per event after dt scaling."""
+    value = getattr(env, "_g1_footstep_landing_impact", None)
+    if value is None or value.shape != (env.num_envs,):
+        raise RuntimeError("missing cached landing impact")
     return _per_event(env, value)
 
 

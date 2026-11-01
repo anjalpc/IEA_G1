@@ -1388,6 +1388,9 @@ class FootstepRewardsCfg(StairRewardsCfg):
         self.off_beat_step = RewTerm(
             func=footstep_rewards.cached_off_beat_step, weight=-1.0
         )
+        self.landing_impact = RewTerm(
+            func=footstep_rewards.cached_landing_impact, weight=-1.0
+        )
         self.foot_stumble = RewTerm(
             func=footstep_rewards.foot_stumble, weight=-1.0,
             params={"sensor_cfg": SceneEntityCfg(

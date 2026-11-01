@@ -17,7 +17,8 @@ from .footstep_gait_clock import (
 from .footstep_isaac_adapter import course_root_pose, course_tensors
 from .footstep_clock import (
     RollingClockState, approach_steps_left, clock_schedule, follow_plan_foot,
-    heading_targets, moving, own_window, speed_period,
+    heading_targets, landing_impact, late_swing_cap, moving, own_window,
+    speed_period, swing_progress,
 )
 from .footstep_mixing import (
     course_exit_timeout, stair_escape, stair_steering, target_stalled,
@@ -300,7 +301,8 @@ def audit_after_step(env):
         own_slot = (feet[:, 0:1] == torch.arange(2, device=env.device)[None, :])
         goal = torch.maximum(
             ground, torch.where(own_slot, targets[:, 0, 2:3], targets[:, 1, 2:3]))
-        lift = swing_clearance(bounds[..., 4], ground, goal, clock_swing_f)
+        cap = late_swing_cap(swing_progress(clock_state.phase))
+        lift = swing_clearance(bounds[..., 4], ground, goal, clock_swing_f, cap)
         env._g1_footstep_swing_clearance = torch.where(keep, lift, torch.zeros_like(lift))
         # Off-beat steps on the stair plan: one foot per window, so one tread
         # per step. Extra steps were free and the policy kept its short flat
@@ -312,6 +314,14 @@ def audit_after_step(env):
         off_beat, clock_state.liftoff_on_turn, clock_state.liftoff_x = off_beat_steps(
             clock_state.prev_supported, supported, clock_state.liftoff_on_turn,
             clock_state.liftoff_x, centre[..., 0], on_turn, plan_rows)
+        # Landing impact on all tiles (before prev_supported moves on).
+        sole_vz = sole_velocity[..., 2]
+        impact = landing_impact(
+            clock_state.prev_supported, supported, clock_state.prev_sole_vz,
+            sole_vz, keep & clock_state.contact_armed)
+        env._g1_footstep_landing_impact = impact
+        clock_state.prev_sole_vz = sole_vz.clone()
+        clock_state.contact_armed = keep.clone()
         clock_state.prev_supported = supported.clone()
         env._g1_footstep_off_beat = off_beat
         clock_state.off_beat_since_hit |= off_beat > 0

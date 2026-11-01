@@ -135,6 +135,42 @@ class OffBeatStepTests(unittest.TestCase):
         self.assertEqual(state.off_beat_since_hit.tolist(), [True, False])
 
 
+class LandingImpactTests(unittest.TestCase):
+    """Patch 36: touchdown speed cost and the late-swing height cap."""
+
+    def test_swing_progress_per_foot(self):
+        p = fc.swing_progress(torch.tensor([0.0, 0.15, 0.325, 0.45, 0.65, 0.825, 0.99]))
+        left, right = p[:, 0].tolist(), p[:, 1].tolist()
+        self.assertEqual([round(v, 4) for v in left], [0.0, 0.0, 0.5, 0.8571, 0.0, 0.0, 0.0])
+        self.assertEqual([round(v, 4) for v in right], [0.0, 0.0, 0.0, 0.0, 0.0, 0.5, 0.9714])
+
+    def test_late_swing_cap(self):
+        cap = fc.late_swing_cap(torch.tensor([[0.0, 0.5], [0.75, 0.99]]))
+        self.assertEqual([round(v, 4) for v in cap.flatten().tolist()], [1.0, 1.0, 0.5, 0.02])
+
+    def test_touchdown_cost_from_the_faster_of_two_steps(self):
+        f = fc.LANDING_FREE_SPEED_MPS
+        prev = torch.tensor([[False, True], [False, False], [True, False]])
+        sup = torch.tensor([[True, True], [True, True], [True, False]])
+        prev_vz = torch.tensor([[-2 * f, -9.0], [-0.1, -3 * f], [-9.0, -9.0]])
+        vz = torch.tensor([[-0.1, 0.0], [-0.1, -0.2], [0.0, 0.0]])
+        cost = fc.landing_impact(prev, sup, prev_vz, vz, torch.ones(3, dtype=torch.bool))
+        # row 0: left lands at 2x free speed -> 1; right stays loaded -> 0
+        # row 1: left lands slower than free -> 0; right at 3x -> 4
+        # row 2: no touchdown
+        self.assertEqual([round(v, 5) for v in cost.tolist()], [1.0, 4.0, 0.0])
+        off = fc.landing_impact(prev, sup, prev_vz, vz, torch.tensor([False, True, True]))
+        self.assertEqual(off[0].item(), 0.0)
+
+    def test_reset_clears_the_impact_bookkeeping(self):
+        state = fc.RollingClockState(2, "cpu")
+        state.prev_sole_vz[:] = -1.0
+        state.contact_armed[:] = True
+        state.reset(torch.tensor([1]), 0.0)
+        self.assertEqual(state.prev_sole_vz[:, 0].tolist(), [-1.0, 0.0])
+        self.assertEqual(state.contact_armed.tolist(), [True, False])
+
+
 class HeadingTargetTests(unittest.TestCase):
     def test_straight_ahead_one_step_from_stance(self):
         cmd = torch.tensor([[0.4, 0.0, 0.0]])

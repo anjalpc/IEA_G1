@@ -804,6 +804,7 @@ def main() -> None:
                                     "footstep_clearance_progress"}) | {
                 "clock_stance_support", "clock_swing_motion", "uncommanded_yaw",
                 "swing_clearance", "foot_stumble", "off_beat_step",
+                "landing_impact",
             }
         from simulation.isaac_lab.g1_stairs.reward_runtime import (
             active_reward_weights,

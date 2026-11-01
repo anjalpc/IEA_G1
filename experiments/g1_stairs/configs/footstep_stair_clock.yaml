@@ -164,6 +164,9 @@ reward_experiment:
         # Swing clearance, per second in [0, 1]: the clock's swing sole above
         # the ground under it, as a fraction of (what it must clear + 5 cm):
         # the floor on flat tiles, the target level in front of a riser.
+        # Credit capped from half the swing window down to 0 at its end
+        # (patch 36): hovering late pays nothing, so the sole comes down
+        # gradually instead of dropping in the last tenth.
         # Replaces Unitree's foot clearance (pays ~0.97 at the prior's 1.5 cm,
         # flat tiles only) and the once-per-tread lift credit. Run
         # 20261030_092747: swing sole apex 0.9-1.3 cm on the steps that jammed
@@ -184,6 +187,13 @@ reward_experiment:
         # still advances): without that, step-to cost ~1.6 per target and
         # could still beat a riskier 50 cm alternating stride.
         off_beat_step: -1.0
+        # Landing impact, per touchdown: ((v - 0.3) / 0.3)^2 for the sole
+        # downward speed v above 0.3 m/s (Unitree prior 0.20). Run
+        # 20261031_212003 model_3700: 0.48 m/s flat, 0.81 m/s stairs (p90
+        # 1.0), peak normal force up to 6 body weights, waist roll at its
+        # 25 Nm limit in 2-3% of frames. At 0.8 m/s: 1.4 per landing, half
+        # a target hit.
+        landing_impact: -0.5
         undesired_contacts: -1.0
         # Acquisition 3.0 per hit (was 1.0) to match the clock weight: with
         # clock 3.0 and acquisition 1.0 the path drifted 12 cm sideways (run

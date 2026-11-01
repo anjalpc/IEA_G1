@@ -152,6 +152,46 @@ def approach_steps_left(distance, step_len):
 
 OFF_BEAT_MIN_MOVE_M = 0.05       # a re-plant on the spot is not a step
 
+# Landing impact: sole downward speed at touchdown that costs nothing. The
+# Unitree prior lands at 0.20 m/s (p90 0.24); run 20261031_212003 model_3700
+# landed at 0.48 m/s on flat and 0.81 m/s on stairs (p90 1.0, peak normal
+# force up to 6 body weights).
+LANDING_FREE_SPEED_MPS = 0.3
+# Swing height credit is capped from this fraction of the swing window
+# down to 0 at its end: hovering high late in the window pays nothing.
+# Run 20261031_180640 model_3100 held the sole 3-4 cm up for ~60% of the
+# window and dropped it in the last tenth (touchdown 0.71 m/s on flat).
+# Toes cross the risers at 0.07-0.42 of the window (model_3700), below it.
+SWING_CAP_START = 0.5
+
+
+def swing_progress(phase):
+    """[N,2] progress through each foot's own swing window, in [0, 1);
+    0 outside it."""
+    ds, ss = DOUBLE_SUPPORT_FRACTION, SINGLE_SUPPORT_FRACTION
+    left = (phase - ds) / ss
+    right = (phase - (2 * ds + ss)) / ss
+    progress = torch.stack((left, right), dim=-1)
+    inside = (progress >= 0) & (progress < 1)
+    return torch.where(inside, progress, torch.zeros_like(progress))
+
+
+def late_swing_cap(progress):
+    """[N,2] cap on swing height credit: 1 up to SWING_CAP_START of the
+    window, then linear to 0 at its end."""
+    return ((1.0 - progress) / (1.0 - SWING_CAP_START)).clamp(0.0, 1.0)
+
+
+def landing_impact(prev_supported, supported, prev_vz, vz, rows):
+    """[N] touchdown cost summed over feet: ((v - free) / free)^2 for the
+    sole downward speed v above LANDING_FREE_SPEED_MPS, v the larger of this
+    step's and the previous step's (contact may already have slowed it).
+    [N,2] inputs; ``rows`` [N] where landings count."""
+    landed = ~prev_supported & supported & rows[:, None]
+    down = torch.maximum(-prev_vz, -vz).clamp_min(0.0)
+    excess = ((down - LANDING_FREE_SPEED_MPS) / LANDING_FREE_SPEED_MPS).clamp_min(0.0)
+    return (excess.square() * landed).sum(dim=-1)
+
 
 def off_beat_steps(prev_supported, supported, liftoff_on_turn, liftoff_x,
                    foot_x, on_turn, rows):
@@ -260,6 +300,10 @@ class RollingClockState:
         # its last lift-off was on its turn and where it lifted off.
         self.prev_supported = torch.zeros((num_envs, 2), dtype=torch.bool, device=self.device)
         self.liftoff_on_turn = torch.ones((num_envs, 2), dtype=torch.bool, device=self.device)
+        # Landing impact bookkeeping: sole vertical speed last step, and
+        # whether prev_supported is from this episode (not the reset).
+        self.prev_sole_vz = torch.zeros((num_envs, 2), device=self.device)
+        self.contact_armed = torch.zeros(num_envs, dtype=torch.bool, device=self.device)
         self.liftoff_x = torch.zeros((num_envs, 2), device=self.device)
         # An off-beat step happened since the last stair hit: the next hit
         # advances the plan but pays no acquisition.
@@ -287,6 +331,8 @@ class RollingClockState:
         self.climbed[ids] = False
         self.landed[ids] = False
         self.prev_supported[ids] = False
+        self.prev_sole_vz[ids] = 0.0
+        self.contact_armed[ids] = False
         self.liftoff_on_turn[ids] = True
         self.liftoff_x[ids] = 0.0
         self.off_beat_since_hit[ids] = False

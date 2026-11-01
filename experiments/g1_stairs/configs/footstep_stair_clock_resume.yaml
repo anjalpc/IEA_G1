@@ -5,11 +5,12 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Continue footstep_stair_clock_resume run 20261031_180640 model_3100
-    (5/5 completions, alternating feet one per tread, 0.03 extra steps per
-    hit) for 1000 iterations with the uncommanded_yaw cost made Huber instead
-    of 1 - exp(-q^2). That run's model_3499 drifted 6 deg/s on flat with the
-    saturated cost at 1.0 on every frame. Everything else as patch 34.
+  purpose: Continue footstep_stair_clock_resume run 20261031_212003 model_3700
+    (5/5 completions, alternating feet, flat drift within 1 deg/s) for 1000
+    iterations with a landing impact cost and the swing height credit
+    capped late in the window (patch 36), against hard landings (0.81 m/s,
+    up to 6 body weights on stairs) and body/arm oscillation. Everything
+    else as patch 35.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -81,8 +82,8 @@ execution:
 policy_initialization:
   type: rsl_rl_training_resume
   source:
-    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261031_180640/model_3100.pt
-    sha256: 560eac029a03f30cce4172ccdfbdef826e15f2dfa0da69793e71c2fbac4634c1
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261031_212003/model_3700.pt
+    sha256: c2119501e2ddb80a37202f94e8411b844f35138caa1dd701369cab365c02a5b4
   critic_initialization: restored
   optimizer_initialization: restored
   locomotion_observations: 480
@@ -174,6 +175,9 @@ reward_experiment:
         # Swing clearance, per second in [0, 1]: the clock's swing sole above
         # the ground under it, as a fraction of (what it must clear + 5 cm):
         # the floor on flat tiles, the target level in front of a riser.
+        # Credit capped from half the swing window down to 0 at its end
+        # (patch 36): hovering late pays nothing, so the sole comes down
+        # gradually instead of dropping in the last tenth.
         # Replaces Unitree's foot clearance (pays ~0.97 at the prior's 1.5 cm,
         # flat tiles only) and the once-per-tread lift credit. Run
         # 20261030_092747: swing sole apex 0.9-1.3 cm on the steps that jammed
@@ -194,6 +198,13 @@ reward_experiment:
         # still advances): without that, step-to cost ~1.6 per target and
         # could still beat a riskier 50 cm alternating stride.
         off_beat_step: -1.0
+        # Landing impact, per touchdown: ((v - 0.3) / 0.3)^2 for the sole
+        # downward speed v above 0.3 m/s (Unitree prior 0.20). Run
+        # 20261031_212003 model_3700: 0.48 m/s flat, 0.81 m/s stairs (p90
+        # 1.0), peak normal force up to 6 body weights, waist roll at its
+        # 25 Nm limit in 2-3% of frames. At 0.8 m/s: 1.4 per landing, half
+        # a target hit.
+        landing_impact: -0.5
         undesired_contacts: -1.0
         # Acquisition 3.0 per hit (was 1.0) to match the clock weight: with
         # clock 3.0 and acquisition 1.0 the path drifted 12 cm sideways (run

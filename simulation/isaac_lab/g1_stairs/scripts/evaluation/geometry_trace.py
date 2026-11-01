@@ -437,6 +437,9 @@ class GeometryTrace:
                 "cached_off_beat_steps": cached(
                     "_g1_footstep_off_beat"
                 ),
+                "cached_landing_impact": cached(
+                    "_g1_footstep_landing_impact"
+                ),
                 "acquisition_paid": (
                     bool(env._g1_footstep_acquisition_paid[0].item())
                     if hasattr(env, "_g1_footstep_acquisition_paid")

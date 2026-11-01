@@ -226,6 +226,16 @@ class SwingClearanceTests(unittest.TestCase):
         self.assertAlmostEqual(
             swing_clearance(t(.21, 0.), t(.2, 0.), t(.2, 0.), swing).item(), .5, places=5)
 
+    def test_cap_limits_credit_per_foot(self):
+        from simulation.isaac_lab.g1_stairs.footstep_rewards import swing_clearance
+        t = lambda *v: torch.tensor([list(v)])
+        both = t(1.0, 1.0)
+        # 3 cm on flat is full credit, capped at 0.25; 0.5 cm is 0.25 anyway
+        self.assertAlmostEqual(
+            swing_clearance(t(.03, .005), t(0., 0.), t(0., 0.), both, t(.25, .25)).item(), .5, places=5)
+        with self.assertRaises(ValueError):
+            swing_clearance(t(.03, 0.), t(0., 0.), t(0., 0.), both, torch.ones(2))
+
     def test_cached_value(self):
         from types import SimpleNamespace
         from simulation.isaac_lab.g1_stairs.footstep_rewards import cached_swing_clearance
@@ -233,6 +243,16 @@ class SwingClearanceTests(unittest.TestCase):
         self.assertEqual(cached_swing_clearance(env).tolist(), [0.0, 0.5])
         with self.assertRaises(RuntimeError):
             cached_swing_clearance(SimpleNamespace(num_envs=2))
+
+
+class LandingImpactRewardTests(unittest.TestCase):
+    def test_reads_cached_cost_per_event(self):
+        from types import SimpleNamespace
+        from simulation.isaac_lab.g1_stairs.footstep_rewards import cached_landing_impact
+        env = SimpleNamespace(num_envs=2, step_dt=0.02, _g1_footstep_landing_impact=torch.tensor([0.0, 1.5]))
+        self.assertEqual([round(v * env.step_dt, 6) for v in cached_landing_impact(env).tolist()], [0.0, 1.5])
+        with self.assertRaises(RuntimeError):
+            cached_landing_impact(SimpleNamespace(num_envs=2, step_dt=0.02))
 
 
 class FootStumbleTests(unittest.TestCase):
