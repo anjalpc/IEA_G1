@@ -5,12 +5,11 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Continue footstep_stair_clock_resume run 20261031_212003 model_3700
-    (5/5 completions, alternating feet, flat drift within 1 deg/s) for 1000
-    iterations with a landing impact cost and the swing height credit
-    capped late in the window (patch 36), against hard landings (0.81 m/s,
-    up to 6 body weights on stairs) and body/arm oscillation. Everything
-    else as patch 35.
+  purpose: Continue footstep_stair_clock_resume run 20261101_080319 model_4000
+    (soft landings at Unitree speed, flat drift within 1 deg/s, alternating
+    feet) for 1000 iterations with base_angular_velocity -0.5 -> -1.5
+    (patch 37) against the remaining gait-locked body sway (flat roll/pitch
+    sd 34/22 deg/s vs Unitree 12.5/7). Everything else as patch 36.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -82,8 +81,8 @@ execution:
 policy_initialization:
   type: rsl_rl_training_resume
   source:
-    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261031_212003/model_3700.pt
-    sha256: c2119501e2ddb80a37202f94e8411b844f35138caa1dd701369cab365c02a5b4
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261101_080319/model_4000.pt
+    sha256: 1a95c415c85bc40ae7ef50e4267313b07cdc7be0d5c9c19bcf63b460bf8dcdd1
   critic_initialization: restored
   optimizer_initialization: restored
   locomotion_observations: 480
@@ -151,11 +150,12 @@ reward_experiment:
         track_lin_vel_xy: 1.0
         track_ang_vel_z: 0.5
         alive: 0.15
-        # Pelvis roll/pitch rate squared. -0.05 (Unitree) cost 0.03/s at
-        # model_3700 sway (22/42 deg/s, waist roll at its 25 Nm limit 2-3%
-        # of frames) against ~3/s clock terms. -0.5: sway ~0.35-0.5/s,
-        # Unitree-level sway ~0.03/s, so small corrections stay cheap.
-        base_angular_velocity: -0.5
+        # Pelvis roll/pitch rate squared (Isaac Lab ang_vel_xy_l2). -0.05
+        # (Unitree G1) cost 0.03/s at model_3700 sway. -0.5 (patch 36) cut
+        # flat roll sd 41 -> 28.5 deg/s by model_4700 but not pitch (22-25).
+        # -1.5: model_4000 sway (l2 0.50 flat, 0.61 stairs) costs 0.75-0.9/s,
+        # Unitree-level sway (l2 0.06) 0.09/s.
+        base_angular_velocity: -1.5
         joint_vel: -0.001
         joint_acc: -2.5e-07
         energy: -2.0e-05
