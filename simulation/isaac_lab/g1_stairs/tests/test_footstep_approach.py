@@ -159,7 +159,8 @@ class TrainingAcceptanceTests(unittest.TestCase):
 
     def test_tread_heel_overhang_limit(self):
         # tread 1 (index 1): front edge at 1.0, next riser at 1.25, z 0.2
-        self.assertTrue(self.mask(1, (0.98, 1.17), .2))     # heel 2 cm over
+        self.assertTrue(self.mask(1, (0.995, 1.185), .2))   # heel 0.5 cm over
+        self.assertFalse(self.mask(1, (0.98, 1.17), .2))    # heel 2 cm over
         self.assertFalse(self.mask(1, (0.94, 1.13), .2))    # heel 6 cm over (centre on the tread)
         self.assertFalse(self.mask(1, (1.08, 1.27), .2))    # toe past the next riser
 

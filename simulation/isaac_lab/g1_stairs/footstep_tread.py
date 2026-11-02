@@ -10,7 +10,11 @@ from .footstep_tensor import APPROACH_LAST_GAP_M
 # Training acceptance (full_sole=False). A centre-only rule paid landings
 # with the heel 3-8 cm off the tread front, followed by forward replants and
 # toe-riser contact (run 20261030_133621: 15 of 17 tread hits).
-TREAD_HEEL_OVERHANG_M = 0.03     # heel may overhang the tread front edge
+# 0.03 -> 0.01 (patch 38): with 3 cm allowed, placement drifted back to the
+# limit and past it (run 20261101_202412 model_5000: heel median 1.5 cm
+# behind the edge, 6/39 landings > 3 cm, 3/10 rollouts without a missed
+# stair step vs 10/10 at model_4000/4700). Taller risers need the heel on.
+TREAD_HEEL_OVERHANG_M = 0.01     # heel may overhang the tread front edge
 SPOT_TOE_CLEARANCE_M = 0.02      # spot: toe this far before the first riser
 
 
