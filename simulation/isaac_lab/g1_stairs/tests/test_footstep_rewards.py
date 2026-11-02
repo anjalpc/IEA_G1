@@ -245,6 +245,21 @@ class SwingClearanceTests(unittest.TestCase):
             cached_swing_clearance(SimpleNamespace(num_envs=2))
 
 
+class BodyRateTests(unittest.TestCase):
+    def test_roll_pitch_and_uncommanded_yaw(self):
+        from types import SimpleNamespace
+        from simulation.isaac_lab.g1_stairs.footstep_rewards import body_rate_l2
+        w = torch.tensor([[0.1, 0.2, 0.3], [0.0, 0.0, 0.5], [0.0, 0.0, 0.0]])
+        cmd = torch.tensor([[0.3, 0.0, 0.3], [0.3, 0.0, 0.5], [0.3, 0.0, -0.2]])
+        env = SimpleNamespace(
+            scene={"robot": SimpleNamespace(data=SimpleNamespace(root_ang_vel_b=w))},
+            command_manager=SimpleNamespace(get_command=lambda name: cmd))
+        out = body_rate_l2(env)
+        # row 0: commanded yaw tracked, only roll/pitch; row 1: commanded
+        # turn is free; row 2: not turning while 0.2 rad/s is commanded
+        self.assertEqual([round(v, 6) for v in out.tolist()], [0.05, 0.0, 0.04])
+
+
 class LandingImpactRewardTests(unittest.TestCase):
     def test_reads_cached_cost_per_event(self):
         from types import SimpleNamespace

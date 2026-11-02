@@ -1391,6 +1391,11 @@ class FootstepRewardsCfg(StairRewardsCfg):
         self.landing_impact = RewTerm(
             func=footstep_rewards.cached_landing_impact, weight=-1.0
         )
+        # Pelvis roll/pitch as Unitree's base_angular_velocity, plus yaw
+        # relative to the command (patch 39). Weight from the config.
+        self.base_angular_velocity = RewTerm(
+            func=footstep_rewards.body_rate_l2, weight=-0.05
+        )
         self.foot_stumble = RewTerm(
             func=footstep_rewards.foot_stumble, weight=-1.0,
             params={"sensor_cfg": SceneEntityCfg(

@@ -233,6 +233,21 @@ def cached_off_beat_step(env):
     return _per_event(env, value)
 
 
+def body_rate_l2(env, command_name="base_velocity"):
+    """Pelvis rate cost [N]: roll^2 + pitch^2 + (yaw - commanded yaw)^2 in
+    rad^2/s^2 (body frame).
+
+    Isaac Lab's ang_vel_xy_l2 (Unitree's base_angular_velocity) leaves yaw
+    out, and uncommanded_yaw averages over a gait cycle, so a step-by-step
+    pelvis twist cost nothing: run 20261102_090334 model_5600 twisted
+    3.4 deg sd (yaw rate sd 35 deg/s) vs Unitree 0.2 deg (2 deg/s). Yaw is
+    measured against the command, so commanded turning stays free.
+    """
+    w = env.scene["robot"].data.root_ang_vel_b
+    yaw_cmd = env.command_manager.get_command(command_name)[:, 2]
+    return w[:, 0].square() + w[:, 1].square() + (w[:, 2] - yaw_cmd).square()
+
+
 def cached_landing_impact(env):
     """Touchdown impact cost (sum over landing feet of the squared excess
     downward speed); per event after dt scaling."""

@@ -5,11 +5,11 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Continue footstep_stair_clock_resume run 20261101_202412 model_5000
-    (body calm, flat roll/pitch sd 22/11 deg/s) for 1000 iterations with the
-    tread heel overhang tolerance 3 -> 1 cm (patch 38). model_5000 placed
-    heels at the 3 cm limit and past it (3/10 rollouts without a missed
-    stair step vs 10/10 at model_4000/4700). Rewards as patch 37.
+  purpose: Continue footstep_stair_clock_resume run 20261102_090334 model_5600
+    (10/10 clean 2 cm climbs, heel on the tread, flat roll/pitch sd 18/11
+    deg/s) for 1000 iterations with base_angular_velocity extended by yaw
+    relative to the command (patch 39) against the step-by-step pelvis
+    twist (3.4 deg sd vs Unitree 0.2). Everything else as patch 38.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -81,8 +81,8 @@ execution:
 policy_initialization:
   type: rsl_rl_training_resume
   source:
-    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261101_202412/model_5000.pt
-    sha256: c75660d749958da6d4e3e4b78dd6490975bacbd85e4807a61c81806773bdfaf2
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261102_090334/model_5600.pt
+    sha256: ddd2e1aac53275c1f7a8f6999f211bad7510f0329fec3a1e9f0a95ee0891e52d
   critic_initialization: restored
   optimizer_initialization: restored
   locomotion_observations: 480
@@ -155,6 +155,9 @@ reward_experiment:
         # flat roll sd 41 -> 28.5 deg/s by model_4700 but not pitch (22-25).
         # -1.5: model_4000 sway (l2 0.50 flat, 0.61 stairs) costs 0.75-0.9/s,
         # Unitree-level sway (l2 0.06) 0.09/s.
+        # Patch 39: the term now also charges yaw rate minus commanded yaw
+        # rate (footstep_rewards.body_rate_l2); commanded turns stay free.
+        # model_5600 pelvis twist ~0.37 rad^2/s^2 adds ~0.55/s at -1.5.
         base_angular_velocity: -1.5
         joint_vel: -0.001
         joint_acc: -2.5e-07
