@@ -5,11 +5,11 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Continue footstep_stair_clock_resume run 20261102_090334 model_5600
-    (10/10 clean 2 cm climbs, heel on the tread, flat roll/pitch sd 18/11
-    deg/s) for 1000 iterations with base_angular_velocity extended by yaw
-    relative to the command (patch 39) against the step-by-step pelvis
-    twist (3.4 deg sd vs Unitree 0.2). Everything else as patch 38.
+  purpose: Continue footstep_stair_clock_resume run 20261102_112206 model_6200
+    (10/10 clean 2 cm climbs, flat drift within 1 deg/s) for 1000 iterations
+    with left/right mirror augmentation in PPO (patch 40) against the limp
+    (stance knee left 0.14 vs right 0.44 rad, right lands ~2x harder) and
+    the torso yaw swing it drives. Rewards unchanged from patch 39.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -81,8 +81,8 @@ execution:
 policy_initialization:
   type: rsl_rl_training_resume
   source:
-    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261102_090334/model_5600.pt
-    sha256: ddd2e1aac53275c1f7a8f6999f211bad7510f0329fec3a1e9f0a95ee0891e52d
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261102_112206/model_6200.pt
+    sha256: e011ca66fecc007881ea6f09b2974e251893eeb43ceab62e64d7beb68c9fe94f
   critic_initialization: restored
   optimizer_initialization: restored
   locomotion_observations: 480
@@ -131,6 +131,10 @@ balance_residual_control:
     left_wrist_yaw_joint: 0.05
     right_wrist_yaw_joint: 0.05
 ppo:
+  # Left/right mirror augmentation (footstep_symmetry.compute_symmetric_states,
+  # rsl-rl-lib 3.0.1 symmetry_cfg, mirror loss off): each update batch is
+  # doubled with its mirror image (patch 40).
+  symmetry_augmentation: true
   initial_action_noise_std: 0.15
   learning_rate: 0.0001
 reward_experiment:

@@ -930,6 +930,22 @@ def main() -> None:
 
         agent_cfg.clip_actions = action_clip
 
+    # Left/right mirror augmentation (rsl-rl-lib 3.0.1 PPO symmetry_cfg):
+    # every update batch is extended by its mirror image so a gait and its
+    # mirror are learned as one skill (run 20261102_112206: limp).
+    symmetry_augmentation = bool(ppo_cfg.get("symmetry_augmentation", False))
+    if symmetry_augmentation:
+        from isaaclab_rl.rsl_rl import RslRlSymmetryCfg
+        from simulation.isaac_lab.g1_stairs.footstep_symmetry import (
+            compute_symmetric_states,
+        )
+        agent_cfg.algorithm.symmetry_cfg = RslRlSymmetryCfg(
+            use_data_augmentation=True,
+            use_mirror_loss=False,
+            data_augmentation_func=compute_symmetric_states,
+        )
+    print("[INFO] PPO symmetry augmentation:", symmetry_augmentation, flush=True)
+
     print(
         "[INFO] Checkpoint interval:",
         agent_cfg.save_interval,
@@ -1033,6 +1049,20 @@ def main() -> None:
             flush=True,
         )
 
+    if symmetry_augmentation:
+        # The mirror maps assume BODY_JOINTS order for joint observations
+        # and actions; refuse to train if the articulation or the action
+        # term resolved the joints differently.
+        from simulation.isaac_lab.g1_stairs.contracts import BODY_JOINTS
+        robot_joints = list(env.unwrapped.scene["robot"].joint_names)
+        action_term = env.unwrapped.action_manager.get_term("JointPositionAction")
+        action_joints = list(action_term._joint_names)
+        if robot_joints != list(BODY_JOINTS) or action_joints != list(BODY_JOINTS):
+            raise RuntimeError(
+                "symmetry augmentation needs BODY_JOINTS order: robot "
+                f"{robot_joints}, action {action_joints}"
+            )
+
     env = RslRlVecEnvWrapper(env, clip_actions=agent_cfg.clip_actions)
 
     from simulation.isaac_lab.g1_stairs.balance_residual import (
@@ -1045,6 +1075,27 @@ def main() -> None:
     )
 
     env = InstrumentedRslRlVecEnvWrapper(env)
+
+    if symmetry_augmentation:
+        # Fail before training if the observation layout differs from the
+        # mirror maps (widths 688 / 703) or a group has no mirror.
+        from simulation.isaac_lab.g1_stairs.footstep_symmetry import (
+            compute_symmetric_states,
+        )
+        import torch
+        from tensordict import TensorDict
+        dims = env.unwrapped.observation_manager.group_obs_dim
+        probe = TensorDict(
+            {key: torch.zeros(2, *shape) for key, shape in dims.items()},
+            batch_size=[2],
+        )
+        # Zero probe: no observation compute, so no history side effects.
+        mirrored, _ = compute_symmetric_states(env=env, obs=probe)
+        print(
+            "[INFO] Symmetry probe OK:",
+            {key: tuple(mirrored[key].shape) for key in mirrored.keys()},
+            flush=True,
+        )
 
     class MetricsOnPolicyRunner(MetricsOnPolicyRunnerMixin, OnPolicyRunner):
         def save(self, path: str, infos=None):
