@@ -35,7 +35,7 @@ Usage:
   simctl runs
   simctl use <run_id>
   simctl tensorboard {start|status|stop}
-  simctl video <checkpoint> [--height <m>] [--seed <n>] [--trace-only]
+  simctl video <checkpoint> [--height <m>] [--seed <n>] [--trace-only] [--markers]
   simctl baseline [config.yaml]
   simctl evaluate <checkpoint>
   simctl help
@@ -860,7 +860,7 @@ resolve_train_dir() {
 }
 
 cmd_video() {
-    local VIDEO_USAGE="Usage: simctl video <checkpoint> [--height <m>] [--seed <n>] [--trace-only]"
+    local VIDEO_USAGE="Usage: simctl video <checkpoint> [--height <m>] [--seed <n>] [--trace-only] [--markers]"
     if [ $# -lt 1 ]; then
         echo "$VIDEO_USAGE"
         exit 1
@@ -872,6 +872,8 @@ cmd_video() {
     SEED=42
     SEED_SUFFIX=""
     TRACE_MODE="--trace"
+    MARKERS_OPTION=""
+    MARKERS_SUFFIX=""
 
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -892,6 +894,12 @@ cmd_video() {
                 ;;
             --trace-only)
                 TRACE_MODE="--trace-only"
+                shift
+                ;;
+            --markers)
+                # Footstep targets and contact-force bars drawn into the video.
+                MARKERS_OPTION="--markers"
+                MARKERS_SUFFIX="_markers"
                 shift
                 ;;
             *)
@@ -939,7 +947,7 @@ cmd_video() {
         HEIGHT_OPTION="--riser_height_override ${HEIGHT}"
     fi
 
-    OUTPUT_DIR="/workspace/IEA_G1/experiments/g1_stairs/outputs/videos/${RUN_ID}/model_${CHECKPOINT}${HEIGHT_SUFFIX}${SEED_SUFFIX}_side"
+    OUTPUT_DIR="/workspace/IEA_G1/experiments/g1_stairs/outputs/videos/${RUN_ID}/model_${CHECKPOINT}${HEIGHT_SUFFIX}${SEED_SUFFIX}${MARKERS_SUFFIX}_side"
 
     PROJECT_COMMIT="$(git rev-parse HEAD)"
     ISAACLAB_COMMIT="3c6e67bb5c7ada942a6d1884ab69338f57596f77"
@@ -1000,6 +1008,7 @@ cd /workspace/IEA_G1
   simulation/isaac_lab/g1_stairs/scripts/visualization/record_view.py \
   --task ${VIDEO_TASK} \
   ${TRACE_MODE} \
+  ${MARKERS_OPTION} \
   --view side \
   --output_dir '${OUTPUT_DIR}' \
   --video_length 600 \

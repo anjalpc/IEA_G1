@@ -125,6 +125,12 @@ parser.add_argument(
     action="store_true",
     help="Show PhysX collision geometry in the rendered recording.",
 )
+parser.add_argument(
+    "--markers",
+    action="store_true",
+    help="Draw footstep targets and foot contact-force bars into the video "
+    "(footstep tasks; visual only, ignored with --trace-only).",
+)
 
 parser.add_argument(
     "--trace",
@@ -639,10 +645,17 @@ def main() -> None:
 
     steps = 0
 
+    markers = None
+    if args.markers and not args.trace_only:
+        from simulation.isaac_lab.g1_stairs.footstep_markers import FootstepMarkers
+        markers = FootstepMarkers(env.unwrapped)
+
     while simulation_app.is_running():
         with torch.inference_mode():
             actions = policy(obs)
             obs, _, _, _ = env.step(actions)
+            if markers is not None:
+                markers.update(env.unwrapped)
 
         steps += 1
 
