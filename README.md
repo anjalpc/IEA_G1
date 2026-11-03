@@ -77,13 +77,12 @@ It contains:
 
 - `arm/`: Unitree arm ownership, command validation, motion execution, state monitoring, and safe release;
 - `hand/`: BrainCo hand commands and state helpers;
-- `camera/`: Unitree RGB shared-memory access and RealSense depth-camera access;
+- `camera/`: read-only ROS subscriptions to driver-owned RealSense color and depth;
 - `low_state/`: isolates one read-only Unitree `rt/lowstate` subscriber and publishes measured waist and pelvis-IMU state;
 - `hardware_bridge`: translates validated ROS commands into physical arm/hand operations;
 - `hardware_state`: supervises the isolated physical LowState helper;
 - `camera_bridge`: publishes camera data used by the interaction detectors;
-- `rgb_helper`: isolates access to the Unitree RGB camera;
-- `config/hardware.yaml` and `config/camera.yaml`: physical limits and device settings.
+- `config/hardware.yaml`, `config/camera.yaml`, and `config/d435i.yaml`: physical limits, compatibility topics, and the pinned D435i stream contract.
 
 Keeping hardware access here prevents handshake and card code from competing for arm ownership.
 

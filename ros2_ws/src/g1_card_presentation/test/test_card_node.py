@@ -111,6 +111,52 @@ def test_stationary_person_does_not_trigger_handover():
     assert detector.pending is False
 
 
+def test_clear_baseline_is_captured_before_recipient_hand_arrives():
+    """Arm-time baseline capture must not depend on semantic hand input."""
+    detector = CardHandoverDetector.__new__(CardHandoverDetector)
+    now = time.monotonic()
+    detector.show_windows = False
+    detector.armed = True
+    detector.fired = False
+    detector.pending = False
+    detector.rgb = np.zeros((20, 20, 3), dtype=np.uint8)
+    detector.depth = np.full((20, 20), 900.0, dtype=np.float32)
+    detector.rgb_at = now
+    detector.depth_at = now
+    detector.hand_at = now
+    detector.hand = {"hands": []}
+    detector.rgb_stale_after_s = 1.0
+    detector.depth_stale_after_s = 1.0
+    detector.hand_stale_after_s = 1.0
+    detector.hand_memory_s = 1.0
+    detector.baseline_delay_s = 0.0
+    detector.armed_at = now - 1.0
+    detector.baseline_rgb = None
+    detector.baseline_depth_near25 = None
+    detector.hits = []
+    detector.last_rgb_hit_at = None
+    detector.last_depth_hit_at = None
+    detector.last_hand_hit_at = None
+    detector.depth_roi = (0, 0, 20, 20)
+    detector.rgb_roi = (0, 0, 20, 20)
+    detector.hand_roi = (0, 0, 20, 20)
+    detector.depth_max_mm = 1000.0
+    detector.depth_approach_mm = 150.0
+    detector.rgb_pixel_delta = 25.0
+    detector.rgb_changed_ratio = 0.05
+    detector.gate_memory_s = 0.5
+    detector.required_hits = 2
+    detector.log_interval_s = 1000.0
+    detector.last_log_at = now
+    detector.publish_debug_image = False
+    detector.get_logger = lambda: SimpleNamespace(info=lambda _message: None)
+
+    detector.poll()
+
+    assert detector.baseline_rgb is not None
+    assert detector.baseline_depth_near25 == 900.0
+
+
 class Sequence:
     """Expose distinguishable commands for callback routing."""
 

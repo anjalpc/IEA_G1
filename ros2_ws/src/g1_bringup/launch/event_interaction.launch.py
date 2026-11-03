@@ -31,6 +31,12 @@ def generate_launch_description():
         "camera.yaml",
     )
 
+    d435_configuration = join(
+        get_package_share_directory("g1_hardware_bridge"),
+        "config",
+        "d435i.yaml",
+    )
+
     presence_configuration = join(
         get_package_share_directory("g1_handshake"),
         "config",
@@ -43,11 +49,13 @@ def generate_launch_description():
         "card_presentation.yaml",
     )
 
-    rgb_helper = Node(
-        package="g1_hardware_bridge",
-        executable="rgb_helper",
-        name="unitree_rgb_helper",
+    d435_driver = Node(
+        package="realsense2_camera",
+        executable="realsense2_camera_node",
+        namespace="d435",
+        name="d435",
         output="screen",
+        parameters=[d435_configuration],
     )
 
     camera_bridge = Node(
@@ -112,7 +120,7 @@ def generate_launch_description():
         (hardware_node, "hardware bridge exited"),
         (hardware_state_node, "hardware state source exited"),
         (handshake_node, "handshake node exited"),
-        (rgb_helper, "RGB helper exited"),
+        (d435_driver, "D435i driver exited"),
         (camera_bridge, "camera bridge exited"),
         (presence_node, "hand presence node exited"),
         (card_presence_node, "card handover detector exited"),
@@ -134,7 +142,7 @@ def generate_launch_description():
     ]
 
     return LaunchDescription([
-        rgb_helper,
+        d435_driver,
         camera_bridge,
         hardware_node,
         hardware_state_node,

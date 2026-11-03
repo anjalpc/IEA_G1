@@ -1,6 +1,6 @@
 hand_presence:
   ros__parameters:
-    min_detection_confidence: 0.5
+    min_detection_confidence: 0.35
     detection_max_width: 1280
 
     required_stable_frames: 2
@@ -17,7 +17,7 @@ hand_presence:
     depth_roi_y: 170
     depth_roi_width: 193
     depth_roi_height: 181
-    depth_near25_below_mm: 800.0
+    depth_near25_below_mm: 500.0
     rgb_recent_s: 2.0
 
     poll_rate_hz: 10.0

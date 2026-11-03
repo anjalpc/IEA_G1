@@ -13,8 +13,10 @@ import numpy as np
 from sensor_msgs.msg import Image
 from std_msgs.msg import String
 
+from g1_handshake import hand_presence_node
 from g1_handshake.hand_presence_node import (
     ARMED_STATE,
+    PRESENTING_STATE,
     HandPresenceNode,
 )
 from g1_handshake.presence.hand_detector import (
@@ -160,6 +162,9 @@ def make_node(
     instance.target_region = TargetRegion(0.0, 0.0, 1.0, 1.0, 0.0)
 
     instance._armed = False
+    instance._handshake_state = None
+    instance._presentation_hand_seen = False
+    instance._presentation_contact_seen = False
     instance._fired_this_presentation = False
     instance._rgb_state = None
     instance._grip_pending = False
@@ -595,6 +600,179 @@ def test_hand_detection_failure_resets_stability():
         "hand detection failed" in message
         for message in logger.error_messages
     )
+
+
+def test_already_offered_hand_is_latched_at_presentation_start(
+    monkeypatch,
+):
+    """Preserve a hand visible before the robot starts raising its arm."""
+    times = iter((10.0, 10.1, 20.0))
+    monkeypatch.setattr(
+        hand_presence_node.time,
+        "monotonic",
+        lambda: next(times),
+    )
+
+    detector = FakeDetector(results=[True])
+    hand = DetectedHand(
+        center_x=500,
+        center_y=250,
+        confidence=0.95,
+        bbox=(450, 150, 600, 380),
+    )
+    instance, logger, grip_calls = make_node(
+        detector=detector,
+        hand_detector=FakeHandDetector(
+            hands=[hand, None],
+        ),
+        rgb_client=FakeRgbClient(
+            [fresh_frame(1), fresh_frame(2)],
+        ),
+        enable_grip_trigger=True,
+    )
+
+    instance._poll()
+    instance._state_callback(state_message(PRESENTING_STATE))
+
+    assert instance._presentation_hand_seen is True
+    assert any(
+        "hand already present" in message
+        for message in logger.info_messages
+    )
+
+    instance._state_callback(state_message(ARMED_STATE))
+    instance._poll()
+
+    assert detector.observations == [True]
+    assert grip_calls == [True]
+
+
+def test_presentation_ignores_hand_outside_palm_target():
+    """Do not latch a hand detected near the robot torso."""
+    detector = FakeDetector(results=[False, False])
+    torso_hand = DetectedHand(
+        center_x=500,
+        center_y=400,
+        confidence=0.95,
+        bbox=(450, 350, 550, 450),
+    )
+    instance, _logger, grip_calls = make_node(
+        detector=detector,
+        hand_detector=FakeHandDetector(
+            hands=[torso_hand, None],
+        ),
+        rgb_client=FakeRgbClient(
+            [
+                fresh_frame(1),
+                fresh_frame(2),
+            ],
+        ),
+        enable_grip_trigger=True,
+    )
+    instance.target_region = TargetRegion(
+        0.58,
+        0.20,
+        0.84,
+        0.78,
+        0.01,
+    )
+
+    instance._state_callback(state_message(PRESENTING_STATE))
+    instance._poll()
+
+    assert instance._presentation_hand_seen is False
+
+    instance._state_callback(state_message(ARMED_STATE))
+    instance._poll()
+
+    assert detector.observations == [False, False]
+    assert grip_calls == []
+
+
+def test_presenting_contact_latches_until_arm_is_ready(
+    monkeypatch,
+):
+    """Keep stable RGB and depth contact while the arm is rising."""
+    times = iter((9.9, 10.0, 10.1, 20.0))
+    monkeypatch.setattr(
+        hand_presence_node.time,
+        "monotonic",
+        lambda: next(times),
+    )
+
+    detector = FakeDetector(results=[False, True, True])
+    hand = DetectedHand(
+        center_x=500,
+        center_y=250,
+        confidence=0.95,
+        bbox=(450, 150, 600, 380),
+    )
+    instance, _logger, grip_calls = make_node(
+        detector=detector,
+        hand_detector=FakeHandDetector(
+            hands=[hand, hand, None],
+        ),
+        rgb_client=FakeRgbClient(
+            [
+                fresh_frame(1),
+                fresh_frame(2),
+                fresh_frame(3),
+            ],
+        ),
+        enable_grip_trigger=True,
+    )
+
+    instance._state_callback(state_message(PRESENTING_STATE))
+    instance._poll()
+    assert instance._presentation_contact_seen is False
+
+    instance._poll()
+    assert instance._presentation_hand_seen is True
+    assert instance._presentation_contact_seen is True
+
+    instance._state_callback(state_message(ARMED_STATE))
+    instance._poll()
+
+    assert detector.observations == [True, True, True]
+    assert grip_calls == [True]
+
+
+def test_prearm_hand_hit_survives_contact_occlusion(monkeypatch):
+    """Reuse a recent visible hand after contact obscures its shape."""
+    times = iter((10.0, 10.1))
+    monkeypatch.setattr(
+        hand_presence_node.time,
+        "monotonic",
+        lambda: next(times),
+    )
+
+    detector = FakeDetector(results=[True])
+    hand = DetectedHand(
+        center_x=500,
+        center_y=250,
+        confidence=0.95,
+        bbox=(450, 150, 600, 380),
+    )
+    instance, _logger, grip_calls = make_node(
+        detector=detector,
+        hand_detector=FakeHandDetector(
+            hands=[hand, None],
+        ),
+        rgb_client=FakeRgbClient(
+            [fresh_frame(1), fresh_frame(2)],
+        ),
+        enable_grip_trigger=True,
+    )
+
+    instance._poll()
+    assert instance._last_rgb_hit_at == 10.0
+    assert detector.observations == []
+
+    instance._state_callback(state_message(ARMED_STATE))
+    instance._poll()
+
+    assert detector.observations == [True]
+    assert grip_calls == [True]
 
 
 def test_entering_arm_presented_resets_and_arms():

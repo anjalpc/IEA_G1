@@ -13,7 +13,11 @@ setup(
         ("share/" + package_name, ["package.xml"]),
         (
             "share/" + package_name + "/config",
-            ["config/hardware.yaml", "config/camera.yaml"],
+            [
+                "config/hardware.yaml",
+                "config/camera.yaml",
+                "config/d435i.yaml",
+            ],
         ),
     ],
     install_requires=["setuptools"],

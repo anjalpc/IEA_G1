@@ -6,11 +6,6 @@ set -eo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROS_SETUP="${ROS_SETUP:-/opt/ros/foxy/setup.bash}"
-# The robot's ARM64 RealSense binding is installed outside the system Python
-# directories. Docker starts this script over non-interactive SSH, which does
-# not inherit the interactive shell's PYTHONPATH.
-REALSENSE_PYTHON_PATH="${REALSENSE_PYTHON_PATH:-/home/unitree/librealsense-install/lib/python3.8/site-packages}"
-REALSENSE_LIBRARY_PATH="${REALSENSE_LIBRARY_PATH:-/home/unitree/librealsense-install/lib}"
 RUNTIME_DIR="${G1_RUNTIME_DIR:-/tmp/g1_interaction_stack}"
 WRAPPER_PID_FILE="${RUNTIME_DIR}/start.pid"
 LAUNCH_PID_FILE="${RUNTIME_DIR}/launch.pid"
@@ -23,6 +18,9 @@ SERVER_BINARY="${SERVER_ROOT}/bin/brainco_hand_server"
 SERVER_LIBRARY="${SERVER_ROOT}/lib/aarch64"
 
 NETWORK_INTERFACE="${G1_NETWORK_INTERFACE:-eth0}"
+# Temporary repair mode: the left BrainCo hand is physically unavailable.
+# Change the default back to "both" after the repaired hand is installed.
+REQUIRED_BRAINCO_HANDS="${G1_REQUIRED_BRAINCO_HANDS:-right}"
 PROCESS_PATTERN='[b]rainco_hand_server|[r]os2 launch g1_bringup'
 PROCESS_PATTERN+='|[h]ardware_bridge|[h]andshake_node|[h]and_presence_node'
 PROCESS_PATTERN+='|[r]gb_helper|[c]amera_bridge|[c]ard_presentation'
@@ -132,14 +130,20 @@ esac
 
 source "${ROS_SETUP}"
 source "${PROJECT_ROOT}/ros2_ws/install/setup.bash"
-# ROS setup rebuilds PYTHONPATH, so append the custom ARM64 binding afterwards.
-export PYTHONPATH="${REALSENSE_PYTHON_PATH}${PYTHONPATH:+:${PYTHONPATH}}"
-export LD_LIBRARY_PATH="${REALSENSE_LIBRARY_PATH}${LD_LIBRARY_PATH:+:${LD_LIBRARY_PATH}}"
 
 set -u
 
 export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
 export ROS_DOMAIN_ID="${G1_APPLICATION_DOMAIN_ID:-42}"
+
+case "${REQUIRED_BRAINCO_HANDS}" in
+    right|both)
+        ;;
+    *)
+        echo "ERROR: G1_REQUIRED_BRAINCO_HANDS must be right or both." >&2
+        exit 2
+        ;;
+esac
 
 
 # ---------------------------------------------------------------------------
@@ -247,17 +251,21 @@ wait_for_hand() {
 }
 
 
-brainco_both_hands_ready() {
+brainco_required_hands_ready() {
     local timeout_s="$1"
 
-    echo "Waiting for BrainCo left hand..."
+    if [[ "${REQUIRED_BRAINCO_HANDS}" == "both" ]]; then
+        echo "Waiting for BrainCo left hand..."
 
-    if ! wait_for_hand left "${timeout_s}"; then
-        echo "WARN: BrainCo left hand is not ready." >&2
-        return 1
+        if ! wait_for_hand left "${timeout_s}"; then
+            echo "WARN: BrainCo left hand is not ready." >&2
+            return 1
+        fi
+
+        echo "BrainCo left hand: READY"
+    else
+        echo "BrainCo left hand: SKIPPED (repair mode)"
     fi
-
-    echo "BrainCo left hand: READY"
 
     echo "Waiting for BrainCo right hand..."
 
@@ -284,16 +292,20 @@ start_brainco_with_retry() {
         # Allow vendor serial enumeration to complete.
         sleep 1
 
-        if brainco_both_hands_ready 4; then
+        if brainco_required_hands_ready 4; then
             echo
-            echo "BrainCo left hand: READY"
+            if [[ "${REQUIRED_BRAINCO_HANDS}" == "both" ]]; then
+                echo "BrainCo left hand: READY"
+            else
+                echo "BrainCo left hand: SKIPPED (repair mode)"
+            fi
             echo "BrainCo right hand: READY"
             echo "BrainCo subsystem: READY"
             return 0
         fi
 
         echo
-        echo "WARN: BrainCo did not detect both hands on attempt ${attempt}." >&2
+        echo "WARN: required BrainCo hands were not ready on attempt ${attempt}." >&2
 
         stop_brainco
 
@@ -304,7 +316,7 @@ start_brainco_with_retry() {
     done
 
     echo
-    echo "ERROR: both BrainCo hands were not ready after three attempts." >&2
+    echo "ERROR: required BrainCo hands were not ready after three attempts." >&2
     return 1
 }
 
@@ -424,7 +436,11 @@ fi
 echo
 echo "=========================================="
 echo "G1 INTERACTION STACK: READY"
-echo "BrainCo left hand:      READY"
+if [[ "${REQUIRED_BRAINCO_HANDS}" == "both" ]]; then
+    echo "BrainCo left hand:      READY"
+else
+    echo "BrainCo left hand:      SKIPPED (repair mode)"
+fi
 echo "BrainCo right hand:     READY"
 echo "ROS application domain: ${ROS_DOMAIN_ID}"
 echo "Waiting for card/handshake triggers..."

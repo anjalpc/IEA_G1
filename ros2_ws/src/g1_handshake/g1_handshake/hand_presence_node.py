@@ -43,6 +43,7 @@ except ImportError:
     SignalHandlerOptions = None
 
 
+PRESENTING_STATE = "PRESENTING"
 ARMED_STATE = "ARM_PRESENTED"
 
 RGB_UNAVAILABLE = "UNAVAILABLE"
@@ -210,6 +211,9 @@ class HandPresenceNode(Node):
         self._depth_received_at = None
 
         self._armed = False
+        self._handshake_state = None
+        self._presentation_hand_seen = False
+        self._presentation_contact_seen = False
         self._fired_this_presentation = False
         self._rgb_state = None
         self._grip_pending = False
@@ -320,6 +324,28 @@ class HandPresenceNode(Node):
             )
             return
 
+        previous_state = self._handshake_state
+        self._handshake_state = state
+
+        if (
+            state == PRESENTING_STATE
+            and previous_state != PRESENTING_STATE
+        ):
+            self.detector.reset()
+            self._presentation_contact_seen = False
+            now = time.monotonic()
+            self._presentation_hand_seen = (
+                self._last_rgb_hit_at is not None
+                and now - self._last_rgb_hit_at <= self.rgb_recent_s
+            )
+            if self._presentation_hand_seen:
+                self.get_logger().info(
+                    "hand already present when presentation began"
+                )
+        elif state not in (PRESENTING_STATE, ARMED_STATE):
+            self._presentation_hand_seen = False
+            self._presentation_contact_seen = False
+
         armed = (
             state == ARMED_STATE
         )
@@ -327,7 +353,6 @@ class HandPresenceNode(Node):
         if armed and not self._armed:
             self._fired_this_presentation = False
             self._grip_pending = False
-            self._last_rgb_hit_at = None
             self._rgb_hit_state = None
             self._depth_hit_state = None
             self.detector.reset()
@@ -488,6 +513,11 @@ class HandPresenceNode(Node):
             None,
         )
         rgb_hit = hand is not None
+        now = time.monotonic()
+        if rgb_hit:
+            self._last_rgb_hit_at = now
+            if self._handshake_state == PRESENTING_STATE:
+                self._presentation_hand_seen = True
 
         depth_hit = False
         try:
@@ -518,6 +548,18 @@ class HandPresenceNode(Node):
 
         self._log_gate_transitions(rgb_hit, depth_hit)
 
+        if self._handshake_state == PRESENTING_STATE:
+            presentation_hit = rgb_hit and depth_hit
+            if (
+                not self._presentation_contact_seen
+                and self.detector.observe(presentation_hit)
+            ):
+                self._presentation_contact_seen = True
+                self.get_logger().info(
+                    "stable hand contact observed during presentation"
+                )
+            return
+
         if (
             not self._armed
             or self._fired_this_presentation
@@ -525,15 +567,17 @@ class HandPresenceNode(Node):
         ):
             return
 
-        now = time.monotonic()
-        if rgb_hit:
-            self._last_rgb_hit_at = now
-
         recent_rgb = (
-            self._last_rgb_hit_at is not None
-            and now - self._last_rgb_hit_at <= self.rgb_recent_s
+            self._presentation_hand_seen
+            or (
+                self._last_rgb_hit_at is not None
+                and now - self._last_rgb_hit_at <= self.rgb_recent_s
+            )
         )
-        hit = recent_rgb and depth_hit
+        hit = (
+            self._presentation_contact_seen
+            or (recent_rgb and depth_hit)
+        )
 
         if not self.detector.observe(hit):
             return
