@@ -895,6 +895,13 @@ def main() -> None:
             ppo_cfg["initial_action_noise_std"]
         )
 
+    if "entropy_coef" in ppo_cfg:
+        entropy_coef = float(ppo_cfg["entropy_coef"])
+        if entropy_coef < 0.0:
+            raise ValueError("ppo.entropy_coef must be >= 0")
+        agent_cfg.algorithm.entropy_coef = entropy_coef
+    print("[INFO] PPO entropy_coef:", agent_cfg.algorithm.entropy_coef, flush=True)
+
     if "learning_rate" in ppo_cfg:
         agent_cfg.algorithm.learning_rate = float(
             ppo_cfg["learning_rate"]
@@ -1170,6 +1177,18 @@ def main() -> None:
             initialization_cfg["source"]["path"],
             initialization_cfg["source"]["sha256"],
         )
+        # ppo.initial_action_noise_std only shapes a new network; a resume
+        # restores the std from the checkpoint, so it is capped here.
+        noise_cap = resolved_config.get("ppo", {}).get("resume_action_noise_std_cap")
+        if noise_cap is not None:
+            from simulation.isaac_lab.g1_stairs.contracts import BODY_JOINTS
+            from simulation.isaac_lab.g1_stairs.footstep_symmetry import JOINT_PERMUTATION
+            from simulation.isaac_lab.g1_stairs.training_resume import cap_action_noise_std
+            old_std, new_std = cap_action_noise_std(
+                runner.alg.policy, float(noise_cap), JOINT_PERMUTATION)
+            print("[RESUME] action noise std capped at", float(noise_cap), flush=True)
+            for name, a, b in zip(BODY_JOINTS, old_std, new_std):
+                print(f"[RESUME]   {name}: {a:.3f} -> {b:.3f}", flush=True)
     elif initialization_type == "zero_residual_actor":
         initialize_zero_residual_actor(runner)
     elif initialization_type not in (None, "random"):

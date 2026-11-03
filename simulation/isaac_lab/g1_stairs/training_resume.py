@@ -62,3 +62,32 @@ def resume_training(runner, path, expected_sha256):
     }
     print("[RESUME]", metadata, flush=True)
     return metadata
+
+
+def cap_action_noise_std(policy, cap, partner):
+    """Cap the restored exploration std at ``cap`` and make it left/right
+    symmetric (mean of each joint and its mirror partner).
+
+    The std is a state-independent parameter that the entropy bonus keeps
+    growing and that neither mirror augmentation nor the mirror loss
+    constrains. Run 20261103_133659 model_8200: 20 of 29 joints at 3.3-9.4
+    against a residual clip of 2 (random full-range commands while
+    training), left hip yaw 27% above the right. ``partner[i]`` is the
+    mirror joint of action i. Returns (old, new) std lists.
+    """
+    if cap <= 0.0:
+        raise ValueError("action noise std cap must be > 0")
+    if hasattr(policy, "std"):
+        param, to_std, from_std = policy.std, (lambda p: p), (lambda s: s)
+    elif hasattr(policy, "log_std"):
+        param, to_std, from_std = policy.log_std, torch.exp, torch.log
+    else:
+        raise ValueError("policy has neither std nor log_std")
+    if len(partner) != param.numel():
+        raise ValueError("partner map does not match the action width")
+    with torch.no_grad():
+        old = to_std(param.data).clone()
+        new = old.clamp(max=cap)
+        new = 0.5 * (new + new[torch.as_tensor(partner, device=new.device)])
+        param.data.copy_(from_std(new))
+    return old.cpu().tolist(), new.cpu().tolist()
