@@ -7,9 +7,12 @@ experiment:
   id: footstep_stair_clock_resume
   purpose: Continue footstep_stair_clock_resume run 20261102_112206 model_6200
     (10/10 clean 2 cm climbs, flat drift within 1 deg/s) for 1000 iterations
-    with left/right mirror augmentation in PPO (patch 40) against the limp
-    (stance knee left 0.14 vs right 0.44 rad, right lands ~2x harder) and
-    the torso yaw swing it drives. Rewards unchanged from patch 39.
+    with the PPO mirror loss added to the mirror augmentation (patch 41).
+    Patch 40 (augmentation only) left the limp unchanged (stance knee left
+    0.10 vs right 0.42 rad); the clipped symmetric average of its policy
+    walks with equal knees (0.25/0.25) but fails the stairs, so symmetry has
+    to be learned together with the stair skill. Rewards unchanged from
+    patch 39.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -132,9 +135,14 @@ balance_residual_control:
     right_wrist_yaw_joint: 0.05
 ppo:
   # Left/right mirror augmentation (footstep_symmetry.compute_symmetric_states,
-  # rsl-rl-lib 3.0.1 symmetry_cfg, mirror loss off): each update batch is
-  # doubled with its mirror image (patch 40).
+  # rsl-rl-lib 3.0.1 symmetry_cfg): each update batch is doubled with its
+  # mirror image (patch 40).
   symmetry_augmentation: true
+  # Mirror loss (patch 41): coeff * mean((pi(M s) - M pi(s))^2) on the action
+  # means. At model_6200 the error is about 10 policy units RMS (MSE about
+  # 100), so 0.01 starts the term near 1, comparable to the PPO losses, and
+  # it fades as the policy becomes symmetric.
+  symmetry_mirror_loss_coeff: 0.01
   initial_action_noise_std: 0.15
   learning_rate: 0.0001
 reward_experiment:

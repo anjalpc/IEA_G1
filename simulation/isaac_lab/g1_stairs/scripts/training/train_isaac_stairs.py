@@ -930,21 +930,31 @@ def main() -> None:
 
         agent_cfg.clip_actions = action_clip
 
-    # Left/right mirror augmentation (rsl-rl-lib 3.0.1 PPO symmetry_cfg):
-    # every update batch is extended by its mirror image so a gait and its
-    # mirror are learned as one skill (run 20261102_112206: limp).
+    # Left/right symmetry (rsl-rl-lib 3.0.1 PPO symmetry_cfg):
+    # - augmentation: every update batch is extended by its mirror image
+    #   (patch 40; alone it did not remove the limp of run 20261102_112206,
+    #   because mirrored samples reuse the original log-prob and the
+    #   saturated residual outputs give PPO no gradient);
+    # - mirror loss: MSE between pi(mirror(s)) and mirror(pi(s)) on the
+    #   action means, weighted by symmetry_mirror_loss_coeff (patch 41).
     symmetry_augmentation = bool(ppo_cfg.get("symmetry_augmentation", False))
-    if symmetry_augmentation:
+    mirror_loss_coeff = float(ppo_cfg.get("symmetry_mirror_loss_coeff", 0.0))
+    if mirror_loss_coeff < 0.0:
+        raise ValueError("ppo.symmetry_mirror_loss_coeff must be >= 0")
+    symmetry_enabled = symmetry_augmentation or mirror_loss_coeff > 0.0
+    if symmetry_enabled:
         from isaaclab_rl.rsl_rl import RslRlSymmetryCfg
         from simulation.isaac_lab.g1_stairs.footstep_symmetry import (
             compute_symmetric_states,
         )
         agent_cfg.algorithm.symmetry_cfg = RslRlSymmetryCfg(
-            use_data_augmentation=True,
-            use_mirror_loss=False,
+            use_data_augmentation=symmetry_augmentation,
+            use_mirror_loss=mirror_loss_coeff > 0.0,
+            mirror_loss_coeff=mirror_loss_coeff,
             data_augmentation_func=compute_symmetric_states,
         )
     print("[INFO] PPO symmetry augmentation:", symmetry_augmentation, flush=True)
+    print("[INFO] PPO symmetry mirror loss coeff:", mirror_loss_coeff, flush=True)
 
     print(
         "[INFO] Checkpoint interval:",
@@ -1049,7 +1059,7 @@ def main() -> None:
             flush=True,
         )
 
-    if symmetry_augmentation:
+    if symmetry_enabled:
         # The mirror maps assume BODY_JOINTS order for joint observations
         # and actions; refuse to train if the articulation or the action
         # term resolved the joints differently.
@@ -1076,7 +1086,7 @@ def main() -> None:
 
     env = InstrumentedRslRlVecEnvWrapper(env)
 
-    if symmetry_augmentation:
+    if symmetry_enabled:
         # Fail before training if the observation layout differs from the
         # mirror maps (widths 688 / 703) or a group has no mirror.
         from simulation.isaac_lab.g1_stairs.footstep_symmetry import (
