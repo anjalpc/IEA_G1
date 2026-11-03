@@ -5,14 +5,14 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Continue footstep_stair_clock_resume run 20261102_112206 model_6200
-    (10/10 clean 2 cm climbs, flat drift within 1 deg/s) for 1000 iterations
-    with the PPO mirror loss added to the mirror augmentation (patch 41).
-    Patch 40 (augmentation only) left the limp unchanged (stance knee left
-    0.10 vs right 0.42 rad); the clipped symmetric average of its policy
-    walks with equal knees (0.25/0.25) but fails the stairs, so symmetry has
-    to be learned together with the stair skill. Rewards unchanged from
-    patch 39.
+  purpose: Continue footstep_stair_clock_resume run 20261103_104540 model_7200
+    (patch 41, 10/10 clean 2 cm climbs, flat drift within 0.3 deg/s) for 1000
+    iterations with the mirror loss weight raised 0.01 to 0.2 (patch 42).
+    Patch 41 made the hip roll, hip yaw, waist and arm outputs mirror
+    symmetric (raw mismatch 12.8 to 0.6) but the limp moved into hip pitch
+    and knee (mismatch 0.23 to 1.3 policy units, stance knee left 0.17 vs
+    right 0.42 rad) and the symmetry loss plateaued near 0.96. Rewards
+    unchanged from patch 39.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -84,8 +84,8 @@ execution:
 policy_initialization:
   type: rsl_rl_training_resume
   source:
-    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261102_112206/model_6200.pt
-    sha256: e011ca66fecc007881ea6f09b2974e251893eeb43ceab62e64d7beb68c9fe94f
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261103_104540/model_7200.pt
+    sha256: FILL_ON_AWS
   critic_initialization: restored
   optimizer_initialization: restored
   locomotion_observations: 480
@@ -138,11 +138,11 @@ ppo:
   # rsl-rl-lib 3.0.1 symmetry_cfg): each update batch is doubled with its
   # mirror image (patch 40).
   symmetry_augmentation: true
-  # Mirror loss (patch 41): coeff * mean((pi(M s) - M pi(s))^2) on the action
-  # means. At model_6200 the error is about 10 policy units RMS (MSE about
-  # 100), so 0.01 starts the term near 1, comparable to the PPO losses, and
-  # it fades as the policy becomes symmetric.
-  symmetry_mirror_loss_coeff: 0.01
+  # Mirror loss: coeff * mean((pi(M s) - M pi(s))^2) on the action means.
+  # Patch 41 (0.01): symmetry loss 52 -> 0.96, surrogate loss about 0.12, so
+  # the term ended at 8% of the surrogate and the hip pitch / knee mismatch
+  # stayed. 0.2 restarts it at about 1.6x the surrogate (patch 42).
+  symmetry_mirror_loss_coeff: 0.2
   initial_action_noise_std: 0.15
   learning_rate: 0.0001
 reward_experiment:
