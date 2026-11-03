@@ -139,7 +139,7 @@ parser.add_argument(
     help="Footstep tasks: 'check' measures the policy's left/right "
     "equivariance error |pi(M s) - M pi(s)| on the visited states and writes "
     "mirror_check.json; 'average' also drives the robot with the exactly "
-    "symmetric policy (pi(s) + M pi(M s)) / 2 (evaluation only).",
+    "symmetric policy (clip(pi(s)) + M clip(pi(M s))) / 2 (evaluation only).",
 )
 parser.add_argument(
     "--trace",
@@ -663,7 +663,13 @@ def main() -> None:
     if args.symmetry != "off":
         from simulation.isaac_lab.g1_stairs import footstep_symmetry as fsym
         from simulation.isaac_lab.g1_stairs.contracts import BODY_JOINTS
-        mirror = {"err_sum": None, "sq_sum": 0.0, "n": 0}
+        mirror = {"err_sum": None, "clip_err_sum": None, "sat_sum": None, "sq_sum": 0.0, "n": 0}
+        # The residual wrapper clips the policy output before execution, so
+        # equivariance and averaging are judged on the clipped residual.
+        residual_clip = float(getattr(env, "_residual_clip", float("inf")))
+
+        def acc(key, value):
+            mirror[key] = value if mirror[key] is None else mirror[key] + value
 
         def mirrored_obs(o):
             m = o.clone()
@@ -675,12 +681,16 @@ def main() -> None:
             actions = policy(obs)
             if mirror is not None:
                 actions_m = fsym.mirror_actions(policy(mirrored_obs(obs)))
+                clipped = actions.clamp(-residual_clip, residual_clip)
+                clipped_m = actions_m.clamp(-residual_clip, residual_clip)
                 err = (actions_m - actions)[0]
-                mirror["err_sum"] = err.abs() if mirror["err_sum"] is None else mirror["err_sum"] + err.abs()
+                acc("err_sum", err.abs())
+                acc("clip_err_sum", (clipped_m - clipped)[0].abs())
+                acc("sat_sum", (actions[0].abs() > residual_clip).float())
                 mirror["sq_sum"] += float((err * err).mean())
                 mirror["n"] += 1
                 if args.symmetry == "average":
-                    actions = 0.5 * (actions + actions_m)
+                    actions = 0.5 * (clipped + clipped_m)
             obs, _, _, _ = env.step(actions)
             if markers is not None:
                 markers.update(env.unwrapped)
@@ -704,6 +714,9 @@ def main() -> None:
             "steps": mirror["n"],
             "rms_policy_action": (mirror["sq_sum"] / mirror["n"]) ** 0.5,
             "mean_abs_by_joint": dict(zip(BODY_JOINTS, mean_abs)),
+            "residual_clip": residual_clip,
+            "clipped_mean_abs_by_joint": dict(zip(BODY_JOINTS, (mirror["clip_err_sum"] / mirror["n"]).tolist())),
+            "saturated_fraction_by_joint": dict(zip(BODY_JOINTS, (mirror["sat_sum"] / mirror["n"]).tolist())),
         }
         (output_dir / "mirror_check.json").write_text(json.dumps(report, indent=2) + "\n")
         top = sorted(report["mean_abs_by_joint"].items(), key=lambda kv: -kv[1])[:6]
