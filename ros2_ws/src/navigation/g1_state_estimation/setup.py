@@ -38,6 +38,12 @@ setup(
         "console_scripts": [
             "state_estimation_node = "
             "g1_state_estimation.node:main",
+            "glim_health_node = "
+            "g1_state_estimation.glim_node:main",
+            "glim_planar_node = "
+            "g1_state_estimation.glim_planar_node:main",
+            "physical_body_node = "
+            "g1_state_estimation.physical_body_node:main",
         ],
     },
 )

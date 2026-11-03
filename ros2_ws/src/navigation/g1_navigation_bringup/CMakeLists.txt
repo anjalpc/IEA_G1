@@ -12,6 +12,11 @@ if(BUILD_TESTING)
   find_package(ament_cmake_pytest REQUIRED)
 
   ament_add_pytest_test(
+    test_physical_odometry_launch
+    test/test_physical_odometry_launch.py
+  )
+
+  ament_add_pytest_test(
     test_package_contract
     test/test_package_contract.py
   )

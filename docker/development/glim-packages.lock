@@ -1,0 +1,5 @@
+libgtsam-notbb-dev=4.3.0
+libgtsam-points-dev=1.2.2
+libiridescence-dev=1.0.2
+ros-humble-glim=1.2.2-0jammy
+ros-humble-glim-ros=1.2.2-0jammy

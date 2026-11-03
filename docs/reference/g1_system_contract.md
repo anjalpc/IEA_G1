@@ -5,7 +5,7 @@ BrainCo hands, and stair-climbing RL task. It is intended to eliminate routine
 dependence on upstream websites. The machine-readable YAML files linked below
 remain authoritative when this summary and a configuration disagree.
 
-Last reviewed: 2026-10-08
+Last reviewed: 2026-11-03
 
 ## Robot identity
 
@@ -153,6 +153,99 @@ simulated source while the physical MID-360 driver is publishing.
 `g1_robot_description` owns the fixed `torso_link -> mid360_link`
 transform.
 
+
+### Physical MID-360 and guarded GLIM odometry
+
+Physical navigation sensing is split across PC2 and the workstation. PC2 runs
+only the isolated Foxy `livox_ros_driver2` sensor driver. The workstation runs
+CPU GLIM, health qualification, mapping, and navigation. The interaction stack
+continues owning the D435i, handshake, card, arms, and hands.
+
+PC2 publishes these observations on ROS application domain `42`:
+
+| Topic | Type | Frame | Measured cadence |
+|---|---|---|---:|
+| `/g1/sensors/lidar/points` | `sensor_msgs/msg/PointCloud2` | `mid360_link` | 10 Hz |
+| `/g1/sensors/lidar/imu_raw` | `sensor_msgs/msg/Imu` | `livox_frame` | 200 Hz |
+
+Project-owned wired CycloneDDS configurations live under
+`g1_navigation_bringup/config/physical`. They bind the workstation to
+`enp2s0f0` at `192.168.123.99` and PC2 to `eth0` at
+`192.168.123.164`, disable multicast, and use explicit peers. The PC2
+configuration is restricted to ROS domain `42`. It must not apply its
+multicast-disabled application settings to the child native Unitree
+domain-0 LowState helper.
+
+The workstation uses pinned CPU-only GLIM 1.2.2 packages. GLIM consumes the
+raw cloud and MID-360 IMU, uses absolute nanosecond per-point timestamps,
+applies the Livox acceleration scale `9.80665`, and runs odometry estimation
+with local and global GLIM mapping disabled. SLAM Toolbox or AMCL, not GLIM,
+will eventually own `map -> odom`.
+
+GLIM publishes an isolated `glim_odom -> livox_frame` estimator tree. The
+`g1_glim_health` boundary requires advancing and fresh cloud, IMU, and
+odometry samples; exact frames; finite poses; unit quaternions; a 20-sample
+warmup; and bounded 10 Hz pose steps. Limits are 0.35 s odometry age, 0.35 s
+cloud age, 0.10 s IMU age, 0.15 m translation per update, and 15 degrees
+rotation per update.
+
+Only while every check passes does the boundary copy the unchanged sample to
+`/g1/navigation/glim/odometry_validated`. This is an intermediate output
+only.
+
+`g1_glim_planar` consumes only that qualified intermediate output. It
+captures the first accepted pose as a local origin, corrects the measured
+upside-down MID-360 axes, removes vertical motion, and publishes
+start-relative `odom -> base_footprint` messages on
+`/g1/navigation/glim/odometry_planar`. Forward remains positive X, while
+sensor Y and Z are reversed. No empirical distance or angle scaling is
+applied.
+
+The planar topic remains staged. It must not be remapped directly to
+`/g1/state/odometry`. The `g1_physical_body` staging node combines that
+planar pose with the qualified physical pelvis IMU. It requires a 20-sample
+IMU warmup, retains at most 100 timestamped IMU samples and 20 pending
+odometry samples, and selects the nearest IMU header stamp without exceeding
+the strict 0.05-second synchronization limit. It publishes the resulting
+`odom -> pelvis` message only on
+`/g1/navigation/physical/odometry_staged`, with calibrated standing pelvis
+height `0.785 m`; it publishes neither TF nor canonical odometry.
+
+The physical odometry launch also starts the physical robot-state runtime.
+It consumes measured `/joint_states` and publishes only the kinematic subtree
+rooted at `pelvis`. The physical runtime applies the verified upside-down
+MID-360 mount: 180 degrees about local X followed by the official
+0.04014257279586953-radian pitch.
+
+The physical odometry launch must not publish
+`odom -> base_footprint -> pelvis` or start Nav2, SLAM, localization,
+locomotion, or robot-command nodes.
+
+GLIM is configured with `publish_imu2lidar` disabled. Therefore GLIM owns
+only its isolated `glim_odom -> livox_frame` estimator tree, while the
+physical robot-state runtime owns the separate
+`pelvis -> torso_link -> mid360_link` kinematic tree. No transform connects
+`livox_frame` to `mid360_link` at this stage; this deliberately prevents
+either sensor frame from acquiring a duplicate parent.
+
+The validated GLIM build publishes finite but all-zero covariance. These
+arrays remain unknown; the project neither invents covariance nor weakens the
+generic navigation-state validator. The dedicated boundary provides
+source-specific liveness and plausibility checks but does not yet authorize
+navigation-facing odometry or TF.
+
+A suspended stationary proof produced approximately 10 Hz qualified output,
+about 1.4 mm translation drift over 59.8 seconds, and about 0.0034 degrees of
+yaw drift. A grounded proof measured 0.4678 m for a marked 0.50 m forward
+movement, with 0.0296 m lateral displacement, 0.0651 m vertical displacement,
+and 2.733 degrees of unintended rotation. A physical 90-degree left turn
+produced 81.184 degrees of GLIM rotation, 0.1197 m translation, and bounded
+tilt.
+
+These results qualify direction and approximate metric scale for staging.
+They do not yet prove extended walking robustness or authorize connection to
+`/g1/state/odometry`, mapping, Nav2, or locomotion.
+
 ### Physical LowState source
 
 On PC2, `g1_hardware_bridge` owns one read-only physical source for measured
@@ -280,25 +373,53 @@ kinematic model. The MID-360 transform is
 
 This package consumes no hardware. Its installed
 `robot_state.launch.py` starts the upstream ROS 2
-`robot_state_publisher`, loads `g1_navigation.urdf`, and consumes the
-three measured waist positions from `/joint_states`.
+`robot_state_publisher`, loads the standard `g1_navigation.urdf`, and
+consumes the three measured waist positions from `/joint_states`.
 
-The runtime publishes the three moving waist edges on `/tf` and the
-fixed head, D435i, MID-360, and IMU edges on `/tf_static`. It begins
-at the URDF root `pelvis`; it does not publish or duplicate
-`odom -> base_footprint -> pelvis`.
+The installed `physical_robot_state.launch.py` derives a runtime-only
+physical description from the same URDF. It requires exactly one
+`mid360_joint`, preserves its translation and pitch, and changes its
+roll from zero to pi for the verified upside-down physical mount. It
+does not modify the standard source URDF used by simulation.
+
+Both runtimes publish the three moving waist edges on `/tf` and the
+fixed head, D435i, MID-360, and IMU edges on `/tf_static`. Each begins
+at the URDF root `pelvis`; neither publishes or duplicates
+`odom -> base_footprint -> pelvis`. Exactly one robot-state runtime may
+run at a time.
 
 `use_sim_time` defaults to `false` for the future physical workstation
 path. Simulation must explicitly launch with `use_sim_time:=true`.
 The runtime never starts `joint_state_publisher` or substitutes
 default joint positions.
 
-The physical camera bridge currently labels depth images with
-`g1_depth_camera`. That frame must be aligned with `d435_link` before
-physical mapping. Likewise, the physical MID-360 driver must publish
-in `mid360_link` or provide an explicit measured transform from its
-driver frame. The description does not guess or silently alias either
-mismatch.
+On physical PC2, the upstream Foxy `realsense2_camera_node` at
+`/d435/d435` is the sole process allowed to open D435i serial
+`254322073626`. Project-owned `config/d435i.yaml` enables depth, color,
+infrared 1 and 2, gyro, accelerometer, synchronized timestamps, CameraInfo,
+and driver TF while leaving point-cloud generation disabled. The D435i IMU
+is supplementary sensor data and is not an input to navigation state
+estimation.
+
+`g1_camera_bridge` never opens the D435i. It subscribes with best-effort,
+volatile sensor-data QoS to `/d435/color/image_raw` and
+`/d435/depth/image_rect_raw`. Valid `rgb8` color is JPEG-encoded onto the
+existing `/g1/camera/rgb/compressed` compatibility topic while preserving
+the driver timestamp and `d435_color_optical_frame`. Valid depth is
+republished unchanged on `/g1/camera/depth/image_raw`, preserving the
+driver timestamp, `d435_depth_optical_frame`, dimensions, `16UC1` encoding,
+step, and payload. Color older than 0.25 seconds, depth older than 0.5
+seconds, and structurally invalid frames fail closed and are not published.
+Both compatibility outputs use best-effort, volatile sensor-data QoS.
+
+Physical proof showed that the legacy Unitree `VideoClient` service is
+unavailable even while the RealSense driver is stopped. Supported bringup
+therefore does not launch `rgb_helper`; the supervised D435 driver is the
+single physical camera source for both RGB and depth. The RealSense driver
+publishes its optical-frame tree below `d435_link`. The physical
+MID-360 driver must publish in `mid360_link` or provide an explicit measured
+transform from its driver frame; the description does not guess or silently
+alias a mismatch.
 
 ### Navigation perception boundary
 

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CycloneDDS>
+  <Domain id="42">
+    <General>
+      <NetworkInterfaceAddress>eth0</NetworkInterfaceAddress>
+      <AllowMulticast>false</AllowMulticast>
+    </General>
+    <Discovery>
+      <Peers>
+        <Peer address="192.168.123.99"/>
+      </Peers>
+    </Discovery>
+  </Domain>
+</CycloneDDS>

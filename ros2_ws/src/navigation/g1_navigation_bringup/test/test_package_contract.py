@@ -128,3 +128,30 @@ def test_package_contains_no_custom_nav2_implementation():
     )
     for path in forbidden_source_roots:
         assert not path.exists(), str(path)
+
+def test_development_image_pins_cpu_glim_runtime():
+    """A rebuilt laptop container must reproduce validated GLIM."""
+    docker_root = REPOSITORY_ROOT / "docker/development"
+    dockerfile = (
+        docker_root / "Dockerfile"
+    ).read_text(encoding="utf-8")
+    lock_file = docker_root / "glim-packages.lock"
+
+    assert lock_file.is_file()
+
+    entries = lock_file.read_text(
+        encoding="utf-8"
+    ).splitlines()
+
+    assert entries == [
+        "libgtsam-notbb-dev=4.3.0",
+        "libgtsam-points-dev=1.2.2",
+        "libiridescence-dev=1.0.2",
+        "ros-humble-glim=1.2.2-0jammy",
+        "ros-humble-glim-ros=1.2.2-0jammy",
+    ]
+
+    assert "koide3.github.io/ppa/ubuntu2204/KEY.gpg" in dockerfile
+    assert "COPY glim-packages.lock" in dockerfile
+    assert "/tmp/glim-packages.lock" in dockerfile
+    assert "ros-humble-glim-ros-cuda" not in dockerfile

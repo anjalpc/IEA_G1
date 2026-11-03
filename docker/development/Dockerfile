@@ -134,6 +134,25 @@ ENV UNITREE_MUJOCO_BIN=/opt/unitree_mujoco/simulate/build/unitree_mujoco
 ENV UNITREE_BALANCE_CONTROLLER=/opt/unitree_rl_lab/deploy/robots/g1_29dof/build/g1_ctrl
 ENV LD_LIBRARY_PATH=/opt/mujoco/lib:/opt/unitree_robotics/lib:/opt/unitree_rl_lab/deploy/thirdparty/onnxruntime-linux-x64-1.22.0/lib
 
+# Install the validated CPU-only GLIM runtime from its official PPA.
+# Exact versions prevent a future PPA update from silently changing odometry.
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends gpg && \
+    curl -fsSL \
+      https://koide3.github.io/ppa/ubuntu2204/KEY.gpg \
+      | gpg --dearmor --yes \
+        -o /usr/share/keyrings/koide3_ppa.gpg && \
+    echo \
+      "deb [signed-by=/usr/share/keyrings/koide3_ppa.gpg] https://koide3.github.io/ppa/ubuntu2204 ./" \
+      > /etc/apt/sources.list.d/koide3_ppa.list
+
+COPY glim-packages.lock /tmp/glim-packages.lock
+RUN apt-get update && \
+    xargs -r apt-get install -y --no-install-recommends \
+      < /tmp/glim-packages.lock && \
+    ldconfig && \
+    rm -rf /var/lib/apt/lists/*
+
 # Use one ROS middleware and domain in every development shell. CycloneDDS
 # avoids Fast DDS shared-memory transport problems between container shells.
 # Navigation perception reuses the upstream ROS point-cloud converter.

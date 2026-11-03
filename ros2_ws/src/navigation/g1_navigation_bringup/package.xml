@@ -17,6 +17,7 @@
   <exec_depend>launch_ros</exec_depend>
   <exec_depend>g1_simulation_bridge</exec_depend>
   <exec_depend>g1_state_estimation</exec_depend>
+  <exec_depend>glim_ros</exec_depend>
   <exec_depend>g1_robot_description</exec_depend>
   <exec_depend>g1_navigation_perception</exec_depend>
   <exec_depend>g1_navigation_mapping</exec_depend>

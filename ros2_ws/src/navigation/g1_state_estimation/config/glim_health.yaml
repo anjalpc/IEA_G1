@@ -1,0 +1,11 @@
+g1_glim_health:
+  ros__parameters:
+    # Measured physical MID-360 and CPU GLIM contract.
+    odometry_stale_after_seconds: 0.35
+    cloud_stale_after_seconds: 0.35
+    imu_stale_after_seconds: 0.10
+    warmup_samples: 20
+
+    # Conservative discontinuity limits per 10 Hz GLIM update.
+    maximum_step_translation_m: 0.15
+    maximum_step_rotation_degrees: 15.0

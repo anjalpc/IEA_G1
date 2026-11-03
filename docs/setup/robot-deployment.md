@@ -11,7 +11,7 @@ This guide installs and runs the physical handshake and card-presentation stack 
 - robot network interface: `eth0` by default
 - Unitree SDK2 Python available to `/usr/bin/python3`
 - BrainCo hands connected and accessible by the `unitree` user
-- RealSense Python module and native library available on the robot
+- pinned ROS 2 Foxy RealSense driver packages installed on the robot
 
 The vendored BrainCo ARM64 server is included in the repository. The Unitree system libraries and RealSense installation are robot-local dependencies and are not bundled.
 
@@ -49,27 +49,26 @@ source /opt/ros/foxy/setup.bash
 /usr/bin/python3 -c 'import unitree_sdk2py; print("Unitree SDK2 Python: OK")'
 ```
 
-The default RealSense locations used by `scripts/start.sh` are:
-
-```text
-/home/unitree/librealsense-install/lib/python3.8/site-packages
-/home/unitree/librealsense-install/lib
-```
-
-Verify the dependency in a clean, non-interactive environment:
+The physical stack uses the pinned ROS 2 Foxy RealSense packages rather than
+loading the earlier custom Python installation into the runtime environment.
+Verify the installed packages and executable:
 
 ```bash
-env -i HOME=/home/unitree \
-  PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
-  bash -c '
-    source /opt/ros/foxy/setup.bash
-    export PYTHONPATH=/home/unitree/librealsense-install/lib/python3.8/site-packages
-    export LD_LIBRARY_PATH=/home/unitree/librealsense-install/lib
-    /usr/bin/python3 -c "import pyrealsense2; print(\"RealSense: OK\")"
-  '
+dpkg-query -W \
+  ros-foxy-librealsense2 \
+  ros-foxy-realsense2-camera-msgs \
+  ros-foxy-realsense2-camera \
+  ros-foxy-realsense2-description \
+  ros-foxy-xacro
+
+ros2 pkg prefix realsense2_camera
+ros2 pkg executables realsense2_camera
 ```
 
-If the installation is elsewhere, set `REALSENSE_PYTHON_PATH` and `REALSENSE_LIBRARY_PATH` when starting the stack.
+The custom installation under `/home/unitree/librealsense-install` remains
+available only as rollback. `scripts/start.sh` intentionally does not prepend
+it to `PYTHONPATH` or `LD_LIBRARY_PATH`, preventing it from overriding the
+pinned Foxy driver library.
 
 Verify the bundled BrainCo files:
 
@@ -108,6 +107,7 @@ A healthy result includes:
 
 - BrainCo server and both hands ready;
 - the ROS launch and all required nodes;
+- `/d435/d435` as the sole D435i owner with the configured sensor streams;
 - `/g1_hardware_state` publishing measured waist and pelvis IMU state;
 - `event_gateway.py` and `/tmp/g1_event_control.sock`;
 - handshake and card ROS services on domain 42.
@@ -184,6 +184,71 @@ export ROS_DOMAIN_ID=42
 ros2 topic info /joint_states
 ros2 run tf2_ros tf2_echo pelvis d435_link
 ```
+
+
+## Guarded physical MID-360 odometry
+
+Physical navigation keeps raw acquisition on PC2 and computation on the
+workstation. It is independent of the handshake/card interaction stack.
+
+PC2 runs the isolated Livox driver on domain `42` with
+`/home/unitree/IEA_G1/livox_ws/config/cyclonedds_pc2_wired.xml` and
+`mid360_pc2.json`. The DDS file must use `<Domain id="42">`; an
+`id="any"` configuration would also affect the child native Unitree
+domain-0 runtime.
+
+The Livox driver remaps its outputs to
+`/g1/sensors/lidar/points` and `/g1/sensors/lidar/imu_raw`. Exactly one
+Livox process may own the MID-360. Separately, the read-only
+`g1_hardware_bridge hardware_state` process reads native LowState on
+domain `0` and publishes measured `/joint_states` and
+`/g1/state/imu_raw` on domain `42`.
+
+The workstation development container uses the installed
+`cyclonedds_laptop_wired.xml` and starts:
+
+```bash
+ros2 launch g1_navigation_bringup physical_odometry.launch.py
+```
+
+This launch starts CPU GLIM, `g1_glim_health`, `g1_glim_planar`,
+`g1_physical_body`, and the physical `robot_state_publisher`. The health
+boundary publishes unchanged qualified samples on
+`/g1/navigation/glim/odometry_validated`. The planar staging node corrects
+the inverted MID-360 axes and publishes start-relative planar samples on
+`/g1/navigation/glim/odometry_planar`.
+
+The physical-body staging node buffers up to 100 pelvis IMU samples and 20
+pending planar samples. It uses the nearest header timestamps only when their
+separation is at most 0.05 seconds, then publishes approximately 10 Hz
+`odom -> pelvis` messages on
+`/g1/navigation/physical/odometry_staged`. The verified standing height is
+`0.785 m`. This staged topic publishes no TF and has no navigation authority.
+
+The robot-state runtime consumes measured waist joints and publishes
+the `pelvis -> torso_link -> mid360_link` subtree. The physical
+MID-360 edge has 180 degrees of local-X roll and the official
+2.3-degree pitch.
+
+GLIM runs with `publish_imu2lidar` set to `false` and owns only
+`glim_odom -> livox_frame`. The GLIM and physical robot-state trees remain
+intentionally isolated; do not add `livox_frame -> mid360_link` because that
+would create duplicate TF parentage.
+
+None of the staged topics is `/g1/state/odometry`. This launch does
+not publish navigation-authority TF, start mapping or Nav2, or command the
+robot. Restarting the launch deliberately establishes a new planar origin.
+
+The robot may remain secured in the gantry for stationary qualification.
+Before navigation promotion, place it safely on the ground with an operator
+and validate forward, lateral, and yaw direction, metric scale, estimator
+continuity, and the inverted MID-360 mounting. Stop immediately on any axis
+inversion, discontinuity, stale stream, or tracking loss.
+
+The accepted grounded proof measured 0.4678 m for a marked 0.50 m forward
+movement and 81.184 degrees for a physical 90-degree left turn. The staging
+boundary therefore preserves forward positive X and converts physical left
+turning to positive robot yaw without adding empirical scale factors.
 
 ## Manual checks
 

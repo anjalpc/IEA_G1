@@ -1,0 +1,16 @@
+g1_physical_body:
+  ros__parameters:
+    # Floor to MID-360 center: 1.245 m measured, +/- 0.010 m.
+    # Calibrated standing pelvis height:
+    # 1.245 m - 0.460 m pelvis-to-MID-360 vertical offset.
+    pelvis_height_m: 0.785
+
+    # Source-specific qualification for the pinned physical pelvis IMU.
+    imu_stale_after_seconds: 0.10
+    imu_warmup_samples: 20
+    minimum_acceleration_norm: 4.0
+    maximum_acceleration_norm: 15.0
+    maximum_angular_velocity_norm: 10.0
+
+    # Maximum header-stamp separation between 50 Hz IMU and 10 Hz GLIM.
+    maximum_sync_offset_seconds: 0.05
