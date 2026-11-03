@@ -133,6 +133,15 @@ parser.add_argument(
 )
 
 parser.add_argument(
+    "--symmetry",
+    choices=("off", "check", "average"),
+    default="off",
+    help="Footstep tasks: 'check' measures the policy's left/right "
+    "equivariance error |pi(M s) - M pi(s)| on the visited states and writes "
+    "mirror_check.json; 'average' also drives the robot with the exactly "
+    "symmetric policy (pi(s) + M pi(M s)) / 2 (evaluation only).",
+)
+parser.add_argument(
     "--trace",
     action="store_true",
     help="Record the existing read-only geometry/reward trace with the video.",
@@ -650,9 +659,28 @@ def main() -> None:
         from simulation.isaac_lab.g1_stairs.footstep_markers import FootstepMarkers
         markers = FootstepMarkers(env.unwrapped)
 
+    mirror = None
+    if args.symmetry != "off":
+        from simulation.isaac_lab.g1_stairs import footstep_symmetry as fsym
+        from simulation.isaac_lab.g1_stairs.contracts import BODY_JOINTS
+        mirror = {"err_sum": None, "sq_sum": 0.0, "n": 0}
+
+        def mirrored_obs(o):
+            m = o.clone()
+            m["policy"] = fsym.mirror_policy_obs(o["policy"])
+            return m
+
     while simulation_app.is_running():
         with torch.inference_mode():
             actions = policy(obs)
+            if mirror is not None:
+                actions_m = fsym.mirror_actions(policy(mirrored_obs(obs)))
+                err = (actions_m - actions)[0]
+                mirror["err_sum"] = err.abs() if mirror["err_sum"] is None else mirror["err_sum"] + err.abs()
+                mirror["sq_sum"] += float((err * err).mean())
+                mirror["n"] += 1
+                if args.symmetry == "average":
+                    actions = 0.5 * (actions + actions_m)
             obs, _, _, _ = env.step(actions)
             if markers is not None:
                 markers.update(env.unwrapped)
@@ -669,6 +697,19 @@ def main() -> None:
 
     metadata["completed"] = True
     metadata["completed_steps"] = steps
+    if mirror is not None and mirror["n"]:
+        mean_abs = (mirror["err_sum"] / mirror["n"]).tolist()
+        report = {
+            "mode": args.symmetry,
+            "steps": mirror["n"],
+            "rms_policy_action": (mirror["sq_sum"] / mirror["n"]) ** 0.5,
+            "mean_abs_by_joint": dict(zip(BODY_JOINTS, mean_abs)),
+        }
+        (output_dir / "mirror_check.json").write_text(json.dumps(report, indent=2) + "\n")
+        top = sorted(report["mean_abs_by_joint"].items(), key=lambda kv: -kv[1])[:6]
+        print(f"MIRROR {args.symmetry}: rms {report['rms_policy_action']:.3f}; "
+              + ", ".join(f"{k} {v:.2f}" for k, v in top))
+    metadata["symmetry"] = args.symmetry
 
     metadata_file.write_text(
         json.dumps(
