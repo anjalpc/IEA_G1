@@ -221,6 +221,10 @@ The physical odometry launch must not publish
 `odom -> base_footprint -> pelvis` or start Nav2, SLAM, localization,
 locomotion, or robot-command nodes.
 
+The separate opt-in `physical_odometry_authority.launch.py` includes that staging stack and adds exactly one final authority boundary. It requires exact `odom -> pelvis` staged frames, finite state, a unit quaternion, strictly advancing timestamps, a 20-sample warmup, freshness within `0.25 s`, translation steps no larger than `0.15 m`, and rotation steps no larger than 15 degrees. Only while every check passes does it publish canonical planar `odom -> base_footprint` messages on `/g1/state/odometry` and the matching `odom -> base_footprint -> pelvis` TF chain. The canonical message has zero height and no roll or pitch; measured pelvis height and tilt remain on the second TF edge. This launch still starts no mapping, Nav2, localization, locomotion, or robot-command node.
+
+PC2 system time must be synchronized before starting the Livox driver. Starting it across a large system-clock correction can defeat scan aggregation and produce approximately 2 kHz packet-sized, 96-point clouds. A healthy MID-360 stream is approximately 10 Hz with about 20,000 points per cloud. Restart the driver after time synchronization and do not start GLIM until that shape is restored.
+
 GLIM is configured with `publish_imu2lidar` disabled. Therefore GLIM owns
 only its isolated `glim_odom -> livox_frame` estimator tree, while the
 physical robot-state runtime owns the separate

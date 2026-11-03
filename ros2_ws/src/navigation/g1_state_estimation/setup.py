@@ -44,6 +44,8 @@ setup(
             "g1_state_estimation.glim_planar_node:main",
             "physical_body_node = "
             "g1_state_estimation.physical_body_node:main",
+            "physical_authority_node = "
+            "g1_state_estimation.physical_authority_node:main",
         ],
     },
 )

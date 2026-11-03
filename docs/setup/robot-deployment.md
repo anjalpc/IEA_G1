@@ -239,6 +239,16 @@ None of the staged topics is `/g1/state/odometry`. This launch does
 not publish navigation-authority TF, start mapping or Nav2, or command the
 robot. Restarting the launch deliberately establishes a new planar origin.
 
+Before starting Livox, verify that PC2 system time is synchronized. If the clock changes substantially after the driver starts, stop and restart the driver. Qualify the cloud before GLIM: healthy output is about 10 Hz with roughly 20,000 points per cloud. Packet-sized output near 96 points at approximately 2 kHz is invalid.
+
+After staging has been qualified, run the explicit authority proof:
+
+```bash
+ros2 launch g1_navigation_bringup physical_odometry_authority.launch.py
+```
+
+This adds `g1_physical_odometry_authority`. After strict warmup and plausibility checks pass, it publishes planar `/g1/state/odometry` with `frame_id=odom` and `child_frame_id=base_footprint`, plus the matching `odom -> base_footprint -> pelvis` TF chain. It starts no mapping, Nav2, localization, locomotion, or robot commands. Run it in the foreground; one `Ctrl+C` cleanly stops the workstation stack.
+
 The robot may remain secured in the gantry for stationary qualification.
 Before navigation promotion, place it safely on the ground with an operator
 and validate forward, lateral, and yaw direction, metric scale, estimator

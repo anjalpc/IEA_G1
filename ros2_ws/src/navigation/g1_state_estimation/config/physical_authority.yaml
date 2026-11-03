@@ -1,0 +1,6 @@
+g1_physical_odometry_authority:
+  ros__parameters:
+    warmup_samples: 20
+    stale_after_seconds: 0.25
+    maximum_translation_step: 0.15
+    maximum_rotation_step_degrees: 15.0
