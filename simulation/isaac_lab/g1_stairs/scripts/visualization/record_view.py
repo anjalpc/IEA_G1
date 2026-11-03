@@ -669,7 +669,19 @@ def main() -> None:
         residual_clip = float(getattr(env, "_residual_clip", float("inf")))
 
         def acc(key, value):
-            mirror[key] = value if mirror[key] is None else mirror[key] + value
+            mirror[key] = value if mirror.get(key) is None else mirror[key] + value
+
+        # The executed action is teacher + clip(residual) * scale, so the
+        # frozen Unitree teacher is checked the same way: teacher(M s)
+        # against M teacher(s), and the executed action as a whole.
+        from simulation.isaac_lab.g1_stairs.balance_residual import teacher_observation
+        teacher_net = getattr(env, "_teacher", None)
+        residual_scale = getattr(env, "_scale", None)
+
+        def teacher_of(o):
+            return teacher_net(teacher_observation(
+                o["policy"], int(env.teacher_metadata["observation_dim"]),
+                env._teacher_prefix))
 
         def mirrored_obs(o):
             m = o.clone()
@@ -687,6 +699,18 @@ def main() -> None:
                 acc("err_sum", err.abs())
                 acc("clip_err_sum", (clipped_m - clipped)[0].abs())
                 acc("sat_sum", (actions[0].abs() > residual_clip).float())
+                acc("signed_sum", err)
+                if teacher_net is not None and residual_scale is not None:
+                    teacher = teacher_of(obs)
+                    teacher_m = fsym.mirror_actions(teacher_of(mirrored_obs(obs)))
+                    t_err = (teacher_m - teacher)[0]
+                    acc("teacher_abs_sum", t_err.abs())
+                    acc("teacher_signed_sum", t_err)
+                    executed = teacher + clipped * residual_scale
+                    executed_m = teacher_m + clipped_m * residual_scale
+                    e_err = (executed_m - executed)[0]
+                    acc("executed_abs_sum", e_err.abs())
+                    acc("executed_signed_sum", e_err)
                 mirror["sq_sum"] += float((err * err).mean())
                 mirror["n"] += 1
                 if args.symmetry == "average":
@@ -717,8 +741,18 @@ def main() -> None:
             "residual_clip": residual_clip,
             "clipped_mean_abs_by_joint": dict(zip(BODY_JOINTS, (mirror["clip_err_sum"] / mirror["n"]).tolist())),
             "saturated_fraction_by_joint": dict(zip(BODY_JOINTS, (mirror["sat_sum"] / mirror["n"]).tolist())),
+            # signed: mean of M pi(M s) - pi(s); a steady bias shows a
+            # one-sided preference, not just noise.
+            "signed_mean_by_joint": dict(zip(BODY_JOINTS, (mirror["signed_sum"] / mirror["n"]).tolist())),
         }
+        for key in ("teacher_abs", "teacher_signed", "executed_abs", "executed_signed"):
+            if mirror.get(key + "_sum") is not None:
+                report[key + "_by_joint"] = dict(zip(
+                    BODY_JOINTS, (mirror[key + "_sum"] / mirror["n"]).tolist()))
         (output_dir / "mirror_check.json").write_text(json.dumps(report, indent=2) + "\n")
+        if "teacher_abs_by_joint" in report:
+            t_top = sorted(report["teacher_abs_by_joint"].items(), key=lambda kv: -kv[1])[:4]
+            print("MIRROR teacher: " + ", ".join(f"{k} {v:.3f}" for k, v in t_top))
         top = sorted(report["mean_abs_by_joint"].items(), key=lambda kv: -kv[1])[:6]
         print(f"MIRROR {args.symmetry}: rms {report['rms_policy_action']:.3f}; "
               + ", ".join(f"{k} {v:.2f}" for k, v in top))
