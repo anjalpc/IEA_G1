@@ -28,8 +28,9 @@ class FakeSubscriber:
         self.callback = None
         self.instances.append(self)
 
-    def Init(self, callback):
+    def Init(self, callback, queue_length=None):
         self.callback = callback
+        self.queue_length = queue_length
 
 
 def low_state():
@@ -77,6 +78,7 @@ def test_initializes_read_only_domain_zero_subscriber():
     assert subscriber.topic == "rt/lowstate"
     assert subscriber.message_type is message_type
     assert callable(subscriber.callback)
+    assert subscriber.queue_length == 10
     assert stop.waits == [0.2]
 
     assert subscriber.callback(low_state()) is True

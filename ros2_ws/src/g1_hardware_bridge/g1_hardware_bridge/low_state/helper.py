@@ -132,7 +132,10 @@ def run_native(
         "rt/lowstate",
         message_type,
     )
-    subscriber.Init(reader.receive_state)
+    subscriber.Init(
+        reader.receive_state,
+        10,
+    )
 
     while not stop_event.wait(0.2):
         pass

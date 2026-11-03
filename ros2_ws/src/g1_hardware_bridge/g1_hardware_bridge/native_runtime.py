@@ -22,8 +22,12 @@ def network_interface():
 def native_dds_environment():
     """Return an environment using the robot's native CycloneDDS runtime."""
     env = os.environ.copy()
+    env.pop("CYCLONEDDS_URI", None)
     env["ROS_DOMAIN_ID"] = "0"
-    library = env.get("UNITREE_CYCLONEDDS_LIB", DEFAULT_CYCLONEDDS_LIBRARY)
+    library = env.get(
+        "UNITREE_CYCLONEDDS_LIB",
+        DEFAULT_CYCLONEDDS_LIBRARY,
+    )
     if os.path.isdir(library):
         existing = env.get("LD_LIBRARY_PATH", "")
         env["LD_LIBRARY_PATH"] = f"{library}:{existing}" if existing else library
