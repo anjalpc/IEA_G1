@@ -73,3 +73,6 @@ def test_installs_authority_entrypoint_and_configuration():
     assert "stale_after_seconds: 0.25" in text
     assert "maximum_translation_step: 0.15" in text
     assert "maximum_rotation_step_degrees: 15.0" in text
+    assert "maximum_translation_rate: 0.5" in text
+    assert "maximum_rotation_rate_degrees: 60.0" in text
+    assert "maximum_motion_gap_seconds: 2.0" in text

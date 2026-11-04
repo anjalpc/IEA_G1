@@ -76,6 +76,9 @@ class PhysicalAuthorityNode(Node):
             "stale_after_seconds": 0.25,
             "maximum_translation_step": 0.15,
             "maximum_rotation_step_degrees": 15.0,
+            "maximum_translation_rate": 0.5,
+            "maximum_rotation_rate_degrees": 60.0,
+            "maximum_motion_gap_seconds": 2.0,
         }
         for name, value in defaults.items():
             self.declare_parameter(name, value)
@@ -96,6 +99,17 @@ class PhysicalAuthorityNode(Node):
                         "maximum_rotation_step_degrees"
                     ).value
                 ),
+                maximum_translation_rate=self.get_parameter(
+                    "maximum_translation_rate"
+                ).value,
+                maximum_rotation_rate=math.radians(
+                    self.get_parameter(
+                        "maximum_rotation_rate_degrees"
+                    ).value
+                ),
+                maximum_motion_gap_seconds=self.get_parameter(
+                    "maximum_motion_gap_seconds"
+                ).value,
             ),
             monotonic=monotonic or time.monotonic,
         )

@@ -121,6 +121,44 @@ def test_rejects_unbounded_translation_and_rotation_steps():
     assert instance.observe(rotation_jump).odometry is None
 
 
+def test_accepts_bounded_motion_over_elapsed_gap():
+    instance, _clock = boundary(warmup_samples=1)
+
+    assert instance.observe(
+        odometry(100.0)
+    ).odometry is not None
+
+    delayed = instance.observe(
+        odometry(
+            101.3,
+            x=0.34,
+            yaw=math.radians(29.0),
+        )
+    )
+
+    assert delayed.odometry is not None
+    assert delayed.reason == "READY"
+
+
+def test_rejects_same_motion_when_timestamp_implies_teleport():
+    instance, _clock = boundary(warmup_samples=1)
+
+    assert instance.observe(
+        odometry(100.0)
+    ).odometry is not None
+
+    teleport = instance.observe(
+        odometry(
+            100.1,
+            x=0.34,
+            yaw=math.radians(29.0),
+        )
+    )
+
+    assert teleport.odometry is None
+    assert teleport.reason == "TRANSLATION_STEP_EXCEEDED"
+
+
 def test_snapshot_fails_closed_after_stale_timeout():
     instance, clock = boundary(warmup_samples=1)
 
@@ -132,3 +170,30 @@ def test_snapshot_fails_closed_after_stale_timeout():
     clock.now += 0.251
 
     assert instance.snapshot().ready is False
+
+
+def test_rejects_motion_after_excessive_timestamp_gap():
+    clock = FakeClock()
+    instance = PhysicalAuthorityBoundary(
+        limits=PhysicalAuthorityLimits(
+            warmup_samples=1,
+            stale_after_seconds=0.25,
+            maximum_translation_step=0.15,
+            maximum_rotation_step=math.radians(15.0),
+            maximum_translation_rate=0.5,
+            maximum_rotation_rate=math.radians(60.0),
+            maximum_motion_gap_seconds=2.0,
+        ),
+        monotonic=clock,
+    )
+
+    assert instance.observe(
+        odometry(100.0)
+    ).odometry is not None
+
+    delayed = instance.observe(
+        odometry(102.1, x=0.10)
+    )
+
+    assert delayed.odometry is None
+    assert delayed.reason == "ODOMETRY_GAP_EXCEEDED"

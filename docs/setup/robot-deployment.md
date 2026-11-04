@@ -247,7 +247,24 @@ After staging has been qualified, run the explicit authority proof:
 ros2 launch g1_navigation_bringup physical_odometry_authority.launch.py
 ```
 
-This adds `g1_physical_odometry_authority`. After strict warmup and plausibility checks pass, it publishes planar `/g1/state/odometry` with `frame_id=odom` and `child_frame_id=base_footprint`, plus the matching `odom -> base_footprint -> pelvis` TF chain. It starts no mapping, Nav2, localization, locomotion, or robot commands. Run it in the foreground; one `Ctrl+C` cleanly stops the workstation stack.
+This adds `g1_physical_odometry_authority`. After strict warmup and plausibility checks pass, it publishes planar `/g1/state/odometry` with `frame_id=odom` and `child_frame_id=base_footprint`, plus the matching `odom -> base_footprint -> pelvis` TF chain. Motion is limited by both per-update bounds and source-time rates of `0.5 m/s` and 60 degrees/s; a source gap above `2.0 s` fails closed. It starts no mapping, Nav2, localization, locomotion, or robot commands. Run it in the foreground; one `Ctrl+C` cleanly stops the workstation stack.
+
+To start read-only physical mapping after the authority proof succeeds:
+
+```bash
+ros2 launch g1_navigation_bringup physical_mapping.launch.py
+```
+
+This foreground launch adds the MID-360 `/scan` projection and asynchronous
+SLAM Toolbox. Verify `/scan`, `/map`, and `map -> odom` before moving the
+robot. It starts no localization, Nav2, locomotion, velocity command, or
+robot-command node. Press `Ctrl+C` to stop mapping and workstation odometry
+authority together.
+
+During physical motion, keep RViz PointCloud2 disabled. Rendering the full
+MID-360 cloud alongside CPU GLIM and SLAM caused multi-second estimator
+stalls during validation. Map, LaserScan, TF, and RobotModel remain suitable
+live displays.
 
 The robot may remain secured in the gantry for stationary qualification.
 Before navigation promotion, place it safely on the ground with an operator

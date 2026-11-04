@@ -221,7 +221,20 @@ The physical odometry launch must not publish
 `odom -> base_footprint -> pelvis` or start Nav2, SLAM, localization,
 locomotion, or robot-command nodes.
 
-The separate opt-in `physical_odometry_authority.launch.py` includes that staging stack and adds exactly one final authority boundary. It requires exact `odom -> pelvis` staged frames, finite state, a unit quaternion, strictly advancing timestamps, a 20-sample warmup, freshness within `0.25 s`, translation steps no larger than `0.15 m`, and rotation steps no larger than 15 degrees. Only while every check passes does it publish canonical planar `odom -> base_footprint` messages on `/g1/state/odometry` and the matching `odom -> base_footprint -> pelvis` TF chain. The canonical message has zero height and no roll or pitch; measured pelvis height and tilt remain on the second TF edge. This launch still starts no mapping, Nav2, localization, locomotion, or robot-command node.
+The separate opt-in `physical_odometry_authority.launch.py` includes that staging stack and adds exactly one final authority boundary. It requires exact `odom -> pelvis` staged frames, finite state, a unit quaternion, strictly advancing timestamps, a 20-sample warmup, and freshness within `0.25 s`. Motion is limited to at most `0.15 m` or 15 degrees per update, relaxed only according to elapsed source time up to `0.5 m/s` and 60 degrees/s. A source timestamp gap greater than `2.0 s` fails closed. Only while every check passes does it publish canonical planar `odom -> base_footprint` messages on `/g1/state/odometry` and the matching `odom -> base_footprint -> pelvis` TF chain. The canonical message has zero height and no roll or pitch; measured pelvis height and tilt remain on the second TF edge. This launch still starts no mapping, Nav2, localization, locomotion, or robot-command node.
+
+The separate opt-in `physical_mapping.launch.py` composes the qualified
+physical odometry authority, MID-360 point-cloud-to-scan projection, and
+asynchronous SLAM Toolbox mapping. It uses wall-clock time. SLAM Toolbox
+consumes `/scan`, publishes `/map`, and exclusively owns `map -> odom`.
+The launch starts no localization, Nav2 planning or control, locomotion
+lease, velocity command, or robot-command node.
+
+During physical motion, keep RViz PointCloud2 disabled. Rendering the full
+MID-360 cloud alongside CPU GLIM and SLAM caused multi-second estimator
+stalls during validation. Map, LaserScan, TF, and RobotModel displays remain
+suitable for live operation. Stopping the foreground launch removes mapping
+and canonical odometry authority together.
 
 PC2 system time must be synchronized before starting the Livox driver. Starting it across a large system-clock correction can defeat scan aggregation and produce approximately 2 kHz packet-sized, 96-point clouds. A healthy MID-360 stream is approximately 10 Hz with about 20,000 points per cloud. Restart the driver after time synchronization and do not start GLIM until that shape is restored.
 
@@ -234,9 +247,9 @@ either sensor frame from acquiring a duplicate parent.
 
 The validated GLIM build publishes finite but all-zero covariance. These
 arrays remain unknown; the project neither invents covariance nor weakens the
-generic navigation-state validator. The dedicated boundary provides
-source-specific liveness and plausibility checks but does not yet authorize
-navigation-facing odometry or TF.
+generic navigation-state validator. The dedicated GLIM health boundary
+provides source-specific liveness and plausibility checks, but its validated
+topic remains an intermediate input to the final physical authority boundary.
 
 A suspended stationary proof produced approximately 10 Hz qualified output,
 about 1.4 mm translation drift over 59.8 seconds, and about 0.0034 degrees of
@@ -246,9 +259,10 @@ and 2.733 degrees of unintended rotation. A physical 90-degree left turn
 produced 81.184 degrees of GLIM rotation, 0.1197 m translation, and bounded
 tilt.
 
-These results qualify direction and approximate metric scale for staging.
-They do not yet prove extended walking robustness or authorize connection to
-`/g1/state/odometry`, mapping, Nav2, or locomotion.
+These results qualify direction and approximate metric scale for staged
+odometry. Subsequent authority and mapping proofs authorize
+`/g1/state/odometry` and read-only mapping only. They do not prove extended
+walking robustness or authorize localization, Nav2, or locomotion.
 
 ### Physical LowState source
 

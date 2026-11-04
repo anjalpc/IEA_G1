@@ -16,6 +16,9 @@ class PhysicalAuthorityLimits:
     stale_after_seconds: float = 0.25
     maximum_translation_step: float = 0.15
     maximum_rotation_step: float = math.radians(15.0)
+    maximum_translation_rate: float = 0.5
+    maximum_rotation_rate: float = math.radians(60.0)
+    maximum_motion_gap_seconds: float = 2.0
 
     def __post_init__(self):
         if self.warmup_samples < 1:
@@ -24,6 +27,9 @@ class PhysicalAuthorityLimits:
             "stale_after_seconds",
             "maximum_translation_step",
             "maximum_rotation_step",
+            "maximum_translation_rate",
+            "maximum_rotation_rate",
+            "maximum_motion_gap_seconds",
         ):
             value = getattr(self, name)
             if not math.isfinite(value) or value <= 0.0:
@@ -131,6 +137,20 @@ class PhysicalAuthorityBoundary:
         ):
             return self._reject("TIMESTAMP_NOT_ADVANCING")
 
+        elapsed = (
+            None
+            if self._last_stamp is None
+            else stamp - self._last_stamp
+        )
+        if (
+            elapsed is not None
+            and elapsed
+            > self.limits.maximum_motion_gap_seconds
+        ):
+            return self._reject(
+                "ODOMETRY_GAP_EXCEEDED"
+            )
+
         position = values[:3]
         orientation = values[3:7]
         norm = math.sqrt(sum(
@@ -148,22 +168,30 @@ class PhysicalAuthorityBoundary:
                     position,
                 )
             ))
-            if (
-                translation_step
-                > self.limits.maximum_translation_step
-            ):
-                return self._reject("TRANSLATION_STEP_EXCEEDED")
+            translation_limit = max(
+                self.limits.maximum_translation_step,
+                self.limits.maximum_translation_rate
+                * elapsed,
+            )
+            if translation_step > translation_limit:
+                return self._reject(
+                    "TRANSLATION_STEP_EXCEEDED"
+                )
 
         if self._last_orientation is not None:
             rotation_step = _rotation_step(
                 self._last_orientation,
                 orientation,
             )
-            if (
-                rotation_step
-                > self.limits.maximum_rotation_step
-            ):
-                return self._reject("ROTATION_STEP_EXCEEDED")
+            rotation_limit = max(
+                self.limits.maximum_rotation_step,
+                self.limits.maximum_rotation_rate
+                * elapsed,
+            )
+            if rotation_step > rotation_limit:
+                return self._reject(
+                    "ROTATION_STEP_EXCEEDED"
+                )
 
         self._last_stamp = stamp
         self._last_position = position

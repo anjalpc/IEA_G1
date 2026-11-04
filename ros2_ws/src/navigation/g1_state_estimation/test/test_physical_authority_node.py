@@ -178,3 +178,30 @@ def test_invalid_step_publishes_neither_odometry_nor_tf():
         assert len(transforms.transforms) == 2
     finally:
         destroy(node)
+
+
+def test_wires_rate_and_gap_parameters_into_boundary():
+    if not rclpy.ok():
+        rclpy.init()
+
+    node = PhysicalAuthorityNode(
+        parameter_overrides=[
+            Parameter("maximum_translation_rate", value=0.4),
+            Parameter(
+                "maximum_rotation_rate_degrees",
+                value=50.0,
+            ),
+            Parameter(
+                "maximum_motion_gap_seconds",
+                value=1.5,
+            ),
+        ],
+        monotonic=FakeClock(),
+    )
+    try:
+        limits = node.boundary.limits
+        assert limits.maximum_translation_rate == 0.4
+        assert limits.maximum_rotation_rate == math.radians(50.0)
+        assert limits.maximum_motion_gap_seconds == 1.5
+    finally:
+        destroy(node)
