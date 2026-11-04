@@ -142,6 +142,15 @@ parser.add_argument(
     "symmetric policy (clip(pi(s)) + M clip(pi(M s))) / 2 (evaluation only).",
 )
 parser.add_argument(
+    "--teacher-symmetry",
+    choices=("off", "average"),
+    default="off",
+    help="Residual footstep tasks: 'average' replaces the frozen Unitree "
+    "teacher by (T(s) + M T(M s)) / 2 for this replay (evaluation only). "
+    "With --symmetry the reported teacher error is then that of the "
+    "averaged teacher.",
+)
+parser.add_argument(
     "--trace",
     action="store_true",
     help="Record the existing read-only geometry/reward trace with the video.",
@@ -659,6 +668,20 @@ def main() -> None:
         from simulation.isaac_lab.g1_stairs.footstep_markers import FootstepMarkers
         markers = FootstepMarkers(env.unwrapped)
 
+    if args.teacher_symmetry == "average":
+        from simulation.isaac_lab.g1_stairs import footstep_symmetry as fsym
+        raw_teacher = getattr(env, "_teacher", None)
+        if raw_teacher is None or not getattr(env, "_teacher_prefix", False):
+            raise SystemExit("--teacher-symmetry needs the frozen Unitree ONNX residual wrapper")
+        if int(env.teacher_metadata["observation_dim"]) != fsym.TEACHER_WIDTH:
+            raise SystemExit("--teacher-symmetry: teacher input width is not the 480-D prefix")
+
+        def symmetric_teacher(x):
+            return 0.5 * (raw_teacher(x) + fsym.mirror_actions(raw_teacher(fsym.mirror_teacher_obs(x))))
+
+        env._teacher = symmetric_teacher
+        print("TEACHER SYMMETRY: average", flush=True)
+
     mirror = None
     if args.symmetry != "off":
         from simulation.isaac_lab.g1_stairs import footstep_symmetry as fsym
@@ -757,6 +780,7 @@ def main() -> None:
         print(f"MIRROR {args.symmetry}: rms {report['rms_policy_action']:.3f}; "
               + ", ".join(f"{k} {v:.2f}" for k, v in top))
     metadata["symmetry"] = args.symmetry
+    metadata["teacher_symmetry"] = args.teacher_symmetry
 
     metadata_file.write_text(
         json.dumps(

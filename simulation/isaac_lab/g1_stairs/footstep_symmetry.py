@@ -32,8 +32,8 @@ import torch
 from .contracts import BODY_JOINTS
 
 __all__ = [
-    "JOINT_PERMUTATION", "JOINT_SIGN", "POLICY_WIDTH", "CRITIC_WIDTH",
-    "mirror_policy_obs", "mirror_critic_obs", "mirror_actions",
+    "JOINT_PERMUTATION", "JOINT_SIGN", "POLICY_WIDTH", "CRITIC_WIDTH", "TEACHER_WIDTH",
+    "mirror_policy_obs", "mirror_critic_obs", "mirror_teacher_obs", "mirror_actions",
     "compute_symmetric_states",
 ]
 
@@ -120,7 +120,9 @@ _POLICY_PERM, _POLICY_SIGN = _build(
     [(m, HISTORY) for m in _PROPRIO] + [(m, 1) for m in _TERRAIN])
 _CRITIC_PERM, _CRITIC_SIGN = _build(
     [(_VEC, HISTORY)] + [(m, HISTORY) for m in _PROPRIO] + [(m, 1) for m in _TERRAIN])
+_TEACHER_PERM, _TEACHER_SIGN = _build([(m, HISTORY) for m in _PROPRIO])
 POLICY_WIDTH = int(_POLICY_PERM.numel())     # 688
+TEACHER_WIDTH = int(_TEACHER_PERM.numel())   # 480 (proprio prefix the Unitree teacher reads)
 CRITIC_WIDTH = int(_CRITIC_PERM.numel())     # 703
 _ACTION_PERM = torch.tensor(JOINT_PERMUTATION, dtype=torch.long)
 _ACTION_SIGN = torch.tensor(JOINT_SIGN)
@@ -134,6 +136,10 @@ def _apply(x: torch.Tensor, perm: torch.Tensor, sign: torch.Tensor, name: str):
 
 def mirror_policy_obs(x: torch.Tensor) -> torch.Tensor:
     return _apply(x, _POLICY_PERM, _POLICY_SIGN, "policy observation")
+
+
+def mirror_teacher_obs(x: torch.Tensor) -> torch.Tensor:
+    return _apply(x, _TEACHER_PERM, _TEACHER_SIGN, "teacher observation")
 
 
 def mirror_critic_obs(x: torch.Tensor) -> torch.Tensor:

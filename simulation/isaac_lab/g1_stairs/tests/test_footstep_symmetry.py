@@ -86,6 +86,13 @@ class ObservationTests(unittest.TestCase):
         self.assertTrue(torch.allclose(m[fp:fp + 7], torch.tensor([1.0, 0.0, 1.0, 0.2, -0.12, 0.02, -0.02])))
         self.assertTrue(torch.allclose(m[fp + 14:fp + 16], torch.tensor([-0.6, -0.8])))
 
+    def test_teacher_mirror_is_policy_mirror_prefix(self):
+        torch.manual_seed(2)
+        x = torch.randn(3, 688)
+        self.assertEqual(fs.TEACHER_WIDTH, 480)
+        self.assertTrue(torch.equal(fs.mirror_teacher_obs(x[:, :480]), fs.mirror_policy_obs(x)[:, :480]))
+        self.assertTrue(torch.equal(fs.mirror_teacher_obs(fs.mirror_teacher_obs(x[:, :480])), x[:, :480]))
+
     def test_critic_has_linear_velocity_prefix(self):
         x = torch.zeros(1, 703)
         x[0, 0:3] = torch.tensor([0.5, 0.1, 0.0])
