@@ -186,6 +186,29 @@ def teacher_observation(policy_obs: torch.Tensor, expected_dim: int,
     return policy_obs
 
 
+class MirrorAveragedTeacher(torch.nn.Module):
+    """Frozen teacher made exactly left/right symmetric: (T(s) + M T(M s)) / 2.
+
+    The Unitree velocity actor is not equivariant on the residual policy's
+    states (run 20261103_160202 model_8200: ankle roll bias ~0.1 rad), and
+    the residual learned a lopsided correction for it (right turn ~5 deg/s
+    once the residual is averaged) whose side effect was the knee limp.
+    Averaged, the teacher's own gait is unchanged (model_0: stance knee
+    0.25/0.25, drift 0.1 deg/s) and mirror augmentation of the residual
+    becomes physically consistent. Reads the 480-D Unitree prefix only.
+    """
+
+    def __init__(self, teacher):
+        super().__init__()
+        from .footstep_symmetry import mirror_actions, mirror_teacher_obs
+        self.teacher = teacher
+        self._mirror_obs = mirror_teacher_obs
+        self._mirror_actions = mirror_actions
+
+    def forward(self, obs: torch.Tensor) -> torch.Tensor:
+        return 0.5 * (self.teacher(obs) + self._mirror_actions(self.teacher(self._mirror_obs(obs))))
+
+
 def residual_scale_vector(
     scale_by_joint: dict[str, float],
     *,
@@ -292,6 +315,7 @@ class FrozenBalanceResidualWrapper:
         scale_by_joint: dict[str, float],
         residual_clip: float = 1.0,
         executed_clip: float = 5.0,
+        teacher_symmetry: str = "off",
     ) -> None:
         self._wrapped = wrapped
         if (teacher_checkpoint is None) == (teacher_onnx is None):
@@ -309,6 +333,13 @@ class FrozenBalanceResidualWrapper:
                 device=self.device,
             )
             self._teacher_prefix = False
+        if teacher_symmetry not in ("off", "average"):
+            raise ValueError("teacher_symmetry must be 'off' or 'average'")
+        if teacher_symmetry == "average":
+            if not self._teacher_prefix:
+                raise ValueError("teacher_symmetry needs the Unitree ONNX teacher (480-D prefix)")
+            self._teacher = MirrorAveragedTeacher(self._teacher)
+        self.teacher_metadata = {**self.teacher_metadata, "teacher_symmetry": teacher_symmetry}
         self._scale = residual_scale_vector(
             scale_by_joint,
             device=self.device,
@@ -417,4 +448,5 @@ def wrap_balance_residual_from_config(wrapped, resolved_config: dict[str, Any]):
         scale_by_joint=scale_by_joint,
         residual_clip=float(cfg.get("residual_clip", 1.0)),
         executed_clip=float(cfg.get("executed_clip", 5.0)),
+        teacher_symmetry=str(cfg.get("teacher_symmetry", "off")),
     )

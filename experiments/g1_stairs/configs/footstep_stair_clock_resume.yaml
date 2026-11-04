@@ -5,14 +5,15 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Continue footstep_stair_clock_resume run 20261103_104540 model_7200
-    (patch 41, 10/10 clean 2 cm climbs, flat drift within 0.3 deg/s) for 1000
-    iterations with patch 41 settings (mirror loss 0.01) and a calm,
-    symmetric exploration noise (patch 43). The restored action std was
-    3-9 on 20 of 29 joints against a residual clip of 2 and 27-35% larger
-    on the left hip yaw than the right, growing every run under the entropy
-    bonus; patch 42 (mirror loss 0.2) left the limp and added overspeed and
-    pitch wobble. Rewards unchanged from patch 39.
+  purpose: Continue footstep_stair_clock_resume run 20261103_160202 model_8200
+    (patch 43, 10/10 clean 2 cm climbs, limp knee 0.11/0.41) for 1000
+    iterations on a left/right mirror-averaged Unitree teacher (patch 44).
+    Replays on fceef18: the teacher is lopsided on the residual's states
+    (ankle roll ~0.1 rad); averaging the residual removed the limp but
+    exposed a ~5 deg/s right turn; averaging teacher and residual removed
+    limp, turn and pelvis height gap (knee 0.24/0.24, drift -0.1 deg/s);
+    averaging the teacher alone left the Unitree gait unchanged (model_0).
+    PPO settings and rewards unchanged from patch 43.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -84,8 +85,8 @@ execution:
 policy_initialization:
   type: rsl_rl_training_resume
   source:
-    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261103_104540/model_7200.pt
-    sha256: 694944c9e1b0fed030255d0f2c48103ead1ae76d10519e33158b1dcc3f8879ad
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261103_160202/model_8200.pt
+    sha256: FILL_ON_AWS
   critic_initialization: restored
   optimizer_initialization: restored
   locomotion_observations: 480
@@ -99,6 +100,9 @@ balance_residual_control:
   enabled: true
   teacher_onnx: /workspace/unitree_rl_lab/deploy/robots/g1_29dof/config/policy/velocity/v0/exported/policy.onnx
   teacher_observation_dim: 480
+  # Patch 44: teacher output replaced by (T(s) + M T(M s)) / 2
+  # (balance_residual.MirrorAveragedTeacher); deployment must do the same.
+  teacher_symmetry: average
   # Raw Unitree action units (x 0.25 rad). Legs: up to +-2 units = +-0.5 rad
   # for riser lift and foot placement; waist and arms stay near the teacher.
   residual_clip: 2.0

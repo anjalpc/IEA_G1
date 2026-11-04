@@ -146,7 +146,8 @@ parser.add_argument(
     choices=("off", "average"),
     default="off",
     help="Residual footstep tasks: 'average' replaces the frozen Unitree "
-    "teacher by (T(s) + M T(M s)) / 2 for this replay (evaluation only). "
+    "teacher by (T(s) + M T(M s)) / 2 for this replay (runs trained with "
+    "balance_residual_control.teacher_symmetry: average already use it). "
     "With --symmetry the reported teacher error is then that of the "
     "averaged teacher.",
 )
@@ -669,17 +670,11 @@ def main() -> None:
         markers = FootstepMarkers(env.unwrapped)
 
     if args.teacher_symmetry == "average":
-        from simulation.isaac_lab.g1_stairs import footstep_symmetry as fsym
-        raw_teacher = getattr(env, "_teacher", None)
-        if raw_teacher is None or not getattr(env, "_teacher_prefix", False):
+        from simulation.isaac_lab.g1_stairs.balance_residual import MirrorAveragedTeacher
+        if getattr(env, "_teacher", None) is None or not getattr(env, "_teacher_prefix", False):
             raise SystemExit("--teacher-symmetry needs the frozen Unitree ONNX residual wrapper")
-        if int(env.teacher_metadata["observation_dim"]) != fsym.TEACHER_WIDTH:
-            raise SystemExit("--teacher-symmetry: teacher input width is not the 480-D prefix")
-
-        def symmetric_teacher(x):
-            return 0.5 * (raw_teacher(x) + fsym.mirror_actions(raw_teacher(fsym.mirror_teacher_obs(x))))
-
-        env._teacher = symmetric_teacher
+        if env.teacher_metadata.get("teacher_symmetry") != "average":
+            env._teacher = MirrorAveragedTeacher(env._teacher)
         print("TEACHER SYMMETRY: average", flush=True)
 
     mirror = None

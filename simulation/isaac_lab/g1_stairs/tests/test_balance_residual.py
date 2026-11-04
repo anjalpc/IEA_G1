@@ -115,6 +115,21 @@ class BalanceResidualTests(unittest.TestCase):
             self.assertFalse(any(p.requires_grad for p in frozen.parameters()))
 
 
+class MirrorAveragedTeacherTests(unittest.TestCase):
+    def test_average_is_equivariant_and_keeps_symmetric_teachers(self):
+        from simulation.isaac_lab.g1_stairs import footstep_symmetry as fs
+        from simulation.isaac_lab.g1_stairs.balance_residual import MirrorAveragedTeacher
+        torch.manual_seed(3)
+        lopsided = torch.nn.Linear(480, 29)
+        sym = MirrorAveragedTeacher(lopsided)
+        x = torch.randn(5, 480)
+        with torch.no_grad():
+            self.assertTrue(torch.allclose(sym(fs.mirror_teacher_obs(x)), fs.mirror_actions(sym(x)), atol=1e-6))
+            self.assertFalse(torch.allclose(lopsided(fs.mirror_teacher_obs(x)), fs.mirror_actions(lopsided(x)), atol=1e-3))
+            # an already equivariant teacher is returned unchanged
+            self.assertTrue(torch.allclose(MirrorAveragedTeacher(sym)(x), sym(x), atol=1e-6))
+
+
 if __name__ == "__main__":
     unittest.main()
 
