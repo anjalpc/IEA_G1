@@ -266,6 +266,36 @@ MID-360 cloud alongside CPU GLIM and SLAM caused multi-second estimator
 stalls during validation. Map, LaserScan, TF, and RobotModel remain suitable
 live displays.
 
+After completing a representative physical mapping run, save the map while
+`physical_mapping.launch.py` is still running:
+
+```bash
+map_directory=/workspace/IEA_G1/ros2_ws/src/navigation/g1_navigation_localization/maps/physical
+mkdir -p "${map_directory}"
+
+ros2 run nav2_map_server map_saver_cli \
+  -f "${map_directory}/building_map" \
+  --ros-args \
+  -p save_map_timeout:=10.0 \
+  -p free_thresh_default:=0.25 \
+  -p occupied_thresh_default:=0.65
+```
+
+Inspect the generated YAML and image before using them. Stop mapping with
+`Ctrl+C`; mapping and localization must not run together.
+
+Start read-only physical localization with the saved physical map:
+
+```bash
+ros2 launch g1_navigation_bringup physical_localization.launch.py \
+  map:=/workspace/IEA_G1/ros2_ws/src/navigation/g1_navigation_localization/maps/physical/building_map.yaml
+```
+
+In RViz, provide the robot's actual starting pose with **2D Pose Estimate**.
+The launch starts Map Server and AMCL but no SLAM Toolbox, Nav2 controller,
+locomotion, or robot-command node. Do not substitute the simulation
+`navigation_arena.yaml` map.
+
 The robot may remain secured in the gantry for stationary qualification.
 Before navigation promotion, place it safely on the ground with an operator
 and validate forward, lateral, and yaw direction, metric scale, estimator

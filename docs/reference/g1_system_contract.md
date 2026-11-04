@@ -236,6 +236,17 @@ stalls during validation. Map, LaserScan, TF, and RobotModel displays remain
 suitable for live operation. Stopping the foreground launch removes mapping
 and canonical odometry authority together.
 
+The separate opt-in `physical_localization.launch.py` composes the
+qualified physical odometry authority, MID-360 scan projection, Map Server,
+and AMCL. It requires the absolute path of a saved physical occupancy-map
+YAML and uses wall-clock time. AMCL exclusively owns `map -> odom`.
+
+Physical mapping and physical localization are mutually exclusive because
+SLAM Toolbox and AMCL would otherwise compete for `map -> odom`. The
+localization launch starts no SLAM Toolbox mapping, Nav2 planning or control,
+locomotion lease, velocity command, or robot-command node. The simulation
+`navigation_arena` map must never be used as the physical building map.
+
 PC2 system time must be synchronized before starting the Livox driver. Starting it across a large system-clock correction can defeat scan aggregation and produce approximately 2 kHz packet-sized, 96-point clouds. A healthy MID-360 stream is approximately 10 Hz with about 20,000 points per cloud. Restart the driver after time synchronization and do not start GLIM until that shape is restored.
 
 GLIM is configured with `publish_imu2lidar` disabled. Therefore GLIM owns
