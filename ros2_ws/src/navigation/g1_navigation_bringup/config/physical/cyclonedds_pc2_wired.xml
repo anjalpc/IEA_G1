@@ -2,12 +2,19 @@
 <CycloneDDS>
   <Domain id="42">
     <General>
-      <NetworkInterfaceAddress>eth0</NetworkInterfaceAddress>
+      <Interfaces>
+        <NetworkInterface
+          name="eth0"
+          multicast="false"/>
+      </Interfaces>
       <AllowMulticast>false</AllowMulticast>
     </General>
     <Discovery>
+      <ParticipantIndex>auto</ParticipantIndex>
+      <MaxAutoParticipantIndex>63</MaxAutoParticipantIndex>
       <Peers>
-        <Peer address="192.168.123.99"/>
+        <Peer Address="192.168.123.99"/>
+        <Peer Address="192.168.123.164"/>
       </Peers>
     </Discovery>
   </Domain>

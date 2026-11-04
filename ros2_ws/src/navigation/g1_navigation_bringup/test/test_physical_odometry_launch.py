@@ -78,6 +78,30 @@ def test_uses_project_owned_physical_configuration():
     assert pc2_domain is not None
     assert pc2_domain.attrib["id"] == "42"
 
+    pc2_discovery = pc2_domain.find("Discovery")
+    assert pc2_discovery is not None
+    assert pc2_discovery.findtext("ParticipantIndex") == "auto"
+    assert (
+        pc2_discovery.findtext("MaxAutoParticipantIndex")
+        == "63"
+    )
+
+    pc2_interface = pc2_domain.find(
+        "./General/Interfaces/NetworkInterface"
+    )
+    assert pc2_interface is not None
+    assert pc2_interface.attrib["name"] == "eth0"
+    assert pc2_interface.attrib["multicast"] == "false"
+
+    peer_addresses = {
+        peer.attrib["Address"]
+        for peer in pc2_discovery.findall("./Peers/Peer")
+    }
+    assert peer_addresses == {
+        "192.168.123.99",
+        "192.168.123.164",
+    }
+
     required = {
         "config.json",
         "config_global_mapping_cpu.json",

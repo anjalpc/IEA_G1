@@ -171,10 +171,12 @@ PC2 publishes these observations on ROS application domain `42`:
 Project-owned wired CycloneDDS configurations live under
 `g1_navigation_bringup/config/physical`. They bind the workstation to
 `enp2s0f0` at `192.168.123.99` and PC2 to `eth0` at
-`192.168.123.164`, disable multicast, and use explicit peers. The PC2
-configuration is restricted to ROS domain `42`. It must not apply its
-multicast-disabled application settings to the child native Unitree
-domain-0 LowState helper.
+`192.168.123.164`, disable multicast, and use explicit peers. Both sides use
+automatic participant indices through `63`; PC2 lists both the workstation
+and itself so cross-machine discovery and local diagnostics use predictable
+unicast ports. The PC2 configuration is restricted to ROS domain `42`. It
+must not apply its multicast-disabled application settings to the child
+native Unitree domain-0 LowState helper.
 
 The workstation uses pinned CPU-only GLIM 1.2.2 packages. GLIM consumes the
 raw cloud and MID-360 IMU, uses absolute nanosecond per-point timestamps,
@@ -221,7 +223,7 @@ The physical odometry launch must not publish
 `odom -> base_footprint -> pelvis` or start Nav2, SLAM, localization,
 locomotion, or robot-command nodes.
 
-The separate opt-in `physical_odometry_authority.launch.py` includes that staging stack and adds exactly one final authority boundary. It requires exact `odom -> pelvis` staged frames, finite state, a unit quaternion, strictly advancing timestamps, a 20-sample warmup, and freshness within `0.25 s`. Motion is limited to at most `0.15 m` or 15 degrees per update, relaxed only according to elapsed source time up to `0.5 m/s` and 60 degrees/s. A source timestamp gap greater than `2.0 s` fails closed. Only while every check passes does it publish canonical planar `odom -> base_footprint` messages on `/g1/state/odometry` and the matching `odom -> base_footprint -> pelvis` TF chain. The canonical message has zero height and no roll or pitch; measured pelvis height and tilt remain on the second TF edge. This launch still starts no mapping, Nav2, localization, locomotion, or robot-command node.
+The separate opt-in `physical_odometry_authority.launch.py` includes that staging stack and adds exactly one final authority boundary. It requires exact `odom -> pelvis` staged frames, finite state, a unit quaternion, strictly advancing timestamps, a 20-sample warmup, and freshness within `0.25 s`. Motion is limited to at most `0.15 m` or 15 degrees per update, relaxed only according to elapsed source time up to `0.5 m/s` and 60 degrees/s. A source timestamp gap greater than `2.0 s` fails closed. A finite, correctly framed sample rejected for an excessive motion step or timestamp gap becomes a non-published comparison baseline; the boundary then requires its complete warmup again before restoring authority. Invalid frames, non-finite state, invalid orientation, and non-advancing timestamps never become baselines. Only while every check passes does it publish canonical planar `odom -> base_footprint` messages on `/g1/state/odometry` and the matching `odom -> base_footprint -> pelvis` TF chain. The canonical message has zero height and no roll or pitch; measured pelvis height and tilt remain on the second TF edge. This launch still starts no mapping, Nav2, localization, locomotion, or robot-command node.
 
 The separate opt-in `physical_mapping.launch.py` composes the qualified
 physical odometry authority, MID-360 point-cloud-to-scan projection, and
@@ -310,9 +312,12 @@ finite, the quaternion must have unit length within the declared tolerance,
 and the native tick must advance. Invalid IMU data rejects the entire atomic
 sample rather than releasing partial joint state.
 
-Publication is rate-limited to 50 Hz. Both messages from one callback use the
-same supervising-node receipt timestamp. There are no default, commanded,
-interpolated, integrated, or replayed values.
+Publication is rate-limited to 50 Hz. The native monitor thread writes into a
+depth-one latest-sample handoff; the ROS executor thread consumes that handoff
+and publishes both messages with one supervising-node receipt timestamp.
+Overwritten intermediate native samples are intentionally dropped rather than
+queued as stale state. There are no default, commanded, interpolated,
+integrated, or replayed values.
 
 Physical IMU covariance has not been measured. The raw IMU therefore publishes
 zero covariance arrays to mean unknown covariance. `g1_state_estimation`
@@ -321,10 +326,13 @@ calibration or estimator-specific covariance qualification is required before
 physical navigation may consume it.
 
 The native helper is deliberately separated from application ROS so Unitree
-DDS domain `0` cannot collide with ROS application domain `42`.
-`g1_bringup/event_interaction.launch.py` supervises the parent node as
-required: helper loss shuts down the supported physical stack instead of
-leaving downstream consumers with frozen state.
+DDS domain `0` cannot collide with ROS application domain `42`. The parent
+treats 0.5 seconds without an accepted sample as stale, stops and reaps the
+helper, waits 3.0 seconds for native DDS cleanup, and then restarts it. A valid
+sample resets the consecutive-restart count. After three unsuccessful
+restarts, the parent requests orderly main-loop shutdown; ROS shutdown and
+helper cleanup occur only in the outer `finally` path. Downstream consumers
+therefore receive neither frozen nor fabricated state.
 
 ### Physical navigation-state probe
 

@@ -115,6 +115,20 @@ class PhysicalAuthorityBoundary:
             reason=reason,
         )
 
+    def _reject_and_rebase(
+        self,
+        reason,
+        *,
+        stamp,
+        position,
+        orientation,
+    ):
+        self._last_stamp = stamp
+        self._last_position = position
+        self._last_orientation = orientation
+        self._last_receipt = self.monotonic()
+        return self._reject(reason)
+
     def observe(self, message):
         """Observe one staged message and release only when qualified."""
 
@@ -142,15 +156,6 @@ class PhysicalAuthorityBoundary:
             if self._last_stamp is None
             else stamp - self._last_stamp
         )
-        if (
-            elapsed is not None
-            and elapsed
-            > self.limits.maximum_motion_gap_seconds
-        ):
-            return self._reject(
-                "ODOMETRY_GAP_EXCEEDED"
-            )
-
         position = values[:3]
         orientation = values[3:7]
         norm = math.sqrt(sum(
@@ -159,6 +164,18 @@ class PhysicalAuthorityBoundary:
         ))
         if abs(norm - 1.0) > 0.01:
             return self._reject("ORIENTATION_INVALID")
+
+        if (
+            elapsed is not None
+            and elapsed
+            > self.limits.maximum_motion_gap_seconds
+        ):
+            return self._reject_and_rebase(
+                "ODOMETRY_GAP_EXCEEDED",
+                stamp=stamp,
+                position=position,
+                orientation=orientation,
+            )
 
         if self._last_position is not None:
             translation_step = math.sqrt(sum(
@@ -174,8 +191,11 @@ class PhysicalAuthorityBoundary:
                 * elapsed,
             )
             if translation_step > translation_limit:
-                return self._reject(
-                    "TRANSLATION_STEP_EXCEEDED"
+                return self._reject_and_rebase(
+                    "TRANSLATION_STEP_EXCEEDED",
+                    stamp=stamp,
+                    position=position,
+                    orientation=orientation,
                 )
 
         if self._last_orientation is not None:
@@ -189,8 +209,11 @@ class PhysicalAuthorityBoundary:
                 * elapsed,
             )
             if rotation_step > rotation_limit:
-                return self._reject(
-                    "ROTATION_STEP_EXCEEDED"
+                return self._reject_and_rebase(
+                    "ROTATION_STEP_EXCEEDED",
+                    stamp=stamp,
+                    position=position,
+                    orientation=orientation,
                 )
 
         self._last_stamp = stamp

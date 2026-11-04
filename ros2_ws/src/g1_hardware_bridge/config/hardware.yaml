@@ -14,3 +14,6 @@ g1_hardware_bridge:
 g1_hardware_state:
   ros__parameters:
     state_publish_period_s: 0.02
+    state_sample_timeout_s: 0.5
+    state_helper_restart_delay_s: 3.0
+    state_helper_restart_limit: 3

@@ -182,7 +182,7 @@ def test_node_supervises_monitor_and_publishes_callbacks(
         monitor.options[
             "availability_callback"
         ](False)
-        assert shutdown_requests == [True]
+        assert shutdown_requests == []
 
         assert (
             node._joint_state_publisher.topic_name
@@ -206,6 +206,11 @@ def test_node_supervises_monitor_and_publishes_callbacks(
             "angular_velocity_xyz": [0.1, -0.2, 0.3],
             "linear_acceleration_xyz": [0.4, 0.5, 9.6],
         })
+
+        assert joint_recorder.messages == []
+        assert imu_recorder.messages == []
+
+        node._publish_pending_sample()
 
         assert len(joint_recorder.messages) == 1
         assert len(imu_recorder.messages) == 1
@@ -236,3 +241,104 @@ def test_node_supervises_monitor_and_publishes_callbacks(
             node.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
+
+
+def test_silent_helper_is_restarted_after_a_cooldown(monkeypatch):
+    monitors = []
+    shutdown_requests = []
+    monotonic_time = [10.0]
+
+    class RecordingMonitor:
+        def __init__(self, **options):
+            self.options = options
+            self.starts = 0
+            self.stops = 0
+            monitors.append(self)
+
+        def start(self):
+            self.starts += 1
+
+        def stop(self):
+            self.stops += 1
+
+    monkeypatch.setenv("G1_NETWORK_INTERFACE", "eth-test")
+
+    rclpy.init()
+    node = None
+    try:
+        node = hardware_state_node.HardwareStateNode(
+            monitor_factory=RecordingMonitor,
+            environment_factory=lambda: {"ROS_DOMAIN_ID": "0"},
+            shutdown_callback=(
+                lambda: shutdown_requests.append(True)
+            ),
+            monotonic_clock=lambda: monotonic_time[0],
+        )
+        monitor = monitors[0]
+
+        monotonic_time[0] = 10.6
+        node._check_source_health()
+
+        assert monitor.stops == 1
+        assert monitor.starts == 1
+        assert shutdown_requests == []
+
+        monotonic_time[0] = 13.5
+        node._check_source_health()
+        assert monitor.starts == 1
+
+        monotonic_time[0] = 13.6
+        node._check_source_health()
+        assert monitor.starts == 2
+        assert shutdown_requests == []
+    finally:
+        if node is not None:
+            node.stop_monitor()
+            node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+def test_repeated_unsuccessful_restarts_fail_closed(monkeypatch):
+    monitors = []
+    shutdown_requests = []
+    monotonic_time = [20.0]
+
+    class RecordingMonitor:
+        def __init__(self, **options):
+            self.starts = 0
+            self.stops = 0
+            monitors.append(self)
+
+        def start(self):
+            self.starts += 1
+
+        def stop(self):
+            self.stops += 1
+
+    monkeypatch.setenv("G1_NETWORK_INTERFACE", "eth-test")
+
+    rclpy.init()
+    node = None
+    try:
+        node = hardware_state_node.HardwareStateNode(
+            monitor_factory=RecordingMonitor,
+            environment_factory=lambda: {"ROS_DOMAIN_ID": "0"},
+            shutdown_callback=(
+                lambda: shutdown_requests.append(True)
+            ),
+            monotonic_clock=lambda: monotonic_time[0],
+        )
+
+        for cycle in range(4):
+            monotonic_time[0] = 20.6 + cycle * 3.6
+            node._check_source_health()
+            monotonic_time[0] = 23.6 + cycle * 3.6
+            node._check_source_health()
+
+        assert monitors[0].starts == 4
+        assert shutdown_requests == [True]
+        assert node.shutdown_requested is True
+    finally:
+        if node is not None:
+            node.stop_monitor()

@@ -197,3 +197,57 @@ def test_rejects_motion_after_excessive_timestamp_gap():
 
     assert delayed.odometry is None
     assert delayed.reason == "ODOMETRY_GAP_EXCEEDED"
+
+
+def test_requalifies_from_new_baseline_after_rejected_jump():
+    instance, _clock = boundary(warmup_samples=2)
+
+    assert instance.observe(
+        odometry(100.0)
+    ).odometry is None
+    assert instance.observe(
+        odometry(100.1, x=0.01)
+    ).odometry is not None
+
+    rejected = instance.observe(
+        odometry(100.2, x=1.0)
+    )
+    assert rejected.odometry is None
+    assert rejected.reason == "TRANSLATION_STEP_EXCEEDED"
+
+    assert instance.observe(
+        odometry(100.3, x=1.01)
+    ).odometry is None
+    recovered = instance.observe(
+        odometry(100.4, x=1.02)
+    )
+
+    assert recovered.odometry is not None
+    assert recovered.reason == "READY"
+
+
+def test_requalifies_from_new_baseline_after_excessive_gap():
+    instance, _clock = boundary(warmup_samples=2)
+
+    assert instance.observe(
+        odometry(100.0)
+    ).odometry is None
+    assert instance.observe(
+        odometry(100.1, x=0.01)
+    ).odometry is not None
+
+    rejected = instance.observe(
+        odometry(102.2, x=0.10)
+    )
+    assert rejected.odometry is None
+    assert rejected.reason == "ODOMETRY_GAP_EXCEEDED"
+
+    assert instance.observe(
+        odometry(102.3, x=0.11)
+    ).odometry is None
+    recovered = instance.observe(
+        odometry(102.4, x=0.12)
+    )
+
+    assert recovered.odometry is not None
+    assert recovered.reason == "READY"
