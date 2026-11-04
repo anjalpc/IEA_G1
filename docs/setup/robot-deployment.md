@@ -188,6 +188,8 @@ ros2 run tf2_ros tf2_echo pelvis d435_link
 
 ## Guarded physical MID-360 odometry
 
+For the terminal-by-terminal operator procedure, see [Physical navigation quick start](physical-navigation-quickstart.md).
+
 Physical navigation keeps raw acquisition on PC2 and computation on the
 workstation. It is independent of the handshake/card interaction stack.
 
@@ -195,7 +197,9 @@ PC2 runs the isolated Livox driver on domain `42` with
 `/home/unitree/IEA_G1/livox_ws/config/cyclonedds_pc2_wired.xml` and
 `mid360_pc2.json`. The DDS file must use `<Domain id="42">`; an
 `id="any"` configuration would also affect the child native Unitree
-domain-0 runtime.
+domain-0 runtime. Because multicast is disabled, PC2 must use automatic
+participant indices through `63` and retain both wired peers
+`192.168.123.99` and `192.168.123.164`.
 
 The Livox driver remaps its outputs to
 `/g1/sensors/lidar/points` and `/g1/sensors/lidar/imu_raw`. Exactly one
