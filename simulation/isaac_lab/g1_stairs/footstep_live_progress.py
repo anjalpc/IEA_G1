@@ -18,7 +18,7 @@ from .footstep_isaac_adapter import course_root_pose, course_tensors
 from .footstep_clock import (
     RollingClockState, approach_steps_left, clock_schedule, follow_plan_foot,
     heading_targets, landing_impact, late_swing_cap, moving, own_window,
-    speed_period, swing_progress,
+    rolling_origin, speed_period, swing_progress,
 )
 from .footstep_mixing import (
     course_exit_timeout, stair_escape, stair_steering, target_stalled,
@@ -86,7 +86,8 @@ def apply_rolling_clock(env, state, *, centre, targets, feet, valid, resets,
     """One clock for all tiles.
 
     Rolling rows (flat tiles and the approach of stair tiles): a new target
-    is placed one step ahead of the stance foot, along the robot's heading
+    is placed one step ahead of the stance foot (on flat tiles and after the
+    stairs: ahead of that foot's previous target, see rolling_origin), along the robot's heading
     plus the commanded turn, whenever the clock hands the swing to the other
     foot (targets/feet/valid updated in place). Approach rows count their
     steps down to the plan's first target (``first_plan_x``) in equal steps
@@ -128,8 +129,15 @@ def apply_rolling_clock(env, state, *, centre, targets, feet, valid, resets,
     valid[plan, 0] &= own_window(state.phase, feet[:, 0])[plan]
     valid[handover] = False                 # the plan's targets start next step
     if bool(new_window.any()):
+        # Flat and platform rows continue from the stance foot's previous
+        # target (an overshoot does not carry forward); the stair approach
+        # counts down from the stance foot itself.
+        stance_xy = centre[index, 1 - assigned, :2]
+        continuing = (rows & ~approach & state.active & (state.window > 0)
+                      & (state.feet[:, 0] == 1 - assigned))
+        origin = rolling_origin(stance_xy, state.targets[:, 0, :2], continuing)
         fresh, fresh_feet = heading_targets(
-            centre[index, 1 - assigned, :2], assigned, yaw,
+            origin, assigned, yaw,
             command, state.period_s, NOMINAL_FOOT_SEPARATION_M, step_len,
         )
         if terrain_z is not None:

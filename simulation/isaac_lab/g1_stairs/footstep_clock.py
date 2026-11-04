@@ -152,6 +152,31 @@ def approach_steps_left(distance, step_len):
 
 OFF_BEAT_MIN_MOVE_M = 0.05       # a re-plant on the spot is not a step
 
+# Rolling targets start from the stance foot's own previous target, moved a
+# fraction ROLLING_ANCHOR_BLEND towards where that foot actually landed. Run
+# 20261104_111123 model_9200 landed every flat step ~5 cm past its target
+# (inside the 8 cm acquisition tolerance); with targets restarting from the
+# landed foot (blend 1) the overshoot carried forward at no cost (0.49 m/s
+# for 0.35 commanded) and footstep_target_progress paid for it. With blend b
+# a steady overshoot o per step settles at o / b from the targets, so it
+# keeps every hit only while o <= 0.08 b: 1.6 cm per step (~10% of a 0.15 m
+# step) at 0.2. Errors fade over ~1/b steps (no position tracking: Unitree's
+# 1 cm short steps and +-2 cm step noise keep >= 99% of hits in a 1-D
+# simulation, the 9200 habit 25%). Beyond ROLLING_REANCHOR_M (a push, a
+# stumble) the next target restarts from the stance foot.
+ROLLING_ANCHOR_BLEND = 0.2
+ROLLING_REANCHOR_M = 0.12
+
+
+def rolling_origin(stance_xy, previous_xy, previous_valid):
+    """[N,2] where the next rolling step starts: the stance foot's previous
+    target moved ROLLING_ANCHOR_BLEND towards the stance foot when that
+    target exists and is within ROLLING_REANCHOR_M, else the stance foot."""
+    offset = stance_xy - previous_xy
+    near = torch.linalg.vector_norm(offset, dim=-1) <= ROLLING_REANCHOR_M
+    blended = previous_xy + ROLLING_ANCHOR_BLEND * offset
+    return torch.where((previous_valid & near)[:, None], blended, stance_xy)
+
 # Landing impact: sole downward speed at touchdown that costs nothing. The
 # Unitree prior lands at 0.20 m/s (p90 0.24); run 20261031_212003 model_3700
 # landed at 0.48 m/s on flat and 0.81 m/s on stairs (p90 1.0, peak normal

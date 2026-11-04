@@ -457,6 +457,40 @@ class ApplyRollingClockTests(unittest.TestCase):
         self.state.phase[1] = 0.66                                # right swing opens
         self.run_once(plan_foot=1, on_plan=True)
         self.assertAlmostEqual(self.state.phase[1].item(), 0.66, places=6)
+    def test_overshoot_does_not_carry_into_the_next_target(self):
+        # Run 20261104_111123 model_9200 landed every flat step ~5 cm past
+        # its target (inside the 8 cm tolerance) and the next target
+        # restarted from that foot: overspeed 0.49 m/s for 0.35.
+        self.run_once()                                   # left target at x 0.2
+        self.centre[0, 0, 0] = 0.25                       # left lands 5 cm long
+        self.state.phase[0] = 0.6                         # right's turn
+        _, _, targets, feet, _ = self.run_once()
+        self.assertEqual(feet[0].tolist(), [1, 0])
+        # origin 0.2 + 0.2 x 0.05 = 0.21, not the landed 0.25
+        self.assertAlmostEqual(targets[0, 0, 0].item(), 0.41, places=6)
+        self.assertAlmostEqual(targets[0, 0, 1].item(), -0.1175, places=6)
+
+    def test_far_off_grid_restarts_from_the_stance_foot(self):
+        self.run_once()                                   # left target at x 0.2
+        self.centre[0, 0, 0] = 0.4                        # 20 cm long (pushed)
+        self.state.phase[0] = 0.6
+        _, _, targets, _, _ = self.run_once()
+        self.assertAlmostEqual(targets[0, 0, 0].item(), 0.6, places=6)
+
+    def test_stair_approach_still_counts_from_the_stance_foot(self):
+        self.run_once(first_plan_x=0.9)                   # approach target 0.18
+        self.centre[1, 0, 0] = 0.23                       # left lands 5 cm long
+        self.state.phase[1] = 0.6
+        _, _, targets, _, _ = self.run_once(first_plan_x=0.9)
+        # 0.67 m left from 0.23 in steps of <= 0.2: four of 0.1675
+        self.assertAlmostEqual(targets[1, 0, 0].item(), 0.23 + 0.67 / 4, places=5)
+    def test_lateral_drift_also_fades(self):
+        self.run_once()                                   # left target y +0.1175
+        self.centre[0, 0, 0] = 0.2                        # on target in x,
+        self.centre[0, 0, 1] = 0.1175 + 0.05              # 5 cm wide
+        self.state.phase[0] = 0.6
+        _, _, targets, _, _ = self.run_once()
+        self.assertAlmostEqual(targets[0, 0, 1].item(), 0.1175 + 0.01 - 0.235, places=6)
 
 if __name__ == "__main__":
     unittest.main()
