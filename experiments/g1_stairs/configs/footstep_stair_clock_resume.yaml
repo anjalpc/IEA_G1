@@ -5,15 +5,7 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Continue footstep_stair_clock_resume run 20261103_160202 model_8200
-    (patch 43, 10/10 clean 2 cm climbs, limp knee 0.11/0.41) for 1000
-    iterations on a left/right mirror-averaged Unitree teacher (patch 44).
-    Replays on fceef18 show the teacher is lopsided on the residual's states
-    (ankle roll ~0.1 rad); averaging the residual removed the limp but
-    exposed a ~5 deg/s right turn; averaging teacher and residual removed
-    limp, turn and pelvis height gap (knee 0.24/0.24, drift -0.1 deg/s);
-    averaging the teacher alone left the Unitree gait unchanged (model_0).
-    PPO settings and rewards unchanged from patch 43.
+  purpose: Patch 45. Continue run 20261104_111123 model_9200 (patch 44, averaged teacher) for 1000 iterations with flat rolling targets anchored to the previous target (footstep_clock.rolling_origin, blend 0.2) and mirror loss 0.1; rewards and other PPO settings unchanged.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -85,8 +77,8 @@ execution:
 policy_initialization:
   type: rsl_rl_training_resume
   source:
-    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261103_160202/model_8200.pt
-    sha256: e8a5c2bc22227c86a77255e839276a5c688fd8132b07ddbb0496b4451a1c6439
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261104_111123/model_9200.pt
+    sha256: 36f7c6c394ca3da6672d0cf2bac1bf786a172589b24248a57ed1329c3c2e311c
   critic_initialization: restored
   optimizer_initialization: restored
   locomotion_observations: 480
@@ -144,7 +136,7 @@ ppo:
   symmetry_augmentation: true
   # Mirror loss: coeff * mean((pi(M s) - M pi(s))^2) on the action means,
   # as in patch 41 (patch 42's 0.2 cost speed tracking and body calm).
-  symmetry_mirror_loss_coeff: 0.01
+  symmetry_mirror_loss_coeff: 0.1
   # Patch 43: on resume, cap the restored exploration std at 0.5 (raw policy
   # units, residual clip 2) and make it left/right symmetric; no entropy
   # bonus, so it does not grow back (agent_cfg default 0.005).
