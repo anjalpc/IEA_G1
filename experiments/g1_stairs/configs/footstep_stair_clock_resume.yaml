@@ -8,7 +8,7 @@ experiment:
   purpose: Continue footstep_stair_clock_resume run 20261103_160202 model_8200
     (patch 43, 10/10 clean 2 cm climbs, limp knee 0.11/0.41) for 1000
     iterations on a left/right mirror-averaged Unitree teacher (patch 44).
-    Replays on fceef18: the teacher is lopsided on the residual's states
+    Replays on fceef18 show the teacher is lopsided on the residual's states
     (ankle roll ~0.1 rad); averaging the residual removed the limp but
     exposed a ~5 deg/s right turn; averaging teacher and residual removed
     limp, turn and pelvis height gap (knee 0.24/0.24, drift -0.1 deg/s);
