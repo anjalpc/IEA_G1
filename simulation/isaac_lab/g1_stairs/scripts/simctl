@@ -36,6 +36,7 @@ Usage:
   simctl use <run_id>
   simctl tensorboard {start|status|stop}
   simctl video <checkpoint> [--height <m>] [--seed <n>] [--trace-only] [--markers]
+  simctl showcase <checkpoint> [--robots <n>] [--rows <n>] [--seconds <s>] [--height <m>] [--seed <n>] [--no-markers]
   simctl baseline [config.yaml]
   simctl evaluate <checkpoint>
   simctl help
@@ -859,6 +860,154 @@ resolve_train_dir() {
     return 1
 }
 
+cmd_showcase() {
+    # Presentation video: several robots on scattered stair courses, random
+    # start times, moving 1080p camera (record_view.py --showcase). Not an
+    # evaluation: no traces, use `simctl video` for single-robot recordings.
+    local USAGE="Usage: simctl showcase <checkpoint> [--robots <n>] [--rows <n>] [--seconds <s>] [--height <m>] [--seed <n>] [--no-markers]"
+    if [ $# -lt 1 ]; then
+        echo "$USAGE"
+        exit 1
+    fi
+
+    CHECKPOINT="$1"
+    shift
+    ROBOTS=24
+    ROWS=3
+    SECONDS_LONG=14
+    HEIGHT=0.02
+    SEED=1
+    MARKERS_OPTION="--markers"
+
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --robots|--rows|--seed)
+                if [ $# -lt 2 ] || ! [[ "$2" =~ ^[0-9]+$ ]]; then
+                    echo "$1 needs a non-negative integer"
+                    exit 1
+                fi
+                case "$1" in
+                    --robots) ROBOTS="$2" ;;
+                    --rows) ROWS="$2" ;;
+                    --seed) SEED="$2" ;;
+                esac
+                shift 2
+                ;;
+            --seconds|--height)
+                [ $# -ge 2 ] || { echo "$USAGE"; exit 1; }
+                if [ "$1" = "--seconds" ]; then SECONDS_LONG="$2"; else HEIGHT="$2"; fi
+                shift 2
+                ;;
+            --no-markers)
+                MARKERS_OPTION=""
+                shift
+                ;;
+            *)
+                echo "$USAGE"
+                exit 1
+                ;;
+        esac
+    done
+
+    if ! [[ "$CHECKPOINT" =~ ^[0-9]+$ ]]; then
+        echo "Checkpoint must be an integer, for example: 10200"
+        exit 1
+    fi
+    if [ "$ROBOTS" -lt 1 ] || [ "$ROBOTS" -gt 64 ]; then
+        echo "--robots must be 1 to 64"
+        exit 1
+    fi
+    if [ "$ROWS" -lt 1 ] || [ $((ROBOTS % ROWS)) -ne 0 ]; then
+        echo "--rows must divide --robots (e.g. 24 robots, 3 rows)"
+        exit 1
+    fi
+    if ! awk -v h="$HEIGHT" 'BEGIN { exit !(h ~ /^([0-9]+([.][0-9]*)?|[.][0-9]+)$/ && h >= 0.0 && h <= 0.20) }'; then
+        echo "Height must be a number in [0.0, 0.20] metres"
+        exit 1
+    fi
+    # Policy step is 0.02 s (50 steps per second of video).
+    if ! awk -v s="$SECONDS_LONG" 'BEGIN { exit !(s ~ /^([0-9]+([.][0-9]*)?|[.][0-9]+)$/ && s > 0 && s <= 17) }'; then
+        echo "--seconds must be in (0, 17] (episodes time out at 18 s)"
+        exit 1
+    fi
+    VIDEO_LENGTH="$(awk -v s="$SECONDS_LONG" 'BEGIN { printf "%d", s * 50 + 0.5 }')"
+
+    RUN_ID="$(current_run)"
+    TRAIN_DIR="$(resolve_train_dir)"
+    MODEL="${TRAIN_DIR}/model_${CHECKPOINT}.pt"
+    if [ ! -f "$MODEL" ]; then
+        echo "Checkpoint not found:"
+        echo "  $MODEL"
+        exit 1
+    fi
+    RESOLVED_CONFIG="${REPO}/experiments/g1_stairs/runs/${RUN_ID}/resolved_config.yaml"
+    if [ ! -f "$RESOLVED_CONFIG" ]; then
+        echo "Resolved config not found:"
+        echo "  $RESOLVED_CONFIG"
+        exit 1
+    fi
+    TASK="$(python3 -c 'import sys, yaml; print(yaml.safe_load(open(sys.argv[1]))["task"]["id"])' "$RESOLVED_CONFIG")"
+    if [ "$TASK" != "Unitree-IEA-G1-29dof-Stairs-Footsteps-v0" ]; then
+        echo "Showcase needs the footstep task, this run is: $TASK"
+        exit 1
+    fi
+
+    ensure_container_running
+
+    HEIGHT_CM="$(awk -v h="$HEIGHT" 'BEGIN { printf "%02d", int(h * 100.0 + 0.5) }')"
+    OUTPUT_DIR="/workspace/IEA_G1/experiments/g1_stairs/outputs/videos/${RUN_ID}/showcase_model_${CHECKPOINT}_n${ROBOTS}_r${ROWS}_h${HEIGHT_CM}cm_seed${SEED}"
+    CONTAINER_MODEL="${MODEL/$REPO/\/workspace\/IEA_G1}"
+    CONTAINER_RESOLVED_CONFIG="${RESOLVED_CONFIG/$REPO/\/workspace\/IEA_G1}"
+
+    echo "========================================"
+    echo " G1 SHOWCASE RECORDING"
+    echo "========================================"
+    echo "Run:        $RUN_ID"
+    echo "Checkpoint: model_${CHECKPOINT}.pt"
+    echo "Robots:     $ROBOTS in $ROWS rows, height $HEIGHT m, seed $SEED"
+    echo "Length:     ${SECONDS_LONG} s (${VIDEO_LENGTH} steps)"
+    echo
+
+    docker exec \
+      --env UNITREE_RL_LAB_ROOT=/workspace/unitree_rl_lab \
+      "$CONTAINER" \
+      bash -lc "
+cd /workspace/IEA_G1
+
+/workspace/isaaclab/isaaclab.sh -p \
+  simulation/isaac_lab/g1_stairs/scripts/visualization/record_view.py \
+  --task ${TASK} \
+  --showcase \
+  --showcase_rows ${ROWS} \
+  ${MARKERS_OPTION} \
+  --num_envs ${ROBOTS} \
+  --riser_height_override ${HEIGHT} \
+  --view side \
+  --output_dir '${OUTPUT_DIR}' \
+  --video_length ${VIDEO_LENGTH} \
+  --seed ${SEED} \
+  --checkpoint '${CONTAINER_MODEL}' \
+  --resolved_config '${CONTAINER_RESOLVED_CONFIG}' \
+  --project_commit '$(git rev-parse HEAD)' \
+  --isaaclab_commit '3c6e67bb5c7ada942a6d1884ab69338f57596f77' \
+  --unitree_rl_commit '4960b84732b0c2ec593dccbfe963fda1bcd7b1e3' \
+  --unitree_diff_sha256 '54a60bd3ed9de27514530c82936cb43e6b1c5074fee173e81ee271b7ca238b1f' \
+  --headless \
+  --device cuda:0
+"
+
+    HOST_OUTPUT="${OUTPUT_DIR/\/workspace\/IEA_G1/$REPO}"
+    VIDEO_FILE="$(find "$HOST_OUTPUT" -type f -name '*.mp4' -print -quit 2>/dev/null || true)"
+    if [ -z "$VIDEO_FILE" ]; then
+        echo "ERROR: no video was written to $HOST_OUTPUT" >&2
+        exit 1
+    fi
+    echo
+    echo "Video: $VIDEO_FILE"
+    echo "Copy to Windows:"
+    echo "  scp aws-g1-training:${VIDEO_FILE} \$HOME\\Downloads\\"
+}
+
 cmd_video() {
     local VIDEO_USAGE="Usage: simctl video <checkpoint> [--height <m>] [--seed <n>] [--trace-only] [--markers]"
     if [ $# -lt 1 ]; then
@@ -1417,6 +1566,10 @@ case "${1:-help}" in
     video)
         shift
         cmd_video "$@"
+        ;;
+    showcase)
+        shift
+        cmd_showcase "$@"
         ;;
     baseline)
         shift
