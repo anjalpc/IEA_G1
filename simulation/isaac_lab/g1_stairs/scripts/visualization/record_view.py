@@ -136,7 +136,7 @@ parser.add_argument(
 parser.add_argument(
     "--showcase_spacing_m",
     type=float,
-    default=2.4,
+    default=2.2,
     help="Showcase: distance between neighbouring courses. Each staircase "
     "keeps its training width (1.2 m) with plain floor between them.",
 )
@@ -149,7 +149,7 @@ parser.add_argument(
 parser.add_argument(
     "--showcase_jitter_x",
     type=float,
-    default=1.5,
+    default=3.0,
     help="Showcase: each course (with its robot start) moves forward by a "
     "random 0..this many metres, so the field is irregular.",
 )
@@ -157,8 +157,8 @@ parser.add_argument(
     "--showcase_jitter_y",
     type=float,
     default=None,
-    help="Showcase: random sideways offset +-this (default: the room left "
-    "in the tile minus 0.2 m).",
+    help="Showcase: random sideways offset +-this (default: all the room "
+    "left in the tile minus 0.05 m).",
 )
 parser.add_argument(
     "--showcase_start_spread_s",
@@ -395,7 +395,7 @@ def main() -> None:
         stair_width = float(terrain_generator.size[1])
         spacing = max(float(args.showcase_spacing_m), stair_width)
         jitter_x = max(float(args.showcase_jitter_x), 0.0)
-        jitter_y = (max(0.5 * (spacing - stair_width) - 0.2, 0.0)
+        jitter_y = (max(0.5 * (spacing - stair_width) - 0.05, 0.0)
                     if args.showcase_jitter_y is None else float(args.showcase_jitter_y))
         terrain_generator.size = (terrain_generator.size[0] + jitter_x, spacing)
         terrain_generator.seed = args.seed

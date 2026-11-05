@@ -107,7 +107,9 @@ def three_step_stairs(
         jx, jy = (float(v) for v in cfg.showcase_jitter)
         rng = np.random.default_rng(abs(hash((int(cfg.showcase_seed), round(float(difficulty), 12)))))
         dx, dy = float(rng.uniform(0.0, jx)), float(rng.uniform(-jy, jy))
-    platform_length = effective_platform_length(
+    # Showcase courses keep the nominal platform (floor fills the rest of the
+    # tile), so platform ends do not line up across a row.
+    platform_length = cfg.platform_length if cfg.showcase_jitter is not None else effective_platform_length(
         terrain_size_x=cfg.size[0] - dx,
         approach_length=cfg.approach_length,
         step_count=cfg.step_count,
@@ -133,13 +135,16 @@ def three_step_stairs(
         start_clearance=cfg.start_clearance,
     )
 
-    if not np.isclose(spec.course_length, cfg.size[0] - dx, atol=1e-9):
+    if cfg.showcase_jitter is not None:
+        if spec.course_length > cfg.size[0] - dx + 1e-9:
+            raise ValueError("showcase tile too short for the course plus its forward offset")
+    elif not np.isclose(spec.course_length, cfg.size[0], atol=1e-9):
         raise ValueError(
             "generated stair course must exactly fill the terrain tile: "
             f"course_length={spec.course_length}, terrain_size_x={cfg.size[0]}"
         )
     meshes = []
-    if width < cfg.size[1] - 1e-9 or dx > 0.0:
+    if width < cfg.size[1] - 1e-9 or cfg.showcase_jitter is not None:
         floor = trimesh.creation.box(extents=(cfg.size[0], cfg.size[1], 0.10))
         floor.apply_translation((0.5 * cfg.size[0], 0.5 * cfg.size[1], -0.05))
         meshes.append(floor)
