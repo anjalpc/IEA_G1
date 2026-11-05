@@ -98,8 +98,17 @@ def three_step_stairs(
     # Reducing step_count without extending the platform previously left an
     # uncovered X gap at the end of the tile.  Keep the tile size fixed and
     # extend the upper platform to consume the remaining length.
+    # Showcase only: each course and its robot start move together by a
+    # random (dx, dy) inside a larger tile (irregular field). Everything at
+    # runtime is relative to the robot start (env origin), so the robot sees
+    # the same course as in training.
+    dx = dy = 0.0
+    if cfg.showcase_jitter is not None:
+        jx, jy = (float(v) for v in cfg.showcase_jitter)
+        rng = np.random.default_rng(abs(hash((int(cfg.showcase_seed), round(float(difficulty), 12)))))
+        dx, dy = float(rng.uniform(0.0, jx)), float(rng.uniform(-jy, jy))
     platform_length = effective_platform_length(
-        terrain_size_x=cfg.size[0],
+        terrain_size_x=cfg.size[0] - dx,
         approach_length=cfg.approach_length,
         step_count=cfg.step_count,
         tread_depth=cfg.tread_depth,
@@ -112,6 +121,8 @@ def three_step_stairs(
     width = cfg.size[1] if cfg.stair_width is None else float(cfg.stair_width)
     if not 0.0 < width <= cfg.size[1] + 1e-9:
         raise ValueError("stair_width must be in (0, tile width]")
+    if abs(dy) + 0.5 * width > 0.5 * cfg.size[1] + 1e-9:
+        raise ValueError("showcase_jitter moves the staircase out of its tile")
     spec = StaircaseSpec(
         riser_height=riser,
         tread_depth=cfg.tread_depth,
@@ -122,25 +133,25 @@ def three_step_stairs(
         start_clearance=cfg.start_clearance,
     )
 
-    if not np.isclose(spec.course_length, cfg.size[0], atol=1e-9):
+    if not np.isclose(spec.course_length, cfg.size[0] - dx, atol=1e-9):
         raise ValueError(
             "generated stair course must exactly fill the terrain tile: "
             f"course_length={spec.course_length}, terrain_size_x={cfg.size[0]}"
         )
     meshes = []
-    if width < cfg.size[1] - 1e-9:
+    if width < cfg.size[1] - 1e-9 or dx > 0.0:
         floor = trimesh.creation.box(extents=(cfg.size[0], cfg.size[1], 0.10))
         floor.apply_translation((0.5 * cfg.size[0], 0.5 * cfg.size[1], -0.05))
         meshes.append(floor)
     for box in spec.collision_boxes():
         mesh = trimesh.creation.box(extents=box.size)
         # SubTerrainBaseCfg requires the mesh to span (0, 0) to cfg.size.
-        mesh.apply_translation((box.center[0], box.center[1] + 0.5 * cfg.size[1], box.center[2]))
+        mesh.apply_translation((box.center[0] + dx, box.center[1] + 0.5 * cfg.size[1] + dy, box.center[2]))
         meshes.append(mesh)
     # Isaac Lab uses the returned origin to place the robot.  Start it halfway
     # along the approach, facing the first riser in +X.
     start_x, _, _ = spec.fixed_start_xy_yaw
-    origin = np.asarray((start_x, 0.5 * cfg.size[1], 0.0))
+    origin = np.asarray((start_x + dx, 0.5 * cfg.size[1] + dy, 0.0))
     return meshes, origin
 
 
@@ -157,6 +168,10 @@ class ThreeStepStairsCfg(SubTerrainBaseCfg):
     # Staircase width when narrower than the tile (showcase only); None =
     # the full tile width, as in training.
     stair_width: float | None = None
+    # Showcase only: random (forward 0..x, sideways +-y) offset per course,
+    # seeded by showcase_seed and the tile's difficulty draw. None in training.
+    showcase_jitter: tuple[float, float] | None = None
+    showcase_seed: int = 0
     difficulty_bins: int = 8
     tread_depth: float = 0.25
     step_count: int = 3

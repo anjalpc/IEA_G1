@@ -128,10 +128,10 @@ parser.add_argument(
 parser.add_argument(
     "--showcase",
     action="store_true",
-    help="Presentation video, not an evaluation: --num_envs robots (<= 16) "
-    "on parallel stair lanes of the --riser_height_override height, a "
-    "moving camera (showcase_camera.py) at 1920x1080. No traces or "
-    "symmetry checks.",
+    help="Presentation video, not an evaluation: --num_envs robots (<= 64) "
+    "on their own stair courses of the --riser_height_override height, "
+    "scattered over a field, starting at random times, a moving camera "
+    "(showcase_camera.py) at 1920x1080. No traces or symmetry checks.",
 )
 parser.add_argument(
     "--showcase_spacing_m",
@@ -147,11 +147,32 @@ parser.add_argument(
     help="Showcase: rows of courses (robots per row = num_envs / rows).",
 )
 parser.add_argument(
-    "--showcase_stagger_s",
+    "--showcase_jitter_x",
     type=float,
-    default=0.25,
-    help="Showcase: robots set off one after another in a shuffled order, "
-    "this many seconds apart (they stand until then).",
+    default=1.5,
+    help="Showcase: each course (with its robot start) moves forward by a "
+    "random 0..this many metres, so the field is irregular.",
+)
+parser.add_argument(
+    "--showcase_jitter_y",
+    type=float,
+    default=None,
+    help="Showcase: random sideways offset +-this (default: the room left "
+    "in the tile minus 0.2 m).",
+)
+parser.add_argument(
+    "--showcase_start_spread_s",
+    type=float,
+    default=4.0,
+    help="Showcase: each robot stands for a random 0..this many seconds "
+    "before it sets off.",
+)
+parser.add_argument(
+    "--showcase_stop_x",
+    type=float,
+    default=3.8,
+    help="Showcase: a robot this far past its start (on the platform) gets a "
+    "zero command and stands, instead of finishing the course and resetting.",
 )
 parser.add_argument(
     "--markers",
@@ -274,8 +295,8 @@ if bool(args.checkpoint) == bool(args.policy_onnx):
     )
 
 if args.showcase:
-    if not 1 <= args.num_envs <= 16:
-        parser.error("--showcase needs 1 <= --num_envs <= 16")
+    if not 1 <= args.num_envs <= 64:
+        parser.error("--showcase needs 1 <= --num_envs <= 64")
     if args.trace or args.trace_only or args.symmetry != "off":
         parser.error("--showcase records video only (no --trace, --symmetry)")
     if args.riser_height_override is None:
@@ -373,11 +394,17 @@ def main() -> None:
     if args.showcase:
         stair_width = float(terrain_generator.size[1])
         spacing = max(float(args.showcase_spacing_m), stair_width)
-        terrain_generator.size = (terrain_generator.size[0], spacing)
+        jitter_x = max(float(args.showcase_jitter_x), 0.0)
+        jitter_y = (max(0.5 * (spacing - stair_width) - 0.2, 0.0)
+                    if args.showcase_jitter_y is None else float(args.showcase_jitter_y))
+        terrain_generator.size = (terrain_generator.size[0] + jitter_x, spacing)
+        terrain_generator.seed = args.seed
         for sub in terrain_generator.sub_terrains.values():
             sub.size = terrain_generator.size
             if hasattr(sub, "stair_width"):
                 sub.stair_width = stair_width
+                sub.showcase_jitter = (jitter_x, jitter_y)
+                sub.showcase_seed = args.seed
 
     # Reproduce the exact terrain and command used by the training run.
     resolved_config = None
@@ -723,31 +750,37 @@ def main() -> None:
 
     showcase = None
     if args.showcase:
-        from simulation.isaac_lab.g1_stairs.showcase_camera import camera_pose, lane_geometry
+        from simulation.isaac_lab.g1_stairs.showcase_camera import (
+            camera_pose, field_geometry, start_delay_steps,
+        )
+        from simulation.isaac_lab.g1_stairs.footstep_isaac_adapter import course_root_pose
         origins = env.unwrapped.scene.env_origins
-        centre_y, half_width = lane_geometry(origins[:, 1].tolist())
-        half_length = 0.5 * float(origins[:, 0].max() - origins[:, 0].min())
-        showcase = {"centre_y": centre_y, "half_width": half_width,
-                    "spread": 1.0 + half_length / 5.0,
+        centre_y, half_width, spread = field_geometry(origins[:, :2].tolist())
+        showcase = {"centre_y": centre_y, "half_width": half_width, "spread": spread,
                     "ground_z": float(origins[:, 2].mean()),
-                    "mean_x": float(robot.data.root_pos_w[:, 0].mean())}
-        metadata["showcase_lanes"] = {"centre_y": centre_y, "half_width": half_width}
+                    "mean_x": float(robot.data.root_pos_w[:, 0].mean()),
+                    # close-up robot: the one nearest the camera side
+                    "hero": int(torch.argmin(origins[:, 1]))}
+        metadata["showcase_field"] = {"centre_y": centre_y, "half_width": half_width,
+                                      "spread": spread, "hero_env": showcase["hero"],
+                                      "origins": origins[:, :2].tolist()}
 
-        # Staggered start: a held robot keeps a zero command (it stands, the
+        # Random start: a held robot keeps a zero command (it stands, the
         # gait clock stays idle; the stall timer only runs on the stair
-        # plan). The stair steering rewrites the command every step, so the
-        # hold is re-applied right after it.
+        # plan). A robot past --showcase_stop_x (on the platform) also gets
+        # a zero command and stands. The stair steering rewrites the
+        # command every step, so the hold is re-applied right after it.
         from simulation.isaac_lab.g1_stairs import footstep_live_progress as flp
-        from simulation.isaac_lab.g1_stairs.showcase_camera import stagger_hold_steps
-        hold = torch.tensor(stagger_hold_steps(args.num_envs, args.showcase_stagger_s,
-                                               float(env.unwrapped.step_dt), args.seed),
+        hold = torch.tensor(start_delay_steps(args.num_envs, args.showcase_start_spread_s,
+                                              float(env.unwrapped.step_dt), args.seed),
                             device=env.unwrapped.device)
         showcase["hold"] = hold
         metadata["showcase_hold_steps"] = hold.tolist()
         steering = flp.steer_stair_command
 
         def apply_hold(raw_env):
-            held = showcase["hold"] > steps
+            arrived = course_root_pose(raw_env)[0][:, 0] > args.showcase_stop_x
+            held = (showcase["hold"] > steps) | arrived
             if bool(held.any()):
                 raw_env.command_manager.get_command("base_velocity")[held] = 0.0
 
@@ -762,9 +795,11 @@ def main() -> None:
         # Follow the robots' mean x (smoothed, so resets do not jerk the view).
         x = float(robot.data.root_pos_w[:, 0].mean())
         showcase["mean_x"] += 0.05 * (x - showcase["mean_x"])
-        eye, lookat = camera_pose(steps / max(args.video_length - 1, 1), showcase["mean_x"],
-                                  showcase["centre_y"], showcase["half_width"], showcase["ground_z"],
-                                  showcase["spread"])
+        hero = robot.data.root_pos_w[showcase["hero"]]
+        eye, lookat = camera_pose(
+            steps / max(args.video_length - 1, 1),
+            (showcase["mean_x"], showcase["centre_y"], showcase["half_width"], showcase["ground_z"]),
+            (float(hero[0]), float(hero[1])), showcase["spread"])
         env.unwrapped.sim.set_camera_view(eye=eye, target=lookat)
 
     steps = 0
