@@ -5,7 +5,7 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Patch 45. Continue run 20261104_111123 model_9200 (patch 44, averaged teacher) for 1000 iterations with flat rolling targets anchored to the previous target (footstep_clock.rolling_origin, blend 0.2) and mirror loss 0.1; rewards and other PPO settings unchanged.
+  purpose: Patch 46. Continue run 20261104_143016 model_10200 (patch 45) for 1000 iterations with an L1 bound pulling residual action means back to the clip (ppo.action_mean_bound_coeff 0.01, policy_shaping.py) and an exploration std floor of 0.1; rewards, planner and other PPO settings unchanged.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -77,8 +77,8 @@ execution:
 policy_initialization:
   type: rsl_rl_training_resume
   source:
-    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261104_111123/model_9200.pt
-    sha256: 36f7c6c394ca3da6672d0cf2bac1bf786a172589b24248a57ed1329c3c2e311c
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261104_143016/model_10200.pt
+    sha256: FILL_ON_AWS
   critic_initialization: restored
   optimizer_initialization: restored
   locomotion_observations: 480
@@ -142,6 +142,10 @@ ppo:
   # bonus, so it does not grow back (agent_cfg default 0.005).
   resume_action_noise_std_cap: 0.5
   entropy_coef: 0.0
+  # Patch 46 (policy_shaping.py): L1 bound on residual means beyond the clip
+  # (dead zone, ~70% of outputs) and exploration std floor (leg std was 0.02).
+  action_mean_bound_coeff: 0.01
+  action_std_floor: 0.1
   initial_action_noise_std: 0.15
   learning_rate: 0.0001
 reward_experiment:

@@ -826,6 +826,8 @@ def main() -> None:
                 acc("err_sum", err.abs())
                 acc("clip_err_sum", (clipped_m - clipped)[0].abs())
                 acc("sat_sum", (actions[0].abs() > residual_clip).float())
+                acc("raw_sum", actions[0])
+                acc("raw_abs_sum", actions[0].abs())
                 acc("signed_sum", err)
                 if teacher_net is not None and residual_scale is not None:
                     teacher = teacher_of(obs)
@@ -874,7 +876,7 @@ def main() -> None:
             # one-sided preference, not just noise.
             "signed_mean_by_joint": dict(zip(BODY_JOINTS, (mirror["signed_sum"] / mirror["n"]).tolist())),
         }
-        for key in ("teacher_abs", "teacher_signed", "executed_abs", "executed_signed"):
+        for key in ("teacher_abs", "teacher_signed", "executed_abs", "executed_signed", "raw", "raw_abs"):
             if mirror.get(key + "_sum") is not None:
                 report[key + "_by_joint"] = dict(zip(
                     BODY_JOINTS, (mirror[key + "_sum"] / mirror["n"]).tolist()))

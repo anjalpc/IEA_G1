@@ -1197,6 +1197,25 @@ def main() -> None:
             f"{initialization_type}"
         )
 
+    # Patch 46: mean bound against the residual clip's dead zone and an
+    # exploration std floor (policy_shaping.py). Training only.
+    ppo_section = resolved_config.get("ppo", {})
+    bound_coeff = float(ppo_section.get("action_mean_bound_coeff", 0.0))
+    std_floor = float(ppo_section.get("action_std_floor", 0.0))
+    if bound_coeff > 0.0 or std_floor > 0.0:
+        residual_cfg = resolved_config.get("balance_residual_control") or {}
+        if "residual_clip" not in residual_cfg:
+            raise ValueError("action_mean_bound_coeff/action_std_floor need balance_residual_control.residual_clip")
+        from simulation.isaac_lab.g1_stairs.policy_shaping import PolicyShaping
+        PolicyShaping(
+            runner.alg.policy,
+            residual_clip=float(residual_cfg["residual_clip"]),
+            bound_coeff=bound_coeff,
+            std_floor=std_floor,
+            log_every=int(agent_cfg.algorithm.num_learning_epochs) * int(agent_cfg.algorithm.num_mini_batches),
+        )
+    print("[INFO] PPO action mean bound coeff:", bound_coeff, "std floor:", std_floor, flush=True)
+
     runner.configure_metrics(
         Path(metrics_dir_value),
         run_id,
