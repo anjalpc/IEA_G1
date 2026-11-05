@@ -5,7 +5,7 @@ from simulation.isaac_lab.g1_stairs.showcase_camera import KEYFRAMES, camera_pos
 
 class ShowcaseCameraTests(unittest.TestCase):
     def test_keyframes_are_hit_exactly(self):
-        for t, eye, look in KEYFRAMES:
+        for t, eye, look, _ in KEYFRAMES:
             e, l = camera_pose(t, mean_x=2.0, centre_y=0.0, half_width=4.8)
             self.assertAlmostEqual(e[0], 2.0 + eye[0])
             self.assertAlmostEqual(e[1], eye[1] * 4.8 + eye[2])
@@ -29,6 +29,15 @@ class ShowcaseCameraTests(unittest.TestCase):
             # never inside the lane block unless high above it
             if -4.8 <= eye[1] <= 4.8:
                 self.assertGreater(eye[2], 1.5)
+
+    def test_spread_moves_only_wide_shots_out(self):
+        for t, eye, _, wide in KEYFRAMES:
+            near = camera_pose(t, 0.0, 0.0, 4.8)[0]
+            far = camera_pose(t, 0.0, 0.0, 4.8, spread=2.0)[0]
+            moved = max(abs(a - b) for a, b in zip(near, far)) > 1e-9
+            self.assertEqual(moved, wide)
+            if wide:
+                self.assertAlmostEqual(far[2], 2 * near[2])
 
     def test_lane_geometry(self):
         centre, half = lane_geometry([0.0, 1.2, 2.4, 3.6])

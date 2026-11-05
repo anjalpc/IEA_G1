@@ -106,11 +106,17 @@ def three_step_stairs(
         minimum_platform_length=cfg.platform_length,
     )
 
+    # Showcase tiles may be wider than the staircase (stair_width): plain
+    # floor on both sides keeps neighbouring courses visibly apart. The
+    # height scan reaches 0.5 m sideways, inside a 1.2 m staircase.
+    width = cfg.size[1] if cfg.stair_width is None else float(cfg.stair_width)
+    if not 0.0 < width <= cfg.size[1] + 1e-9:
+        raise ValueError("stair_width must be in (0, tile width]")
     spec = StaircaseSpec(
         riser_height=riser,
         tread_depth=cfg.tread_depth,
         step_count=cfg.step_count,
-        width=cfg.size[1],
+        width=width,
         approach_length=cfg.approach_length,
         platform_length=platform_length,
         start_clearance=cfg.start_clearance,
@@ -122,6 +128,10 @@ def three_step_stairs(
             f"course_length={spec.course_length}, terrain_size_x={cfg.size[0]}"
         )
     meshes = []
+    if width < cfg.size[1] - 1e-9:
+        floor = trimesh.creation.box(extents=(cfg.size[0], cfg.size[1], 0.10))
+        floor.apply_translation((0.5 * cfg.size[0], 0.5 * cfg.size[1], -0.05))
+        meshes.append(floor)
     for box in spec.collision_boxes():
         mesh = trimesh.creation.box(extents=box.size)
         # SubTerrainBaseCfg requires the mesh to span (0, 0) to cfg.size.
@@ -144,6 +154,9 @@ class ThreeStepStairsCfg(SubTerrainBaseCfg):
     # Optional exact per-row heights. When set, this takes precedence over
     # riser_height_range and may include 0.0 to represent a true flat tile.
     riser_heights: tuple[float, ...] | None = None
+    # Staircase width when narrower than the tile (showcase only); None =
+    # the full tile width, as in training.
+    stair_width: float | None = None
     difficulty_bins: int = 8
     tread_depth: float = 0.25
     step_count: int = 3

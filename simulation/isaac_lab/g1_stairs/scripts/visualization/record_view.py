@@ -134,6 +134,19 @@ parser.add_argument(
     "symmetry checks.",
 )
 parser.add_argument(
+    "--showcase_spacing_m",
+    type=float,
+    default=2.4,
+    help="Showcase: distance between neighbouring courses. Each staircase "
+    "keeps its training width (1.2 m) with plain floor between them.",
+)
+parser.add_argument(
+    "--showcase_rows",
+    type=int,
+    default=1,
+    help="Showcase: rows of courses (robots per row = num_envs / rows).",
+)
+parser.add_argument(
     "--showcase_stagger_s",
     type=float,
     default=0.25,
@@ -267,6 +280,8 @@ if args.showcase:
         parser.error("--showcase records video only (no --trace, --symmetry)")
     if args.riser_height_override is None:
         parser.error("--showcase needs --riser_height_override")
+    if args.showcase_rows < 1 or args.num_envs % args.showcase_rows:
+        parser.error("--showcase_rows must divide --num_envs")
 elif args.num_envs != 1:
     parser.error("Phase 11 requires --num_envs 1")
 
@@ -352,10 +367,17 @@ def main() -> None:
     # Evaluation uses exactly one terrain tile. Training may use a grid,
     # but neighboring courses must never enter the evaluation recordings.
     terrain_generator = env_cfg.scene.terrain.terrain_generator
-    terrain_generator.num_rows = 1
-    # Showcase: one stair lane per robot (Isaac Lab assigns env i to column
-    # i when num_cols == num_envs and there is one row).
-    terrain_generator.num_cols = args.num_envs if args.showcase else 1
+    terrain_generator.num_rows = args.showcase_rows if args.showcase else 1
+    # Showcase: one course per robot (placed explicitly after gym.make).
+    terrain_generator.num_cols = args.num_envs // args.showcase_rows if args.showcase else 1
+    if args.showcase:
+        stair_width = float(terrain_generator.size[1])
+        spacing = max(float(args.showcase_spacing_m), stair_width)
+        terrain_generator.size = (terrain_generator.size[0], spacing)
+        for sub in terrain_generator.sub_terrains.values():
+            sub.size = terrain_generator.size
+            if hasattr(sub, "stair_width"):
+                sub.stair_width = stair_width
 
     # Reproduce the exact terrain and command used by the training run.
     resolved_config = None
@@ -499,6 +521,14 @@ def main() -> None:
 
     if isinstance(env.unwrapped, DirectMARLEnv):
         env = multi_agent_to_single_agent(env)
+    if args.showcase:
+        # One robot per course: env i -> row i % rows, column i // rows
+        # (Isaac Lab draws rows at random, so robots could share a course).
+        terrain = env.unwrapped.scene.terrain
+        ids = torch.arange(args.num_envs, device=terrain.env_origins.device)
+        terrain.terrain_levels[:] = ids % args.showcase_rows
+        terrain.terrain_types[:] = ids // args.showcase_rows
+        terrain.env_origins[:] = terrain.terrain_origins[terrain.terrain_levels, terrain.terrain_types]
 
     if not args.trace_only:
         raw_dir = output_dir / "raw"
@@ -696,7 +726,9 @@ def main() -> None:
         from simulation.isaac_lab.g1_stairs.showcase_camera import camera_pose, lane_geometry
         origins = env.unwrapped.scene.env_origins
         centre_y, half_width = lane_geometry(origins[:, 1].tolist())
+        half_length = 0.5 * float(origins[:, 0].max() - origins[:, 0].min())
         showcase = {"centre_y": centre_y, "half_width": half_width,
+                    "spread": 1.0 + half_length / 5.0,
                     "ground_z": float(origins[:, 2].mean()),
                     "mean_x": float(robot.data.root_pos_w[:, 0].mean())}
         metadata["showcase_lanes"] = {"centre_y": centre_y, "half_width": half_width}
@@ -731,7 +763,8 @@ def main() -> None:
         x = float(robot.data.root_pos_w[:, 0].mean())
         showcase["mean_x"] += 0.05 * (x - showcase["mean_x"])
         eye, lookat = camera_pose(steps / max(args.video_length - 1, 1), showcase["mean_x"],
-                                  showcase["centre_y"], showcase["half_width"], showcase["ground_z"])
+                                  showcase["centre_y"], showcase["half_width"], showcase["ground_z"],
+                                  showcase["spread"])
         env.unwrapped.sim.set_camera_view(eye=eye, target=lookat)
 
     steps = 0
