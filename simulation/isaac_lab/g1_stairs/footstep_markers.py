@@ -87,17 +87,19 @@ class FootstepMarkers:
         return plan, feet, valid
 
     def update(self, env):
-        # Footstep targets of env 0 (replay uses one env), course frame -> world.
+        # Footstep targets of every env (replay: one; showcase: one per lane),
+        # course frame -> world.
         plan, feet, valid = self._target_state(env)
-        origin = env.scene.env_origins[0]
+        origins = env.scene.env_origins
         pos, quat, idx = [], [], []
-        for slot in (0, 1):
-            if bool(valid[0, slot]):
-                p = plan[0, slot, :3] + origin
-                p[2] = p[2] + 0.5 * PAD_SIZE[2] + 0.002
-                pos.append(p)
-                quat.append(yaw_quat(plan[0, slot, 3:4])[0])
-                idx.append(int(target_marker_index(feet[0, slot:slot + 1], slot)[0]))
+        for e in range(plan.shape[0]):
+            for slot in (0, 1):
+                if bool(valid[e, slot]):
+                    p = plan[e, slot, :3] + origins[e]
+                    p[2] = p[2] + 0.5 * PAD_SIZE[2] + 0.002
+                    pos.append(p)
+                    quat.append(yaw_quat(plan[e, slot, 3:4])[0])
+                    idx.append(int(target_marker_index(feet[e, slot:slot + 1], slot)[0]))
         if pos:
             self._targets.set_visibility(True)
             self._targets.visualize(torch.stack(pos), torch.stack(quat), marker_indices=idx)
@@ -107,8 +109,8 @@ class FootstepMarkers:
         # Contact force bars at loaded feet.
         robot = env.scene["robot"]
         sensor = env.scene.sensors["contact_forces"]
-        force = sensor.data.net_forces_w[0, self._sensor_ids, 2]
-        feet_pos = robot.data.body_pos_w[0, self._foot_ids]
+        force = sensor.data.net_forces_w[:, self._sensor_ids, 2].reshape(-1)
+        feet_pos = robot.data.body_pos_w[:, self._foot_ids].reshape(-1, 3)
         loaded = force >= BAR_MIN_N
         if bool(loaded.any()):
             f = force[loaded]

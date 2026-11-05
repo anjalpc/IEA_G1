@@ -126,6 +126,21 @@ parser.add_argument(
     help="Show PhysX collision geometry in the rendered recording.",
 )
 parser.add_argument(
+    "--showcase",
+    action="store_true",
+    help="Presentation video, not an evaluation: --num_envs robots (<= 16) "
+    "on parallel stair lanes of the --riser_height_override height, a "
+    "moving camera (showcase_camera.py) at 1920x1080. No traces or "
+    "symmetry checks.",
+)
+parser.add_argument(
+    "--showcase_stagger_s",
+    type=float,
+    default=0.25,
+    help="Showcase: robots set off one after another in a shuffled order, "
+    "this many seconds apart (they stand until then).",
+)
+parser.add_argument(
     "--markers",
     action="store_true",
     help="Draw footstep targets and foot contact-force bars into the video "
@@ -245,7 +260,14 @@ if bool(args.checkpoint) == bool(args.policy_onnx):
         "Exactly one of --checkpoint or --policy_onnx is required"
     )
 
-if args.num_envs != 1:
+if args.showcase:
+    if not 1 <= args.num_envs <= 16:
+        parser.error("--showcase needs 1 <= --num_envs <= 16")
+    if args.trace or args.trace_only or args.symmetry != "off":
+        parser.error("--showcase records video only (no --trace, --symmetry)")
+    if args.riser_height_override is None:
+        parser.error("--showcase needs --riser_height_override")
+elif args.num_envs != 1:
     parser.error("Phase 11 requires --num_envs 1")
 
 if args.trace_only:
@@ -314,7 +336,7 @@ def main() -> None:
     env_cfg = parse_env_cfg(
         args.task,
         device=args.device,
-        num_envs=1,
+        num_envs=args.num_envs,
         use_fabric=True,
         entry_point_key="play_env_cfg_entry_point",
     )
@@ -323,13 +345,17 @@ def main() -> None:
     env_cfg.seed = args.seed
 
     # Do not include command-direction markers in evaluation recordings.
-    env_cfg.commands.base_velocity.debug_vis = False
+    # Showcase: Isaac Lab's velocity arrows above each robot (green command,
+    # blue actual velocity).
+    env_cfg.commands.base_velocity.debug_vis = bool(args.showcase)
 
     # Evaluation uses exactly one terrain tile. Training may use a grid,
     # but neighboring courses must never enter the evaluation recordings.
     terrain_generator = env_cfg.scene.terrain.terrain_generator
     terrain_generator.num_rows = 1
-    terrain_generator.num_cols = 1
+    # Showcase: one stair lane per robot (Isaac Lab assigns env i to column
+    # i when num_cols == num_envs and there is one row).
+    terrain_generator.num_cols = args.num_envs if args.showcase else 1
 
     # Reproduce the exact terrain and command used by the training run.
     resolved_config = None
@@ -449,6 +475,8 @@ def main() -> None:
     env_cfg.viewer.origin_type = "world"
     env_cfg.viewer.env_index = 0
     env_cfg.viewer.asset_name = None
+    if args.showcase:
+        env_cfg.viewer.resolution = (1920, 1080)
 
     agent_cfg = cli_args.parse_rsl_rl_cfg(
         args.task,
@@ -527,7 +555,8 @@ def main() -> None:
         "viewer_origin_type": "world",
         "viewer_env_index": 0,
         "seed": args.seed,
-        "num_envs": 1,
+        "num_envs": args.num_envs,
+        "showcase": bool(args.showcase),
         "video_length_steps": args.video_length,
         "riser_height_m": applied_riser_height_m,
         "tread_depth_m": (
@@ -662,7 +691,54 @@ def main() -> None:
     print(f"resolved_eye={resolved_eye}")
     print(f"resolved_lookat={resolved_lookat}")
 
+    showcase = None
+    if args.showcase:
+        from simulation.isaac_lab.g1_stairs.showcase_camera import camera_pose, lane_geometry
+        origins = env.unwrapped.scene.env_origins
+        centre_y, half_width = lane_geometry(origins[:, 1].tolist())
+        showcase = {"centre_y": centre_y, "half_width": half_width,
+                    "ground_z": float(origins[:, 2].mean()),
+                    "mean_x": float(robot.data.root_pos_w[:, 0].mean())}
+        metadata["showcase_lanes"] = {"centre_y": centre_y, "half_width": half_width}
+
+        # Staggered start: a held robot keeps a zero command (it stands, the
+        # gait clock stays idle; the stall timer only runs on the stair
+        # plan). The stair steering rewrites the command every step, so the
+        # hold is re-applied right after it.
+        from simulation.isaac_lab.g1_stairs import footstep_live_progress as flp
+        from simulation.isaac_lab.g1_stairs.showcase_camera import stagger_hold_steps
+        hold = torch.tensor(stagger_hold_steps(args.num_envs, args.showcase_stagger_s,
+                                               float(env.unwrapped.step_dt), args.seed),
+                            device=env.unwrapped.device)
+        showcase["hold"] = hold
+        metadata["showcase_hold_steps"] = hold.tolist()
+        steering = flp.steer_stair_command
+
+        def apply_hold(raw_env):
+            held = showcase["hold"] > steps
+            if bool(held.any()):
+                raw_env.command_manager.get_command("base_velocity")[held] = 0.0
+
+        def steer_then_hold(raw_env, *a, **kw):
+            active = steering(raw_env, *a, **kw)
+            apply_hold(raw_env)
+            return active
+
+        flp.steer_stair_command = steer_then_hold
+
+    def move_showcase_camera():
+        # Follow the robots' mean x (smoothed, so resets do not jerk the view).
+        x = float(robot.data.root_pos_w[:, 0].mean())
+        showcase["mean_x"] += 0.05 * (x - showcase["mean_x"])
+        eye, lookat = camera_pose(steps / max(args.video_length - 1, 1), showcase["mean_x"],
+                                  showcase["centre_y"], showcase["half_width"], showcase["ground_z"])
+        env.unwrapped.sim.set_camera_view(eye=eye, target=lookat)
+
     steps = 0
+    if showcase is not None:
+        apply_hold(env.unwrapped)
+        obs = env.get_observations()      # first step already sees the hold
+        move_showcase_camera()
 
     markers = None
     if args.markers and not args.trace_only:
@@ -738,6 +814,8 @@ def main() -> None:
                 markers.update(env.unwrapped)
 
         steps += 1
+        if showcase is not None:
+            move_showcase_camera()
 
         if steps >= args.video_length:
             break
