@@ -5,7 +5,7 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Patch 47, controlled ablation of patch 46. Same source (run 20261104_143016 model_10200), seed, rewards, planner and PPO settings, same L1 mean bound (ppo.action_mean_bound_coeff 0.01); only the exploration std floor is removed (action_std_floor 0.0), to test whether the floor caused the patch 46 sagittal posture and stair regression.
+  purpose: Patch 48. Same as patch 47 (source run 20261104_143016 model_10200, seed 42, rewards, planner and PPO settings, mean bound 0.01, no std floor) with the mean bound in paired mode (ppo.action_mean_bound_paired true), so left/right pairs reach the residual clip together instead of one side first (patch 47 flat left turn from asymmetric hip yaw unpinning).
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -143,8 +143,11 @@ ppo:
   resume_action_noise_std_cap: 0.5
   entropy_coef: 0.0
   # Patch 46 (policy_shaping.py): L1 bound on residual means beyond the clip
-  # (dead zone, ~70% of outputs) and exploration std floor (leg std was 0.02).
+  # (dead zone, ~70% of outputs). Patch 47: std floor removed (it caused the
+  # p46 forward lean and riser stall). Patch 48: paired bound, left/right
+  # pairs reach the clip together.
   action_mean_bound_coeff: 0.01
+  action_mean_bound_paired: true
   action_std_floor: 0.0
   initial_action_noise_std: 0.15
   learning_rate: 0.0001

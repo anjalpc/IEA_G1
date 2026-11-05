@@ -15,6 +15,18 @@ action mean the robot executes, the saved checkpoint layout or replay.
    L1, so the pull per output is the same however far beyond the clip it
    sits. Until a mean reaches the clip, executed actions do not change.
 
+   Paired mode (patch 48). Plain L1 pulls a left/right pair at the same
+   rate, so the side with less excess reaches the clip first and the
+   executed posture turns asymmetric while its partner is still pinned.
+   Run 20261105_124659 (patch 47): right hip yaw saturation 0.89 -> 0.73
+   while the left stayed at 0.90, right toe-out 10.6 -> 9.8 deg vs left
+   12.8, flat yaw drift -0.65 -> +1.76 deg/s. In paired mode each output's
+   pull is scaled by excess / max(excess, partner excess) in the same state
+   (partner = mirror_actions), so the larger side keeps the full pull and
+   the smaller side slows down: both excesses shrink in proportion and
+   reach the clip together. Joints that mirror onto themselves (waist)
+   keep the plain L1 pull.
+
 2. Std floor. With entropy_coef 0 the exploration std of the leg pitch
    joints collapsed (hip pitch 0.26 -> 0.075 -> 0.02 over patches 43-45).
    The distribution uses max(std, floor); the std parameter itself is left
@@ -26,25 +38,36 @@ import torch
 from torch.distributions import Normal
 
 
-class _MeanBound(torch.autograd.Function):
-    """Identity forward; backward adds d/dmean of coeff * sum relu(|mean| - clip)."""
+class _AddGrad(torch.autograd.Function):
+    """Identity forward; backward adds a fixed tensor to the mean's gradient."""
 
     @staticmethod
-    def forward(ctx, mean, clip, coeff):
-        ctx.save_for_backward(mean)
-        ctx.clip, ctx.coeff = clip, coeff
+    def forward(ctx, mean, extra):
+        ctx.save_for_backward(extra)
         return mean.view_as(mean)
 
     @staticmethod
     def backward(ctx, grad):
-        (mean,) = ctx.saved_tensors
-        rows = mean.shape[0] if mean.ndim > 1 else 1
-        outside = (mean.abs() > ctx.clip).to(grad.dtype)
-        return grad + ctx.coeff * outside * torch.sign(mean) / rows, None, None
+        (extra,) = ctx.saved_tensors
+        return grad + extra, None
+
+
+def bound_gradient(mean: torch.Tensor, clip: float, coeff: float, partner=None) -> torch.Tensor:
+    """Gradient the bound adds to the mean. partner=None: d/dmean of
+    bound_loss (plain L1). partner=callable (mirror_actions): each output's
+    pull scaled by excess / max(excess, partner excess)."""
+    rows = mean.shape[0] if mean.ndim > 1 else 1
+    excess = torch.relu(mean.abs() - clip)
+    if partner is None:
+        weight = (excess > 0).to(mean.dtype)
+    else:
+        other = torch.relu(partner(mean).abs() - clip)
+        weight = excess / torch.maximum(excess, other).clamp(min=1e-12)
+    return coeff * weight * torch.sign(mean) / rows
 
 
 def bound_loss(mean: torch.Tensor, clip: float, coeff: float) -> torch.Tensor:
-    """The loss whose gradient _MeanBound adds (for tests and logging)."""
+    """Plain L1 bound loss; its gradient is bound_gradient(partner=None)."""
     rows = mean.shape[0] if mean.ndim > 1 else 1
     return coeff * torch.relu(mean.abs() - clip).sum() / rows
 
@@ -53,11 +76,12 @@ class PolicyShaping:
     """Wraps ``policy.update_distribution``; keeps simple statistics."""
 
     def __init__(self, policy, *, residual_clip: float, bound_coeff: float = 0.0,
-                 std_floor: float = 0.0, log_every: int = 0):
+                 std_floor: float = 0.0, log_every: int = 0, partner=None):
         if residual_clip <= 0.0 or bound_coeff < 0.0 or std_floor < 0.0:
             raise ValueError("residual_clip > 0, bound_coeff >= 0, std_floor >= 0 required")
         self.clip, self.coeff, self.floor = float(residual_clip), float(bound_coeff), float(std_floor)
         self.log_every = int(log_every)
+        self.partner = partner
         self.calls = 0
         self._outside = 0.0
         self._excess = 0.0
@@ -76,8 +100,9 @@ class PolicyShaping:
                 excess = torch.relu(mean.abs() - self.clip)
                 self._outside += float((excess > 0).float().mean())
                 self._excess += float(excess.sum(dim=-1).mean())
+                extra = bound_gradient(mean, self.clip, self.coeff, self.partner)
             self.calls += 1
-            mean = _MeanBound.apply(mean, self.clip, self.coeff)
+            mean = _AddGrad.apply(mean, extra)
             if self.log_every and self.calls % self.log_every == 0:
                 n = self.log_every
                 print(f"[POLICY_SHAPING] means beyond clip {self._outside / n:.3f}, "
