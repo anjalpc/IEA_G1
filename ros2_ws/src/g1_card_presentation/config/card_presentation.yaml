@@ -14,7 +14,9 @@ event_card_presentation:
     # Time for the recipient to secure the card before the arm retracts.
     handover_dwell_s: 1.5
 
-    hand: left
+    # Selects both the BrainCo hand and the matched arm-motion profile.
+    # The right side is active while the left thumb awaits hardware service.
+    hand: right
 
     # BrainCo order: thumb, thumb_aux, index, middle, ring, pinky.
     grip_target: [0.780, 1.000, 0.400, 1.000, 1.000, 1.000]
@@ -23,6 +25,9 @@ event_card_presentation:
 
 card_handover_detector:
   ros__parameters:
+    # Provisional right-side profile seeded from the physically used handshake
+    # region and expanded to include the card plus the recipient's approaching
+    # hand. Confirm against the debug feed before unattended use.
     enabled: true
     state_topic: /event/card/state
     trigger_service: /event/card/handover
@@ -36,30 +41,53 @@ card_handover_detector:
     depth_stale_after_s: 0.5
     hand_stale_after_s: 0.5
     hand_memory_s: 1.0
-    baseline_delay_s: 0.5
+    baseline_delay_s: 0.2
     required_hits: 2
-    window_size: 4
+    window_size: 3
     gate_memory_s: 0.5
+    waiting_hand_required_hits: 2
+    waiting_hand_window_size: 3
 
-    # Set these by dragging boxes in the OpenCV calibration windows.
-    rgb_roi_x: 595
-    rgb_roi_y: 371
-    rgb_roi_width: 650
-    rgb_roi_height: 334
-    # Semantic hand region includes the free card end above the change ROI.
-    hand_roi_x: 595
-    hand_roi_y: 0
-    hand_roi_width: 650
-    hand_roi_height: 705
-    depth_roi_x: 73
-    depth_roi_y: 68
-    depth_roi_width: 271
-    depth_roi_height: 172
+    # Changing event_card_presentation.hand automatically selects the matching
+    # complete ROI profile from the card state published by that node.
+    # Left profile: previously calibrated card-presentation regions.
+    left_rgb_roi_x: 595
+    left_rgb_roi_y: 371
+    left_rgb_roi_width: 650
+    left_rgb_roi_height: 334
+    left_hand_roi_x: 595
+    left_hand_roi_y: 0
+    left_hand_roi_width: 650
+    left_hand_roi_height: 705
+    left_depth_roi_x: 73
+    left_depth_roi_y: 68
+    left_depth_roi_width: 271
+    left_depth_roi_height: 172
+
+    # Right profile: handshake-derived regions in the native 1920x1080 RGB
+    # stream. Live OpenCV inspection confirmed this scaling.
+    right_rgb_roi_x: 435
+    right_rgb_roi_y: 85
+    right_rgb_roi_width: 189
+    right_rgb_roi_height: 263
+    # Right-side approach gate surrounding the calibrated card region.
+    # It intentionally excludes the left half of the RGB image.
+    right_hand_roi_x: 360
+    right_hand_roi_y: 40
+    right_hand_roi_width: 280
+    right_hand_roi_height: 400
+    right_depth_roi_x: 423
+    right_depth_roi_y: 98
+    right_depth_roi_width: 228
+    right_depth_roi_height: 243
 
     rgb_pixel_delta: 25.0
     rgb_changed_ratio: 0.05
     depth_approach_mm: 150.0
     depth_max_mm: 1000.0
+    # A hand occupies much less of the ROI than a torso. The 10th percentile
+    # responds to the approaching hand while rejecting isolated depth noise.
+    depth_near_percentile: 10.0
     log_interval_s: 1.0
     publish_debug_image: true
     show_calibration_windows: false

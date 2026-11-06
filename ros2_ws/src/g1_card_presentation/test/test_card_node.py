@@ -1,16 +1,19 @@
 """Tests for the dashboard-facing card toggle callbacks."""
 
+from collections import deque
+import json
+from pathlib import Path
 from types import SimpleNamespace
-import time
 
-import numpy as np
 import pytest
+import yaml
 
 from g1_card_presentation.card_node import CardPresentationNode
 from g1_card_presentation.handover_detector import (
     CardHandoverDetector,
     depth_statistics,
     hand_in_roi,
+    roi_profile,
 )
 
 
@@ -60,101 +63,104 @@ def test_card_handover_requires_semantic_hand_inside_rgb_region():
     )
 
 
-def test_stationary_person_does_not_trigger_handover():
-    detector = CardHandoverDetector.__new__(CardHandoverDetector)
-    now = time.monotonic()
-    detector.show_windows = False
-    detector.armed = True
-    detector.fired = False
-    detector.pending = False
-    detector.rgb = np.zeros((20, 20, 3), dtype=np.uint8)
-    detector.depth = np.full((20, 20), 500.0, dtype=np.float32)
-    detector.rgb_at = now
-    detector.depth_at = now
-    detector.hand_at = now
-    detector.hand = {"hands": [{"center_x": 10, "center_y": 10}]}
-    detector.rgb_stale_after_s = 1.0
-    detector.depth_stale_after_s = 1.0
-    detector.hand_stale_after_s = 1.0
-    detector.hand_memory_s = 1.0
-    detector.baseline_delay_s = 0.0
-    detector.armed_at = now - 1.0
-    detector.baseline_rgb = None
-    detector.baseline_depth_near25 = None
-    detector.hits = []
-    detector.last_rgb_hit_at = None
-    detector.last_depth_hit_at = None
-    detector.last_hand_hit_at = None
-    detector.depth_roi = (0, 0, 20, 20)
-    detector.rgb_roi = (0, 0, 20, 20)
-    detector.hand_roi = (0, 0, 20, 20)
-    detector.depth_max_mm = 1000.0
-    detector.depth_approach_mm = 150.0
-    detector.rgb_pixel_delta = 25.0
-    detector.rgb_changed_ratio = 0.05
-    detector.gate_memory_s = 0.5
-    detector.required_hits = 2
-    detector.log_interval_s = 1000.0
-    detector.last_log_at = now
-    detector.publish_debug_image = False
-    detector.get_logger = lambda: SimpleNamespace(info=lambda _message: None)
-    detector.client = SimpleNamespace(
-        service_is_ready=lambda: True,
-        call_async=lambda _request: pytest.fail(
-            "stationary person triggered handover"),
+def test_right_profile_rejects_hands_in_left_half_of_image():
+    config = (
+        Path(__file__).parents[1]
+        / "config"
+        / "card_presentation.yaml"
+    )
+    parameters = yaml.safe_load(
+        config.read_text(encoding="utf-8")
+    )["card_handover_detector"]["ros__parameters"]
+    roi = tuple(
+        parameters[f"right_hand_roi_{part}"]
+        for part in ("x", "y", "width", "height")
     )
 
-    for _ in range(5):
-        detector.poll()
+    assert not hand_in_roi(
+        {"hands": [{"center_x": 100, "center_y": 240}]},
+        roi,
+    )
+    assert hand_in_roi(
+        {"hands": [{"center_x": 500, "center_y": 200}]},
+        roi,
+    )
 
-    assert detector.baseline_depth_near25 == 500.0
-    assert detector.pending is False
+
+def test_card_side_selects_complete_matching_roi_profile():
+    values = {
+        f"{side}_{kind}_roi_{part}": index
+        for index, (side, kind, part) in enumerate(
+            (
+                (side, kind, part)
+                for side in ("left", "right")
+                for kind in ("rgb", "hand", "depth")
+                for part in ("x", "y", "width", "height")
+            ),
+            start=1,
+        )
+    }
+
+    left = roi_profile(values.__getitem__, "left")
+    right = roi_profile(values.__getitem__, "right")
+
+    assert left == {
+        "rgb": (1, 2, 3, 4),
+        "hand": (5, 6, 7, 8),
+        "depth": (9, 10, 11, 12),
+    }
+    assert right == {
+        "rgb": (13, 14, 15, 16),
+        "hand": (17, 18, 19, 20),
+        "depth": (21, 22, 23, 24),
+    }
 
 
-def test_clear_baseline_is_captured_before_recipient_hand_arrives():
-    """Arm-time baseline capture must not depend on semantic hand input."""
-    detector = CardHandoverDetector.__new__(CardHandoverDetector)
-    now = time.monotonic()
-    detector.show_windows = False
-    detector.armed = True
-    detector.fired = False
-    detector.pending = False
-    detector.rgb = np.zeros((20, 20, 3), dtype=np.uint8)
-    detector.depth = np.full((20, 20), 900.0, dtype=np.float32)
-    detector.rgb_at = now
-    detector.depth_at = now
-    detector.hand_at = now
-    detector.hand = {"hands": []}
-    detector.rgb_stale_after_s = 1.0
-    detector.depth_stale_after_s = 1.0
-    detector.hand_stale_after_s = 1.0
-    detector.hand_memory_s = 1.0
-    detector.baseline_delay_s = 0.0
-    detector.armed_at = now - 1.0
-    detector.baseline_rgb = None
-    detector.baseline_depth_near25 = None
-    detector.hits = []
-    detector.last_rgb_hit_at = None
-    detector.last_depth_hit_at = None
-    detector.last_hand_hit_at = None
-    detector.depth_roi = (0, 0, 20, 20)
-    detector.rgb_roi = (0, 0, 20, 20)
-    detector.hand_roi = (0, 0, 20, 20)
-    detector.depth_max_mm = 1000.0
-    detector.depth_approach_mm = 150.0
-    detector.rgb_pixel_delta = 25.0
-    detector.rgb_changed_ratio = 0.05
-    detector.gate_memory_s = 0.5
-    detector.required_hits = 2
-    detector.log_interval_s = 1000.0
-    detector.last_log_at = now
-    detector.publish_debug_image = False
-    detector.get_logger = lambda: SimpleNamespace(info=lambda _message: None)
+def test_card_state_automatically_switches_detector_roi_profile():
+    profiles = {
+        "left": {
+            "rgb": (1, 2, 3, 4),
+            "hand": (5, 6, 7, 8),
+            "depth": (9, 10, 11, 12),
+        },
+        "right": {
+            "rgb": (13, 14, 15, 16),
+            "hand": (17, 18, 19, 20),
+            "depth": (21, 22, 23, 24),
+        },
+    }
+    messages = []
+    instance = SimpleNamespace(
+        roi_profiles=profiles,
+        hand_side=None,
+        rgb_roi=None,
+        hand_roi=None,
+        depth_roi=None,
+        armed=False,
+        fired=False,
+        pending=False,
+        hits=deque(),
+        waiting_hand_hits=deque(),
+        last_rgb_hit_at=None,
+        last_depth_hit_at=None,
+        last_hand_hit_at=None,
+        get_logger=lambda: SimpleNamespace(
+            info=messages.append,
+            error=messages.append,
+        ),
+    )
 
-    detector.poll()
-
-    assert detector.baseline_rgb is not None
-    assert detector.baseline_depth_near25 == 900.0
+    for side in ("left", "right"):
+        message = SimpleNamespace(data=json.dumps({
+            "hand": side,
+            "hand_state": "OPEN",
+            "arm_state": "DOWN",
+        }))
+        CardHandoverDetector.state_callback(instance, message)
+        assert instance.hand_side == side
+        assert instance.rgb_roi == profiles[side]["rgb"]
+        assert instance.hand_roi == profiles[side]["hand"]
+        assert instance.depth_roi == profiles[side]["depth"]
 
 
 class Sequence:

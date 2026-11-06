@@ -229,7 +229,7 @@ def test_cleanup_failure_remains_visible():
 
     with pytest.raises(
         CardSafeStateError,
-        match="left hand release failed",
+        match="card hand release failed",
     ):
         safe_state.release_once(
             release_hand=True,
@@ -238,7 +238,7 @@ def test_cleanup_failure_remains_visible():
 
     with pytest.raises(
         CardSafeStateError,
-        match="left hand release failed",
+        match="card hand release failed",
     ):
         safe_state.release_once(
             release_hand=True,

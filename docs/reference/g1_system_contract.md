@@ -176,7 +176,9 @@ automatic participant indices through `63`; PC2 lists both the workstation
 and itself so cross-machine discovery and local diagnostics use predictable
 unicast ports. The PC2 configuration is restricted to ROS domain `42`. It
 must not apply its multicast-disabled application settings to the child
-native Unitree domain-0 LowState helper.
+native Unitree domain-0 LowState helper. The physical interaction entry point
+pins this PC2 wired configuration explicitly and does not inherit an ambient
+`CYCLONEDDS_URI`.
 
 The workstation uses pinned CPU-only GLIM 1.2.2 packages. GLIM consumes the
 raw cloud and MID-360 IMU, uses absolute nanosecond per-point timestamps,
@@ -671,7 +673,10 @@ boundary. Both hands are physically verified. The right hand records firmware
 `1.0.16.U` and device ID 127. The left hand was validated through the guarded
 physical card-presentation workflow, including gripping and releasing the
 card; its firmware and device ID were not recorded and remain `null` rather
-than being inferred.
+than being inferred. While the left hand awaits hardware service, the physical
+interaction stack uses the right-hand card profile. Its semantic hand gate is
+restricted to the right side of the D435 RGB image; a full-image hand gate is
+not permitted.
 
 The current MuJoCo attachment transforms in
 [`simulation/mujoco/model_composition.py`](../../simulation/mujoco/model_composition.py) are

@@ -61,6 +61,8 @@ class CardPresentationNode(Node):
             1.5,
         )
 
+        self.declare_parameter("hand", "left")
+
         self.declare_parameter(
             "grip_target",
             [0.78, 1.0, 0.4, 1.0, 1.0, 1.0],
@@ -108,6 +110,17 @@ class CardPresentationNode(Node):
             self.get_parameter("handover_dwell_s").value
         )
 
+        hand_side = str(
+            self.get_parameter("hand").value
+        )
+
+        if hand_side not in ("left", "right"):
+            raise ValueError(
+                "hand must be 'left' or 'right'"
+            )
+
+        self.hand_side = hand_side
+
         if not math.isfinite(timeout) or timeout <= 0.0:
             raise ValueError(
                 "action_timeout_s must be positive"
@@ -146,10 +159,11 @@ class CardPresentationNode(Node):
             self.bridge_name,
         )
 
-        arm = CardArm(ArmClient(transport))
+        arm = CardArm(ArmClient(transport), hand_side)
 
         hand = CardHand(
             HandClient(transport),
+            hand_side,
             validate_hand_target(
                 self.get_parameter(
                     "grip_target"
@@ -266,6 +280,7 @@ class CardPresentationNode(Node):
                 "state": self.state,
                 "hand_state": self.hand_state,
                 "arm_state": self.arm_state,
+                "hand": self.hand_side,
                 "bridge": self.bridge_name,
                 "arm_ownership": self.arm_ownership,
                 "arm_action_id": self.arm_action_id,

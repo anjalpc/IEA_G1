@@ -12,14 +12,14 @@ def profile():
                             'config' / 'card_arm_motion.yaml')
 
 
-def test_recipe_matches_checkpoint_waypoints():
+def test_left_recipe_matches_checkpoint_waypoints():
     # Frozen ff44390 values, independent of the YAML under test.
     left = [0.286, 0.218, -0.009, 0.978, 0.144, 0.006, -0.004]
     right = [0.286, -0.218, 0.009, 0.978, -0.144, 0.006, 0.004]
     rest = [0.239587, -0.270012, 0.079531, 0.802344, -0.004820, 0.007794, 0.003641]
     action = [-0.108721, -0.063594, 0.094819, 0.182400, 0.159618, -0.339249, -0.061755]
     signs = [1, -1, -1, 1, -1, 1, -1]
-    motion = card_arm_motion(profile())
+    motion = card_arm_motion(profile(), "left")
     baseline = {name: 0.01 * index
                 for name, index in zip(ARM_JOINT_NAMES, range(15, 29))}
     preparation, target = resolve_arm_motion(motion, baseline)
@@ -32,13 +32,38 @@ def test_recipe_matches_checkpoint_waypoints():
     assert motion['recovery'] == ['preparation', 'baseline']
 
 
+def test_right_recipe_uses_original_measured_action27_delta():
+    data = profile()
+    motion = card_arm_motion(data, "right")
+    baseline = {name: 0.01 * index
+                for name, index in zip(ARM_JOINT_NAMES, range(15, 29))}
+    preparation, target = resolve_arm_motion(motion, baseline)
+    expected_preparation = dict(zip(
+        ARM_JOINT_NAMES,
+        data['left_companion'] + data['right_companion'],
+    ))
+    assert preparation == expected_preparation
+    expected_delta = [end - start for end, start in zip(
+        data['right_action27'], data['right_rest'])]
+    for name, delta in zip(ARM_JOINT_NAMES[7:], expected_delta):
+        assert target[name] == baseline[name] + delta
+    for name in ARM_JOINT_NAMES[:7]:
+        assert target[name] == expected_preparation[name]
+
+
 def test_adapter_sends_data_without_card_name_and_preserves_timeout_input():
     class Client:
         def execute_motion(self, motion, execution_timeout_s):
             return motion, execution_timeout_s
 
-    arm = CardArm(Client(), profile())
+    arm = CardArm(Client(), "left", profile())
     motion, timeout_input = arm.present(8.0)
-    assert motion == card_arm_motion(profile())
+    assert motion == card_arm_motion(profile(), "left")
     assert timeout_input == 8.0
     assert 'card' not in str(motion)
+
+
+def test_motion_rejects_unknown_side():
+    import pytest
+    with pytest.raises(ValueError, match="left.*right"):
+        card_arm_motion(profile(), "centre")

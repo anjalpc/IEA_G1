@@ -15,14 +15,34 @@ from std_msgs.msg import String
 from std_srvs.srv import Trigger
 
 
-def depth_statistics(depth, roi):
-    """Return median and near-25 depth in millimetres for valid pixels."""
+ROI_KINDS = ("rgb", "hand", "depth")
+ROI_PARTS = ("x", "y", "width", "height")
+
+
+def roi_profile(parameter_value, side):
+    """Load one side's RGB, semantic-hand, and depth ROI parameters."""
+    if side not in ("left", "right"):
+        raise ValueError("card hand side must be 'left' or 'right'")
+    return {
+        kind: tuple(
+            int(parameter_value(f"{side}_{kind}_roi_{part}"))
+            for part in ROI_PARTS
+        )
+        for kind in ROI_KINDS
+    }
+
+
+def depth_statistics(depth, roi, near_percentile=25.0):
+    """Return median and configurable near depth for valid pixels."""
     x, y, width, height = roi
     region = depth[y:y + height, x:x + width]
     valid = region[(region > 100.0) & (region < 4000.0)]
     if not valid.size:
         return None, None
-    return float(np.median(valid)), float(np.percentile(valid, 25))
+    return (
+        float(np.median(valid)),
+        float(np.percentile(valid, near_percentile)),
+    )
 
 
 def rgb_change_ratio(frame, baseline, roi, pixel_delta):
@@ -94,26 +114,21 @@ class CardHandoverDetector(Node):
             "required_hits": 2,
             "window_size": 4,
             "gate_memory_s": 0.5,
-            "rgb_roi_x": 0,
-            "rgb_roi_y": 0,
-            "rgb_roi_width": 1,
-            "rgb_roi_height": 1,
-            "hand_roi_x": 0,
-            "hand_roi_y": 0,
-            "hand_roi_width": 1,
-            "hand_roi_height": 1,
-            "depth_roi_x": 0,
-            "depth_roi_y": 0,
-            "depth_roi_width": 1,
-            "depth_roi_height": 1,
+            "waiting_hand_required_hits": 7,
+            "waiting_hand_window_size": 10,
             "rgb_pixel_delta": 25.0,
             "rgb_changed_ratio": 0.08,
             "depth_approach_mm": 80.0,
             "depth_max_mm": 1000.0,
+            "depth_near_percentile": 25.0,
             "log_interval_s": 1.0,
             "publish_debug_image": True,
             "show_calibration_windows": False,
         }
+        for side in ("left", "right"):
+            for kind in ROI_KINDS:
+                for part in ROI_PARTS:
+                    defaults[f"{side}_{kind}_roi_{part}"] = 1
         for name, value in defaults.items():
             self.declare_parameter(name, value)
 
@@ -129,19 +144,26 @@ class CardHandoverDetector(Node):
         self.required_hits = int(value("required_hits"))
         self.window_size = int(value("window_size"))
         self.gate_memory_s = float(value("gate_memory_s"))
+        self.waiting_hand_required_hits = int(
+            value("waiting_hand_required_hits"))
+        self.waiting_hand_window_size = int(
+            value("waiting_hand_window_size"))
         self.rgb_pixel_delta = float(value("rgb_pixel_delta"))
         self.rgb_changed_ratio = float(value("rgb_changed_ratio"))
         self.depth_approach_mm = float(value("depth_approach_mm"))
         self.depth_max_mm = float(value("depth_max_mm"))
+        self.depth_near_percentile = float(value("depth_near_percentile"))
         self.log_interval_s = float(value("log_interval_s"))
         self.publish_debug_image = bool(value("publish_debug_image"))
         self.show_windows = bool(value("show_calibration_windows"))
-        self.rgb_roi = tuple(int(value(f"rgb_roi_{part}")) for part in (
-            "x", "y", "width", "height"))
-        self.hand_roi = tuple(int(value(f"hand_roi_{part}")) for part in (
-            "x", "y", "width", "height"))
-        self.depth_roi = tuple(int(value(f"depth_roi_{part}")) for part in (
-            "x", "y", "width", "height"))
+        self.roi_profiles = {
+            side: roi_profile(value, side)
+            for side in ("left", "right")
+        }
+        self.hand_side = None
+        self.rgb_roi = None
+        self.hand_roi = None
+        self.depth_roi = None
 
         if not 1 <= self.required_hits <= self.window_size:
             raise ValueError("required_hits must be between 1 and window_size")
@@ -151,10 +173,27 @@ class CardHandoverDetector(Node):
             raise ValueError("hand_stale_after_s must be positive")
         if self.hand_memory_s <= 0.0:
             raise ValueError("hand_memory_s must be positive")
-        if min(
-            self.rgb_roi[2:] + self.hand_roi[2:] + self.depth_roi[2:]
-        ) < 1:
-            raise ValueError("RGB, hand, and depth ROI sizes must be positive")
+        if not 0.0 < self.depth_near_percentile <= 50.0:
+            raise ValueError(
+                "depth_near_percentile must be greater than 0 and at most 50"
+            )
+        if not (
+            1 <= self.waiting_hand_required_hits
+            <= self.waiting_hand_window_size
+        ):
+            raise ValueError(
+                "waiting_hand_required_hits must be between 1 and "
+                "waiting_hand_window_size")
+        for profile in self.roi_profiles.values():
+            sizes = tuple(
+                size
+                for kind in ROI_KINDS
+                for size in profile[kind][2:]
+            )
+            if min(sizes) < 1:
+                raise ValueError(
+                    "RGB, hand, and depth ROI sizes must be positive"
+                )
 
         self.armed = False
         self.fired = False
@@ -163,6 +202,8 @@ class CardHandoverDetector(Node):
         self.baseline_rgb = None
         self.baseline_depth_near25 = None
         self.hits = deque(maxlen=self.window_size)
+        self.waiting_hand_hits = deque(
+            maxlen=self.waiting_hand_window_size)
         self.rgb = None
         self.depth = None
         self.rgb_at = None
@@ -201,6 +242,9 @@ class CardHandoverDetector(Node):
         """Arm only while the card is gripped and the arm is presented."""
         try:
             state = json.loads(message.data)
+            hand_side = str(state["hand"])
+            if hand_side not in self.roi_profiles:
+                raise ValueError("invalid card hand side")
             armed = (
                 state["hand_state"] == "GRIPPED"
                 and state["arm_state"] == "PRESENTED"
@@ -209,6 +253,16 @@ class CardHandoverDetector(Node):
             self.get_logger().error(f"invalid card state: {exc}")
             return
 
+        if hand_side != self.hand_side:
+            profile = self.roi_profiles[hand_side]
+            self.hand_side = hand_side
+            self.rgb_roi = profile["rgb"]
+            self.hand_roi = profile["hand"]
+            self.depth_roi = profile["depth"]
+            self.get_logger().info(
+                f"selected {hand_side} card handover ROI profile"
+            )
+
         if armed and not self.armed:
             self.fired = False
             self.pending = False
@@ -216,12 +270,14 @@ class CardHandoverDetector(Node):
             self.baseline_rgb = None
             self.baseline_depth_near25 = None
             self.hits.clear()
+            self.waiting_hand_hits.clear()
             self.last_rgb_hit_at = None
             self.last_depth_hit_at = None
             self.last_hand_hit_at = None
             self.get_logger().info("card handover detector armed")
         elif not armed and self.armed:
             self.hits.clear()
+            self.waiting_hand_hits.clear()
             self.last_rgb_hit_at = None
             self.last_depth_hit_at = None
             self.last_hand_hit_at = None
@@ -276,22 +332,29 @@ class CardHandoverDetector(Node):
             or now - self.hand_at > self.hand_stale_after_s
         ):
             self.hits.clear()
+            self.waiting_hand_hits.clear()
             return
 
-        median, near25 = depth_statistics(self.depth, self.depth_roi)
-        if near25 is None:
+        median, near_depth = depth_statistics(
+            self.depth,
+            self.depth_roi,
+            self.depth_near_percentile,
+        )
+        if near_depth is None:
             self.hits.clear()
+            self.waiting_hand_hits.clear()
             return
         if now - self.armed_at < self.baseline_delay_s:
             return
 
-        absolute_depth_hit = near25 <= self.depth_max_mm
+        absolute_depth_hit = near_depth <= self.depth_max_mm
+
         if self.baseline_rgb is None:
             self.baseline_rgb = self.rgb.copy()
-            self.baseline_depth_near25 = near25
+            self.baseline_depth_near25 = near_depth
             self.get_logger().info(
                 "handover baseline: "
-                f"median={median:.0f}mm near25={near25:.0f}mm")
+                f"median={median:.0f}mm near={near_depth:.0f}mm")
             return
 
         if hand_in_roi(self.hand, self.hand_roi):
@@ -302,18 +365,21 @@ class CardHandoverDetector(Node):
         )
         if not recent_hand:
             self.hits.clear()
+            self.waiting_hand_hits.clear()
             return
+
+        self.waiting_hand_hits.append(absolute_depth_hit)
 
         # Recover when the first baseline was captured while a person or
         # transient object was already inside the transfer region.
-        if near25 > self.baseline_depth_near25:
+        if near_depth > self.baseline_depth_near25:
             self.baseline_rgb = self.rgb.copy()
-            self.baseline_depth_near25 = near25
+            self.baseline_depth_near25 = near_depth
             self.hits.clear()
 
         changed = rgb_change_ratio(
             self.rgb, self.baseline_rgb, self.rgb_roi, self.rgb_pixel_delta)
-        depth_delta = self.baseline_depth_near25 - near25
+        depth_delta = self.baseline_depth_near25 - near_depth
         rgb_hit = changed >= self.rgb_changed_ratio
         depth_hit = (
             absolute_depth_hit
@@ -338,8 +404,10 @@ class CardHandoverDetector(Node):
             self.get_logger().info(
                 "handover metrics: "
                 f"rgb_change={changed:.3f} depth_median={median:.0f}mm "
-                f"depth_near25={near25:.0f}mm depth_delta={depth_delta:.0f}mm "
-                f"hits={sum(self.hits)}/{len(self.hits)}")
+                f"depth_near={near_depth:.0f}mm depth_delta={depth_delta:.0f}mm "
+                f"hits={sum(self.hits)}/{len(self.hits)} "
+                "waiting_hits="
+                f"{sum(self.waiting_hand_hits)}/{len(self.waiting_hand_hits)}")
 
         self._publish_debug(rgb_hit, depth_hit)
         if (
@@ -348,6 +416,26 @@ class CardHandoverDetector(Node):
         ):
             self._trigger()
             return
+        self._trigger_if_waiting_hand()
+
+    def _log_waiting_hand(self, median, near_depth, now):
+        if now - self.last_log_at < self.log_interval_s:
+            return
+        self.last_log_at = now
+        self.get_logger().info(
+            "handover metrics: rgb_change=unavailable "
+            f"depth_median={median:.0f}mm depth_near={near_depth:.0f}mm "
+            "baseline=waiting-for-clear-region "
+            f"waiting_hits={sum(self.waiting_hand_hits)}/"
+            f"{len(self.waiting_hand_hits)}")
+
+    def _trigger_if_waiting_hand(self):
+        if (
+            len(self.waiting_hand_hits) >= self.waiting_hand_required_hits
+            and sum(self.waiting_hand_hits)
+            >= self.waiting_hand_required_hits
+        ):
+            self._trigger()
 
     def _trigger(self):
         if not self.enabled:
@@ -419,6 +507,7 @@ class CardHandoverDetector(Node):
                 self.baseline_rgb = None
                 self.baseline_depth_near25 = None
                 self.hits.clear()
+                self.waiting_hand_hits.clear()
                 self.last_rgb_hit_at = None
                 self.last_depth_hit_at = None
                 self.last_hand_hit_at = None

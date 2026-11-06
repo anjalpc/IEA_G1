@@ -136,6 +136,16 @@ set -u
 export RMW_IMPLEMENTATION="${RMW_IMPLEMENTATION:-rmw_cyclonedds_cpp}"
 export ROS_DOMAIN_ID="${G1_APPLICATION_DOMAIN_ID:-42}"
 
+PC2_DDS_CONFIGURATION="${G1_PC2_DDS_CONFIGURATION:-${PROJECT_ROOT}/livox_ws/config/cyclonedds_pc2_wired.xml}"
+
+if [[ ! -f "${PC2_DDS_CONFIGURATION}" ]]; then
+    echo "ERROR: PC2 DDS configuration is missing: ${PC2_DDS_CONFIGURATION}" >&2
+    exit 1
+fi
+
+export CYCLONEDDS_URI="file://${PC2_DDS_CONFIGURATION}"
+export ROS_LOCALHOST_ONLY="0"
+
 case "${REQUIRED_BRAINCO_HANDS}" in
     right|both)
         ;;

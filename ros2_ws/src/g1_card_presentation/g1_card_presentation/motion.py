@@ -17,8 +17,10 @@ def load_card_motion(path=None):
     return yaml.safe_load(Path(path).read_text())
 
 
-def card_arm_motion(profile):
-    """Preserve the original mirrored Action-27 delta and bilateral preparation."""
+def card_arm_motion(profile, side="left"):
+    """Build the measured right or mirrored-left Action-27 card motion."""
+    if side not in ("left", "right"):
+        raise ValueError("card side must be 'left' or 'right'")
     vectors = {}
     for key in ('right_rest', 'right_action27', 'mirror_sign',
                 'left_companion', 'right_companion'):
@@ -29,13 +31,20 @@ def card_arm_motion(profile):
                or not math.isfinite(v) for v in values):
             raise ValueError(f'{key} must contain finite numbers')
         vectors[key] = values
-    delta = [sign * (action - rest) for sign, action, rest in zip(
-        vectors['mirror_sign'], vectors['right_action27'], vectors['right_rest'])]
+    right_delta = [action - rest for action, rest in zip(
+        vectors['right_action27'], vectors['right_rest'])]
+    if side == 'left':
+        delta = [sign * value for sign, value in zip(
+            vectors['mirror_sign'], right_delta)]
+        target_names = ARM_JOINT_NAMES[:7]
+    else:
+        delta = right_delta
+        target_names = ARM_JOINT_NAMES[7:]
     return validate_arm_motion({
         'version': 1,
         'preparation': dict(zip(ARM_JOINT_NAMES,
                                 vectors['left_companion'] + vectors['right_companion'])),
-        'target_offsets': dict(zip(ARM_JOINT_NAMES[:7], delta)),
+        'target_offsets': dict(zip(target_names, delta)),
         'phase_seconds': profile['phase_seconds'],
         'recovery': profile['recovery'],
     })

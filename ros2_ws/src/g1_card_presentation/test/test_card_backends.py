@@ -1,4 +1,6 @@
-"""Tests for the fixed left-hand card profile adapter."""
+"""Tests for the side-configurable card profile adapter."""
+
+import pytest
 
 from g1_card_presentation.card_backends import CardHand
 
@@ -20,15 +22,21 @@ class HandRecorder:
         self.calls.append(("neutral", hand, ramp))
 
 
-def test_card_hand_always_uses_verified_left_profile():
+@pytest.mark.parametrize("side", ["left", "right"])
+def test_card_hand_uses_configured_profile(side):
     client = HandRecorder()
     target = [0.78, 1.0, 0.4, 1.0, 1.0, 1.0]
-    hand = CardHand(client, target, 1.5, 1.5)
+    hand = CardHand(client, side, target, 1.5, 1.5)
     hand.prepare_operation()
     hand.grip()
     hand.release()
     assert client.calls == [
         ("prepare",),
-        ("command", "left", target, 1.5),
-        ("neutral", "left", 1.5),
+        ("command", side, target, 1.5),
+        ("neutral", side, 1.5),
     ]
+
+
+def test_card_hand_rejects_unknown_side():
+    with pytest.raises(ValueError, match="left.*right"):
+        CardHand(HandRecorder(), "centre", [0.1] * 6, 1.0, 1.0)

@@ -1,1 +1,1 @@
-"""Left-hand card-presentation application package."""
+"""Side-configurable card-presentation application package."""

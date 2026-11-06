@@ -18,7 +18,7 @@ setup(
     zip_safe=True,
     maintainer="Anjal Mohammed Pothuvachola",
     maintainer_email="anjal-mohammed.pothuvachola@telefonica.com",
-    description="Guarded left-hand card-presentation application.",
+    description="Guarded side-configurable card-presentation application.",
     license="Proprietary",
     extras_require={"test": ["pytest"]},
     entry_points={

@@ -2,7 +2,7 @@
 <package format="3">
   <name>g1_card_presentation</name>
   <version>0.1.0</version>
-  <description>Left-hand card-presentation application for the Unitree G1.</description>
+  <description>Side-configurable card-presentation application for the Unitree G1.</description>
   <maintainer email="anjal-mohammed.pothuvachola@telefonica.com">Anjal Mohammed Pothuvachola</maintainer>
   <license>Proprietary</license>
   <exec_depend>g1_robot_interfaces</exec_depend>

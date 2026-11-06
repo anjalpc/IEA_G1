@@ -69,6 +69,19 @@ def test_startup_does_not_override_pinned_realsense_runtime():
     assert "REALSENSE_LIBRARY_PATH" not in source
 
 
+def test_startup_pins_pc2_wired_dds_configuration():
+    source = START_SCRIPT.read_text(encoding="utf-8")
+
+    assert (
+        'PC2_DDS_CONFIGURATION="'
+        '${G1_PC2_DDS_CONFIGURATION:-'
+        '${PROJECT_ROOT}/livox_ws/config/'
+        'cyclonedds_pc2_wired.xml}"'
+    ) in source
+    assert 'export CYCLONEDDS_URI="file://${PC2_DDS_CONFIGURATION}"' in source
+    assert 'export ROS_LOCALHOST_ONLY="0"' in source
+
+
 def test_event_bringup_supervises_the_single_d435i_owner():
     launch = compact(BRINGUP)
 

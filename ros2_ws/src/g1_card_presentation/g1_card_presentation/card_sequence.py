@@ -1,4 +1,4 @@
-"""Backend-independent left-hand card-presentation primitives."""
+"""Backend-independent card-presentation primitives."""
 
 import threading
 import time
@@ -102,7 +102,7 @@ class CardSafeStateCoordinator:
                     self.hand.release()
                 except Exception as exc:
                     new_errors["hand"] = (
-                        f"left hand release failed: {exc}"
+                        f"card hand release failed: {exc}"
                     )
 
             if (
@@ -118,7 +118,7 @@ class CardSafeStateCoordinator:
                     self.arm.release_presentation()
                 except Exception as exc:
                     new_errors["arm"] = (
-                        f"left arm release failed: {exc}"
+                        f"card arm release failed: {exc}"
                     )
 
         finally:
@@ -211,7 +211,7 @@ class CardPresentation:
         self.interaction_active = False
 
     def grip(self):
-        """Close the left hand without moving either arm."""
+        """Close the configured hand without moving either arm."""
 
         self._ensure_interaction()
 
@@ -247,7 +247,7 @@ class CardPresentation:
 
         if not self.hand_prepared:
             raise RuntimeError(
-                "left hand is not prepared"
+                "card hand is not prepared"
             )
 
         self.set_state("RELEASING_CARD")
