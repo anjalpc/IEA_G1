@@ -27,7 +27,7 @@ usage() {
 Usage:
   simctl train <config.yaml>
   simctl stop
-  simctl status
+  simctl status [--all]          (--all: every reward term and episode ending)
   simctl diagnose
   simctl mechanics
   simctl health [--json]
@@ -625,60 +625,9 @@ if rows:
 else:
     print("  Training metrics: NOT RECORDED yet")
 
-print()
-print("LEARNING SIGNAL (training only, not success)")
-if rows:
-    def trend(key, fmt):
-        now = num(rows[-1], key)
-        before = num(rows[max(len(rows) - 11, 0)], key)
-        if now is None:
-            return "NOT RECORDED"
-        text = format(now, fmt)
-        if before is not None and len(rows) > 1:
-            text += f"   (10 it ago: {format(before, fmt)})"
-        return text
-    print("  Mean return:        ", trend("episode_return_mean", ".3f"))
-    length = num(rows[-1], "episode_length_mean")
-    if length is not None:
-        print(f"  Mean episode length: {length:.0f} steps = {length * 0.02:.1f} s (max 18.0 s)")
-    print("  Fall rate (per step):", trend("fall_rate", ".5f"))
-
-reward_rows = read_csv(rewards_path)
-if reward_rows:
-    latest_it = max(int(float(r["iteration"])) for r in reward_rows)
-    past_it = max(latest_it - 10, min(int(float(r["iteration"])) for r in reward_rows))
-    def values(it):
-        return {r["name"]: float(r["weighted_value"]) for r in reward_rows
-                if int(float(r["iteration"])) == it and r.get("weighted_value") not in (None, "")}
-    now, past = values(latest_it), values(past_it)
-    print()
-    print(f"REWARD TERMS (weighted, as logged; iteration {latest_it} vs {past_it})")
-    for name in sorted(now, key=lambda n: -abs(now[n])):
-        before = past.get(name)
-        delta = "" if before is None else f"{now[name] - before:+10.4f}"
-        print(f"  {name:30s}{now[name]:10.4f} {delta}")
-
-if log_path.is_file():
-    pattern = re.compile(r"(Episode_(?:Reward|Termination)/[A-Za-z0-9_]+):\s+(-?[0-9.]+(?:e-?[0-9]+)?)")
-    found = {}
-    with log_path.open(errors="replace") as stream:
-        for line in stream:
-            match = pattern.search(line)
-            if match:
-                found[match.group(1)] = float(match.group(2))
-    terminations = {k: v for k, v in found.items() if k.startswith("Episode_Termination/")}
-    if terminations:
-        print()
-        print("EPISODE ENDINGS (latest Episode_Termination values from the log; compare over time)")
-        for key, value in sorted(terminations.items()):
-            print(f"  {key.split('/', 1)[1]:30s}{value:10.4f}")
-
-print()
-print("PLANNED-FOOTSTEP EVALUATION")
-print("  Not measured during training. Use: simctl video <checkpoint> --height 0.04")
-print("  and footstep_gait_report.py on its trace.jsonl.")
 STATUS_PY
     fi
+    python3 "${REPO}/simulation/isaac_lab/g1_stairs/scripts/evaluation/training_status.py" "$RUN_DIR" "$LOG" "$@" || true
 
     echo
     echo "Latest checkpoint:"
@@ -1540,7 +1489,8 @@ case "${1:-help}" in
         cmd_stop
         ;;
     status)
-        cmd_status
+        shift
+        cmd_status "$@"
         ;;
     diagnose)
         cmd_diagnose
