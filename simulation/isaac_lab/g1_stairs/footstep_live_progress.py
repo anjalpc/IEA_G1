@@ -330,6 +330,7 @@ def audit_after_step(env):
         env._g1_footstep_landing_impact = impact
         clock_state.prev_sole_vz = sole_vz.clone()
         clock_state.contact_armed = keep.clone()
+        touchdown_before = (clock_state.prev_supported.clone(), plan_rows)  # patch 52, below
         clock_state.prev_supported = supported.clone()
         env._g1_footstep_off_beat = off_beat
         clock_state.off_beat_since_hit |= off_beat > 0
@@ -496,6 +497,16 @@ def audit_after_step(env):
         env._g1_footstep_acquisition_paid = advanced & ~(
             plan_hit & clock_state.off_beat_since_hit)
         clock_state.off_beat_since_hit &= ~plan_hit
+        # The first touchdown is the attempt (patch 52): the re-plant that
+        # hits after a missed touchdown pays no acquisition, like a hit after
+        # an off-beat step. Before, a 2-3 cm re-plant was not a step
+        # (OFF_BEAT_MIN_MOVE_M) and paid in full: in run 20261106_122429
+        # 8/10 4 cm climbs landed the first tread 1-2 cm short and shuffled
+        # forward; all 100 plan hits there landed on the touchdown frame.
+        from .footstep_clock import missed_touchdown
+        prev_supported, plan_rows = touchdown_before
+        clock_state.off_beat_since_hit |= missed_touchdown(
+            prev_supported, supported, feet[:, 0], plan_rows, valid[:, 0], advanced)
         # One acquisition per clock window; the id stays the window.
         clock_state.acquired |= advanced & rolling_rows
         # The foot that reached its target ends its swing.

@@ -122,6 +122,17 @@ class OffBeatStepTests(unittest.TestCase):
         n, _, _ = self.step([1, 0], [1, 1], [1, 0], [0.0, 0.30], rows=(False,))
         self.assertEqual(n.item(), 0.0)                                    # not on the plan
 
+    def test_missed_touchdown_is_the_attempt(self):
+        t = lambda *v: torch.tensor(v, dtype=torch.bool)
+        prev = torch.tensor([[1, 0], [1, 0], [1, 0], [1, 0], [0, 1]], dtype=torch.bool)
+        now = torch.ones(5, 2, dtype=torch.bool)
+        right = torch.tensor([1, 1, 1, 1, 1])
+        missed = fc.missed_touchdown(prev, now, right, t(1, 1, 0, 1, 1), t(1, 1, 1, 0, 1),
+                                     t(0, 1, 0, 0, 0))
+        # row 0: assigned right foot lands, no hit -> missed; row 1: lands and hits;
+        # row 2: not on the plan; row 3: target not valid; row 4: the other foot lands
+        self.assertEqual(missed.tolist(), [True, False, False, False, False])
+
     def test_reset_clears_the_bookkeeping(self):
         state = fc.RollingClockState(2, "cpu")
         state.liftoff_on_turn[:] = False

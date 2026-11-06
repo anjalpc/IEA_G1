@@ -5,7 +5,7 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Patch 51. Continue patch 50 (run 20261106_085535 model_12200) unchanged for 1000 iterations on flat, 2 cm and 4 cm. At 12200 4 cm was learned only in part (8/10 climbed, 4/10 clean, 1 fall, 1 stall; toe-riser strikes gone) and the training curves were still falling (bad_orientation 0.23 to 0.064, foot_stumble 0.26 to 0.046 per 100 iterations), so this tests whether the remaining short first-tread placement is unfinished learning.
+  purpose: Patch 52. Continue patch 51 (run 20261106_122429 model_13200) on flat, 2 cm and 4 cm with one change, the first touchdown is the attempt. A touchdown of the assigned foot without a plan hit makes the re-plant that then hits pay no acquisition (footstep_clock.missed_touchdown). At 13200 4 cm was 10/10 climbed but 2/10 clean, 8 seeds landed tread 1 or 2 short by 1-2 cm and re-planted 2-3 cm forward for free.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -80,8 +80,8 @@ execution:
 policy_initialization:
   type: rsl_rl_training_resume
   source:
-    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261106_085535/model_12200.pt
-    sha256: 7490769929f1dfdae7f059abffa779e4d6379ac7c39d6bb6ef2303ae1e0cb579
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261106_122429/model_13200.pt
+    sha256: FILL_ON_AWS
   critic_initialization: restored
   optimizer_initialization: restored
   locomotion_observations: 480

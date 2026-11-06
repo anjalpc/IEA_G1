@@ -237,6 +237,17 @@ def off_beat_steps(prev_supported, supported, liftoff_on_turn, liftoff_x,
     return off.sum(dim=-1).to(foot_x.dtype), liftoff_on_turn, liftoff_x
 
 
+def missed_touchdown(prev_supported, supported, assigned_foot, rows, valid, hit):
+    """[N] True where the foot whose target it is touched down without a hit.
+
+    The first touchdown is the attempt (patch 52): every plan hit lands on
+    the touchdown frame, so a later re-plant onto the same target is a
+    correction, not a clean step. ``prev_supported``/``supported`` [N,2],
+    ``assigned_foot`` [N] (0 left, 1 right), ``rows``/``valid``/``hit`` [N]."""
+    landed = (~prev_supported & supported).gather(1, assigned_foot.long()[:, None]).squeeze(1)
+    return rows & valid & landed & ~hit
+
+
 def clock_features(phase, active):
     """[N,2] sin/cos of the cycle; zero while standing."""
     angle = 2 * math.pi * phase
