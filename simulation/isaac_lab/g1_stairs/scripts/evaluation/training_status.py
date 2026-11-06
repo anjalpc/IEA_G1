@@ -8,8 +8,9 @@ values include exploration noise; replays (trace_report.py) decide.
 
   python3 training_status.py RUN_DIR LOG [--all]
 
-"now" and "run start" are means of 10 iterations (the first 10 of a run are
-skipped: no episodes have finished yet). The trend compares the last 100
+"now" and "run start" are means of 10 iterations (the first 50 of a run are
+skipped: all robots restart together, so early episode statistics are biased).
+Episode endings below 1% of episodes are never flagged. The trend compares the last 100
 iterations with the 100 before; a change >= 15% the wrong way is flagged,
 and so is a change >= 25% the wrong way since the start of the run.
 """
@@ -29,7 +30,9 @@ STEP_DT_S = 0.02
 WINDOW = 100          # iterations compared: last WINDOW vs the WINDOW before
 WORSE = 0.15          # relative change that raises a warning
 RUN_WORSE = 0.25      # whole-run change (now vs run start) that raises a warning
-WARMUP = 10           # first iterations of a run: episode statistics not settled yet
+WARMUP = 50           # first iterations of a run: all envs restart together, episode
+                      # statistics need ~2 episode lengths (~22 iterations each) to settle
+FLOOR = {"Episode_Termination/": 0.01}   # changes below 1% of episodes are not flagged
 NOW = 10              # "now" and "run start" average this many iterations
 SPARK = "▁▂▃▄▅▆▇█"
 
@@ -80,7 +83,7 @@ def series(blocks, key, magnitude=False):
     if key == "Mean episode length":
         out = [(it, v * STEP_DT_S) for it, v in out]
     out = [(it, abs(v) if magnitude else v) for it, v in out]
-    return out[WARMUP:] if len(out) > 5 * WARMUP else out
+    return out[WARMUP:] if len(out) > 2 * WARMUP else out
 
 
 def sparkline(values, slots=12):
@@ -113,21 +116,25 @@ def fmt(v):
 
 
 def section(title, rows, blocks, warnings):
-    shown = [(label, series(blocks, key, mag), better) for label, key, better, mag in rows]
-    shown = [(label, s, better) for label, s, better in shown if s]
+    shown = [(label, series(blocks, key, mag), better, key) for label, key, better, mag in rows]
+    shown = [(label, s, better, key) for label, s, better, key in shown if s]
     if not shown:
         return
-    w = min(WINDOW, max(len(s) for _, s, _ in shown) // 2)
+    w = min(WINDOW, max(len(s) for _, s, _, _ in shown) // 2)
     print(f"\n{title}")
     print(f"  {'':28s}{'now':>10s}{'run start':>11s}   {'whole run':12s}  last {w} it vs {w} before")
     mean = lambda v: st.fmean(v) if v else None
-    for label, s, better in shown:
+    for label, s, better, key in shown:
         values = [v for _, v in s]
         text, worse = trend(values, better)
+        floor = next((f for prefix, f in FLOOR.items() if key.startswith(prefix)), 0.0)
+        if max(abs(v) for v in values[-2 * w:]) < floor:
+            worse = False
         if worse:
             warnings.append(f"{label} got worse over the last {w} iterations ({text.split()[-1]})")
         now, start = mean(values[-NOW:]), mean(values[:NOW])
-        if better and not worse and len(values) >= 4 * NOW and abs(start) > 1e-9:
+        if better and not worse and len(values) >= 4 * NOW and max(abs(start), abs(now)) >= floor \
+                and abs(start) > 1e-9:
             change = (now - start) / abs(start)
             if (change > RUN_WORSE) if better == "down" else (change < -RUN_WORSE):
                 warnings.append(f"{label} is {change:+.0%} worse than at the start of the run")
