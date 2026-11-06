@@ -242,6 +242,9 @@ def main() -> None:
             onnx_path=policy_onnx,
         )
 
+    # Patch 54: a run trained with ppo.symmetric_actor is replayed with it.
+    from simulation.isaac_lab.g1_stairs.policy_symmetry import apply_from_config as apply_policy_symmetry
+    apply_policy_symmetry(runner.alg.policy, resolved_config)
     policy = runner.get_inference_policy(device=env.unwrapped.device)
 
     obs = env.get_observations()

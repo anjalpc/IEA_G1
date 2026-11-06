@@ -43,6 +43,13 @@ the robot executes, the saved checkpoint layout or replay.
    only); rollouts use ``act`` and play/export run without gradients, so
    neither changes. Outputs beyond the clip get no mirror gradient; the
    bound handles them.
+
+4. Symmetric actor (patch 54, policy_symmetry.py). The actor's mean is
+   clamped and averaged with its mirror, so the mean the distribution sees
+   never exceeds the clip and a bound there would be inert. With
+   ``symmetric=True`` the bound acts on the raw MLP outputs of both the state
+   and its mirror through ``raw_hook`` (plain L1: the executed action is
+   symmetric anyway, pairing is not needed).
 """
 from __future__ import annotations
 
@@ -89,12 +96,14 @@ class PolicyShaping:
 
     def __init__(self, policy, *, residual_clip: float, bound_coeff: float = 0.0,
                  std_floor: float = 0.0, log_every: int = 0, partner=None,
-                 clip_mirror_means: bool = False):
+                 clip_mirror_means: bool = False, symmetric: bool = False):
         if residual_clip <= 0.0 or bound_coeff < 0.0 or std_floor < 0.0:
             raise ValueError("residual_clip > 0, bound_coeff >= 0, std_floor >= 0 required")
         self.clip, self.coeff, self.floor = float(residual_clip), float(bound_coeff), float(std_floor)
         self.log_every = int(log_every)
-        self.partner = partner
+        self.partner = None if symmetric else partner
+        self.symmetric = bool(symmetric)
+        self._hook_calls = 0
         self.calls = 0
         self._outside = 0.0
         self._excess = 0.0
@@ -111,13 +120,35 @@ class PolicyShaping:
             return mean.clamp(-self.clip, self.clip)
         return mean
 
+    def raw_hook(self, raw):
+        """Bound on raw actor outputs (symmetric actor, training only)."""
+        if self.coeff <= 0.0 or not raw.requires_grad:
+            return raw
+        with torch.no_grad():
+            excess = torch.relu(raw.abs() - self.clip)
+            self._outside += float((excess > 0).float().mean())
+            self._excess += float(excess.sum(dim=-1).mean())
+            extra = bound_gradient(raw, self.clip, self.coeff)
+        self._hook_calls += 1
+        return _AddGrad.apply(raw, extra)
+
     def update_distribution(self, obs):
         self._original(obs)
         dist = self._policy.distribution
         mean, std = dist.mean, dist.stddev
         if self.floor > 0.0:
             std = std.clamp(min=self.floor)
-        if self.coeff > 0.0 and torch.is_grad_enabled() and mean.requires_grad:
+        if self.symmetric:
+            if self.coeff > 0.0 and torch.is_grad_enabled():
+                self.calls += 1
+                if self.log_every and self.calls % self.log_every == 0 and self._hook_calls:
+                    n = self._hook_calls
+                    print(f"[POLICY_SHAPING] means beyond clip {self._outside / n:.3f}, "
+                          f"summed excess per state {self._excess / n:.2f}, "
+                          f"bound loss {self.coeff * self._excess / n:.4f}", flush=True)
+                    self._outside = self._excess = 0.0
+                    self._hook_calls = 0
+        elif self.coeff > 0.0 and torch.is_grad_enabled() and mean.requires_grad:
             with torch.no_grad():
                 excess = torch.relu(mean.abs() - self.clip)
                 self._outside += float((excess > 0).float().mean())
