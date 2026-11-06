@@ -287,6 +287,33 @@ def test_accepts_only_explicit_injected_sport_backend():
             rclpy.shutdown()
 
 
+def test_rejects_sport_backend_under_recording_identity():
+    if not rclpy.ok():
+        rclpy.init()
+
+    client = Mock()
+    client.healthy.return_value = True
+    backend = SportBackend(client)
+
+    try:
+        with pytest.raises(
+            ValueError,
+            match="backend identity does not match injected backend",
+        ):
+            LocomotionArbiterNode(
+                backend=backend,
+                parameter_overrides=[
+                    Parameter("backend", value="recording"),
+                    Parameter("max_forward_mps", value=0.15),
+                    Parameter("max_lateral_mps", value=0.10),
+                    Parameter("max_yaw_rate_rps", value=0.40),
+                ],
+            )
+    finally:
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
 def test_rejects_unsupported_backend_configuration():
     if not rclpy.ok():
         rclpy.init()

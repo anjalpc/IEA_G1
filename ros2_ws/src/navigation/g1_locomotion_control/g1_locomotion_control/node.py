@@ -73,6 +73,14 @@ class LocomotionArbiterNode(Node):
         self.backend_state = backend_state_constant(
             backend_name
         )
+        if (
+            isinstance(backend, SportBackend)
+            and backend_name != "sport"
+        ):
+            raise ValueError(
+                "backend identity does not match injected backend"
+            )
+
         supported_backend = backend_name in {
             "recording",
             "simulation",
