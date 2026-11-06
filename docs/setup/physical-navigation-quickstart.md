@@ -182,6 +182,22 @@ ros2 launch   g1_navigation_bringup   physical_localization.launch.py   map:=/wo
 In RViz, use **2D Pose Estimate** to provide the robot's actual starting pose.
 Do not start localization and mapping together.
 
+## Laptop Terminal 1: planning-only navigation
+
+Stop the localization-only launch before starting this stack.
+Run the laptop setup block, then:
+
+```bash
+ros2 launch g1_navigation_bringup physical_planning.launch.py map:=/workspace/IEA_G1/ros2_ws/src/navigation/g1_navigation_localization/maps/physical/building_map.yaml autostart:=true
+```
+
+Use **2D Pose Estimate** in RViz before requesting a path.
+This launch starts localization and global planning only.
+It does not start a controller, `cmd_vel`, or robot commands.
+
+If obstacles enclose the robot in the inflated costmap, planning
+correctly aborts instead of crossing them.
+
 ## Clean shutdown
 
 - Stop RViz with `Ctrl+C`.
