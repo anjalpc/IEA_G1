@@ -36,6 +36,7 @@ Usage:
   simctl use <run_id>
   simctl tensorboard {start|status|stop}
   simctl video <checkpoint> [--height <m>] [--seed <n>] [--trace-only] [--markers]
+  simctl traces [<checkpoint>...] [--parallel <n>|auto] [--name <tag>]   (trace batch + pass/fail report + tarball)
   simctl showcase <checkpoint> [--robots <n>] [--rows <n>] [--seconds <s>] [--height <m>] [--seed <n>] [--no-markers]
   simctl baseline [config.yaml]
   simctl evaluate <checkpoint>
@@ -655,7 +656,7 @@ STATUS_PY
 
     echo
     if curl -fsS --max-time 1 "http://127.0.0.1:${TB_PORT}/" >/dev/null 2>&1; then
-        echo "TensorBoard: running at http://localhost:${TB_PORT}"
+        echo "TensorBoard: running on AWS port ${TB_PORT} (open the local address VS Code shows for it)"
     else
         echo "TensorBoard: not running"
         echo "Start with: simctl tensorboard start"
@@ -955,6 +956,118 @@ cd /workspace/IEA_G1
     echo "Video: $VIDEO_FILE"
     echo "Copy to Windows:"
     echo "  scp aws-g1-training:${VIDEO_FILE} \$HOME\\Downloads\\"
+}
+
+# Trace batch for checkpoint analysis of the selected run. Without checkpoint
+# numbers it takes the run's last checkpoint and the ones nearest 40% and 70%
+# of the run. Each checkpoint: flat seeds 1-3 and every stair height of the
+# run's training terrain (last checkpoint seeds 1-10, others 1-4),
+# --trace-only --symmetry check, 600 steps; then trace_report.py and a tarball.
+# Replays run 3 at a time (measured on the A10G 2026-11-06: 3 in parallel take
+# 107 s, 1 alone 55 s; the GPU is the limit, not memory); "auto" sizes by the
+# first replay's GPU/RAM use instead.
+cmd_traces() {
+    local USAGE="Usage: simctl traces [<checkpoint>...] [--parallel <n>|auto] [--name <tag>]"
+    local CKPTS=() PARALLEL=3 NAME=traces
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --parallel) PARALLEL="${2:?$USAGE}"; shift 2 ;;
+            --name) NAME="${2:?$USAGE}"; shift 2 ;;
+            [0-9]*) CKPTS+=("$1"); shift ;;
+            *) echo "$USAGE" >&2; exit 1 ;;
+        esac
+    done
+    [[ "$PARALLEL" =~ ^([1-9]|auto)$ ]] || { echo "--parallel must be 1-9 or auto" >&2; exit 1; }
+    if [ -f "$CURRENT_PID" ] && kill -0 "$(cat "$CURRENT_PID")" 2>/dev/null; then
+        echo "Training is running (PID $(cat "$CURRENT_PID")); replays would slow it down. Wait or run: simctl stop" >&2
+        exit 1
+    fi
+    local RUN_ID TRAIN_DIR CFG EVAL HEIGHTS LAST
+    RUN_ID="$(current_run)"; TRAIN_DIR="$(resolve_train_dir)"
+    if [ ${#CKPTS[@]} -eq 0 ]; then
+        local SAVED
+        SAVED="$(find "$TRAIN_DIR" -maxdepth 1 -name 'model_*.pt' | sed -E 's/.*model_([0-9]+)\.pt/\1/' | sort -n)"
+        [ -n "$SAVED" ] || { echo "No checkpoints in $TRAIN_DIR" >&2; exit 1; }
+        read -r -a CKPTS <<< "$(echo "$SAVED" | awk '{c[NR]=$1} END{
+            a=c[1]; b=c[NR];
+            for (k=1; k<=2; k++) { t = a + (k==1 ? 0.4 : 0.7) * (b - a); best=c[1];
+                for (i=1; i<=NR; i++) if ((c[i]-t)^2 < (best-t)^2) best=c[i]; pick[best]=1 }
+            pick[b]=1; for (x in pick) printf "%s ", x }' | tr ' ' '\n' | sort -n | tr '\n' ' ')"
+        echo "Checkpoints chosen: ${CKPTS[*]}"
+    fi
+    CFG="experiments/g1_stairs/runs/${RUN_ID}/resolved_config.yaml"
+    EVAL="experiments/g1_stairs/outputs/evaluation/${NAME}/${RUN_ID}"
+    [ -f "$CFG" ] || { echo "Resolved config not found: $CFG" >&2; exit 1; }
+    for M in "${CKPTS[@]}"; do
+        [ -f "${TRAIN_DIR}/model_${M}.pt" ] || { echo "Checkpoint not found: ${TRAIN_DIR}/model_${M}.pt" >&2; exit 1; }
+    done
+    HEIGHTS="$(python3 -c "import sys,yaml; print(' '.join(str(h) for h in yaml.safe_load(open(sys.argv[1]))['terrain']['riser_heights_m']))" "$CFG")"
+    LAST="$(printf '%s\n' "${CKPTS[@]}" | sort -n | tail -n 1)"
+    ensure_container_running
+    docker exec "$CONTAINER" pkill -9 -f record_view.py >/dev/null 2>&1 || true
+
+    local JOBS="/tmp/simctl_traces_jobs.txt"
+    : > "$JOBS"
+    for M in "${CKPTS[@]}"; do
+        for H in $HEIGHTS; do
+            local SEEDS="1 2 3"
+            if awk -v h="$H" 'BEGIN{exit !(h > 0)}'; then
+                SEEDS="1 2 3 4"; [ "$M" = "$LAST" ] && SEEDS="1 2 3 4 5 6 7 8 9 10"
+            fi
+            for S in $SEEDS; do echo "$M $H $S" >> "$JOBS"; done
+        done
+    done
+
+    export TR_EVAL="$EVAL" TR_CFG="$CFG" TR_TRAIN="${TRAIN_DIR/$REPO/\/workspace\/IEA_G1}" TR_COMMIT="$(git rev-parse HEAD)" TR_CONTAINER="$CONTAINER"
+    trace_one() {
+        local M=$1 H=$2 S=$3 HC D
+        HC="$(awk -v h="$H" 'BEGIN{printf "%02d", int(h * 100 + 0.5)}')"
+        D="${TR_EVAL}/model_${M}_h${HC}cm_seed${S}_side"
+        if [ -s "$D/trace.jsonl" ] && [ -s "$D/mirror_check.json" ]; then echo "SKIP $D"; return 0; fi
+        rm -rf "$D"; mkdir -p "$TR_EVAL"
+        docker exec -i --env UNITREE_RL_LAB_ROOT=/workspace/unitree_rl_lab --workdir /workspace/IEA_G1 "$TR_CONTAINER" /workspace/isaaclab/isaaclab.sh -p simulation/isaac_lab/g1_stairs/scripts/visualization/record_view.py --task Unitree-IEA-G1-29dof-Stairs-Footsteps-v0 --trace-only --symmetry check --view side --output_dir "/workspace/IEA_G1/$D" --video_length 600 --seed "$S" --num_envs 1 --checkpoint "${TR_TRAIN}/model_${M}.pt" --resolved_config "/workspace/IEA_G1/${TR_CFG}" --riser_height_override "$H" --project_commit "$TR_COMMIT" --isaaclab_commit 3c6e67bb5c7ada942a6d1884ab69338f57596f77 --unitree_rl_commit 4960b84732b0c2ec593dccbfe963fda1bcd7b1e3 --unitree_diff_sha256 54a60bd3ed9de27514530c82936cb43e6b1c5074fee173e81ee271b7ca238b1f --headless --device cuda:0 </dev/null > "/tmp/rv_${M}_${HC}_${S}.log" 2>&1
+        if [ -s "$D/trace.jsonl" ] && [ -s "$D/mirror_check.json" ]; then echo "PASS $D"; else echo "FAIL $D (log /tmp/rv_${M}_${HC}_${S}.log)"; fi
+    }
+    export -f trace_one
+
+    local TOTAL START P
+    TOTAL="$(wc -l < "$JOBS")"; START=$SECONDS
+    echo "Run $RUN_ID: ${TOTAL} replays (checkpoints ${CKPTS[*]}; heights ${HEIGHTS} m) -> $EVAL"
+    P="$PARALLEL"
+    if [ "$P" = auto ]; then
+        # Time one replay alone and record its peak GPU memory and RAM.
+        local G0 R0 GT RT G=0 R=0 PID
+        read -r G0 GT < <(nvidia-smi --query-gpu=memory.used,memory.total --format=csv,noheader,nounits | sed -n 1p | tr -d ',')
+        read -r RT R0 < <(free -m | awk '/^Mem:/{print $2, $3}')
+        trace_one $(sed -n 1p "$JOBS") & PID=$!
+        while kill -0 "$PID" 2>/dev/null; do
+            local g r
+            g=$(( $(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits | sed -n 1p) - G0 )); [ "$g" -gt "$G" ] && G=$g
+            r=$(( $(free -m | awk '/^Mem:/{print $3}') - R0 )); [ "$r" -gt "$R" ] && R=$r
+            sleep 1
+        done
+        wait "$PID"
+        P=$(awk -v g="$G" -v r="$R" -v gt="$GT" -v g0="$G0" -v rt="$RT" -v r0="$R0" -v c="$(nproc)" 'BEGIN{
+            if (g <= 0) { print 3; exit }   # nothing measured (first replay skipped): safe default
+            pg = int((0.9 * gt - g0) / g); pr = (r > 0) ? int((0.85 * rt - r0) / r) : 8; pc = int(c / 2);
+            p = pg; if (pr < p) p = pr; if (pc < p) p = pc; if (p > 8) p = 8; if (p < 1) p = 1; print p }')
+        echo "One replay: $(( SECONDS - START )) s, peak GPU +${G} MiB of ${GT}, RAM +${R} MiB of ${RT}, $(nproc) CPUs -> ${P} in parallel"
+        sed -i 1d "$JOBS"
+    fi
+    xargs -P "$P" -L 1 bash -c 'trace_one "$@"' _ < "$JOBS" | tee /tmp/simctl_traces.log
+    echo "Replays done in $(( (SECONDS - START) / 60 )) min."
+    if grep -q "^FAIL" /tmp/simctl_traces.log; then
+        echo "Some replays failed (listed above). Run the same command again: finished replays are skipped." >&2
+        exit 1
+    fi
+    python3 simulation/isaac_lab/g1_stairs/scripts/evaluation/trace_report.py "$EVAL" --seeds > "$EVAL/report.txt" || true
+    python3 simulation/isaac_lab/g1_stairs/scripts/evaluation/trace_report.py "$EVAL" || true
+    local CON TGZ="$HOME/${NAME}_${RUN_ID}.tgz"
+    CON="$(find experiments/g1_stairs -path "*${RUN_ID}*" -name console.log | sed -n 1p)"
+    tar czf "$TGZ" -C "$EVAL" . ${CON:+-C "$PWD" "$CON"}
+    echo
+    echo "Tarball: $TGZ"
+    echo "Copy:    scp aws-g1-training:${TGZ} \$HOME\\Downloads\\"
 }
 
 cmd_video() {
@@ -1516,6 +1629,10 @@ case "${1:-help}" in
     video)
         shift
         cmd_video "$@"
+        ;;
+    traces)
+        shift
+        cmd_traces "$@"
         ;;
     showcase)
         shift

@@ -51,6 +51,18 @@ class TrainingStatusTests(unittest.TestCase):
         self.assertIn("steady", status.trend([1.0] * 100 + [1.02] * 100, "up")[0])
         self.assertEqual(status.trend([1.0] * 10, "up"), ("too early", False))
 
+    def test_small_uptick_after_big_improvement_is_not_flagged(self):
+        falls = [0.11 - 0.001 * i for i in range(100)] + [0.009] * 100 + [0.012] * 100
+        blocks = {it: {"Episode_Termination/bad_orientation": v} for it, v in enumerate(falls)}
+        rows = (("Tipping over", "Episode_Termination/bad_orientation", "down", False),)
+        warnings = []
+        status.section("T", rows, blocks, warnings)
+        self.assertEqual(warnings, [])
+        blocks = {it: {"Episode_Termination/bad_orientation": v}
+                  for it, v in enumerate([0.02] * 150 + [0.04] * 150)}
+        status.section("T", rows, blocks, warnings)
+        self.assertTrue(warnings)
+
     def test_sparkline_runs_low_to_high(self):
         line = status.sparkline(list(range(120)))
         self.assertEqual((line[0], line[-1], len(line)), ("▁", "█", 12))

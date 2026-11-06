@@ -130,6 +130,10 @@ def section(title, rows, blocks, warnings):
         floor = next((f for prefix, f in FLOOR.items() if key.startswith(prefix)), 0.0)
         if max(abs(v) for v in values[-2 * w:]) < floor:
             worse = False
+        # A small uptick after a large improvement is noise, not a regression:
+        # the rise must be >= 10% of the range the metric covered this run.
+        if worse and abs(mean(values[-w:]) - mean(values[-2 * w:-w])) < 0.1 * (max(values) - min(values)):
+            worse = False
         if worse:
             warnings.append(f"{label} got worse over the last {w} iterations ({text.split()[-1]})")
         now, start = mean(values[-NOW:]), mean(values[:NOW])
