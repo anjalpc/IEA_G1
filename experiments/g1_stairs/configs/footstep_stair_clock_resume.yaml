@@ -5,7 +5,7 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Patch 50, first height step. Resume from patch 48 (run 20261105_153312 model_11200; paired mean bound 0.01, no std floor) with the patch 49 clipped mirror loss, on flat, 2 cm and 4 cm tiles at random (1500 iterations). Probe 20261106 without training, 4 cm, 5 seeds each; p45 10200 1/5 climbed and p48 11200 0/5, 3 and 2 falls, swing toe caught on the riser with the sole 0.5-4 cm below the tread top.
+  purpose: Patch 50, first height step. Resume from patch 48 (run 20261105_153312 model_11200; paired mean bound 0.01, no std floor) with the patch 49 clipped mirror loss, on flat, 2 cm and 4 cm tiles at random (1000 iterations). Probe 20261106 without training, 4 cm, 5 seeds each; p45 10200 1/5 climbed and p48 11200 0/5, 3 and 2 falls, swing toe caught on the riser with the sole 0.5-4 cm below the tread top.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -70,8 +70,8 @@ footstep_clock:
   max_stride_m: 0.55
 execution:
   environments: 2048
-  # Resumed run: 1500 more iterations after the checkpoint's own.
-  maximum_iterations: 1500
+  # Resumed run: 1000 more iterations after the checkpoint's own.
+  maximum_iterations: 1000
   training_seed: 42
 # Residual on the frozen official Unitree policy (balance_residual_control);
 # the actor sees all 688 inputs. Policy, critic, optimizer and learning rate
