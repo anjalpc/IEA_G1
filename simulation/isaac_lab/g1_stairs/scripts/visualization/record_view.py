@@ -226,6 +226,8 @@ parser.add_argument(
 parser.add_argument(
     "--output_dir",
     required=True,
+    help="Output directory. With --trace-only and --num_envs N > 1 it must "
+    "contain {env}: one directory per robot, {env} = 1..N.",
 )
 
 parser.add_argument(
@@ -304,7 +306,12 @@ if args.showcase:
     if args.showcase_rows < 1 or args.num_envs % args.showcase_rows:
         parser.error("--showcase_rows must divide --num_envs")
 elif args.num_envs != 1:
-    parser.error("Phase 11 requires --num_envs 1")
+    # Trace batch: N robots on N identical courses in one replay, one trace
+    # directory each (one Isaac start-up instead of N; the A10G is GPU-bound
+    # with parallel single-robot replays).
+    if not (args.trace_only and 1 < args.num_envs <= 32 and "{env}" in args.output_dir):
+        parser.error("--num_envs > 1 needs --trace-only, at most 32 robots and "
+                     "{env} in --output_dir (Phase 11 videos use --num_envs 1)")
 
 if args.trace_only:
     args.trace = True
@@ -348,8 +355,12 @@ def main() -> None:
 
     from unitree_rl_lab.utils.parser_cfg import parse_env_cfg
 
-    output_dir = Path(args.output_dir).resolve()
-    output_dir.mkdir(parents=True, exist_ok=True)
+    batch = args.num_envs > 1 and not args.showcase
+    output_dirs = ([Path(args.output_dir.format(env=k + 1)).resolve() for k in range(args.num_envs)]
+                   if batch else [Path(args.output_dir).resolve()])
+    for directory in output_dirs:
+        directory.mkdir(parents=True, exist_ok=True)
+    output_dir = output_dirs[0]
 
     checkpoint = None
     policy_onnx = None
@@ -385,12 +396,13 @@ def main() -> None:
     # blue actual velocity).
     env_cfg.commands.base_velocity.debug_vis = bool(args.showcase)
 
-    # Evaluation uses exactly one terrain tile. Training may use a grid,
-    # but neighboring courses must never enter the evaluation recordings.
+    # Evaluation: one course tile per robot (one robot unless a trace batch
+    # or showcase), placed explicitly after gym.make.
     terrain_generator = env_cfg.scene.terrain.terrain_generator
     terrain_generator.num_rows = args.showcase_rows if args.showcase else 1
     # Showcase: one course per robot (placed explicitly after gym.make).
-    terrain_generator.num_cols = args.num_envs // args.showcase_rows if args.showcase else 1
+    terrain_generator.num_cols = (args.num_envs // args.showcase_rows if args.showcase
+                                  else args.num_envs)
     if args.showcase:
         stair_width = float(terrain_generator.size[1])
         spacing = max(float(args.showcase_spacing_m), stair_width)
@@ -548,13 +560,14 @@ def main() -> None:
 
     if isinstance(env.unwrapped, DirectMARLEnv):
         env = multi_agent_to_single_agent(env)
-    if args.showcase:
+    if args.showcase or batch:
         # One robot per course: env i -> row i % rows, column i // rows
         # (Isaac Lab draws rows at random, so robots could share a course).
+        rows = args.showcase_rows if args.showcase else 1
         terrain = env.unwrapped.scene.terrain
         ids = torch.arange(args.num_envs, device=terrain.env_origins.device)
-        terrain.terrain_levels[:] = ids % args.showcase_rows
-        terrain.terrain_types[:] = ids // args.showcase_rows
+        terrain.terrain_levels[:] = ids % rows
+        terrain.terrain_types[:] = ids // rows
         terrain.env_origins[:] = terrain.terrain_origins[terrain.terrain_levels, terrain.terrain_types]
 
     if not args.trace_only:
@@ -646,16 +659,13 @@ def main() -> None:
         "trace_only": bool(args.trace_only),
     }
 
-    metadata_file = output_dir / "metadata.json"
+    def write_metadata():
+        for k, directory in enumerate(output_dirs):
+            entry = dict(metadata, env_index=k, robot=k + 1) if batch else metadata
+            (directory / "metadata.json").write_text(
+                json.dumps(entry, indent=2, sort_keys=True) + "\n")
 
-    metadata_file.write_text(
-        json.dumps(
-            metadata,
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n"
-    )
+    write_metadata()
 
     print("=== PHASE 11 VIEW CONTRACT ===")
     print(f"view={args.view}")
@@ -692,7 +702,7 @@ def main() -> None:
 
         trace = GeometryTrace(
             env.unwrapped,
-            output_dir,
+            output_dirs,
         )
 
     obs = env.get_observations()
@@ -734,14 +744,7 @@ def main() -> None:
     metadata["viewer_eye_resolved"] = list(resolved_eye)
     metadata["viewer_lookat_resolved"] = list(resolved_lookat)
 
-    metadata_file.write_text(
-        json.dumps(
-            metadata,
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n"
-    )
+    write_metadata()
 
     print(f"robot_root_world={robot_root}")
     print(f"spawn_offset={spawn_offset}")
@@ -825,7 +828,7 @@ def main() -> None:
     if args.symmetry != "off":
         from simulation.isaac_lab.g1_stairs import footstep_symmetry as fsym
         from simulation.isaac_lab.g1_stairs.contracts import BODY_JOINTS
-        mirror = {"err_sum": None, "clip_err_sum": None, "sat_sum": None, "sq_sum": 0.0, "n": 0}
+        mirror = {"err_sum": None, "clip_err_sum": None, "sat_sum": None, "sq_sum": None, "n": 0}
         # The residual wrapper clips the policy output before execution, so
         # equivariance and averaging are judged on the clipped residual.
         residual_clip = float(getattr(env, "_residual_clip", float("inf")))
@@ -857,25 +860,26 @@ def main() -> None:
                 actions_m = fsym.mirror_actions(policy(mirrored_obs(obs)))
                 clipped = actions.clamp(-residual_clip, residual_clip)
                 clipped_m = actions_m.clamp(-residual_clip, residual_clip)
-                err = (actions_m - actions)[0]
+                # Per robot: [num_envs, joints].
+                err = actions_m - actions
                 acc("err_sum", err.abs())
-                acc("clip_err_sum", (clipped_m - clipped)[0].abs())
-                acc("sat_sum", (actions[0].abs() > residual_clip).float())
-                acc("raw_sum", actions[0])
-                acc("raw_abs_sum", actions[0].abs())
+                acc("clip_err_sum", (clipped_m - clipped).abs())
+                acc("sat_sum", (actions.abs() > residual_clip).float())
+                acc("raw_sum", actions)
+                acc("raw_abs_sum", actions.abs())
                 acc("signed_sum", err)
                 if teacher_net is not None and residual_scale is not None:
                     teacher = teacher_of(obs)
                     teacher_m = fsym.mirror_actions(teacher_of(mirrored_obs(obs)))
-                    t_err = (teacher_m - teacher)[0]
+                    t_err = teacher_m - teacher
                     acc("teacher_abs_sum", t_err.abs())
                     acc("teacher_signed_sum", t_err)
                     executed = teacher + clipped * residual_scale
                     executed_m = teacher_m + clipped_m * residual_scale
-                    e_err = (executed_m - executed)[0]
+                    e_err = executed_m - executed
                     acc("executed_abs_sum", e_err.abs())
                     acc("executed_signed_sum", e_err)
-                mirror["sq_sum"] += float((err * err).mean())
+                acc("sq_sum", (err * err).mean(dim=-1))
                 mirror["n"] += 1
                 if args.symmetry == "average":
                     actions = 0.5 * (clipped + clipped_m)
@@ -898,24 +902,25 @@ def main() -> None:
     metadata["completed"] = True
     metadata["completed_steps"] = steps
     if mirror is not None and mirror["n"]:
-        mean_abs = (mirror["err_sum"] / mirror["n"]).tolist()
-        report = {
-            "mode": args.symmetry,
-            "steps": mirror["n"],
-            "rms_policy_action": (mirror["sq_sum"] / mirror["n"]) ** 0.5,
-            "mean_abs_by_joint": dict(zip(BODY_JOINTS, mean_abs)),
-            "residual_clip": residual_clip,
-            "clipped_mean_abs_by_joint": dict(zip(BODY_JOINTS, (mirror["clip_err_sum"] / mirror["n"]).tolist())),
-            "saturated_fraction_by_joint": dict(zip(BODY_JOINTS, (mirror["sat_sum"] / mirror["n"]).tolist())),
-            # signed: mean of M pi(M s) - pi(s); a steady bias shows a
-            # one-sided preference, not just noise.
-            "signed_mean_by_joint": dict(zip(BODY_JOINTS, (mirror["signed_sum"] / mirror["n"]).tolist())),
-        }
-        for key in ("teacher_abs", "teacher_signed", "executed_abs", "executed_signed", "raw", "raw_abs"):
-            if mirror.get(key + "_sum") is not None:
-                report[key + "_by_joint"] = dict(zip(
-                    BODY_JOINTS, (mirror[key + "_sum"] / mirror["n"]).tolist()))
-        (output_dir / "mirror_check.json").write_text(json.dumps(report, indent=2) + "\n")
+        n = mirror["n"]
+        per_joint = lambda key, k: dict(zip(BODY_JOINTS, (mirror[key][k] / n).tolist()))
+        for k, directory in enumerate(output_dirs):
+            report = {
+                "mode": args.symmetry,
+                "steps": n,
+                "rms_policy_action": float(mirror["sq_sum"][k] / n) ** 0.5,
+                "mean_abs_by_joint": per_joint("err_sum", k),
+                "residual_clip": residual_clip,
+                "clipped_mean_abs_by_joint": per_joint("clip_err_sum", k),
+                "saturated_fraction_by_joint": per_joint("sat_sum", k),
+                # signed: mean of M pi(M s) - pi(s); a steady bias shows a
+                # one-sided preference, not just noise.
+                "signed_mean_by_joint": per_joint("signed_sum", k),
+            }
+            for key in ("teacher_abs", "teacher_signed", "executed_abs", "executed_signed", "raw", "raw_abs"):
+                if mirror.get(key + "_sum") is not None:
+                    report[key + "_by_joint"] = per_joint(key + "_sum", k)
+            (directory / "mirror_check.json").write_text(json.dumps(report, indent=2) + "\n")
         if "teacher_abs_by_joint" in report:
             t_top = sorted(report["teacher_abs_by_joint"].items(), key=lambda kv: -kv[1])[:4]
             print("MIRROR teacher: " + ", ".join(f"{k} {v:.3f}" for k, v in t_top))
@@ -925,14 +930,7 @@ def main() -> None:
     metadata["symmetry"] = args.symmetry
     metadata["teacher_symmetry"] = args.teacher_symmetry
 
-    metadata_file.write_text(
-        json.dumps(
-            metadata,
-            indent=2,
-            sort_keys=True,
-        )
-        + "\n"
-    )
+    write_metadata()
 
     print(
         f"VALID: recorded {args.view} view "

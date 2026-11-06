@@ -5,7 +5,8 @@ from pathlib import Path
 
 
 class GeometryTrace:
-    def __init__(self, env, output):
+    def __init__(self, env, outputs):
+        """outputs: one directory, or one per robot (env index order)."""
         from simulation.isaac_lab.g1_stairs.contracts import (
             G1_SOLE_SPHERE_CENTRES_M, G1_SOLE_SPHERE_RADIUS_M,
         )
@@ -44,13 +45,16 @@ class GeometryTrace:
             "first_riser_x_local_m": float(cfg.start_clearance),
             "tread_depth_m": float(cfg.tread_depth),
             "step_count": int(cfg.step_count),
-            "riser_height_m": float(riser_height_per_env(env)[0].item()),
             "reward_contributions": "weighted term values multiplied by step_dt",
         }
-        output = Path(output)
-        with (output / "trace_metadata.json").open("x") as stream:
-            json.dump(metadata, stream, indent=2)
-        self.stream = (output / "trace.jsonl").open("x", buffering=1)
+        outputs = [Path(outputs)] if isinstance(outputs, (str, Path)) else [Path(o) for o in outputs]
+        heights = riser_height_per_env(env)
+        self.streams = []
+        for i, output in enumerate(outputs):
+            entry = dict(metadata, env_index=i, riser_height_m=float(heights[i].item()))
+            with (output / "trace_metadata.json").open("x") as stream:
+                json.dump(entry, stream, indent=2)
+            self.streams.append((output / "trace.jsonl").open("x", buffering=1))
         self.capture(None)
         self.manager.compute = self.compute
 
@@ -59,20 +63,25 @@ class GeometryTrace:
         return tensor.detach().cpu().tolist()
 
     def capture(self, reward):
+        for i, stream in enumerate(self.streams):
+            stream.write(json.dumps(self.row(reward, i), allow_nan=False) + "\n")
+
+    def row(self, reward, i):
+        """One trace row for robot (env) i."""
         env = self.env
         data = self.robot.data
         row = {
             "sample": "initial" if reward is None else "post_physics_pre_reset",
             "global_step": int(env.common_step_counter),
-            "episode_step": int(env.episode_length_buf[0].item()),
-            "episode_time_s": float(env.episode_length_buf[0].item() * env.step_dt),
-            "env_origin_w": self.values(env.scene.env_origins[0]),
-            "root_pos_w": self.values(data.root_pos_w[0]),
-            "root_quat_w": self.values(data.root_quat_w[0]),
-            "root_lin_vel_w": self.values(data.root_lin_vel_w[0]),
-            "root_ang_vel_w": self.values(data.root_ang_vel_w[0]),
+            "episode_step": int(env.episode_length_buf[i].item()),
+            "episode_time_s": float(env.episode_length_buf[i].item() * env.step_dt),
+            "env_origin_w": self.values(env.scene.env_origins[i]),
+            "root_pos_w": self.values(data.root_pos_w[i]),
+            "root_quat_w": self.values(data.root_quat_w[i]),
+            "root_lin_vel_w": self.values(data.root_lin_vel_w[i]),
+            "root_ang_vel_w": self.values(data.root_ang_vel_w[i]),
             "command_base_velocity": self.values(
-                env.command_manager.get_command("base_velocity")[0]
+                env.command_manager.get_command("base_velocity")[i]
             ),
             "foot_pos_w": self.values(data.body_pos_w[0, self.foot_ids]),
             "foot_quat_w": self.values(data.body_quat_w[0, self.foot_ids]),
@@ -80,15 +89,15 @@ class GeometryTrace:
             "foot_ang_vel_w": self.values(data.body_ang_vel_w[0, self.foot_ids]),
             "knee_pos_w": self.values(data.body_pos_w[0, self.knee_ids]),
             "knee_lin_vel_w": self.values(data.body_lin_vel_w[0, self.knee_ids]),
-            "contact_net_forces_w": self.values(self.sensor.data.net_forces_w[0]),
-            "joint_pos_rad": self.values(data.joint_pos[0]),
-            "joint_vel_rad_s": self.values(data.joint_vel[0]),
-            "applied_torque_nm": self.values(data.applied_torque[0]),
-            "joint_pos_target_rad": self.values(data.joint_pos_target[0]),
+            "contact_net_forces_w": self.values(self.sensor.data.net_forces_w[i]),
+            "joint_pos_rad": self.values(data.joint_pos[i]),
+            "joint_vel_rad_s": self.values(data.joint_vel[i]),
+            "applied_torque_nm": self.values(data.applied_torque[i]),
+            "joint_pos_target_rad": self.values(data.joint_pos_target[i]),
             "action": self.values(
                 env.action_manager.action[0, :29]
                 if getattr(env.cfg, "gait_phase_enabled", False)
-                else env.action_manager.action[0]
+                else env.action_manager.action[i]
             ),
         }
         centre, bounds, surface_velocity = self.sole_state(
@@ -98,45 +107,45 @@ class GeometryTrace:
             data.body_ang_vel_w[0:1, self.foot_ids],
         )
         row["motion_geometry"] = {
-            "sole_centre_local": self.values(centre[0]),
-            "sole_bounds_local": self.values(bounds[0]),
-            "surface_velocity_w": self.values(surface_velocity[0]),
-            "surface_speed_mps": self.values(surface_velocity.norm(dim=-1).amax(-1)[0]),
-            "surface_slip_mps": self.values(surface_velocity[..., :2].norm(dim=-1).amax(-1)[0]),
+            "sole_centre_local": self.values(centre[i]),
+            "sole_bounds_local": self.values(bounds[i]),
+            "surface_velocity_w": self.values(surface_velocity[i]),
+            "surface_speed_mps": self.values(surface_velocity.norm(dim=-1).amax(-1)[i]),
+            "surface_slip_mps": self.values(surface_velocity[..., :2].norm(dim=-1).amax(-1)[i]),
         }
         row["knee_ang_vel_w"] = self.values(data.body_ang_vel_w[0, self.knee_ids])
         row["knee_quat_w"] = self.values(data.body_quat_w[0, self.knee_ids])
         history = getattr(self.sensor.data, "net_forces_w_history", None)
         if history is not None:
-            row["contact_force_history_w"] = self.values(history[0])
+            row["contact_force_history_w"] = self.values(history[i])
         motion = getattr(env, "_g1_coordinated_motion", None)
         if motion is not None and reward is not None:
             row["coordinated_motion"] = {
-                key: self.values(value[0]) for key, value in motion.trace.items()
+                key: self.values(value[i]) for key, value in motion.trace.items()
             }
         if getattr(env.cfg, "gait_phase_enabled", False):
             gait = env.action_manager.get_term("gait_frequency")
-            clock = gait.observation()[0]
+            clock = gait.observation()[i]
             row.update({
                 "raw_frequency_action": self.values(gait.raw_actions[0, 0]),
                 "frequency_hz": self.values(gait.processed_actions[0, 0]),
-                "phase": self.values(gait.phase[0]),
-                "sin_phase": self.values(clock[0]),
+                "phase": self.values(gait.phase[i]),
+                "sin_phase": self.values(clock[i]),
                 "cos_phase": self.values(clock[1]),
-                "gait_active": self.values(gait.active[0]),
-                "gait_reward_phase": self.values(gait.reward_phase[0]),
-                "gait_reward_active": self.values(gait.reward_active[0]),
-                "phase_swing_contact_loss": self.values(gait.contact_loss[0]),
-                "approach_committed": self.values(gait.approach_committed[0]),
-                "approach_clear_pending": self.values(gait.approach_clear_pending[0]),
+                "gait_active": self.values(gait.active[i]),
+                "gait_reward_phase": self.values(gait.reward_phase[i]),
+                "gait_reward_active": self.values(gait.reward_active[i]),
+                "phase_swing_contact_loss": self.values(gait.contact_loss[i]),
+                "approach_committed": self.values(gait.approach_committed[i]),
+                "approach_clear_pending": self.values(gait.approach_clear_pending[i]),
             })
         if reward is not None:
             row.update({
-                "terminated": bool(env.termination_manager.terminated[0].item()),
-                "time_out": bool(env.termination_manager.time_outs[0].item()),
-                "reward_total": float(reward[0].item()),
+                "terminated": bool(env.termination_manager.terminated[i].item()),
+                "time_out": bool(env.termination_manager.time_outs[i].item()),
+                "reward_total": float(reward[i].item()),
                 "reward_contributions": self.values(
-                    self.manager._step_reward[0] * env.step_dt
+                    self.manager._step_reward[i] * env.step_dt
                 ),
             })
         acquisition = getattr(env, "_g1_v04_acquisition", None)
@@ -144,7 +153,7 @@ class GeometryTrace:
             def trace_value(name):
                 value = getattr(acquisition, name, None)
                 return (
-                    self.values(value[0])
+                    self.values(value[i])
                     if value is not None
                     else None
                 )
@@ -227,22 +236,22 @@ class GeometryTrace:
                     "step_over_trace_pref_bottom_z"
                 ),
                 "step_acquired_event": self.values(
-                    acquisition.step_acquired_event[0]
+                    acquisition.step_acquired_event[i]
                 ),
                 "acquired_target_index": self.values(
-                    acquisition.acquired_target_index[0]
+                    acquisition.acquired_target_index[i]
                 ),
                 "physical_touchdown_event": self.values(
-                    acquisition.physical_touchdown_event[0]
+                    acquisition.physical_touchdown_event[i]
                 ),
                 "riser_face_strike_sample": self.values(
-                    acquisition.riser_face_strike_sample[0]
+                    acquisition.riser_face_strike_sample[i]
                 ),
                 "riser_strike_force_x": self.values(
-                    acquisition.riser_strike_force_x[0]
+                    acquisition.riser_strike_force_x[i]
                 ),
                 "crossing_attempt_invalid": self.values(
-                    acquisition.crossing_attempt_invalid[0]
+                    acquisition.crossing_attempt_invalid[i]
                 ),
                 "clearance_potential": trace_value(
                     "clearance_potential"
@@ -253,25 +262,25 @@ class GeometryTrace:
         progress = getattr(runtime, "supported_ascent", None)
         if progress is not None:
             row["supported_ascent"] = {
-                "next_step": int(progress.next_step[0].item()),
-                "last_foot": int(progress.last_foot[0].item()),
-                "pending_time_s": self.values(progress.pending_time[0]),
-                "candidate_foot": int(progress.candidate_foot[0].item()),
-                "transfer_blocked": bool(progress.transfer_blocked[0].item()),
-                "transfer_time_s": float(progress.transfer_time[0].item()),
+                "next_step": int(progress.next_step[i].item()),
+                "last_foot": int(progress.last_foot[i].item()),
+                "pending_time_s": self.values(progress.pending_time[i]),
+                "candidate_foot": int(progress.candidate_foot[i].item()),
+                "transfer_blocked": bool(progress.transfer_blocked[i].item()),
+                "transfer_time_s": float(progress.transfer_time[i].item()),
                 "transfer_start_potential": float(
-                    progress.transfer_start_potential[0].item()
+                    progress.transfer_start_potential[i].item()
                 ),
-                "motion_potential": float(progress.swing_potential[0].item()),
-                "swing_potential": float(progress.swing_potential[0].item()),
-                "swing_progress": float(progress.last_swing_progress[0].item()),
-                "first": bool(progress.first[0].item()),
-                "second": bool(progress.second[0].item()),
-                "third": bool(progress.third[0].item()),
-                "alternating_complete": bool(progress.alternating_complete[0].item()),
+                "motion_potential": float(progress.swing_potential[i].item()),
+                "swing_potential": float(progress.swing_potential[i].item()),
+                "swing_progress": float(progress.last_swing_progress[i].item()),
+                "first": bool(progress.first[i].item()),
+                "second": bool(progress.second[i].item()),
+                "third": bool(progress.third[i].item()),
+                "alternating_complete": bool(progress.alternating_complete[i].item()),
             }
         row["finish_dwell_s"] = (
-            float(runtime.tracker.dwell[0].item())
+            float(runtime.tracker.dwell[i].item())
             if runtime is not None else None
         )
         episode_runtime = getattr(env, "_g1_geometry_episode", None)
@@ -291,26 +300,26 @@ class GeometryTrace:
             external = getattr(acquisition, "step_over_contract_violation", None)
             row["training_recovery"] = {
                 "duration_s": episode_runtime.contract.training_recovery_s,
-                "failure_latched": bool(episode_runtime.strict_failure_latched[0].item()),
-                "elapsed_s": float(episode_runtime.recovery_elapsed_s[0].item()),
-                "live_strike": bool(strike[0].item()),
-                "live_bridge": bool(bridge[0].item()),
-                "external_violation": bool(external[0].item()) if external is not None else False,
-                "episode_reason": int(episode_runtime.tracker.reason[0].item()),
+                "failure_latched": bool(episode_runtime.strict_failure_latched[i].item()),
+                "elapsed_s": float(episode_runtime.recovery_elapsed_s[i].item()),
+                "live_strike": bool(strike[i].item()),
+                "live_bridge": bool(bridge[i].item()),
+                "external_violation": bool(external[i].item()) if external is not None else False,
+                "episode_reason": int(episode_runtime.tracker.reason[i].item()),
             }
             row["strict_stair_gait"] = {
-                "acquisitions": int(strict.count[0].item()),
-                "last_foot": int(strict.last_foot[0].item()),
-                "failed": bool(strict.failed[0].item()),
-                "reason": int(strict.reason[0].item()),
-                "pending_foot": int(strict.pending[0].item()),
-                "support_dwell_s": float(strict.dwell[0].item()),
+                "acquisitions": int(strict.count[i].item()),
+                "last_foot": int(strict.last_foot[i].item()),
+                "failed": bool(strict.failed[i].item()),
+                "reason": int(strict.reason[i].item()),
+                "pending_foot": int(strict.pending[i].item()),
+                "support_dwell_s": float(strict.dwell[i].item()),
             }
 
             decision = getattr(strict, "trace", None)
             if decision:
                 row["strict_landing_decision"] = {
-                    key: self.values(value[0])
+                    key: self.values(value[i])
                     for key, value in decision.items()
                 }
 
@@ -332,15 +341,15 @@ class GeometryTrace:
             advanced = getattr(env, "_g1_footstep_last_advanced", None)
 
             row["planned_footsteps"] = {
-                "target_index": int(runtime.target_index[0].item()),
+                "target_index": int(runtime.target_index[i].item()),
                 "assigned_foot_index": int(feet[0, 0].item()),
                 "target_xyz": self.values(targets[0, 0, :3]),
                 "target_valid": bool(valid[0, 0].item()),
-                "first_foot_index": int(runtime.first_foot[0].item()),
-                "completed": int(runtime.completed[0].item()),
-                "attempted": int(runtime.attempted[0].item()),
+                "first_foot_index": int(runtime.first_foot[i].item()),
+                "completed": int(runtime.completed[i].item()),
+                "attempted": int(runtime.attempted[i].item()),
                 "advanced_this_step": (
-                    bool(advanced[0].item())
+                    bool(advanced[i].item())
                     if advanced is not None else None
                 ),
             }
@@ -353,21 +362,21 @@ class GeometryTrace:
             swing, assigned = clock_schedule(rolling.phase)
             rows = getattr(env, "_g1_rolling_rows", None)
             row["footstep_rolling_clock"] = {
-                "rolling_row": (bool(rows[0].item()) if rows is not None else None),
-                "phase": float(rolling.phase[0].item()),
-                "period_s": float(rolling.period_s[0].item()),
-                "period_scale": float(rolling.period_scale[0].item()),
-                "walking": bool(rolling.active[0].item()),
-                "scheduled_swing_lr": self.values(swing[0]),
-                "assigned_foot": int(assigned[0].item()),
-                "window": int(rolling.window[0].item()),
-                "acquired": bool(rolling.acquired[0].item()),
+                "rolling_row": (bool(rows[i].item()) if rows is not None else None),
+                "phase": float(rolling.phase[i].item()),
+                "period_s": float(rolling.period_s[i].item()),
+                "period_scale": float(rolling.period_scale[i].item()),
+                "walking": bool(rolling.active[i].item()),
+                "scheduled_swing_lr": self.values(swing[i]),
+                "assigned_foot": int(assigned[i].item()),
+                "window": int(rolling.window[i].item()),
+                "acquired": bool(rolling.acquired[i].item()),
                 "target_xyz": self.values(rolling.targets[0, 0, :3]),
                 "next_target_xyz": self.values(rolling.targets[0, 1, :3]),
-                "cycle_yaw_error_radps": float(rolling.cycle_yaw_error[0].item()),
-                "on_stair_plan": bool(rolling.on_plan[0].item()),
-                "stairs_climbed": bool(rolling.climbed[0].item()),
-                "swing_landed_lr": self.values(rolling.landed[0]),
+                "cycle_yaw_error_radps": float(rolling.cycle_yaw_error[i].item()),
+                "on_stair_plan": bool(rolling.on_plan[i].item()),
+                "stairs_climbed": bool(rolling.climbed[i].item()),
+                "swing_landed_lr": self.values(rolling.landed[i]),
             }
 
         coordinator = getattr(env, "_g1_footstep_coordinator", None)
@@ -402,21 +411,21 @@ class GeometryTrace:
             def cached(name):
                 tensor = getattr(env, name, None)
                 return (
-                    float(tensor[0].item())
+                    float(tensor[i].item())
                     if tensor is not None else None
                 )
 
             row["footstep_clock_audit"] = {
                 "elapsed_s": float(
-                    coordinator.clock.elapsed_s[0].item()
+                    coordinator.clock.elapsed_s[i].item()
                 ),
                 "period_s": coordinator.clock.step_period_s,
-                "sin_cos": self.values(phase[0]),
-                "scheduled_swing_lr": self.values(swing[0]),
-                "scheduled_stance_lr": self.values(stance[0]),
+                "sin_cos": self.values(phase[i]),
+                "scheduled_swing_lr": self.values(swing[i]),
+                "scheduled_stance_lr": self.values(stance[i]),
                 "assigned_target_foot": int(feet[0, 0].item()),
                 "target_index": int(
-                    coordinator.runtime.target_index[0].item()
+                    coordinator.runtime.target_index[i].item()
                 ),
                 "target_xyz": self.values(targets[0, 0, :3]),
                 "target_valid": bool(valid[0, 0].item()),
@@ -441,12 +450,12 @@ class GeometryTrace:
                     "_g1_footstep_landing_impact"
                 ),
                 "acquisition_paid": (
-                    bool(env._g1_footstep_acquisition_paid[0].item())
+                    bool(env._g1_footstep_acquisition_paid[i].item())
                     if hasattr(env, "_g1_footstep_acquisition_paid")
                     else None
                 ),
                 "qualified_acquisition": (
-                    bool(env._g1_footstep_last_advanced[0].item())
+                    bool(env._g1_footstep_last_advanced[i].item())
                     if hasattr(env, "_g1_footstep_last_advanced")
                     else None
                 ),
@@ -455,11 +464,11 @@ class GeometryTrace:
         landing = getattr(env, "_g1_footstep_landing_audit", None)
         if landing is not None and reward is not None:
             row["footstep_landing_audit"] = {
-                key: self.values(value[0])
+                key: self.values(value[i])
                 for key, value in landing.items()
             }
 
-        self.stream.write(json.dumps(row, allow_nan=False) + "\n")
+        return row
 
     def compute(self, dt):
         reward = self.original_compute(dt=dt)
@@ -468,4 +477,5 @@ class GeometryTrace:
 
     def close(self):
         self.manager.compute = self.original_compute
-        self.stream.close()
+        for stream in self.streams:
+            stream.close()
