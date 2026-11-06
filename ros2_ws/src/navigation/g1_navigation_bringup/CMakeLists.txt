@@ -37,6 +37,11 @@ if(BUILD_TESTING)
   )
 
   ament_add_pytest_test(
+    test_physical_control_dry_run_launch
+    test/test_physical_control_dry_run_launch.py
+  )
+
+  ament_add_pytest_test(
     test_package_contract
     test/test_package_contract.py
   )

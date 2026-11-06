@@ -198,6 +198,14 @@ It does not start a controller, `cmd_vel`, or robot commands.
 If obstacles enclose the robot in the inflated costmap, planning
 correctly aborts instead of crossing them.
 
+## Laptop Terminal 1: recording-only control dry run
+
+Stop the planning-only launch, run the laptop setup block, then start the dry run:
+
+    ros2 launch g1_navigation_bringup physical_control_dry_run.launch.py map:=/workspace/IEA_G1/ros2_ws/src/navigation/g1_navigation_localization/maps/physical/building_map.yaml
+
+This stack uses recording backend 1 and cannot move the physical robot. Set the initial pose with RViz 2D Pose Estimate. The planner server, controller server, and velocity smoother must each report active [3]. After every proof, locomotion state must return to owner 0, backend 1, and stopped true. Set the RViz LaserScan Reliability Policy to Best Effort. A Navigation command stream timed out warning after cancellation is the expected watchdog release.
+
 ## Clean shutdown
 
 - Stop RViz with `Ctrl+C`.
