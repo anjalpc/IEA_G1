@@ -5,7 +5,7 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Patch 50, first height step. Resume from patch 48 (run 20261105_153312 model_11200; paired mean bound 0.01, no std floor) with the patch 49 clipped mirror loss, on flat, 2 cm and 4 cm tiles at random (1000 iterations). Probe 20261106 without training, 4 cm, 5 seeds each; p45 10200 1/5 climbed and p48 11200 0/5, 3 and 2 falls, swing toe caught on the riser with the sole 0.5-4 cm below the tread top.
+  purpose: Patch 51. Continue patch 50 (run 20261106_085535 model_12200) unchanged for 1000 iterations on flat, 2 cm and 4 cm. At 12200 4 cm was learned only in part (8/10 climbed, 4/10 clean, 1 fall, 1 stall; toe-riser strikes gone) and the training curves were still falling (bad_orientation 0.23 to 0.064, foot_stumble 0.26 to 0.046 per 100 iterations), so this tests whether the remaining short first-tread placement is unfinished learning.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -80,8 +80,8 @@ execution:
 policy_initialization:
   type: rsl_rl_training_resume
   source:
-    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261105_153312/model_11200.pt
-    sha256: ee96e457234f95aff743db399ec0cc10b45f6bb749981cacd2ac21bc79789456
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261106_085535/model_12200.pt
+    sha256: 7490769929f1dfdae7f059abffa779e4d6379ac7c39d6bb6ef2303ae1e0cb579
   critic_initialization: restored
   optimizer_initialization: restored
   locomotion_observations: 480
