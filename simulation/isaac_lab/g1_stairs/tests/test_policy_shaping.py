@@ -108,6 +108,40 @@ class PolicyShapingTests(unittest.TestCase):
         x = torch.tensor([[4.0, 0.5], [-1.0, -2.5]])
         self.assertTrue(torch.allclose(bound_gradient(x, 2.0, 0.1, swap), bound_gradient(x, 2.0, 0.1)))
 
+    def test_clipped_mirror_means_only_during_the_update(self):
+        policy, obs = self.make(std=0.5, bias=[5.0, -1.0, -6.0])
+        with torch.no_grad():
+            policy.actor[-1].weight.zero_()
+        raw = policy.act_inference(obs).detach().clone()
+        PolicyShaping(policy, residual_clip=2.0, clip_mirror_means=True)
+        out = policy.act_inference(obs)                   # grad enabled: PPO update path
+        self.assertTrue(torch.allclose(out, raw.clamp(-2.0, 2.0)))
+        with torch.no_grad():                             # play / inference path
+            self.assertTrue(torch.allclose(policy.act_inference(obs), raw))
+        with torch.inference_mode():
+            self.assertTrue(torch.allclose(policy.act_inference(obs), raw))
+
+    def test_clipped_mirror_loss_gradient_only_inside_the_clip(self):
+        policy, obs = self.make(std=0.5, bias=[5.0, -1.0, 0.5])
+        with torch.no_grad():
+            policy.actor[-1].weight.zero_()
+        PolicyShaping(policy, residual_clip=2.0, clip_mirror_means=True)
+        target = torch.zeros(obs.shape[0], 3)
+        torch.nn.functional.mse_loss(policy.act_inference(obs), target).backward()
+        g = policy.actor[-1].bias.grad
+        self.assertEqual(float(g[0]), 0.0)                # beyond the clip: no mirror gradient
+        self.assertNotEqual(float(g[1]), 0.0)
+        self.assertNotEqual(float(g[2]), 0.0)
+
+    def test_clipped_mirror_alone_leaves_the_distribution(self):
+        policy, obs = self.make(std=0.5, bias=[5.0, -1.0, 0.5])
+        policy.act(obs)
+        mean, std = policy.distribution.mean.clone(), policy.distribution.stddev.clone()
+        PolicyShaping(policy, residual_clip=2.0, clip_mirror_means=True)
+        policy.act(obs)
+        self.assertTrue(torch.equal(policy.distribution.mean, mean))
+        self.assertTrue(torch.equal(policy.distribution.stddev, std))
+
     def test_rejects_bad_settings(self):
         policy, _ = self.make()
         with self.assertRaises(ValueError):

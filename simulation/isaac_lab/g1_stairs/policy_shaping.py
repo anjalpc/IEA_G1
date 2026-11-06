@@ -1,8 +1,9 @@
 """Training-only shaping of the residual policy's action distribution.
 
-Both act inside ``ActorCritic.update_distribution`` (rsl-rl-lib 3.0.1), so
-rollouts and PPO updates see the same distribution. Neither changes the
-action mean the robot executes, the saved checkpoint layout or replay.
+1 and 2 act inside ``ActorCritic.update_distribution`` (rsl-rl-lib 3.0.1),
+so rollouts and PPO updates see the same distribution; 3 wraps
+``act_inference`` during the update. None of them changes the action mean
+the robot executes, the saved checkpoint layout or replay.
 
 1. Mean bound. The residual is clipped to +-residual_clip before execution
    (balance_residual.compose_balance_residual_action). A mean beyond the clip
@@ -31,6 +32,17 @@ action mean the robot executes, the saved checkpoint layout or replay.
    joints collapsed (hip pitch 0.26 -> 0.075 -> 0.02 over patches 43-45).
    The distribution uses max(std, floor); the std parameter itself is left
    as it is.
+
+3. Clipped mirror loss (patch 49). rsl-rl 3.0.1 computes the mirror loss
+   as MSE on ``act_inference`` means, i.e. on raw outputs. ~95% of that
+   error sits in outputs beyond the clip (waist, hip roll/yaw, arms; run
+   20261105_153312 replays), where it makes no physical difference, while
+   the executed asymmetry that turns the robot (hip yaw/roll, knee) gets
+   little of the gradient. With ``clip_mirror_means`` act_inference
+   returns clamp(mean, +-clip) while gradients are enabled (the PPO update
+   only); rollouts use ``act`` and play/export run without gradients, so
+   neither changes. Outputs beyond the clip get no mirror gradient; the
+   bound handles them.
 """
 from __future__ import annotations
 
@@ -76,7 +88,8 @@ class PolicyShaping:
     """Wraps ``policy.update_distribution``; keeps simple statistics."""
 
     def __init__(self, policy, *, residual_clip: float, bound_coeff: float = 0.0,
-                 std_floor: float = 0.0, log_every: int = 0, partner=None):
+                 std_floor: float = 0.0, log_every: int = 0, partner=None,
+                 clip_mirror_means: bool = False):
         if residual_clip <= 0.0 or bound_coeff < 0.0 or std_floor < 0.0:
             raise ValueError("residual_clip > 0, bound_coeff >= 0, std_floor >= 0 required")
         self.clip, self.coeff, self.floor = float(residual_clip), float(bound_coeff), float(std_floor)
@@ -88,6 +101,15 @@ class PolicyShaping:
         self._original = policy.update_distribution
         self._policy = policy
         policy.update_distribution = self.update_distribution
+        if clip_mirror_means:
+            self._act_inference = policy.act_inference
+            policy.act_inference = self.act_inference
+
+    def act_inference(self, obs):
+        mean = self._act_inference(obs)
+        if torch.is_grad_enabled():
+            return mean.clamp(-self.clip, self.clip)
+        return mean
 
     def update_distribution(self, obs):
         self._original(obs)

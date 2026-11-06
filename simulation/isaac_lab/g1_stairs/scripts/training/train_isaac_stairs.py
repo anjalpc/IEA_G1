@@ -1204,10 +1204,12 @@ def main() -> None:
     std_floor = float(ppo_section.get("action_std_floor", 0.0))
     # Patch 48: pull left/right pairs so both reach the clip together.
     bound_paired = bool(ppo_section.get("action_mean_bound_paired", False))
-    if bound_coeff > 0.0 or std_floor > 0.0:
+    # Patch 49: mirror loss on clipped means (what the robot executes).
+    mirror_clipped = bool(ppo_section.get("symmetry_mirror_loss_clipped", False))
+    if bound_coeff > 0.0 or std_floor > 0.0 or mirror_clipped:
         residual_cfg = resolved_config.get("balance_residual_control") or {}
         if "residual_clip" not in residual_cfg:
-            raise ValueError("action_mean_bound_coeff/action_std_floor need balance_residual_control.residual_clip")
+            raise ValueError("action_mean_bound_coeff/action_std_floor/symmetry_mirror_loss_clipped need balance_residual_control.residual_clip")
         from simulation.isaac_lab.g1_stairs.policy_shaping import PolicyShaping
         from simulation.isaac_lab.g1_stairs.footstep_symmetry import mirror_actions
         PolicyShaping(
@@ -1217,8 +1219,10 @@ def main() -> None:
             std_floor=std_floor,
             log_every=int(agent_cfg.algorithm.num_learning_epochs) * int(agent_cfg.algorithm.num_mini_batches),
             partner=mirror_actions if bound_paired else None,
+            clip_mirror_means=mirror_clipped,
         )
-    print("[INFO] PPO action mean bound coeff:", bound_coeff, "paired:", bound_paired, "std floor:", std_floor, flush=True)
+    print("[INFO] PPO action mean bound coeff:", bound_coeff, "paired:", bound_paired, "std floor:", std_floor,
+          "mirror loss clipped:", mirror_clipped, flush=True)
 
     runner.configure_metrics(
         Path(metrics_dir_value),
