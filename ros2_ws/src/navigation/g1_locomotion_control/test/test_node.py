@@ -1,5 +1,7 @@
 """ROS-facing tests for the hardware-free locomotion arbiter."""
 
+from unittest.mock import Mock
+
 import pytest
 import rclpy
 
@@ -16,7 +18,11 @@ from g1_locomotion_interfaces.srv import (
 )
 
 from g1_locomotion_control.backend import RecordingBackend
-from g1_locomotion_control.node import LocomotionArbiterNode
+from g1_locomotion_control.node import (
+    LocomotionArbiterNode,
+    backend_state_constant,
+)
+from g1_locomotion_control.sport_backend import SportBackend
 from g1_locomotion_control.simulation_backend import (
     SimulationBackend,
 )
@@ -244,6 +250,41 @@ def test_watchdog_callback_revokes_expired_lease(timed_node):
     assert snapshot.active_owner == 0
     assert snapshot.reason == "COMMAND_TIMEOUT"
     assert instance.backend.stop_count == 1
+
+
+def test_maps_sport_backend_to_public_identity():
+    assert backend_state_constant("sport") == (
+        LocomotionState.BACKEND_SPORT
+    )
+
+
+def test_accepts_only_explicit_injected_sport_backend():
+    if not rclpy.ok():
+        rclpy.init()
+
+    client = Mock()
+    client.healthy.return_value = True
+    backend = SportBackend(client)
+    instance = LocomotionArbiterNode(
+        backend=backend,
+        parameter_overrides=[
+            Parameter("backend", value="sport"),
+            Parameter("max_forward_mps", value=0.15),
+            Parameter("max_lateral_mps", value=0.10),
+            Parameter("max_yaw_rate_rps", value=0.40),
+        ],
+    )
+
+    try:
+        state = instance.state_message()
+        assert instance.backend is backend
+        assert state.active_backend == state.BACKEND_SPORT
+        assert state.stopped is True
+        assert client.move.call_count == 0
+    finally:
+        instance.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
 
 
 def test_rejects_unsupported_backend_configuration():

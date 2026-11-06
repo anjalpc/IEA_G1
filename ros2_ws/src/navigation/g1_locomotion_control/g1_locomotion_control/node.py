@@ -25,9 +25,19 @@ from g1_robot_interfaces.locomotion import PlanarVelocityLimits
 
 from g1_locomotion_control.arbiter import LocomotionArbiter
 from g1_locomotion_control.backend import RecordingBackend
+from g1_locomotion_control.sport_backend import SportBackend
 from g1_locomotion_control.simulation_backend import (
     SimulationBackend,
 )
+
+
+def backend_state_constant(backend_name):
+    """Map one configured backend to its public identity."""
+    if backend_name in {"recording", "simulation"}:
+        return LocomotionState.BACKEND_SIMULATION
+    if backend_name == "sport":
+        return LocomotionState.BACKEND_SPORT
+    raise ValueError("unsupported locomotion backend")
 
 
 class LocomotionArbiterNode(Node):
@@ -60,10 +70,18 @@ class LocomotionArbiterNode(Node):
         backend_name = str(
             self.get_parameter("backend").value
         )
-        if backend_name not in {
+        self.backend_state = backend_state_constant(
+            backend_name
+        )
+        supported_backend = backend_name in {
             "recording",
             "simulation",
-        }:
+        }
+        explicit_sport_backend = (
+            backend_name == "sport"
+            and isinstance(backend, SportBackend)
+        )
+        if not supported_backend and not explicit_sport_backend:
             raise ValueError(
                 "unsupported locomotion backend"
             )
@@ -230,7 +248,7 @@ class LocomotionArbiterNode(Node):
         message.header.stamp = self.get_clock().now().to_msg()
         message.active_owner = snapshot.active_owner
         message.active_backend = (
-            LocomotionState.BACKEND_SIMULATION
+            self.backend_state
         )
         message.ready = snapshot.ready
         message.stopped = snapshot.stopped
