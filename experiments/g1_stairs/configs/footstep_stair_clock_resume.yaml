@@ -5,7 +5,7 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Patch 49. Same as patch 48 (source run 20261104_143016 model_10200, seed 42, paired mean bound 0.01, no std floor, mirror loss 0.1) with the mirror loss computed on clipped means (ppo.symmetry_mirror_loss_clipped true), so it acts on the executed left/right asymmetry (patch 48 stair-parity left turn) instead of out-of-clip raw outputs.
+  purpose: Patch 50, first height step. Resume from patch 48 (run 20261105_153312 model_11200; paired mean bound 0.01, no std floor) with the patch 49 clipped mirror loss, on flat, 2 cm and 4 cm tiles at random (1500 iterations). Probe 20261106 without training, 4 cm, 5 seeds each; p45 10200 1/5 climbed and p48 11200 0/5, 3 and 2 falls, swing toe caught on the riser with the sole 0.5-4 cm below the tread top.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -24,9 +24,12 @@ terrain:
   # height lifts 1.6-3.2 cm (run 20261029_142532), so 2 cm is reachable;
   # 4 cm only after 2 cm is climbed with alternating feet (0-4 cm at once
   # taught shuffling in footstep_bootstrap04_20261028_141115).
+  # Patch 50: 4 cm added now that 2 cm is climbed with alternating feet
+  # (10/10, patches 44-48).
   riser_heights_m:
   - 0.0
   - 0.02
+  - 0.04
   tread_depth_m: 0.25
   step_count: 3
   curriculum_enabled: false
@@ -67,8 +70,8 @@ footstep_clock:
   max_stride_m: 0.55
 execution:
   environments: 2048
-  # Resumed run: 1000 more iterations after the checkpoint's own.
-  maximum_iterations: 1000
+  # Resumed run: 1500 more iterations after the checkpoint's own.
+  maximum_iterations: 1500
   training_seed: 42
 # Residual on the frozen official Unitree policy (balance_residual_control);
 # the actor sees all 688 inputs. Policy, critic, optimizer and learning rate
@@ -77,8 +80,8 @@ execution:
 policy_initialization:
   type: rsl_rl_training_resume
   source:
-    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261104_143016/model_10200.pt
-    sha256: e0ed1a76e9ff0dd331440c3c253eba661fa504c868c8aa416623b39de5a49860
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261105_153312/model_11200.pt
+    sha256: FILL_ON_AWS
   critic_initialization: restored
   optimizer_initialization: restored
   locomotion_observations: 480
