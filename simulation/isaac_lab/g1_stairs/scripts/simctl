@@ -36,7 +36,7 @@ Usage:
   simctl use <run_id>
   simctl tensorboard {start|status|stop}
   simctl video <checkpoint> [--height <m>] [--seed <n>] [--trace-only] [--markers]
-  simctl traces [<checkpoint>...] [--parallel <n>] [--name <tag>]   (trace batch + pass/fail report + tarball)
+  simctl traces [<checkpoint>...] [--parallel <n>] [--name <tag>] [--symmetry check|average]   (trace batch + pass/fail report + tarball)
   simctl showcase <checkpoint> [--robots <n>] [--rows <n>] [--seconds <s>] [--height <m>] [--seed <n>] [--no-markers]
   simctl baseline [config.yaml]
   simctl evaluate <checkpoint>
@@ -968,17 +968,21 @@ cd /workspace/IEA_G1
 # as seed k). Single-robot replays were GPU-bound on the A10G (3 in parallel
 # 107 s vs 55 s alone), so batching robots is the speed-up, not processes.
 cmd_traces() {
-    local USAGE="Usage: simctl traces [<checkpoint>...] [--parallel <n>] [--name <tag>]"
-    local CKPTS=() PARALLEL=3 NAME=traces
+    local USAGE="Usage: simctl traces [<checkpoint>...] [--parallel <n>] [--name <tag>] [--symmetry check|average]"
+    local CKPTS=() PARALLEL=3 NAME=traces SYM=check
     while [ $# -gt 0 ]; do
         case "$1" in
             --parallel) PARALLEL="${2:?$USAGE}"; shift 2 ;;
             --name) NAME="${2:?$USAGE}"; shift 2 ;;
+            --symmetry) SYM="${2:?$USAGE}"; shift 2 ;;
             [0-9]*) CKPTS+=("$1"); shift ;;
             *) echo "$USAGE" >&2; exit 1 ;;
         esac
     done
     [[ "$PARALLEL" =~ ^[1-9]$ ]] || { echo "--parallel must be 1-9" >&2; exit 1; }
+    # average: drive with (clip(pi(s)) + M clip(pi(M s)))/2, a diagnostic of a
+    # mirror-symmetric residual (record_view.py --symmetry).
+    [[ "$SYM" =~ ^(check|average)$ ]] || { echo "--symmetry must be check or average" >&2; exit 1; }
     if [ -f "$CURRENT_PID" ] && kill -0 "$(cat "$CURRENT_PID")" 2>/dev/null; then
         echo "Training is running (PID $(cat "$CURRENT_PID")); replays would slow it down. Wait or run: simctl stop" >&2
         exit 1
@@ -1011,15 +1015,16 @@ cmd_traces() {
     : > "$JOBS"
     for M in "${CKPTS[@]}"; do
         for H in $HEIGHTS; do
+            # Last checkpoint: 10 robots on every height (flat drift needs
+            # more than 3); robots 1-3 keep the same start as before.
             local ROBOTS=3
-            if awk -v h="$H" 'BEGIN{exit !(h > 0)}'; then
-                ROBOTS=4; [ "$M" = "$LAST" ] && ROBOTS=10
-            fi
+            if awk -v h="$H" 'BEGIN{exit !(h > 0)}'; then ROBOTS=4; fi
+            [ "$M" = "$LAST" ] && ROBOTS=10
             echo "$M $H $ROBOTS" >> "$JOBS"
         done
     done
 
-    export TR_EVAL="$EVAL" TR_CFG="$CFG" TR_TRAIN="${TRAIN_DIR/$REPO/\/workspace\/IEA_G1}" TR_COMMIT="$(git rev-parse HEAD)" TR_CONTAINER="$CONTAINER"
+    export TR_EVAL="$EVAL" TR_CFG="$CFG" TR_TRAIN="${TRAIN_DIR/$REPO/\/workspace\/IEA_G1}" TR_COMMIT="$(git rev-parse HEAD)" TR_CONTAINER="$CONTAINER" TR_SYM="$SYM"
     trace_one() {
         local M=$1 H=$2 N=$3 HC K DONE=1
         HC="$(awk -v h="$H" 'BEGIN{printf "%02d", int(h * 100 + 0.5)}')"
@@ -1032,7 +1037,7 @@ cmd_traces() {
         for K in $(seq 1 "$N"); do rm -rf "${T/\{env\}/$K}"; done
         mkdir -p "$TR_EVAL"
         # A replay takes 1-3 min; 15 min means it hangs: stop it in the container too.
-        timeout 900 docker exec -i --env UNITREE_RL_LAB_ROOT=/workspace/unitree_rl_lab --workdir /workspace/IEA_G1 "$TR_CONTAINER" /workspace/isaaclab/isaaclab.sh -p simulation/isaac_lab/g1_stairs/scripts/visualization/record_view.py --task Unitree-IEA-G1-29dof-Stairs-Footsteps-v0 --trace-only --symmetry check --view side --output_dir "/workspace/IEA_G1/$T" --video_length 600 --seed 1 --num_envs "$N" --checkpoint "${TR_TRAIN}/model_${M}.pt" --resolved_config "/workspace/IEA_G1/${TR_CFG}" --riser_height_override "$H" --project_commit "$TR_COMMIT" --isaaclab_commit 3c6e67bb5c7ada942a6d1884ab69338f57596f77 --unitree_rl_commit 4960b84732b0c2ec593dccbfe963fda1bcd7b1e3 --unitree_diff_sha256 54a60bd3ed9de27514530c82936cb43e6b1c5074fee173e81ee271b7ca238b1f --headless --device cuda:0 </dev/null > "/tmp/rv_${M}_${HC}.log" 2>&1 \
+        timeout 900 docker exec -i --env UNITREE_RL_LAB_ROOT=/workspace/unitree_rl_lab --workdir /workspace/IEA_G1 "$TR_CONTAINER" /workspace/isaaclab/isaaclab.sh -p simulation/isaac_lab/g1_stairs/scripts/visualization/record_view.py --task Unitree-IEA-G1-29dof-Stairs-Footsteps-v0 --trace-only --symmetry "$TR_SYM" --view side --output_dir "/workspace/IEA_G1/$T" --video_length 600 --seed 1 --num_envs "$N" --checkpoint "${TR_TRAIN}/model_${M}.pt" --resolved_config "/workspace/IEA_G1/${TR_CFG}" --riser_height_override "$H" --project_commit "$TR_COMMIT" --isaaclab_commit 3c6e67bb5c7ada942a6d1884ab69338f57596f77 --unitree_rl_commit 4960b84732b0c2ec593dccbfe963fda1bcd7b1e3 --unitree_diff_sha256 54a60bd3ed9de27514530c82936cb43e6b1c5074fee173e81ee271b7ca238b1f --headless --device cuda:0 </dev/null > "/tmp/rv_${M}_${HC}.log" 2>&1 \
             || docker exec "$TR_CONTAINER" pkill -9 -f "model_${M}_h${HC}cm_seed" >/dev/null 2>&1 || true
         for K in $(seq 1 "$N"); do
             local D="${T/\{env\}/$K}"
