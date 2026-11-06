@@ -941,5 +941,13 @@ def main() -> None:
 if __name__ == "__main__":
     try:
         main()
-    finally:
-        simulation_app.close()
+    except BaseException:
+        # Print the error and exit at once: simulation_app.close() can hang
+        # after an exception, which left replays stuck without a traceback
+        # (and orphan record_view processes holding the GPU).
+        import traceback
+        traceback.print_exc()
+        sys.stdout.flush()
+        sys.stderr.flush()
+        os._exit(1)
+    simulation_app.close()

@@ -83,28 +83,28 @@ class GeometryTrace:
             "command_base_velocity": self.values(
                 env.command_manager.get_command("base_velocity")[i]
             ),
-            "foot_pos_w": self.values(data.body_pos_w[0, self.foot_ids]),
-            "foot_quat_w": self.values(data.body_quat_w[0, self.foot_ids]),
-            "foot_lin_vel_w": self.values(data.body_lin_vel_w[0, self.foot_ids]),
-            "foot_ang_vel_w": self.values(data.body_ang_vel_w[0, self.foot_ids]),
-            "knee_pos_w": self.values(data.body_pos_w[0, self.knee_ids]),
-            "knee_lin_vel_w": self.values(data.body_lin_vel_w[0, self.knee_ids]),
+            "foot_pos_w": self.values(data.body_pos_w[i, self.foot_ids]),
+            "foot_quat_w": self.values(data.body_quat_w[i, self.foot_ids]),
+            "foot_lin_vel_w": self.values(data.body_lin_vel_w[i, self.foot_ids]),
+            "foot_ang_vel_w": self.values(data.body_ang_vel_w[i, self.foot_ids]),
+            "knee_pos_w": self.values(data.body_pos_w[i, self.knee_ids]),
+            "knee_lin_vel_w": self.values(data.body_lin_vel_w[i, self.knee_ids]),
             "contact_net_forces_w": self.values(self.sensor.data.net_forces_w[i]),
             "joint_pos_rad": self.values(data.joint_pos[i]),
             "joint_vel_rad_s": self.values(data.joint_vel[i]),
             "applied_torque_nm": self.values(data.applied_torque[i]),
             "joint_pos_target_rad": self.values(data.joint_pos_target[i]),
             "action": self.values(
-                env.action_manager.action[0, :29]
+                env.action_manager.action[i, :29]
                 if getattr(env.cfg, "gait_phase_enabled", False)
                 else env.action_manager.action[i]
             ),
         }
         centre, bounds, surface_velocity = self.sole_state(
-            data.body_pos_w[0:1, self.foot_ids] - env.scene.env_origins[0:1, None],
-            data.body_quat_w[0:1, self.foot_ids],
-            data.body_lin_vel_w[0:1, self.foot_ids],
-            data.body_ang_vel_w[0:1, self.foot_ids],
+            data.body_pos_w[:, self.foot_ids] - env.scene.env_origins[:, None],
+            data.body_quat_w[:, self.foot_ids],
+            data.body_lin_vel_w[:, self.foot_ids],
+            data.body_ang_vel_w[:, self.foot_ids],
         )
         row["motion_geometry"] = {
             "sole_centre_local": self.values(centre[i]),
@@ -113,8 +113,8 @@ class GeometryTrace:
             "surface_speed_mps": self.values(surface_velocity.norm(dim=-1).amax(-1)[i]),
             "surface_slip_mps": self.values(surface_velocity[..., :2].norm(dim=-1).amax(-1)[i]),
         }
-        row["knee_ang_vel_w"] = self.values(data.body_ang_vel_w[0, self.knee_ids])
-        row["knee_quat_w"] = self.values(data.body_quat_w[0, self.knee_ids])
+        row["knee_ang_vel_w"] = self.values(data.body_ang_vel_w[i, self.knee_ids])
+        row["knee_quat_w"] = self.values(data.body_quat_w[i, self.knee_ids])
         history = getattr(self.sensor.data, "net_forces_w_history", None)
         if history is not None:
             row["contact_force_history_w"] = self.values(history[i])
@@ -127,10 +127,10 @@ class GeometryTrace:
             gait = env.action_manager.get_term("gait_frequency")
             clock = gait.observation()[i]
             row.update({
-                "raw_frequency_action": self.values(gait.raw_actions[0, 0]),
-                "frequency_hz": self.values(gait.processed_actions[0, 0]),
+                "raw_frequency_action": self.values(gait.raw_actions[i, 0]),
+                "frequency_hz": self.values(gait.processed_actions[i, 0]),
                 "phase": self.values(gait.phase[i]),
-                "sin_phase": self.values(clock[i]),
+                "sin_phase": self.values(clock[0]),
                 "cos_phase": self.values(clock[1]),
                 "gait_active": self.values(gait.active[i]),
                 "gait_reward_phase": self.values(gait.reward_phase[i]),
@@ -342,9 +342,9 @@ class GeometryTrace:
 
             row["planned_footsteps"] = {
                 "target_index": int(runtime.target_index[i].item()),
-                "assigned_foot_index": int(feet[0, 0].item()),
-                "target_xyz": self.values(targets[0, 0, :3]),
-                "target_valid": bool(valid[0, 0].item()),
+                "assigned_foot_index": int(feet[i, 0].item()),
+                "target_xyz": self.values(targets[i, 0, :3]),
+                "target_valid": bool(valid[i, 0].item()),
                 "first_foot_index": int(runtime.first_foot[i].item()),
                 "completed": int(runtime.completed[i].item()),
                 "attempted": int(runtime.attempted[i].item()),
@@ -371,8 +371,8 @@ class GeometryTrace:
                 "assigned_foot": int(assigned[i].item()),
                 "window": int(rolling.window[i].item()),
                 "acquired": bool(rolling.acquired[i].item()),
-                "target_xyz": self.values(rolling.targets[0, 0, :3]),
-                "next_target_xyz": self.values(rolling.targets[0, 1, :3]),
+                "target_xyz": self.values(rolling.targets[i, 0, :3]),
+                "next_target_xyz": self.values(rolling.targets[i, 1, :3]),
                 "cycle_yaw_error_radps": float(rolling.cycle_yaw_error[i].item()),
                 "on_stair_plan": bool(rolling.on_plan[i].item()),
                 "stairs_climbed": bool(rolling.climbed[i].item()),
@@ -423,16 +423,16 @@ class GeometryTrace:
                 "sin_cos": self.values(phase[i]),
                 "scheduled_swing_lr": self.values(swing[i]),
                 "scheduled_stance_lr": self.values(stance[i]),
-                "assigned_target_foot": int(feet[0, 0].item()),
+                "assigned_target_foot": int(feet[i, 0].item()),
                 "target_index": int(
                     coordinator.runtime.target_index[i].item()
                 ),
-                "target_xyz": self.values(targets[0, 0, :3]),
-                "target_valid": bool(valid[0, 0].item()),
+                "target_xyz": self.values(targets[i, 0, :3]),
+                "target_valid": bool(valid[i, 0].item()),
                 "vertical_force_lr_n": self.values(force_z),
                 "supported_lr_30n": self.values(force_z >= 30.0),
                 "foot_speed_lr_mps": self.values(
-                    data.body_lin_vel_w[0, self.foot_ids].norm(dim=-1)
+                    data.body_lin_vel_w[i, self.foot_ids].norm(dim=-1)
                 ),
                 "cached_stance_reward": cached(
                     "_g1_footstep_stance_support"
