@@ -1,6 +1,7 @@
 import unittest
 import torch
-from simulation.isaac_lab.g1_stairs.footstep_tread import qualified_tread_mask, qualified_flat_mask
+from simulation.isaac_lab.g1_stairs.footstep_tread import (
+    qualified_tread_mask, qualified_flat_mask, tread_placement_quality)
 
 class TreadTests(unittest.TestCase):
     def setup(self):
@@ -108,3 +109,36 @@ class FlatLandingTests(unittest.TestCase):
             qualified_flat_mask(**args).tolist(),
             [[False, False]],
         )
+
+
+class TreadPlacementQualityTests(unittest.TestCase):
+    """Patch 53: 1.0 on the planned centre, 0.5 at the heel-overhang limit."""
+    def args(self, heel, target_x=1.125, riser=0.04):
+        bounds = torch.tensor([[[heel, heel + 0.18, .04, .12, .04, .04],
+                                [0., .18, -.12, -.04, 0., 0.]]])
+        return dict(sole_bounds=bounds, targets=torch.tensor([[[target_x, .08, .04, 0.], [1.375, -.08, .08, 0.]]]),
+                    feet=torch.tensor([[0, 1]]), first_riser_x=torch.tensor([1.]),
+                    tread_depth=torch.tensor([.25]), riser_height=torch.tensor([riser]), step_count=3)
+
+    def q(self, **kw):
+        return tread_placement_quality(**self.args(**kw)).item()
+
+    def test_centre_pays_full(self):
+        self.assertAlmostEqual(self.q(heel=1.035), 1.0, places=5)
+
+    def test_acceptance_limit_pays_floor(self):
+        self.assertAlmostEqual(self.q(heel=0.99), 0.5, places=5)
+        self.assertAlmostEqual(self.q(heel=0.95), 0.5, places=5)
+
+    def test_linear_between(self):
+        # heel at the edge: centre 3.5 cm short of a 4.5 cm limit
+        self.assertAlmostEqual(self.q(heel=1.0), 1 - 0.5 * 0.035 / 0.045, places=4)
+        self.assertGreater(self.q(heel=1.01), self.q(heel=1.0))
+
+    def test_overshoot_also_graded(self):
+        self.assertAlmostEqual(self.q(heel=1.055), self.q(heel=1.015), places=5)
+
+    def test_non_tread_rows_pay_full(self):
+        self.assertEqual(self.q(heel=0.5, target_x=0.8), 1.0)      # approach
+        self.assertEqual(self.q(heel=1.6, target_x=1.875), 1.0)    # platform
+        self.assertEqual(self.q(heel=0.99, riser=0.0), 1.0)        # flat tile

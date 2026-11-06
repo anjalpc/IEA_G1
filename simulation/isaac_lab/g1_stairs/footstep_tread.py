@@ -16,6 +16,32 @@ from .footstep_tensor import APPROACH_LAST_GAP_M
 # stair step vs 10/10 at model_4000/4700). Taller risers need the heel on.
 TREAD_HEEL_OVERHANG_M = 0.01     # heel may overhang the tread front edge
 SPOT_TOE_CLEARANCE_M = 0.02      # spot: toe this far before the first riser
+# Patch 53: a tread hit pays by placement. A binary hit let the policy land at
+# the acceptance limit (run 20261106_151951 model_14200, 4 cm: tread 1-2 heel
+# median -0.1 cm vs the 1 cm overhang limit, misses at exactly -1.0 cm).
+TREAD_QUALITY_FLOOR = 0.5        # pay at the acceptance limit, 1.0 at the planned centre
+
+
+def tread_placement_quality(*, sole_bounds, targets, feet, first_riser_x,
+                            tread_depth, riser_height, step_count):
+    """[N] acquisition pay factor of the assigned foot on a stair tread.
+
+    1.0 with the sole centre on the planned target (tread centre), falling
+    linearly with the x error to TREAD_QUALITY_FLOOR where the heel reaches
+    the TREAD_HEEL_OVERHANG_M acceptance limit (and below). Rows whose
+    current target is not a tread (flat tiles, approach, platform) get 1.0.
+    """
+    n = sole_bounds.shape[0]
+    target_x = targets[:, 0, 0]
+    index = torch.round((target_x - first_riser_x) / tread_depth - 0.5).long()
+    tread = ((target_x >= first_riser_x) & (index >= 0) & (index < step_count)
+             & (riser_height > 0))
+    b = sole_bounds[torch.arange(n, device=sole_bounds.device), feet[:, 0].long()]
+    centre_x = 0.5 * (b[:, 0] + b[:, 1])
+    limit = 0.5 * tread_depth + TREAD_HEEL_OVERHANG_M - 0.5 * (b[:, 1] - b[:, 0])
+    error = ((centre_x - target_x).abs() / limit.clamp_min(1e-3)).clamp(0.0, 1.0)
+    quality = 1.0 - (1.0 - TREAD_QUALITY_FLOOR) * error
+    return torch.where(tread, quality, torch.ones_like(quality))
 
 
 def qualified_tread_mask(*, sole_bounds, vertical_force, targets, feet, valid,

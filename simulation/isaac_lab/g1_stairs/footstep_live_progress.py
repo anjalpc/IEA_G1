@@ -25,7 +25,8 @@ from .footstep_mixing import (
 )
 from .footstep_tensor import NOMINAL_FOOT_SEPARATION_M, approach_target_x
 from .footstep_rewards import stair_ground_height
-from .footstep_tread import qualified_tread_mask, qualified_flat_mask
+from .footstep_tread import (qualified_tread_mask, qualified_flat_mask,
+                             tread_placement_quality)
 from .contact_sensor_contract import FOOT_BODY_NAMES
 from .motion_reference import sole_state
 from .terrain_state import riser_height_per_env, stair_cfg
@@ -489,6 +490,21 @@ def audit_after_step(env):
     env._g1_footstep_best_distance[advanced] = float("inf")
     env._g1_footstep_last_advanced = advanced
     env._g1_footstep_acquisition_paid = advanced
+    # Patch 53: stair tread hits pay by placement (1.0 on the planned centre,
+    # 0.5 at the heel-overhang limit); flat, approach and rolling rows 1.0.
+    quality = torch.ones(env.num_envs, device=env.device)
+    if not flat:
+        quality = tread_placement_quality(
+            sole_bounds=bounds, targets=targets, feet=feet,
+            first_riser_x=course['first_riser_x'],
+            tread_depth=course['tread_depth'],
+            riser_height=course['riser_height'],
+            step_count=coordinator.runtime.step_count,
+        )
+        if rolling_rows is not None:
+            quality = torch.where(rolling_rows, torch.ones_like(quality), quality)
+    env._g1_footstep_acquisition_quality = quality
+    env._g1_footstep_landing_audit["acquisition_quality"] = quality.clone()
     if rolling_rows is not None:
         # A stair hit after an off-beat step advances the plan but pays no
         # acquisition: step-to walking (both feet on every tread) earned the

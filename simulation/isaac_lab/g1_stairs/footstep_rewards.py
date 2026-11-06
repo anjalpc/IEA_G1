@@ -101,7 +101,12 @@ def cached_acquisition(env):
         raise RuntimeError("footstep acquisition reward evaluated before physics hook")
     if value.shape != (env.num_envs,):
         raise RuntimeError("invalid cached acquisition shape")
-    return _per_event(env, value.float())
+    value = value.float()
+    quality = getattr(env, "_g1_footstep_acquisition_quality", None)
+    if quality is not None:
+        # Patch 53: stair tread hits pay by placement (footstep_tread).
+        value = value * quality
+    return _per_event(env, value)
 
 
 def cached_directed_swing(env):
