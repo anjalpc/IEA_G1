@@ -5,7 +5,7 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Patch 53. Continue patch 52 (run 20261106_151951 model_14200) on flat, 2 cm and 4 cm with one change, stair tread hits pay by placement. The acquisition pays 1.0 with the sole centre on the planned target (tread centre), falling linearly to 0.5 where the heel reaches the 1 cm overhang acceptance limit (footstep_tread.tread_placement_quality). At 14200 a binary hit kept tread 1-2 landings at the limit (heel median -0.1 cm, 1/10 first heels at least 1 cm on, misses at exactly -1.0 cm) while tread 3 landed +4.5 cm.
+  purpose: Patch 54. Continue patch 53 (run 20261106_210725 model_15200) on flat, 2 cm and 4 cm with one change, a mirror-symmetric residual actor (ppo.symmetric_actor, policy_symmetry.py), mean = (clip(f(s)) + M clip(f(M s)))/2. The residual's left/right bias caused the flat left turn (p52 14200 replayed averaged, 10 robots, turn +0.71 to +0.08 deg/s, sideways 34 to 7 cm, knee 0.28/0.32 to 0.30/0.30) and the p53 stair-2 double step (left lead, right foot short in 6/6, heel on the nosing, up to 1112 N horizontal; right lead, left foot clean in 4/4). Graded tread placement (p53) and first-touchdown rule (p52) kept.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -80,8 +80,8 @@ execution:
 policy_initialization:
   type: rsl_rl_training_resume
   source:
-    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261106_151951/model_14200.pt
-    sha256: 546f6be2b209175d16eec663a3e3ed15e4247dc19e9c3e18cbc783944018b1bd
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261106_210725/model_15200.pt
+    sha256: FILL_ON_AWS
   critic_initialization: restored
   optimizer_initialization: restored
   locomotion_observations: 480
@@ -142,6 +142,10 @@ ppo:
   symmetry_mirror_loss_coeff: 0.1
   # Patch 49: mirror loss on clamp(mean, +-residual_clip) (policy_shaping.py).
   symmetry_mirror_loss_clipped: true
+  # Patch 54 (policy_symmetry.py): actor mean = (clip(f(s)) + M clip(f(M s)))/2,
+  # exactly equivariant, so the mirror loss reads 0; the mean bound acts on
+  # the raw outputs. Replays and evaluation apply it from this key.
+  symmetric_actor: true
   # Patch 43: on resume, cap the restored exploration std at 0.5 (raw policy
   # units, residual clip 2) and make it left/right symmetric; no entropy
   # bonus, so it does not grow back (agent_cfg default 0.005).
