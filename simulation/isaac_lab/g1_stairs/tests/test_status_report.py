@@ -68,8 +68,8 @@ class TrainingStatusTests(unittest.TestCase):
         self.assertEqual((line[0], line[-1], len(line)), ("▁", "█", 12))
 
 
-def ep(clean=True, ended="time_out", heel=2.0, strikes=0, drift=0.1, lateral=5.0, vx=0.37, cmd=0.35):
-    return dict(clean=clean, ended=ended, first_heel=heel, strikes=strikes, drift=drift,
+def ep(clean=True, ended="time_out", heel=2.0, strikes=0, drift=0.1, lateral=5.0, vx=0.37, cmd=0.35, nose=0):
+    return dict(clean=clean, ended=ended, first_heel=heel, strikes=strikes, nose=nose, drift=drift,
                 lateral=lateral, vx=vx, cmd=cmd)
 
 
@@ -85,6 +85,7 @@ class TraceGateTests(unittest.TestCase):
         self.assertFalse(checks["clean >= 80%"])
         self.assertFalse(checks["first heel >= 1 cm in 90%"])
         self.assertFalse(self.verdict(4, [ep(strikes=1)] + [ep()] * 9)["no toe strikes"])
+        self.assertFalse(self.verdict(4, [ep(nose=1)] + [ep()] * 9)["no nose landings"])
 
     def test_lower_height_stricter_and_falls_fail(self):
         nine = [ep()] * 9 + [ep(clean=False)]

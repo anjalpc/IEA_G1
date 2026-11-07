@@ -28,6 +28,11 @@ FIRST_RISER_M, TREAD_M, STEPS = 1.00, 0.25, 3
 PLATFORM_M = FIRST_RISER_M + STEPS * TREAD_M
 FOOT_FORCE = (6, 12)             # contact_net_forces_w rows of the two ankle roll links
 STRIKE_N = 50.0                  # horizontal force on a toe within 6 cm of a riser
+# Nose landing: a touchdown with the heel over the front edge of its tread and
+# > STRIKE_N horizontal force within 4 frames (the sole lands on the nosing and
+# is pushed back). The toe-strike rule and the training stumble term (horizontal
+# > 4x vertical) both miss it: run 20261106_210725 model_15200, right foot onto
+# tread 2, 1112 N horizontal / 555 N vertical, heel 1.1 cm over the edge.
 FALL_TILT_DEG = 35.0
 NAME = re.compile(r"model_(\d+)_h(\d+)cm_seed(\d+)")
 
@@ -66,7 +71,7 @@ def episode(rows, stairs):
     ts, yaw, vx, cmd, knee = [], [], [], [], {0: [], 1: []}
     toe_out, land, steps = {0: [], 1: []}, {0: [], 1: []}, {0: [], 1: []}
     plat_t, plat_yaw = [], []
-    misses = planned = strikes = 0
+    misses = planned = strikes = nose = 0
     first_heel = None
     lift = {}
     unwrap = 0.0
@@ -103,6 +108,10 @@ def episode(rows, stairs):
                 lift[f] = centre
             if sup[f] and not was:
                 land[f].append(max(abs(rr["contact_net_forces_w"][FOOT_FORCE[f]][2]) for rr in rows[k:k + 6]))
+                if stairs and FIRST_RISER_M <= centre < PLATFORM_M:
+                    edge = FIRST_RISER_M + TREAD_M * int((centre - FIRST_RISER_M) // TREAD_M)
+                    push = max(math.hypot(*rr["contact_net_forces_w"][FOOT_FORCE[f]][:2]) for rr in rows[k:k + 4])
+                    nose += heel < edge and push > STRIKE_N
                 if f in lift and centre - lift[f] >= 0.06:
                     steps[f].append(centre - lift.pop(f))
                     if stairs and r["footstep_rolling_clock"]["on_stair_plan"] and centre < PLATFORM_M + 0.15:
@@ -121,6 +130,7 @@ def episode(rows, stairs):
         T=last["episode_time_s"], ended=ended, climbed=climbed if stairs else None,
         clean=(climbed and misses == 0 and ended not in ("fall", "stall")) if stairs else None,
         misses=misses if stairs else None, strikes=strikes if stairs else None, first_heel=first_heel,
+        nose=nose if stairs else None,
         vx=m(vx), cmd=m(cmd), drift=_slope(ts, yaw), plat_drift=_slope(plat_t, plat_yaw) if stairs else None,
         lateral=100 * (last["root_pos_w"][1] - o[1]),
         stride=(m(steps[0]), m(steps[1])), knee=(m(knee[0]), m(knee[1])),
@@ -161,6 +171,7 @@ def judge(height, eps, top):
         checks.append((f"first heel >= {GATE['first_heel_cm']:.0f} cm in {GATE['first_heel_share']:.0%}",
                        share >= GATE["first_heel_share"]))
         checks.append(("no toe strikes", all(e["strikes"] == 0 for e in eps)))
+        checks.append(("no nose landings", all(e["nose"] == 0 for e in eps)))
     return checks
 
 
@@ -185,7 +196,7 @@ def main(argv=None):
     verdict = True
     for ckpt in sorted(groups):
         print(f"\n=== checkpoint {ckpt} " + "=" * 60)
-        print(f"{'terrain':8s}{'n':>3s} {'climbed':>8s}{'clean':>6s}{'falls':>6s}{'stalls':>7s}{'strikes':>8s}"
+        print(f"{'terrain':8s}{'n':>3s} {'climbed':>8s}{'clean':>6s}{'falls':>6s}{'stalls':>7s}{'strikes':>8s}{'nose':>5s}"
               f"{'1st heel cm':>12s}{'speed/cmd':>11s}{'turn deg/s':>11s}{'side cm':>8s}{'plat turn':>10s}"
               f"  stride L/R cm knee L/R   toe-out L/R  landing L/R N")
         ok_all = True
@@ -200,6 +211,7 @@ def main(argv=None):
                   f"{ratio(lambda e: e['climbed']):>8s}{ratio(lambda e: e['clean']):>6s}"
                   f"{cnt(lambda e: e['ended'] == 'fall'):>6d}{cnt(lambda e: e['ended'] == 'stall'):>7d}"
                   f"{str(sum(e['strikes'] for e in eps)) if stairs else '-':>8s}"
+                  f"{str(sum(e['nose'] for e in eps)) if stairs else '-':>5s}"
                   f"{_f(st.median(heels) if heels else None, '+.1f') if stairs else '-':>12s}"
                   f"{st.fmean(e['vx'] for e in eps):6.2f}/{st.fmean(e['cmd'] for e in eps):.2f}"
                   f"{st.fmean(e['drift'] or 0 for e in eps):+11.2f}{st.fmean(e['lateral'] for e in eps):+8.0f}"
@@ -213,7 +225,7 @@ def main(argv=None):
             if args.seeds:
                 for seed, e in sorted(groups[ckpt][cm]):
                     print(f"          seed {seed:2d}: {e['ended']:8s} T {e['T']:4.1f}"
-                          + (f" climbed {int(e['climbed'])} misses {e['misses']} strikes {e['strikes']}"
+                          + (f" climbed {int(e['climbed'])} misses {e['misses']} strikes {e['strikes']} nose {e['nose']}"
                              f" 1st heel {_f(e['first_heel'], '+.1f')}" if stairs else "")
                           + f" speed {e['vx']:.2f} turn {_f(e['drift'], '+.2f')} side {e['lateral']:+.0f}")
         print(f"RESULT checkpoint {ckpt}: {'PASS' if ok_all else 'FAIL'}")
