@@ -818,9 +818,12 @@ def main() -> None:
         heights = resolved_config["terrain"]["riser_heights_m"]
         if clock_stage and heights == [0.0]:
             pass  # flat clock stage: all tiles flat
-        elif len(heights) < 2 or heights[0] != 0.0 or heights[-1] > 0.04:
+        elif len(heights) < 2 or heights[0] != 0.0:
+            # Patch 55: the 4 cm cap is lifted (4 cm passed at p54 16200);
+            # heights are added one stage at a time, the [0, 0.20] range is
+            # checked with terrain.riser_heights_m above.
             raise RuntimeError(
-                "Footstep bootstrap must mix flat with stairs of at most 4 cm"
+                "Footstep bootstrap must mix flat (0.0 first) with stairs"
             )
         if not resolved_config.get("balance_residual_control", {}).get("enabled", False):
             raise RuntimeError("residual_magnitude requires balance_residual_control")

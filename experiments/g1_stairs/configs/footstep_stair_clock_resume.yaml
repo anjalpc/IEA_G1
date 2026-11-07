@@ -5,7 +5,7 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Patch 54. Continue patch 53 (run 20261106_210725 model_15200) on flat, 2 cm and 4 cm with one change, a mirror-symmetric residual actor (ppo.symmetric_actor, policy_symmetry.py), mean = (clip(f(s)) + M clip(f(M s)))/2. The residual's left/right bias caused the flat left turn (p52 14200 replayed averaged, 10 robots, turn +0.71 to +0.08 deg/s, sideways 34 to 7 cm, knee 0.28/0.32 to 0.30/0.30) and the p53 stair-2 double step (left lead, right foot short in 6/6, heel on the nosing, up to 1112 N horizontal; right lead, left foot clean in 4/4). Graded tread placement (p53) and first-touchdown rule (p52) kept.
+  purpose: Patch 55. Continue patch 54 (run 20261107_092738 model_16200, symmetric actor) with one change, a 6 cm stair height added to flat, 2 cm and 4 cm (each a quarter of the tiles). 4 cm passed at 16200 (10/10 clean, 0 misses, drift fixed); open risk is the stair-2 step at fast clock periods (4 nose landings at period 1.00-1.02 s), expected to grow with riser height.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -18,7 +18,7 @@ task:
   id: Unitree-IEA-G1-29dof-Stairs-Footsteps-v0
   custom_stair_task_active: true
 terrain:
-  riser_height_m: 0.04
+  riser_height_m: 0.06
   # Stage 1: flat tiles (rolling targets, joystick command) and 2 cm stairs
   # (stair plan, one tread per step), at random. Flat walking at this
   # height lifts 1.6-3.2 cm (run 20261029_142532), so 2 cm is reachable;
@@ -26,10 +26,12 @@ terrain:
   # taught shuffling in footstep_bootstrap04_20261028_141115).
   # Patch 50: 4 cm added now that 2 cm is climbed with alternating feet
   # (10/10, patches 44-48).
+  # Patch 55: 6 cm added (4 cm 10/10 clean at p54 16200).
   riser_heights_m:
   - 0.0
   - 0.02
   - 0.04
+  - 0.06
   tread_depth_m: 0.25
   step_count: 3
   curriculum_enabled: false
@@ -80,8 +82,8 @@ execution:
 policy_initialization:
   type: rsl_rl_training_resume
   source:
-    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261106_210725/model_15200.pt
-    sha256: 776c4104a459d86c329bc466320adaefc9cf74726d3e88795eec977f030693e8
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261107_092738/model_16200.pt
+    sha256: FILL_ON_AWS
   critic_initialization: restored
   optimizer_initialization: restored
   locomotion_observations: 480
