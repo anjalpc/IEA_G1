@@ -5,7 +5,7 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Patch 58b. Continue patch 58 unchanged (run 20261109_142408 model_20200, 2 and 4 cm 10/10 strictly clean, 8 cm 10/10 climbed and clean with 0 falls, 6 cm 4/10 strictly clean from riser contacts) to test whether the tread-2 placement keeps moving back towards its target (6 cm heel +4.5, +4.7, +4.2 cm at 19650, 19900, 20200 against a +2.0 cm target) and to let the curriculum progress. A same-policy replay showed placing the foot back pays overall (stumble +0.50, landing impact -0.19 per step), so no reward change. Stop if the 4 and 6 cm tread-2 heel is still +4 cm or more at the 40 percent checkpoint. Curriculum restarts at 6 cm.
+  purpose: Patch 58c. Continue patch 58 unchanged from run 20261109_163824 model_21200 (2, 4 and 6 cm 10/10 strictly clean with 0 riser contacts at 6 cm, 8 cm 9/10 climbed and 6/10 strictly clean, failures only at stair cycles 1.29-1.39 s where tread 2 leaves under 5 cm of toe room, 10 cm 3/10 climbed) for 3000 iterations in one run so the curriculum keeps its state (it restarts at 6 cm on every resume). Every height improved with this unchanged setup over three runs. Stop and pick an earlier checkpoint if 2, 4 or 6 cm drop below 10/10 or 8 cm does not improve.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -111,8 +111,9 @@ footstep_clock:
 execution:
   # Patch 57: 4096 (2048 used 6.9 of 23 GB and 40% of the GPU).
   environments: 4096
-  # Resumed run: 1000 more iterations after the checkpoint's own.
-  maximum_iterations: 1000
+  # Resumed run: 3000 more iterations after the checkpoint's own (patch 58c,
+  # unattended overnight; checkpoints every 50).
+  maximum_iterations: 3000
   training_seed: 42
 # Residual on the frozen official Unitree policy (balance_residual_control);
 # the actor sees all 688 inputs. Policy, critic, optimizer and learning rate
@@ -121,8 +122,8 @@ execution:
 policy_initialization:
   type: rsl_rl_training_resume
   source:
-    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261109_142408/model_20200.pt
-    sha256: 26ab31acdee4f4531d96700d94d8792a72d85ea74bae7aec838165ac60818beb
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261109_163824/model_21200.pt
+    sha256: 9fa2bc41ca52784c7e390c1b4e7ef484b73d8a6a67e1132135001478cb4b4288
   critic_initialization: restored
   optimizer_initialization: restored
   locomotion_observations: 480
