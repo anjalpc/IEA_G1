@@ -5,7 +5,7 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Patch 58. Continue patch 57 (run 20261109_112507 model_19200, 8 cm 9/10 climbed but 4/6 cm strictly clean only 3/10 and 1/10 because every toe strike was a real riser contact from feet placed with the toe within 2 cm of the next riser) with tread targets 1.5 cm behind the tread centre and placement quality floored at riser contact. Zero-training replay of 19200 with the new targets gave 4 cm 10/10 and 6 cm 7/10 strictly clean (strike frames 16 to 0 and 38 to 3) with flat unchanged, but 8 cm 2/10 climbed (first step lands about 3.5 cm short of any tread-1 target at 8 cm and now crosses the 1 cm heel limit), which training must fix. Curriculum, stair cycle, rewards and 4096 environments as patch 57; curriculum restarts at 6 cm.
+  purpose: Patch 58b. Continue patch 58 unchanged (run 20261109_142408 model_20200, 2 and 4 cm 10/10 strictly clean, 8 cm 10/10 climbed and clean with 0 falls, 6 cm 4/10 strictly clean from riser contacts) to test whether the tread-2 placement keeps moving back towards its target (6 cm heel +4.5, +4.7, +4.2 cm at 19650, 19900, 20200 against a +2.0 cm target) and to let the curriculum progress. A same-policy replay showed placing the foot back pays overall (stumble +0.50, landing impact -0.19 per step), so no reward change. Stop if the 4 and 6 cm tread-2 heel is still +4 cm or more at the 40 percent checkpoint. Curriculum restarts at 6 cm.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -49,7 +49,7 @@ terrain:
     # terrain_curriculum.clean_climb_levels. Roles by env id: flat, review,
     # frontier, frontier. Levels index riser_heights_m.
     type: clean_climb
-    # Frontier envs start at 6 cm, the highest height mastered in patch 57
+    # Frontier envs start at 6 cm, the highest height mastered in patches 57 and 58
     # (curriculum state is not saved in checkpoints).
     initial_level: 3
     # Review envs draw from 2-6 cm until a higher height is mastered.
@@ -121,8 +121,8 @@ execution:
 policy_initialization:
   type: rsl_rl_training_resume
   source:
-    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261109_112507/model_19200.pt
-    sha256: cce51f14e0083da45e7a00c71f56eb48fd18e2d7f3fb2c6f615f48d553cc0e69
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261109_142408/model_20200.pt
+    sha256: 26ab31acdee4f4531d96700d94d8792a72d85ea74bae7aec838165ac60818beb
   critic_initialization: restored
   optimizer_initialization: restored
   locomotion_observations: 480
