@@ -5,7 +5,7 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Patch 57. Continue patch 56 (run 20261109_083412 model_18200, flat 10/10 within gate, 2/4/6 cm 10/10 climbed with no misses) towards 20 cm risers with three changes. (1) Heights 0-20 cm in 2 cm steps under a per-env clean-climb curriculum (terrain_curriculum.clean_climb_levels), where a quarter of the envs walk flat, a quarter review mastered heights, half climb at their own frontier, one height up after a clean climb (plan complete, every step on the first touchdown, no toe strike, no nose landing, no failure), one down after an episode without a completed climb, at most 2 heights above the highest mastered one (windowed clean rate >= 0.5). (2) Stair cycle 1.25 s up to 6 cm and 2.15 s longer per metre of riser above it (1.55 s at 20 cm), because higher risers need a higher, longer swing; 6 cm already scuffed the tread nose at the slow end of 1.25 s, so the verified heights keep their cycle. (3) 4096 environments (2048 used 6.9 of 23 GB and 40% of the GPU).
+  purpose: Patch 58. Continue patch 57 (run 20261109_112507 model_19200, 8 cm 9/10 climbed but 4/6 cm strictly clean only 3/10 and 1/10 because every toe strike was a real riser contact from feet placed with the toe within 2 cm of the next riser) with tread targets 1.5 cm behind the tread centre and placement quality floored at riser contact. Zero-training replay of 19200 with the new targets gave 4 cm 10/10 and 6 cm 7/10 strictly clean (strike frames 16 to 0 and 38 to 3) with flat unchanged, but 8 cm 2/10 climbed (first step lands about 3.5 cm short of any tread-1 target at 8 cm and now crosses the 1 cm heel limit), which training must fix. Curriculum, stair cycle, rewards and 4096 environments as patch 57; curriculum restarts at 6 cm.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -49,7 +49,8 @@ terrain:
     # terrain_curriculum.clean_climb_levels. Roles by env id: flat, review,
     # frontier, frontier. Levels index riser_heights_m.
     type: clean_climb
-    # Frontier envs start at 6 cm, the highest height verified clean.
+    # Frontier envs start at 6 cm, the highest height mastered in patch 57
+    # (curriculum state is not saved in checkpoints).
     initial_level: 3
     # Review envs draw from 2-6 cm until a higher height is mastered.
     mastered_level: 3
@@ -120,8 +121,8 @@ execution:
 policy_initialization:
   type: rsl_rl_training_resume
   source:
-    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261109_083412/model_18200.pt
-    sha256: ed112fe3ec8b1d6e8458abc3ddd57dc745f2828256e26b6795f30ddaca6a1f0c
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261109_112507/model_19200.pt
+    sha256: cce51f14e0083da45e7a00c71f56eb48fd18e2d7f3fb2c6f615f48d553cc0e69
   critic_initialization: restored
   optimizer_initialization: restored
   locomotion_observations: 480
