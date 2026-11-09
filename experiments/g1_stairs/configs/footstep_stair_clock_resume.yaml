@@ -5,7 +5,7 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Patch 55. Continue patch 54 (run 20261107_092738 model_16200, symmetric actor) with one change, a 6 cm stair height added to flat, 2 cm and 4 cm (each a quarter of the tiles). 4 cm passed at 16200 (10/10 clean, 0 misses, drift fixed); open risk is the stair-2 step at fast clock periods (4 nose landings at period 1.00-1.02 s), expected to grow with riser height.
+  purpose: Patch 56. Continue patch 55 (run 20261107_154516 model_17200, symmetric actor, flat/2/4/6 cm) with one change, the stair cycle 1.1 -> 1.25 s (stair speed 0.45 -> 0.40 m/s, jitter +-10% kept). At 17200 every stair failure at every height is in robots whose jittered cycle is below 1.10 s (6 cm 1/7 clean, 14 misses, 7 nose landings), every robot at 1.10 s or slower is clean (9/9, 0 misses, 0 nose). The policy swings ~0.22-0.24 s whatever the window, lifts 0.04-0.17 into it, so faster cycles leave too little reach for the trailing foot onto tread 2.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -45,7 +45,7 @@ command:
       ang_vel_z: [-0.2, 0.2]
       rel_standing_envs: 0.02
     # Stair tiles: sampled by the command term, then replaced every step by
-    # the climbing speed (2 x 0.25 m / period_stairs_s, ~0.45 m/s), also on
+    # the climbing speed (2 x 0.25 m / period_stairs_s, ~0.40 m/s), also on
     # the approach, which is walked like a flat tile until the hand-over.
     stairs:
       lin_vel_x: [0.2, 0.5]
@@ -65,7 +65,11 @@ footstep_clock:
   # slowest cycle the flat stage demonstrated; 1.3 s was never followed
   # (run 20261029_160519: steps every 0.18-0.22 s, lift-off in the own
   # window at chance level).
-  period_stairs_s: 1.1
+  # Patch 56: 1.25 s (0.40 m/s; 1.125-1.375 s with jitter). Run 20261107_154516
+  # model_17200: all stair misses and nose landings at cycles < 1.10 s, all
+  # robots at 1.10-1.18 s clean on 2, 4 and 6 cm. The current policy follows
+  # its clock (2.40 steps/s for 2.39 planned on flat), unlike run 20261029.
+  period_stairs_s: 1.25
   period_jitter: 0.1
   # Stride (two steps) = speed x cycle time, capped here: above the cap only
   # the rhythm gets quicker.
@@ -82,8 +86,8 @@ execution:
 policy_initialization:
   type: rsl_rl_training_resume
   source:
-    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261107_092738/model_16200.pt
-    sha256: 56437aa5dc077f0155a57062ee27393b69bc8258c2a1007f44067cce37c1f0d8
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261107_154516/model_17200.pt
+    sha256: FILL_ON_AWS
   critic_initialization: restored
   optimizer_initialization: restored
   locomotion_observations: 480

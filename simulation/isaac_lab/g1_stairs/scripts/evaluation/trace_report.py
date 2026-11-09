@@ -131,6 +131,12 @@ def episode(rows, stairs):
         clean=(climbed and misses == 0 and ended not in ("fall", "stall")) if stairs else None,
         misses=misses if stairs else None, strikes=strikes if stairs else None, first_heel=first_heel,
         nose=nose if stairs else None,
+        # Stair cycle of this episode (period_stairs_s x jitter): patch 55
+        # failed only below 1.10 s, so the report shows it per robot.
+        cycle=(st.median(list(r['footstep_rolling_clock']['period_s'] for r in rows
+                                 if r.get('footstep_rolling_clock', {}).get('on_stair_plan')))
+               if stairs and any(r.get('footstep_rolling_clock', {}).get('on_stair_plan') for r in rows)
+               else None),
         vx=m(vx), cmd=m(cmd), drift=_slope(ts, yaw), plat_drift=_slope(plat_t, plat_yaw) if stairs else None,
         lateral=100 * (last["root_pos_w"][1] - o[1]),
         stride=(m(steps[0]), m(steps[1])), knee=(m(knee[0]), m(knee[1])),
@@ -226,7 +232,7 @@ def main(argv=None):
                 for seed, e in sorted(groups[ckpt][cm]):
                     print(f"          seed {seed:2d}: {e['ended']:8s} T {e['T']:4.1f}"
                           + (f" climbed {int(e['climbed'])} misses {e['misses']} strikes {e['strikes']} nose {e['nose']}"
-                             f" 1st heel {_f(e['first_heel'], '+.1f')}" if stairs else "")
+                             f" 1st heel {_f(e['first_heel'], '+.1f')} cycle {_f(e['cycle'], '.2f')}" if stairs else "")
                           + f" speed {e['vx']:.2f} turn {_f(e['drift'], '+.2f')} side {e['lateral']:+.0f}")
         print(f"RESULT checkpoint {ckpt}: {'PASS' if ok_all else 'FAIL'}")
         verdict = ok_all
