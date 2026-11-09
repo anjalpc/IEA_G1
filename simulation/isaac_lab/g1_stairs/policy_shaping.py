@@ -126,8 +126,10 @@ class PolicyShaping:
             return raw
         with torch.no_grad():
             excess = torch.relu(raw.abs() - self.clip)
-            self._outside += float((excess > 0).float().mean())
-            self._excess += float(excess.sum(dim=-1).mean())
+            # Tensors, read only when printed: float() here waited for the
+            # GPU on every minibatch (5% of the training thread, py-spy p57).
+            self._outside = self._outside + (excess > 0).float().mean()
+            self._excess = self._excess + excess.sum(dim=-1).mean()
             extra = bound_gradient(raw, self.clip, self.coeff)
         self._hook_calls += 1
         return _AddGrad.apply(raw, extra)

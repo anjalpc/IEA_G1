@@ -172,6 +172,49 @@ def _quat_rotate_wxyz(quaternion, vector):
     return vector + 2.0 * (q_w * uv + uuv)
 
 
+COM_RECHECK_STEPS = 1000
+
+
+class LinkVelocity:
+    """Link-frame linear velocity of selected bodies, equal to
+    ``data.body_link_lin_vel_w`` but without fetching the centres of mass
+    every step.
+
+    Isaac Lab rebuilds ``body_link_vel_w`` from the COM velocity and
+    ``body_com_pos_b``, which calls PhysX ``get_coms()`` (a host-side copy of
+    every body of every env) once per step: 6.3% of the training thread at
+    4096 envs (py-spy, run with patch 57), for a training diagnostic. The
+    COM offsets do not change unless an event randomises them, so they are
+    fetched once and compared again every COM_RECHECK_STEPS steps; if they
+    ever differ, this falls back to ``body_link_lin_vel_w`` for good.
+    """
+
+    def __init__(self):
+        self.com_b = None
+        self.calls = 0
+        self.fallback = False
+
+    def __call__(self, data, ids):
+        import torch
+
+        # Look the property up on the class: hasattr(data, ...) would
+        # evaluate it, i.e. fetch the centres of mass.
+        if self.fallback or not hasattr(type(data), "body_com_pos_b"):
+            return _body_linear_velocity(data)[:, ids]
+        if self.com_b is None or self.calls % COM_RECHECK_STEPS == 0:
+            com_b = data.body_com_pos_b[:, ids].clone()
+            if self.com_b is not None and not torch.equal(com_b, self.com_b):
+                print("[INFO] Training metrics: centres of mass changed at run time; "
+                      "foot velocity reads body_link_lin_vel_w from now on", flush=True)
+                self.fallback = True
+                return _body_linear_velocity(data)[:, ids]
+            self.com_b = com_b
+        self.calls += 1
+        com_vel = data.body_com_vel_w[:, ids]
+        offset = _quat_rotate_wxyz(data.body_link_quat_w[:, ids], -self.com_b)
+        return com_vel[..., :3] + torch.linalg.cross(com_vel[..., 3:], offset, dim=-1)
+
+
 def _body_linear_velocity(data):
     if hasattr(data, "body_link_lin_vel_w"):
         return data.body_link_lin_vel_w
@@ -238,6 +281,7 @@ class InstrumentedRslRlVecEnvWrapper:
         self._stair_body_indices = None
         self._stair_sensor_indices = None
         self._posture_joint_indices = None
+        self._foot_link_velocity = LinkVelocity()
 
         self.reset_metrics()
 
@@ -762,7 +806,7 @@ class InstrumentedRslRlVecEnvWrapper:
         sensor_ids = list(self._stair_sensor_indices)
         foot_pos_w = data.body_pos_w[:, foot_ids]
         foot_quat_w = data.body_quat_w[:, foot_ids]
-        foot_vel_w = _body_linear_velocity(data)[:, foot_ids]
+        foot_vel_w = self._foot_link_velocity(data, foot_ids)
 
         centres = torch.tensor(
             G1_SOLE_SPHERE_CENTRES_M,
