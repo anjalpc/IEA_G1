@@ -48,7 +48,7 @@ class BatchedFootstepTests(unittest.TestCase):
         stairs, _, _ = planned_target_batch(**params)
         self.assertTrue(torch.allclose(
             stairs[:, :, 0],
-            torch.tensor([[0.10, 0.30], [0.10, 0.30]])
+            torch.tensor([[0.085, 0.285], [0.085, 0.285]])
         ))
         self.assertTrue(torch.allclose(
             stairs[:, :, 2],
@@ -85,7 +85,7 @@ class BatchedFootstepTests(unittest.TestCase):
     def test_per_environment_geometry_and_foot(self):
         target, foot, valid = self.build()
         self.assertEqual(target.shape, (2, 2, 4))
-        self.assertAlmostEqual(target[0, 0, 0].item(), 1.125)
+        self.assertAlmostEqual(target[0, 0, 0].item(), 1.11, places=6)
         self.assertAlmostEqual(target[1, 0, 2].item(), .3)
         self.assertEqual(foot[0, 0].item(), 0)
         self.assertEqual(foot[1, 0].item(), 1)
@@ -100,7 +100,7 @@ class BatchedFootstepTests(unittest.TestCase):
             target_index=torch.tensor([0, 4]))
         self.assertEqual(obs.shape, (2, OBS_WIDTH))
         self.assertTrue(torch.all(obs[1, 12:] == 0))
-        self.assertAlmostEqual(obs[0, 5].item(), 1.125)
+        self.assertAlmostEqual(obs[0, 5].item(), 1.11, places=6)
 
     def test_invalid_shapes_rejected(self):
         t, f, v = self.build()

@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import torch
 
+from .footstep_targets import TREAD_TARGET_BACK_M
+
 OBS_WIDTH = 22
 METRIC_CONTRACT = "footstep_target_v1"
 
@@ -23,6 +25,14 @@ NOMINAL_APPROACH_STEPS = 1
 # the riser (run 20261030_092747). Earlier approach targets, if any, are one
 # tread depth apart behind it.
 APPROACH_LAST_GAP_M = 0.20
+
+
+def tread_target_x(first_riser_x, tread_depth, index, step_count):
+    """Course x of the planned sole centre for stair/platform ``index``
+    (0 = tread 1): treads TREAD_TARGET_BACK_M behind their centre, platform
+    cells (index >= step_count) at their centre."""
+    x = first_riser_x + (index + 0.5) * tread_depth
+    return torch.where(index < step_count, x - TREAD_TARGET_BACK_M, x)
 
 
 def approach_target_x(first_riser_x, tread_depth, index):
@@ -94,7 +104,7 @@ def planned_target_batch(*, first_riser_x: torch.Tensor,
         x = torch.where(
             idx < 0,
             approach_target_x(first_riser_x[:, None], tread_depth[:, None], idx),
-            first_riser_x[:, None] + (idx + .5) * tread_depth[:, None])
+            tread_target_x(first_riser_x[:, None], tread_depth[:, None], idx, step_count))
         z = level * riser_height[:, None]
     y = centre_y[:, None] + torch.where(foot == 0, .5, -.5) * foot_separation[:, None]
     yaw = torch.zeros_like(x)

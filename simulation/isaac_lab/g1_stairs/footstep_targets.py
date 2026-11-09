@@ -9,6 +9,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from math import cos, sin
 
+# Tread targets (planned sole centres) sit this far behind the tread centre.
+# A centred 0.18 m sole leaves 3.5 cm between toe and the next riser, and the
+# simulated foot touches a riser face ~1.5 cm before its sphere toe does
+# (footstep_tread.TOE_CONTACT_REACH_M): run 20261109_112507 model_19200 landed
+# tread 2 at heel +4.0..+4.7 cm, and lift-offs with < 3 cm toe gap scuffed the
+# riser ahead in 20/30 cases at 4-8 cm (>= 5 cm: 5/36). 1.5 cm back: heel
+# +2.0 cm, toe gap 5.0 cm.
+TREAD_TARGET_BACK_M = 0.015
+
 
 @dataclass(frozen=True)
 class StairCourse:
@@ -55,7 +64,8 @@ def planned_targets(course: StairCourse, first_foot: int) -> tuple[FootstepTarge
     for index in range(count):
         foot = (first_foot + index) % 2
         level = min(index + 1, course.step_count)
-        x = (course.first_riser_x + (index + .5) * course.tread_depth)
+        x = (course.first_riser_x + (index + .5) * course.tread_depth
+             - (TREAD_TARGET_BACK_M if index < course.step_count else 0.0))
         y = course.centre_y + (.5 if foot == 0 else -.5)*course.foot_separation
         out.append(FootstepTarget(index, foot, x, y, level*course.riser_height, 0.0, level))
     return tuple(out)

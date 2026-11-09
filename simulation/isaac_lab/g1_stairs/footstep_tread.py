@@ -5,7 +5,7 @@ No dependency on legacy acquisition state machines.
 """
 import torch
 
-from .footstep_tensor import APPROACH_LAST_GAP_M
+from .footstep_tensor import APPROACH_LAST_GAP_M, tread_target_x
 
 # Training acceptance (full_sole=False). A centre-only rule paid landings
 # with the heel 3-8 cm off the tread front, followed by forward replants and
@@ -20,16 +20,24 @@ SPOT_TOE_CLEARANCE_M = 0.02      # spot: toe this far before the first riser
 # the acceptance limit (run 20261106_151951 model_14200, 4 cm: tread 1-2 heel
 # median -0.1 cm vs the 1 cm overhang limit, misses at exactly -1.0 cm).
 TREAD_QUALITY_FLOOR = 0.5        # pay at the acceptance limit, 1.0 at the planned centre
+# The simulated foot touches a riser face when its sphere toe (sole_bounds
+# x_max) is ~1.5 cm short of it: run 20261109_112507, all 435 riser-contact
+# frames (F_y 0, F_x backwards) with the toe 1.4-2.0 cm behind the riser line;
+# loaded feet stop 0.9-1.4 cm short. The URDF foot is four 5 mm spheres, so
+# the extra reach comes from the simulated asset (collision or contact offset).
+TOE_CONTACT_REACH_M = 0.015
 
 
 def tread_placement_quality(*, sole_bounds, targets, feet, first_riser_x,
                             tread_depth, riser_height, step_count):
     """[N] acquisition pay factor of the assigned foot on a stair tread.
 
-    1.0 with the sole centre on the planned target (tread centre), falling
-    linearly with the x error to TREAD_QUALITY_FLOOR where the heel reaches
-    the TREAD_HEEL_OVERHANG_M acceptance limit (and below). Rows whose
-    current target is not a tread (flat tiles, approach, platform) get 1.0.
+    1.0 with the sole centre on the planned target, falling linearly with
+    the x error to TREAD_QUALITY_FLOOR at either physical limit: backwards
+    where the heel reaches the TREAD_HEEL_OVERHANG_M acceptance limit,
+    forwards where the toe reaches the riser ahead (TOE_CONTACT_REACH_M short
+    of the tread end), and below. Rows whose current target is not a tread
+    (flat tiles, approach, platform) get 1.0.
     """
     n = sole_bounds.shape[0]
     target_x = targets[:, 0, 0]
@@ -38,8 +46,13 @@ def tread_placement_quality(*, sole_bounds, targets, feet, first_riser_x,
              & (riser_height > 0))
     b = sole_bounds[torch.arange(n, device=sole_bounds.device), feet[:, 0].long()]
     centre_x = 0.5 * (b[:, 0] + b[:, 1])
-    limit = 0.5 * tread_depth + TREAD_HEEL_OVERHANG_M - 0.5 * (b[:, 1] - b[:, 0])
-    error = ((centre_x - target_x).abs() / limit.clamp_min(1e-3)).clamp(0.0, 1.0)
+    half = 0.5 * (b[:, 1] - b[:, 0])
+    start = first_riser_x + index.to(target_x.dtype) * tread_depth
+    back = target_x - (start - TREAD_HEEL_OVERHANG_M + half)
+    ahead = (start + tread_depth - TOE_CONTACT_REACH_M - half) - target_x
+    offset = centre_x - target_x
+    limit = torch.where(offset < 0, back, ahead)
+    error = (offset.abs() / limit.clamp_min(1e-3)).clamp(0.0, 1.0)
     quality = 1.0 - (1.0 - TREAD_QUALITY_FLOOR) * error
     return torch.where(tread, quality, torch.ones_like(quality))
 
@@ -89,13 +102,21 @@ def qualified_tread_mask(*, sole_bounds, vertical_force, targets, feet, valid,
         on_stairs, (target_x - first_riser_x) / tread_depth - 0.5,
         (target_x - first_riser_x + APPROACH_LAST_GAP_M) / tread_depth - 1.0)
     index = torch.round(index_float).long()
-    good_index = (((index_float - index.to(index_float.dtype)).abs() < 1e-3)
+    # Tread targets sit TREAD_TARGET_BACK_M behind their centre.
+    on_grid = torch.where(
+        on_stairs,
+        tread_target_x(first_riser_x, tread_depth, index, step_count) - target_x,
+        (index_float - index.to(index_float.dtype)) * tread_depth)
+    good_index = ((on_grid.abs() < 1e-3 * tread_depth)
                   & (on_stairs | (index < 0))
                   & (index >= -approach_steps) & (index < step_count + 2))
     level = torch.where(index < 0, torch.zeros_like(index), (index + 1).clamp(1, step_count))
     plausible_height = ((target_z - level.to(target_z.dtype) * riser_height).abs() <= height_tolerance_m)
     good_level = good_index & plausible_height
-    start = target_x - 0.5 * tread_depth      # one tread depth centred on the target
+    # Stair and platform cells are the real treads; approach cells are one
+    # tread depth centred on the target.
+    start = torch.where(on_stairs, first_riser_x + index.to(target_x.dtype) * tread_depth,
+                        target_x - 0.5 * tread_depth)
     end = start + tread_depth
     x_min, x_max, y_min, y_max, z_min, z_max = sole_bounds.unbind(-1)
     if full_sole:

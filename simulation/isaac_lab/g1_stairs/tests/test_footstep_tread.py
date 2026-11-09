@@ -7,7 +7,7 @@ class TreadTests(unittest.TestCase):
     def setup(self):
         bounds=torch.tensor([[[1.06,1.19,.04,.12,.2,.2],[0.,.1,-.12,-.04,0.,0.]]])
         force=torch.tensor([[110.,110.]])
-        targets=torch.tensor([[[1.125,.08,.2,0.],[1.375,-.08,.4,0.]]])
+        targets=torch.tensor([[[1.11,.08,.2,0.],[1.36,-.08,.4,0.]]])  # planner tread targets
         feet=torch.tensor([[0,1]])
         valid=torch.ones((1,2),dtype=torch.bool)
         return dict(sole_bounds=bounds,vertical_force=force,targets=targets,feet=feet,
@@ -112,31 +112,35 @@ class FlatLandingTests(unittest.TestCase):
 
 
 class TreadPlacementQualityTests(unittest.TestCase):
-    """Patch 53: 1.0 on the planned centre, 0.5 at the heel-overhang limit."""
-    def args(self, heel, target_x=1.125, riser=0.04):
+    """1.0 on the planned target (1.5 cm behind the tread centre), 0.5 at the
+    heel-overhang limit behind it and at riser contact ahead of it."""
+    def args(self, heel, target_x=1.11, riser=0.04):
         bounds = torch.tensor([[[heel, heel + 0.18, .04, .12, .04, .04],
                                 [0., .18, -.12, -.04, 0., 0.]]])
-        return dict(sole_bounds=bounds, targets=torch.tensor([[[target_x, .08, .04, 0.], [1.375, -.08, .08, 0.]]]),
+        return dict(sole_bounds=bounds, targets=torch.tensor([[[target_x, .08, .04, 0.], [1.36, -.08, .08, 0.]]]),
                     feet=torch.tensor([[0, 1]]), first_riser_x=torch.tensor([1.]),
                     tread_depth=torch.tensor([.25]), riser_height=torch.tensor([riser]), step_count=3)
 
     def q(self, **kw):
         return tread_placement_quality(**self.args(**kw)).item()
 
-    def test_centre_pays_full(self):
-        self.assertAlmostEqual(self.q(heel=1.035), 1.0, places=5)
+    def test_target_pays_full(self):
+        self.assertAlmostEqual(self.q(heel=1.02), 1.0, places=5)
 
     def test_acceptance_limit_pays_floor(self):
         self.assertAlmostEqual(self.q(heel=0.99), 0.5, places=5)
         self.assertAlmostEqual(self.q(heel=0.95), 0.5, places=5)
 
-    def test_linear_between(self):
-        # heel at the edge: centre 3.5 cm short of a 4.5 cm limit
-        self.assertAlmostEqual(self.q(heel=1.0), 1 - 0.5 * 0.035 / 0.045, places=4)
-        self.assertGreater(self.q(heel=1.01), self.q(heel=1.0))
+    def test_riser_contact_pays_floor(self):
+        # sphere toe 1.5 cm short of riser 2 (1.25 m): heel 1.055
+        self.assertAlmostEqual(self.q(heel=1.055), 0.5, places=4)
+        self.assertAlmostEqual(self.q(heel=1.07), 0.5, places=5)
 
-    def test_overshoot_also_graded(self):
-        self.assertAlmostEqual(self.q(heel=1.055), self.q(heel=1.015), places=5)
+    def test_linear_on_each_side(self):
+        self.assertAlmostEqual(self.q(heel=1.0), 1 - 0.5 * 0.02 / 0.03, places=4)
+        self.assertAlmostEqual(self.q(heel=1.04), 1 - 0.5 * 0.02 / 0.035, places=4)
+        self.assertGreater(self.q(heel=1.01), self.q(heel=1.0))
+        self.assertGreater(self.q(heel=1.03), self.q(heel=1.04))
 
     def test_non_tread_rows_pay_full(self):
         self.assertEqual(self.q(heel=0.5, target_x=0.8), 1.0)      # approach

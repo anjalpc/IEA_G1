@@ -52,7 +52,7 @@ class IsaacAdapterTests(unittest.TestCase):
             obs = target_observation(self.env, self.runtime,
                                      position_scale_m=1., foot_separation_m=.16)
         self.assertEqual(tuple(obs.shape), (2, 14))
-        self.assertAlmostEqual(obs[0, 3].item(), 1.125)
+        self.assertAlmostEqual(obs[0, 3].item(), 1.11, places=6)
         self.assertAlmostEqual(obs[1, 5].item(), .1)
         self.assertEqual(self.runtime.target_index.tolist(), [0, 0])
 

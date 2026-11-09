@@ -41,7 +41,7 @@ class ApproachPlanTests(unittest.TestCase):
             zs.append(round(t[0, 0, 2].item(), 4))
             feet.append(int(f[0, 0]))
         # Last ground placement 0.20 m before the riser (toe ~0.10 m clear).
-        self.assertEqual(xs, [0.8, 1.125, 1.375, 1.625, 1.875, 2.125])
+        self.assertEqual(xs, [0.8, 1.11, 1.36, 1.61, 1.875, 2.125])  # treads 1.5 cm behind centre
         self.assertEqual(zs, [0.0, 0.2, 0.4, 0.6, 0.6, 0.6])
         self.assertEqual(feet, [0, 1, 0, 1, 0, 1])           # strict alternation
         _, _, v = plan(6)
@@ -61,7 +61,7 @@ class ApproachPlanTests(unittest.TestCase):
 
     def test_zero_approach_keeps_original_stair_plan(self):
         t, f, _ = plan(0, approach=0)
-        self.assertAlmostEqual(t[0, 0, 0].item(), 1.125)
+        self.assertAlmostEqual(t[0, 0, 0].item(), 1.11, places=6)
         self.assertAlmostEqual(t[0, 0, 2].item(), 0.2, places=6)
 
     def test_approach_is_stairs_only(self):

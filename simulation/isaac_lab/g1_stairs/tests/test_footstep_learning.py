@@ -14,7 +14,7 @@ class FootstepLearningTests(unittest.TestCase):
         self.assertEqual(len(obs), 22)
         self.assertEqual(obs[2:5], (1., 1., 0.))
         self.assertEqual(obs[12:15], (1., 0., 1.))
-        self.assertEqual(obs[5], 1.125)
+        self.assertAlmostEqual(obs[5], 1.11)
 
     def test_progress_updates_target_without_hidden_sequence_gate(self):
         self.assertTrue(self.progress.touchdown(foot=0, level=1, within_target=True, supported=True))
