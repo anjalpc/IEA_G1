@@ -377,6 +377,9 @@ class GeometryTrace:
                 "on_stair_plan": bool(rolling.on_plan[i].item()),
                 "stairs_climbed": bool(rolling.climbed[i].item()),
                 "swing_landed_lr": self.values(rolling.landed[i]),
+                # Patch 57: clean-climb events so far this episode, as the
+                # training curriculum sees them (clean_climb.VIOLATIONS order).
+                "clean_violations": self.values(rolling.violations[i]),
             }
 
         coordinator = getattr(env, "_g1_footstep_coordinator", None)

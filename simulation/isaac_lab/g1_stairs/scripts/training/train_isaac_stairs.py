@@ -196,7 +196,39 @@ def main() -> None:
         curriculum_enabled = bool(
             curriculum_cfg.get("enabled", False)
         )
-        if curriculum_enabled:
+        if curriculum_cfg.get("type", "clean_climb") != "clean_climb":
+            raise ValueError("terrain.curriculum.type must be clean_climb")
+        clean_climb = curriculum_cfg.get("type") == "clean_climb"
+        if clean_climb and not curriculum_enabled:
+            raise ValueError(
+                "terrain.curriculum.type clean_climb needs enabled: true"
+            )
+        if clean_climb:
+            # Patch 57: per-env clean-climb curriculum with fixed role shares
+            # (terrain_curriculum.clean_climb_levels). The clean-climb events
+            # come from the rolling gait clock.
+            if not (resolved_config.get("footstep_clock") or {}).get(
+                "enabled", False
+            ):
+                raise ValueError(
+                    "terrain.curriculum.type clean_climb needs footstep_clock"
+                )
+            from isaaclab.managers import CurriculumTermCfg
+            from simulation.isaac_lab.g1_stairs import (
+                terrain_curriculum,
+            )
+
+            clean_params = terrain_curriculum.validate_clean_climb_cfg(
+                curriculum_cfg, riser_heights_m
+            )
+            terrain_generator.curriculum = True
+            # Levels are set by the term at the first reset.
+            env_cfg.scene.terrain.max_init_terrain_level = 0
+            env_cfg.curriculum.terrain_levels = CurriculumTermCfg(
+                func=terrain_curriculum.clean_climb_levels,
+                params=clean_params,
+            )
+        elif curriculum_enabled:
             if len(riser_heights_m) < 2:
                 raise ValueError(
                     "terrain curriculum requires at least two riser heights"
@@ -258,7 +290,14 @@ def main() -> None:
             riser_heights_m,
             flush=True,
         )
-        if curriculum_enabled:
+        if clean_climb:
+            print(
+                "[INFO] Clean-climb curriculum (roles flat/review/frontier "
+                "1/1/2 of 4):",
+                env_cfg.curriculum.terrain_levels.params,
+                flush=True,
+            )
+        elif curriculum_enabled:
             print(
                 "[INFO] Stair terrain curriculum:",
                 {

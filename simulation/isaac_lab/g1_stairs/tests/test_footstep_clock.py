@@ -13,7 +13,8 @@ class ClockConfigTests(unittest.TestCase):
     def test_disabled_and_valid(self):
         self.assertIsNone(fc.validate_clock_cfg(None))
         self.assertIsNone(fc.validate_clock_cfg({"enabled": False}))
-        self.assertEqual(fc.validate_clock_cfg(dict(self.GOOD)), self.GOOD)
+        self.assertEqual(fc.validate_clock_cfg(dict(self.GOOD)),
+                         {**self.GOOD, "period_stairs_per_m": 0.0, "period_stairs_rise_from_m": 0.0})
 
     def test_rejects_bad_values(self):
         for change in ({"period_fast_s": 1.2},            # faster than slow

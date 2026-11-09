@@ -5,7 +5,7 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Patch 56. Continue patch 55 (run 20261107_154516 model_17200, symmetric actor, flat/2/4/6 cm) with two separable changes. (1) Rolling targets (flat, approach, platform) are laid along a heading that follows the commanded turn at once and the root yaw over one cycle (footstep_clock.follow_heading), not the instantaneous pelvis yaw whose +-2.9 deg twist pushed each target 1.1 cm forward (+11% flat speed) and locked in the first-step heading offset. (2) The stair cycle 1.1 -> 1.25 s (stair speed 0.45 -> 0.40 m/s, jitter +-10% kept). At 17200 every stair failure at every height is in robots whose jittered cycle is below 1.10 s (6 cm 1/7 clean, 14 misses, 7 nose landings), every robot at 1.10 s or slower is clean (9/9, 0 misses, 0 nose). The policy swings ~0.22-0.24 s whatever the window, lifts 0.04-0.17 into it, so faster cycles leave too little reach for the trailing foot onto tread 2.
+  purpose: Patch 57. Continue patch 56 (run 20261109_083412 model_18200, flat 10/10 within gate, 2/4/6 cm 10/10 climbed with no misses) towards 20 cm risers with three changes. (1) Heights 0-20 cm in 2 cm steps under a per-env clean-climb curriculum (terrain_curriculum.clean_climb_levels), where a quarter of the envs walk flat, a quarter review mastered heights, half climb at their own frontier, one height up after a clean climb (plan complete, every step on the first touchdown, no toe strike, no nose landing, no failure), one down after an episode without a completed climb, at most 2 heights above the highest mastered one (windowed clean rate >= 0.5). (2) Stair cycle 1.25 s up to 6 cm and 2.15 s longer per metre of riser above it (1.55 s at 20 cm), because higher risers need a higher, longer swing; 6 cm already scuffed the tread nose at the slow end of 1.25 s, so the verified heights keep their cycle. (3) 4096 environments (2048 used 6.9 of 23 GB and 40% of the GPU).
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -27,14 +27,38 @@ terrain:
   # Patch 50: 4 cm added now that 2 cm is climbed with alternating feet
   # (10/10, patches 44-48).
   # Patch 55: 6 cm added (4 cm 10/10 clean at p54 16200).
+  # Patch 57: every height to 20 cm; the curriculum below decides which
+  # heights the stair envs climb (p56 18200: 2/4/6 cm 10/10, no misses).
   riser_heights_m:
   - 0.0
   - 0.02
   - 0.04
   - 0.06
+  - 0.08
+  - 0.10
+  - 0.12
+  - 0.14
+  - 0.16
+  - 0.18
+  - 0.20
   tread_depth_m: 0.25
   step_count: 3
-  curriculum_enabled: false
+  curriculum_enabled: false   # unused key kept from the base; the mapping below decides
+  curriculum:
+    enabled: true
+    # terrain_curriculum.clean_climb_levels. Roles by env id: flat, review,
+    # frontier, frontier. Levels index riser_heights_m.
+    type: clean_climb
+    # Frontier envs start at 6 cm, the highest height verified clean.
+    initial_level: 3
+    # Review envs draw from 2-6 cm until a higher height is mastered.
+    mastered_level: 3
+    # Training-time clean rate (with exploration noise) that marks a height
+    # mastered; deterministic p56 18200 replays were 6/10 strictly clean at
+    # 4 and 6 cm (all toe strikes at cycles >= 1.23 s).
+    mastered_clean_rate: 0.5
+    # Frontier at most this many heights above the highest mastered one.
+    max_levels_ahead: 2
 command:
   terrain_split:
     # Forward walking and turning only for this stage; no backwards or
@@ -45,7 +69,8 @@ command:
       ang_vel_z: [-0.2, 0.2]
       rel_standing_envs: 0.02
     # Stair tiles: sampled by the command term, then replaced every step by
-    # the climbing speed (2 x 0.25 m / period_stairs_s, ~0.40 m/s), also on
+    # the climbing speed (2 x 0.25 m / stair cycle of the riser, 0.40 m/s up
+    # to 6 cm, 0.32 m/s at 20 cm), also on
     # the approach, which is walked like a flat tile until the hand-over.
     stairs:
       lin_vel_x: [0.2, 0.5]
@@ -70,12 +95,21 @@ footstep_clock:
   # robots at 1.10-1.18 s clean on 2, 4 and 6 cm. The current policy follows
   # its clock (2.40 steps/s for 2.39 planned on flat), unlike run 20261029.
   period_stairs_s: 1.25
+  # Patch 57: longer on higher risers, +2.15 s per metre above 6 cm
+  # (footstep_clock.stair_period): 8 cm 1.29, 10 cm 1.34, 14 cm 1.42,
+  # 20 cm 1.55 s, each +-10% jitter. At 1.25 s the 6 cm climbs were clean
+  # between 1.14 and 1.23 s and scuffed tread 3 from 1.24 s (run
+  # 20261109_083412 model_18200), so up to 6 cm the cycle stays. Recalibrate
+  # from the per-height cycle and swing columns of trace_report.py.
+  period_stairs_per_m: 2.15
+  period_stairs_rise_from_m: 0.06
   period_jitter: 0.1
   # Stride (two steps) = speed x cycle time, capped here: above the cap only
   # the rhythm gets quicker.
   max_stride_m: 0.55
 execution:
-  environments: 2048
+  # Patch 57: 4096 (2048 used 6.9 of 23 GB and 40% of the GPU).
+  environments: 4096
   # Resumed run: 1000 more iterations after the checkpoint's own.
   maximum_iterations: 1000
   training_seed: 42
@@ -86,8 +120,8 @@ execution:
 policy_initialization:
   type: rsl_rl_training_resume
   source:
-    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261107_154516/model_17200.pt
-    sha256: 892fc3118e3176ebaf3b7f728cb9e541799c8eb9b5670cce0fba19ba9f39a26d
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261109_083412/model_18200.pt
+    sha256: FILL_ON_AWS
   critic_initialization: restored
   optimizer_initialization: restored
   locomotion_observations: 480

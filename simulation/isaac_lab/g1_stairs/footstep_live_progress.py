@@ -18,7 +18,7 @@ from .footstep_isaac_adapter import course_root_pose, course_tensors
 from .footstep_clock import (
     RollingClockState, approach_steps_left, clock_schedule, follow_plan_foot,
     heading_targets, landing_impact, late_swing_cap, moving, own_window,
-    rolling_origin, speed_period, swing_progress, follow_heading)
+    rolling_origin, speed_period, stair_period, swing_progress, follow_heading)
 from .footstep_mixing import (
     course_exit_timeout, stair_escape, stair_steering, target_stalled,
 )
@@ -93,13 +93,15 @@ def apply_rolling_clock(env, state, *, centre, targets, feet, valid, resets,
     steps down to the plan's first target (``first_plan_x``) in equal steps
     and hand over to the plan when one step is left; the caller then starts
     the plan with the returned feet. Plan rows keep the plan's targets, use
-    the fixed stair cycle, the plan decides which foot gets the swing
-    window, and a target is only valid in its foot's own window. Rows that
+    the stair cycle of their riser (stair_period), the plan decides which
+    foot gets the swing window, and a target is only valid in its foot's own
+    window. Rows that
     completed their plan roll on like flat tiles. ``terrain_z`` maps [N,K]
     course x to ground height for the rolling targets (None: 0).
     Returns (rolling_rows, walking, swing_schedule, handover).
     """
-    stairs = riser_height_per_env(env) > 0
+    riser = riser_height_per_env(env)
+    stairs = riser > 0
     plan = stairs & state.on_plan
     rows = ~plan
     command = env.command_manager.get_command("base_velocity")
@@ -107,7 +109,7 @@ def apply_rolling_clock(env, state, *, centre, targets, feet, valid, resets,
     cfg = env.cfg.footstep_clock
     state.period_s = torch.where(
         rows, speed_period(command[:, 0], state.period_scale, cfg),
-        cfg["period_stairs_s"] * state.period_scale)
+        stair_period(riser, state.period_scale, cfg))
     state.phase = follow_plan_foot(state.phase, state.swinging, feet[:, 0], plan)
     schedule, assigned = clock_schedule(state.phase)
     state.swinging = schedule.any(dim=-1)
@@ -343,6 +345,20 @@ def audit_after_step(env):
             clock_state.prev_supported, supported, clock_state.prev_sole_vz,
             sole_vz, keep & clock_state.contact_armed)
         env._g1_footstep_landing_impact = impact
+        # Patch 57: toe strikes and nose landings this episode (clean_climb),
+        # read by the clean-climb curriculum at reset.
+        from .clean_climb import NOSE_LANDING, TOE_STRIKE, nose_landings, toe_strikes
+        stair_rows = (course["riser_height"] > 0) & keep
+        push = torch.linalg.vector_norm(
+            sensor.data.net_forces_w[:, sensor_ids, :2], dim=-1)
+        clock_state.violations[:, TOE_STRIKE] |= toe_strikes(
+            bounds, push, course["first_riser_x"], course["tread_depth"],
+            coordinator.runtime.step_count, stair_rows)
+        nose, clock_state.nose_window = nose_landings(
+            supported & ~clock_state.prev_supported & clock_state.contact_armed[:, None],
+            bounds, push, clock_state.nose_window, course["first_riser_x"],
+            course["tread_depth"], coordinator.runtime.step_count, stair_rows)
+        clock_state.violations[:, NOSE_LANDING] |= nose
         clock_state.prev_sole_vz = sole_vz.clone()
         clock_state.contact_armed = keep.clone()
         touchdown_before = (clock_state.prev_supported.clone(), plan_rows)  # patch 52, below
@@ -526,6 +542,8 @@ def audit_after_step(env):
         plan_hit = advanced & clock_state.on_plan
         env._g1_footstep_acquisition_paid = advanced & ~(
             plan_hit & clock_state.off_beat_since_hit)
+        from .clean_climb import EXTRA_STEP
+        clock_state.violations[:, EXTRA_STEP] |= plan_hit & clock_state.off_beat_since_hit
         clock_state.off_beat_since_hit &= ~plan_hit
         # The first touchdown is the attempt (patch 52): the re-plant that
         # hits after a missed touchdown pays no acquisition, like a hit after
@@ -601,7 +619,8 @@ def steer_stair_command(env, runtime, flat_ground, resets, tread_depth, clock_st
     command resample is overwritten within one step. Flat tiles keep their
     joystick command.
     """
-    stairs = (riser_height_per_env(env) > 0) & ~resets
+    riser = riser_height_per_env(env)
+    stairs = (riser > 0) & ~resets
     plan_active = runtime.target_index < runtime.plan_length(flat_ground)
     if clock_state is not None:
         # Approach rows (no plan yet) walk at the same speed as the climb;
@@ -612,8 +631,8 @@ def steer_stair_command(env, runtime, flat_ground, resets, tread_depth, clock_st
         xyz, yaw = course_root_pose(env)
         command = env.command_manager.get_command("base_velocity")
         if clock_state is not None:
-            stair_period = env.cfg.footstep_clock["period_stairs_s"] * clock_state.period_scale
-            command[active, 0] = 2.0 * tread_depth[active] / stair_period[active]
+            period = stair_period(riser, clock_state.period_scale, env.cfg.footstep_clock)
+            command[active, 0] = 2.0 * tread_depth[active] / period[active]
         command[active, 1:3] = stair_steering(xyz[active, 1], yaw[active])
     return active
 

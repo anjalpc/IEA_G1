@@ -36,7 +36,7 @@ Usage:
   simctl use <run_id>
   simctl tensorboard {start|status|stop}
   simctl video <checkpoint> [--height <m>] [--seed <n>] [--trace-only] [--markers]
-  simctl traces [<checkpoint>...] [--parallel <n>] [--name <tag>] [--symmetry check|average]   (trace batch + pass/fail report + tarball)
+  simctl traces [<checkpoint>...] [--parallel <n>] [--name <tag>] [--symmetry check|average] [--heights <m,m,...>]   (trace batch + pass/fail report + tarball)
   simctl showcase <checkpoint> [--robots <n>] [--rows <n>] [--seconds <s>] [--height <m>] [--seed <n>] [--no-markers]
   simctl baseline [config.yaml]
   simctl evaluate <checkpoint>
@@ -968,13 +968,16 @@ cd /workspace/IEA_G1
 # as seed k). Single-robot replays were GPU-bound on the A10G (3 in parallel
 # 107 s vs 55 s alone), so batching robots is the speed-up, not processes.
 cmd_traces() {
-    local USAGE="Usage: simctl traces [<checkpoint>...] [--parallel <n>] [--name <tag>] [--symmetry check|average]"
-    local CKPTS=() PARALLEL=3 NAME=traces SYM=check
+    local USAGE="Usage: simctl traces [<checkpoint>...] [--parallel <n>] [--name <tag>] [--symmetry check|average] [--heights <m,m,...>]"
+    local CKPTS=() PARALLEL=3 NAME=traces SYM=check ONLY=""
     while [ $# -gt 0 ]; do
         case "$1" in
             --parallel) PARALLEL="${2:?$USAGE}"; shift 2 ;;
             --name) NAME="${2:?$USAGE}"; shift 2 ;;
             --symmetry) SYM="${2:?$USAGE}"; shift 2 ;;
+            # A subset of the run's training heights (all by default), e.g.
+            # --heights 0,0.06,0.10,0.14 for a curriculum run.
+            --heights) ONLY="${2:?$USAGE}"; shift 2 ;;
             [0-9]*) CKPTS+=("$1"); shift ;;
             *) echo "$USAGE" >&2; exit 1 ;;
         esac
@@ -1007,6 +1010,21 @@ cmd_traces() {
         [ -f "${TRAIN_DIR}/model_${M}.pt" ] || { echo "Checkpoint not found: ${TRAIN_DIR}/model_${M}.pt" >&2; exit 1; }
     done
     HEIGHTS="$(python3 -c "import sys,yaml; print(' '.join(str(h) for h in yaml.safe_load(open(sys.argv[1]))['terrain']['riser_heights_m']))" "$CFG")"
+    if [ -n "$ONLY" ]; then
+        HEIGHTS="$(python3 - "$ONLY" $HEIGHTS <<'PY'
+import sys
+want, have = sys.argv[1].split(","), [float(h) for h in sys.argv[2:]]
+try:
+    picked = [float(w) for w in want if w.strip()]
+except ValueError:
+    sys.exit(f"--heights takes metres separated by commas, got {sys.argv[1]!r}")
+bad = [w for w in picked if not any(abs(w - h) < 1e-9 for h in have)]
+if bad or not picked:
+    sys.exit(f"--heights {bad or sys.argv[1]} not among the run's heights {have}")
+print(" ".join(str(h) for h in have if any(abs(w - h) < 1e-9 for w in picked)))
+PY
+)" || exit 1
+    fi
     LAST="$(printf '%s\n' "${CKPTS[@]}" | sort -n | tail -n 1)"
     ensure_container_running
     docker exec "$CONTAINER" pkill -9 -f record_view.py >/dev/null 2>&1 || true

@@ -8,6 +8,12 @@ line per terrain height and a gate verdict, e.g.
   python3 trace_report.py experiments/g1_stairs/outputs/evaluation/stair_p51
   python3 trace_report.py <dir> --seeds            # also one line per episode
 
+strict: clean and no toe strike or nose landing (the clean-climb
+curriculum's promotion rule, patch 57); cycle/swing: median stair cycle and
+plan-step swing time (lift-off to touchdown) per height, to recalibrate
+footstep_clock.period_stairs_per_m; train-clean (--seeds): the curriculum's
+own verdict from the traced clean_violations.
+
 Course (env_cfg, unchanged since patch 21): first riser at x 1.00 m, treads
 0.25 m deep, 3 steps, platform from 1.75 m. Plan targets sit at tread centres.
 """
@@ -73,7 +79,7 @@ def episode(rows, stairs):
     plat_t, plat_yaw = [], []
     misses = planned = strikes = nose = 0
     first_heel = None
-    lift = {}
+    lift, lift_t, swing = {}, {}, []
     unwrap = 0.0
     for k, r in enumerate(rows):
         a = r["footstep_landing_audit"]
@@ -106,6 +112,7 @@ def episode(rows, stairs):
             was = rows[k - 1]["footstep_landing_audit"]["supported_lr"][f]
             if was and not sup[f]:
                 lift[f] = centre
+                lift_t[f] = r["episode_time_s"]
             if sup[f] and not was:
                 land[f].append(max(abs(rr["contact_net_forces_w"][FOOT_FORCE[f]][2]) for rr in rows[k:k + 6]))
                 if stairs and FIRST_RISER_M <= centre < PLATFORM_M:
@@ -121,6 +128,7 @@ def episode(rows, stairs):
                             and centre < PLATFORM_M + 0.15):
                         planned += 1
                         misses += not a["raw_acquisition"]
+                        swing.append(r["episode_time_s"] - lift_t[f])
                     if stairs and first_heel is None and FIRST_RISER_M <= centre < FIRST_RISER_M + TREAD_M:
                         first_heel = 100 * (heel - FIRST_RISER_M)
     last = rows[-1]
@@ -128,11 +136,22 @@ def episode(rows, stairs):
     ended = "time_out" if last.get("time_out") else ("fall" if last.get("terminated") and tilt > FALL_TILT_DEG
                                                       else "stall" if last.get("terminated") else "end")
     climbed = any(r["footstep_rolling_clock"].get("stairs_climbed") for r in rows)
+    # Patch 57: the training curriculum's own clean-climb events (extra step,
+    # toe strike, nose landing) at the end of the episode, when traced.
+    violations = rows[-1]["footstep_rolling_clock"].get("clean_violations")
     m = lambda v: st.fmean(v) if v else None
     med = lambda v: st.median(v) if v else None
     return dict(
         T=last["episode_time_s"], ended=ended, climbed=climbed if stairs else None,
         clean=(climbed and misses == 0 and ended not in ("fall", "stall")) if stairs else None,
+        # Strict: also no toe strike and no nose landing (the curriculum's
+        # promotion rule, measured here by the report's own rules).
+        strict=(climbed and misses == 0 and strikes == 0 and nose == 0
+                and ended not in ("fall", "stall")) if stairs else None,
+        train_clean=(climbed and not any(violations) and ended not in ("fall", "stall"))
+        if stairs and violations is not None else None,
+        violations=violations if stairs else None,
+        swing=st.median(swing) if stairs and swing else None,
         misses=misses if stairs else None, strikes=strikes if stairs else None, first_heel=first_heel,
         nose=nose if stairs else None,
         # Stair cycle of this episode (period_stairs_s x jitter): patch 55
@@ -157,6 +176,13 @@ def _pair(p, fmt, scale=1.0):
 
 def _mean_pair(eps, key):
     return tuple(st.fmean([e[key][i] for e in eps if e[key][i] is not None] or [math.nan]) for i in (0, 1))
+
+
+def _median_pair(eps):
+    """'cycle/swing' medians over the episodes (s)."""
+    cyc = [e["cycle"] for e in eps if e["cycle"] is not None]
+    sw = [e["swing"] for e in eps if e["swing"] is not None]
+    return f"{_f(st.median(cyc) if cyc else None, '.2f')}/{_f(st.median(sw) if sw else None, '.2f')}"
 
 
 def judge(height, eps, top):
@@ -206,10 +232,11 @@ def main(argv=None):
     verdict = True
     for ckpt in sorted(groups):
         print(f"\n=== checkpoint {ckpt} " + "=" * 60)
-        print(f"{'terrain':8s}{'n':>3s} {'climbed':>8s}{'clean':>6s}{'falls':>6s}{'stalls':>7s}{'strikes':>8s}{'nose':>5s}"
+        print(f"{'terrain':8s}{'n':>3s} {'climbed':>8s}{'clean':>6s}{'strict':>7s}{'falls':>6s}{'stalls':>7s}{'strikes':>8s}{'nose':>5s}"
               f"{'1st heel cm':>12s}{'speed/cmd':>11s}{'turn deg/s':>11s}{'side cm':>8s}{'plat turn':>10s}"
-              f"  stride L/R cm knee L/R   toe-out L/R  landing L/R N")
+              f"  stride L/R cm knee L/R   toe-out L/R  landing L/R N  cycle/swing s")
         ok_all = True
+        clean_through, broken = None, False   # highest height up to which every stair height passes
         for cm in sorted(groups[ckpt]):
             eps = [e for _, e in sorted(groups[ckpt][cm])]
             n, stairs = len(eps), cm > 0
@@ -219,6 +246,7 @@ def main(argv=None):
             ratio = lambda pred: f"{cnt(pred)}/{n}" if stairs else "-"
             print(f"{('flat' if not stairs else f'{cm} cm'):8s}{n:3d} "
                   f"{ratio(lambda e: e['climbed']):>8s}{ratio(lambda e: e['clean']):>6s}"
+                  f"{ratio(lambda e: e['strict']):>7s}"
                   f"{cnt(lambda e: e['ended'] == 'fall'):>6d}{cnt(lambda e: e['ended'] == 'stall'):>7d}"
                   f"{str(sum(e['strikes'] for e in eps)) if stairs else '-':>8s}"
                   f"{str(sum(e['nose'] for e in eps)) if stairs else '-':>5s}"
@@ -227,17 +255,26 @@ def main(argv=None):
                   f"{st.fmean(e['drift'] or 0 for e in eps):+11.2f}{st.fmean(e['lateral'] for e in eps):+8.0f}"
                   f"{_f(st.fmean(plat) if plat else None, '+.2f') if stairs else '-':>10s}"
                   f"   {_pair(_mean_pair(eps, 'stride'), '.0f', 100):>11s}  {_pair(_mean_pair(eps, 'knee'), '.2f'):>9s}"
-                  f"  {_pair(_mean_pair(eps, 'toe_out'), '.1f'):>11s}  {_pair(_mean_pair(eps, 'land'), '.0f'):>11s}")
+                  f"  {_pair(_mean_pair(eps, 'toe_out'), '.1f'):>11s}  {_pair(_mean_pair(eps, 'land'), '.0f'):>11s}"
+                  f"  {_median_pair(eps) if stairs else '-':>13s}")
             checks = judge(cm, eps, top)
             ok = all(c for _, c in checks)
             ok_all &= ok
+            if stairs and not broken:
+                broken = not ok
+                clean_through = clean_through if broken else cm
             print("        " + "  ".join(f"[{'PASS' if c else 'FAIL'}] {name}" for name, c in checks))
             if args.seeds:
                 for seed, e in sorted(groups[ckpt][cm]):
                     print(f"          seed {seed:2d}: {e['ended']:8s} T {e['T']:4.1f}"
                           + (f" climbed {int(e['climbed'])} misses {e['misses']} strikes {e['strikes']} nose {e['nose']}"
-                             f" 1st heel {_f(e['first_heel'], '+.1f')} cycle {_f(e['cycle'], '.2f')}" if stairs else "")
+                             f" 1st heel {_f(e['first_heel'], '+.1f')} cycle {_f(e['cycle'], '.2f')}"
+                             f" swing {_f(e['swing'], '.2f')}"
+                             f" train-clean {'-' if e['train_clean'] is None else int(e['train_clean'])}"
+                             if stairs else "")
                           + f" speed {e['vx']:.2f} turn {_f(e['drift'], '+.2f')} side {e['lateral']:+.0f}")
+        print(f"Stair heights passing in order from the lowest: up to "
+              f"{f'{clean_through} cm' if clean_through else 'none'}")
         print(f"RESULT checkpoint {ckpt}: {'PASS' if ok_all else 'FAIL'}")
         verdict = ok_all
     print(f"\nLatest checkpoint ({max(groups)}): {'PASS' if verdict else 'FAIL'} "

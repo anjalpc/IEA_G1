@@ -22,7 +22,8 @@ equal steps no longer than a normal step (the last may be 25% longer), so
 the adjustment to the stairs is spread over the run-up instead of one odd
 step at the end. When one step is left, the tile hands over to the stair
 plan, whose first foot is the foot about to swing; from then on the cycle is fixed
-(``period_stairs_s``) and one tread is one step. The plan decides which foot
+(``stair_period``: ``period_stairs_s``, longer on risers above
+``period_stairs_rise_from_m`` by ``period_stairs_per_m``) and one tread is one step. The plan decides which foot
 swings: when a swing window opens for a foot the plan is not waiting for
 (after a miss), the clock is shifted half a cycle. A stair target only
 counts during its foot's own swing window and the double support after it,
@@ -54,29 +55,43 @@ PERIOD_FAST_SPEED_MPS = 0.6      # period_fast_s applies at or above this speed
 # Rates only: no heading is stored, a past turn is never undone.
 YAW_DRIFT_STD_RADPS = 0.035       # 2 deg/s cycle-average error costs 1.0
 APPROACH_STEP_TOLERANCE = 0.25    # last approach step may be this much longer than normal
+MAX_RISER_M = 0.20                # highest riser the course generator builds
 
 
 def validate_clock_cfg(cfg) -> dict | None:
-    """Return the normalised ``footstep_clock`` config, or None if disabled."""
+    """Return the normalised ``footstep_clock`` config, or None if disabled.
+
+    ``period_stairs_per_m`` and ``period_stairs_rise_from_m`` are optional
+    (default 0: one stair cycle for every riser, as before patch 57).
+    """
     if cfg in (None, {}):
         return None
     if not isinstance(cfg, dict):
         raise ValueError("footstep_clock must be a mapping")
     if not bool(cfg.get("enabled", False)):
         return None
-    keys = {"enabled", "period_slow_s", "period_fast_s", "period_stairs_s",
-            "period_jitter", "max_stride_m"}
-    unknown = set(cfg) - keys
+    required = {"enabled", "period_slow_s", "period_fast_s", "period_stairs_s",
+                "period_jitter", "max_stride_m"}
+    optional = {"period_stairs_per_m", "period_stairs_rise_from_m"}
+    unknown = set(cfg) - required - optional
     if unknown:
         raise ValueError(f"unknown footstep_clock keys: {sorted(unknown)}")
-    if set(cfg) != keys:
-        raise ValueError(f"footstep_clock needs keys {sorted(keys)}")
+    if not required <= set(cfg):
+        raise ValueError(f"footstep_clock needs keys {sorted(required)}")
     slow, fast = float(cfg["period_slow_s"]), float(cfg["period_fast_s"])
     if not 0.4 <= fast <= slow <= 2.0:
         raise ValueError("footstep_clock needs 0.4 <= period_fast_s <= period_slow_s <= 2.0")
     stairs = float(cfg["period_stairs_s"])
     if not 0.6 <= stairs <= 2.0:
         raise ValueError("footstep_clock.period_stairs_s must be in [0.6, 2.0]")
+    per_m = float(cfg.get("period_stairs_per_m", 0.0))
+    if not 0.0 <= per_m <= 5.0:
+        raise ValueError("footstep_clock.period_stairs_per_m must be in [0, 5] s/m")
+    rise_from = float(cfg.get("period_stairs_rise_from_m", 0.0))
+    if not 0.0 <= rise_from <= MAX_RISER_M:
+        raise ValueError("footstep_clock.period_stairs_rise_from_m must be in [0, 0.20]")
+    if stairs + per_m * (MAX_RISER_M - rise_from) > 2.0:
+        raise ValueError("footstep_clock: the stair cycle on a 20 cm riser must be <= 2.0 s")
     jitter = float(cfg["period_jitter"])
     if not 0.0 <= jitter <= 0.3:
         raise ValueError("footstep_clock.period_jitter must be in [0, 0.3]")
@@ -84,7 +99,25 @@ def validate_clock_cfg(cfg) -> dict | None:
     if not 0.2 <= stride <= 0.8:
         raise ValueError("footstep_clock.max_stride_m must be in [0.2, 0.8]")
     return {"enabled": True, "period_slow_s": slow, "period_fast_s": fast,
-            "period_stairs_s": stairs, "period_jitter": jitter, "max_stride_m": stride}
+            "period_stairs_s": stairs, "period_stairs_per_m": per_m,
+            "period_stairs_rise_from_m": rise_from,
+            "period_jitter": jitter, "max_stride_m": stride}
+
+
+def stair_period(riser_height, scale, cfg):
+    """[N] stair cycle time: ``period_stairs_s`` up to
+    ``period_stairs_rise_from_m``, ``period_stairs_per_m`` longer per metre of
+    riser above it, times the episode's jitter scale (patch 57).
+
+    A higher riser needs a higher, longer swing; on the fixed 1.25 s cycle
+    the 6 cm climbs were clean between 1.14 and 1.23 s and scuffed the
+    tread nose from 1.24 s on (run 20261109_083412 model_18200), so the
+    verified heights keep their cycle and only higher risers get longer.
+    """
+    if riser_height.shape != scale.shape:
+        raise ValueError("riser height and scale shapes differ")
+    extra = (riser_height - cfg.get("period_stairs_rise_from_m", 0.0)).clamp_min(0.0)
+    return scale * (cfg["period_stairs_s"] + cfg.get("period_stairs_per_m", 0.0) * extra)
 
 
 def speed_period(forward_speed, scale, cfg):
@@ -367,6 +400,10 @@ class RollingClockState:
         self.cycle_yaw_error = torch.zeros(num_envs, device=self.device)
         self.heading = torch.zeros(num_envs, device=self.device)        # patch 56
         self.heading_valid = torch.zeros(num_envs, dtype=torch.bool, device=self.device)
+        # Patch 57: clean-climb events this episode (clean_climb.VIOLATIONS)
+        # and the frames left to watch each foot for a nose landing.
+        self.violations = torch.zeros((num_envs, 3), dtype=torch.bool, device=self.device)
+        self.nose_window = torch.zeros((num_envs, 2), dtype=torch.long, device=self.device)
 
     def reset(self, env_ids, jitter):
         """New cycle-time scale per episode (1 +- jitter); random lead foot
@@ -396,6 +433,8 @@ class RollingClockState:
         self.yaw_error_time[ids] = 0.0
         self.cycle_yaw_error[ids] = 0.0
         self.heading_valid[ids] = False     # set from the root yaw on first use
+        self.violations[ids] = False
+        self.nose_window[ids] = 0
 
     def advance(self, dt, rows, yaw_rate_error=None):
         """Move the phase of walking rows by dt.
