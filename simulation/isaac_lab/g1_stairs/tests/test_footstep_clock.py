@@ -299,6 +299,7 @@ class ApplyRollingClockTests(unittest.TestCase):
                                                 "period_fast_s": 1.0, "period_stairs_s": 1.3,
                                                 "period_jitter": 0.0, "max_stride_m": 0.55}),
             command_manager=SimpleNamespace(get_command=lambda name: self.command),
+            step_dt=0.02,
         )
         # rows 0 and 2 flat (clock), row 1 a stair tile
         patches = [
@@ -371,10 +372,20 @@ class ApplyRollingClockTests(unittest.TestCase):
     def test_targets_follow_the_robot_heading(self):
         self.run_once()
         self.yaw[0] = 0.2                                # robot now faces 0.2 rad
+        for _ in range(250):                             # 5 s, five 1 s cycles
+            self.run_once()
         self.state.phase[0] = 0.6                        # next window
         _, _, targets, _, _ = self.run_once()
-        # body-relative: no stored heading pulls the step back
-        self.assertAlmostEqual(targets[0, 0, 3].item(), 0.2, places=6)
+        # body-relative: a held heading change is followed (patch 56: within ~a cycle)
+        self.assertAlmostEqual(targets[0, 0, 3].item(), 0.2, delta=0.005)
+
+    def test_targets_ignore_a_one_step_twist(self):
+        # patch 56: a brief pelvis twist does not swing the next target
+        self.run_once()
+        self.yaw[0] = 0.05
+        self.state.phase[0] = 0.6
+        _, _, targets, _, _ = self.run_once()
+        self.assertLess(abs(targets[0, 0, 3].item()), 0.01)
 
     def test_period_follows_the_command(self):
         self.env.cfg.footstep_clock.update(period_slow_s=1.0, period_fast_s=0.7)
@@ -505,3 +516,36 @@ class ApplyRollingClockTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FollowHeadingTests(unittest.TestCase):
+    """Patch 56: rolling-target heading filters the per-step pelvis twist."""
+    dt, period = 0.02, 0.835
+
+    def run_heading(self, yaw_fn, wz=0.0, seconds=6.0):
+        from simulation.isaac_lab.g1_stairs.footstep_clock import follow_heading
+        h = torch.tensor([yaw_fn(0.0)]); out = []
+        for k in range(int(seconds / self.dt)):
+            t = (k + 1) * self.dt
+            h = follow_heading(h, torch.tensor([yaw_fn(t)]), torch.tensor([wz]), self.dt, torch.tensor([self.period]))
+            out.append(float(h))
+        return out
+
+    def test_twist_attenuated(self):
+        amp = math.radians(2.9)
+        out = self.run_heading(lambda t: amp * math.sin(2 * math.pi * t / self.period))
+        self.assertLess(max(abs(v) for v in out[-100:]), 0.2 * amp)
+
+    def test_follows_commanded_turn_without_lag(self):
+        wz = 0.2
+        out = self.run_heading(lambda t: wz * t, wz=wz, seconds=3.0)
+        self.assertAlmostEqual(out[-1], wz * 3.0, places=4)
+
+    def test_real_heading_change_followed_within_cycles(self):
+        out = self.run_heading(lambda t: 0.1 if t > 0.1 else 0.0)
+        self.assertAlmostEqual(out[int(4 * self.period / self.dt)], 0.1, delta=0.01)
+
+    def test_wraps(self):
+        from simulation.isaac_lab.g1_stairs.footstep_clock import follow_heading
+        h = follow_heading(torch.tensor([3.1]), torch.tensor([-3.1]), torch.tensor([0.0]), 0.02, torch.tensor([0.02]))
+        self.assertAlmostEqual(float(h), -3.1, places=4)

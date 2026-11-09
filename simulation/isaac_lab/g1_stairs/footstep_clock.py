@@ -267,6 +267,24 @@ def yaw_drift_cost(cycle_yaw_error):
     return torch.where(q < 1.0, q * q, 2.0 * q - 1.0)
 
 
+def follow_heading(heading, yaw, yaw_rate_command, dt, period_s):
+    """[N] heading that rolling targets are laid along (patch 56).
+
+    Follows the commanded turn at once and the measured root yaw with a
+    one-cycle time constant, so the pelvis twist of each step (+-2.9 deg,
+    phase-locked to the gait at p54 16200) does not swing the targets: laid
+    along the instantaneous yaw, the 22-24 cm lane offset rotated each new
+    target ~1.1 cm forward (flat +11% over the command) and locked in the
+    heading offset of the first step. Still body-relative: a real heading
+    change is followed within about one cycle, nothing older is kept.
+    """
+    predicted = heading + yaw_rate_command * dt
+    error = torch.atan2(torch.sin(yaw - predicted), torch.cos(yaw - predicted))
+    gain = (dt / period_s.clamp_min(dt)).clamp(max=1.0)
+    out = predicted + gain * error
+    return torch.atan2(torch.sin(out), torch.cos(out))
+
+
 def heading_targets(stance_xy, swing_foot, root_yaw, command, period_s,
                     foot_separation_m, step_len=None):
     """[N,2,4] targets (x, y, z=0, yaw) and [N,2] feet for the next two steps.
@@ -347,6 +365,8 @@ class RollingClockState:
         self.yaw_error_sum = torch.zeros(num_envs, device=self.device)
         self.yaw_error_time = torch.zeros(num_envs, device=self.device)
         self.cycle_yaw_error = torch.zeros(num_envs, device=self.device)
+        self.heading = torch.zeros(num_envs, device=self.device)        # patch 56
+        self.heading_valid = torch.zeros(num_envs, dtype=torch.bool, device=self.device)
 
     def reset(self, env_ids, jitter):
         """New cycle-time scale per episode (1 +- jitter); random lead foot
@@ -375,6 +395,7 @@ class RollingClockState:
         self.yaw_error_sum[ids] = 0.0
         self.yaw_error_time[ids] = 0.0
         self.cycle_yaw_error[ids] = 0.0
+        self.heading_valid[ids] = False     # set from the root yaw on first use
 
     def advance(self, dt, rows, yaw_rate_error=None):
         """Move the phase of walking rows by dt.

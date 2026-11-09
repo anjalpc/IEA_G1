@@ -5,7 +5,7 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Patch 56. Continue patch 55 (run 20261107_154516 model_17200, symmetric actor, flat/2/4/6 cm) with one change, the stair cycle 1.1 -> 1.25 s (stair speed 0.45 -> 0.40 m/s, jitter +-10% kept). At 17200 every stair failure at every height is in robots whose jittered cycle is below 1.10 s (6 cm 1/7 clean, 14 misses, 7 nose landings), every robot at 1.10 s or slower is clean (9/9, 0 misses, 0 nose). The policy swings ~0.22-0.24 s whatever the window, lifts 0.04-0.17 into it, so faster cycles leave too little reach for the trailing foot onto tread 2.
+  purpose: Patch 56. Continue patch 55 (run 20261107_154516 model_17200, symmetric actor, flat/2/4/6 cm) with two separable changes. (1) Rolling targets (flat, approach, platform) are laid along a heading that follows the commanded turn at once and the root yaw over one cycle (footstep_clock.follow_heading), not the instantaneous pelvis yaw whose +-2.9 deg twist pushed each target 1.1 cm forward (+11% flat speed) and locked in the first-step heading offset. (2) The stair cycle 1.1 -> 1.25 s (stair speed 0.45 -> 0.40 m/s, jitter +-10% kept). At 17200 every stair failure at every height is in robots whose jittered cycle is below 1.10 s (6 cm 1/7 clean, 14 misses, 7 nose landings), every robot at 1.10 s or slower is clean (9/9, 0 misses, 0 nose). The policy swings ~0.22-0.24 s whatever the window, lifts 0.04-0.17 into it, so faster cycles leave too little reach for the trailing foot onto tread 2.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:

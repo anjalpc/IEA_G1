@@ -18,8 +18,7 @@ from .footstep_isaac_adapter import course_root_pose, course_tensors
 from .footstep_clock import (
     RollingClockState, approach_steps_left, clock_schedule, follow_plan_foot,
     heading_targets, landing_impact, late_swing_cap, moving, own_window,
-    rolling_origin, speed_period, swing_progress,
-)
+    rolling_origin, speed_period, swing_progress, follow_heading)
 from .footstep_mixing import (
     course_exit_timeout, stair_escape, stair_steering, target_stalled,
 )
@@ -114,6 +113,14 @@ def apply_rolling_clock(env, state, *, centre, targets, feet, valid, resets,
     state.swinging = schedule.any(dim=-1)
     state.landed &= schedule                # a new window starts a new swing
     _, yaw = course_root_pose(env)
+    # Patch 56: targets are laid along a heading that follows the commanded
+    # turn at once and the root yaw over one cycle (footstep_clock.follow_heading).
+    # Standing or just starting to walk: no twist to filter, take the root yaw.
+    keep = state.heading_valid & state.active & walking
+    state.heading = torch.where(keep, state.heading, yaw)
+    state.heading = follow_heading(state.heading, yaw, command[:, 2], env.step_dt, state.period_s)
+    state.heading_valid[:] = True
+    yaw = state.heading
     # New target when the clock hands the swing to the other foot, and when
     # walking resumes after standing (the held target would be stale).
     new_window = rows & ((assigned != state.assigned) | (walking & ~state.active))
