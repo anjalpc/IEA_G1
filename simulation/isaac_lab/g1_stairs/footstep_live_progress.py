@@ -182,8 +182,15 @@ def audit_after_step(env):
     )
     robot = env.scene['robot']
     sensor = env.scene.sensors['contact_forces']
-    foot_ids = [list(robot.body_names).index(name) for name in FOOT_BODY_NAMES]
-    sensor_ids = [list(sensor.body_names).index(name) for name in FOOT_BODY_NAMES]
+    # Body indices never change during a run; ContactSensor.body_names rebuilds
+    # the list from PhysX prim paths on every call (py-spy, run 20261109:
+    # 25% of the training thread when looked up every step).
+    ids = getattr(env, "_g1_foot_body_ids", None)
+    if ids is None:
+        ids = ([list(robot.body_names).index(name) for name in FOOT_BODY_NAMES],
+               [list(sensor.body_names).index(name) for name in FOOT_BODY_NAMES])
+        env._g1_foot_body_ids = ids
+    foot_ids, sensor_ids = ids
     data = robot.data
     centre, bounds, _ = sole_state(
         data.body_pos_w[:, foot_ids], data.body_quat_w[:, foot_ids],

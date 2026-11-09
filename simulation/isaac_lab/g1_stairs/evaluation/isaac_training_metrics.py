@@ -351,11 +351,15 @@ class InstrumentedRslRlVecEnvWrapper:
 
         sensor = env.scene.sensors.get("contact_forces")
         if sensor is not None:
-            resolved = resolve_available_body_indices(
-                sensor.body_names,
-                FORBIDDEN_CONTACT_BODY_NAMES,
-            )
-            indices = list(resolved.values())
+            # Resolved once: ContactSensor.body_names rebuilds the list from
+            # PhysX prim paths on every call (12.7% of the training thread).
+            indices = getattr(self, "_forbidden_contact_indices", None)
+            if indices is None:
+                indices = list(resolve_available_body_indices(
+                    sensor.body_names,
+                    FORBIDDEN_CONTACT_BODY_NAMES,
+                ).values())
+                self._forbidden_contact_indices = indices
             if indices:
                 forces = sensor.data.net_forces_w[:, indices]
                 contacts = (
