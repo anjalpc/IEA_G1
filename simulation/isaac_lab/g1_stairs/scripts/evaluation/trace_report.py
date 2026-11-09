@@ -114,7 +114,11 @@ def episode(rows, stairs):
                     nose += heel < edge and push > STRIKE_N
                 if f in lift and centre - lift[f] >= 0.06:
                     steps[f].append(centre - lift.pop(f))
-                    if stairs and r["footstep_rolling_clock"]["on_stair_plan"] and centre < PLATFORM_M + 0.15:
+                    # The plan must already be active before this touchdown: a
+                    # foot landing on the hand-over frame hit the rolling target
+                    # that the plan just replaced (p56 18200 robots 7, 10).
+                    if (stairs and rows[k - 1]["footstep_rolling_clock"]["on_stair_plan"]
+                            and centre < PLATFORM_M + 0.15):
                         planned += 1
                         misses += not a["raw_acquisition"]
                     if stairs and first_heel is None and FIRST_RISER_M <= centre < FIRST_RISER_M + TREAD_M:
