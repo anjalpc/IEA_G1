@@ -96,6 +96,10 @@ def _response_payload(action, ok, stopped):
         raise ValueError("invalid Sport response action")
     if type(ok) is not bool or type(stopped) is not bool:
         raise TypeError("Sport response flags must be booleans")
+    if action == "stop" and ok and not stopped:
+        raise ValueError(
+            "successful Sport STOP must confirm stopped"
+        )
     return {
         "action": action,
         "ok": ok,

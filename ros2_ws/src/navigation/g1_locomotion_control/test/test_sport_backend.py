@@ -55,6 +55,18 @@ def test_sport_response_protocol_round_trip():
     }
 
 
+def test_successful_stop_response_must_confirm_stopped():
+    with pytest.raises(
+        ValueError,
+        match="successful Sport STOP must confirm stopped",
+    ):
+        encode_sport_response(
+            action="stop",
+            ok=True,
+            stopped=False,
+        )
+
+
 class FakeSportClient:
     """Record neutral Sport-port calls without SDK or DDS."""
 
