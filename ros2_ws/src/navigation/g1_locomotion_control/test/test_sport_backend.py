@@ -6,9 +6,11 @@ from g1_locomotion_control.sport_backend import (
     SportBackend,
     SportBackendError,
     decode_sport_request,
+    decode_sport_response,
     encode_sport_health_request,
     encode_sport_move_request,
     encode_sport_stop_request,
+    encode_sport_response,
 )
 
 
@@ -36,6 +38,20 @@ def test_sport_health_protocol_round_trip():
 
     assert decode_sport_request(line) == {
         "action": "health",
+    }
+
+
+def test_sport_response_protocol_round_trip():
+    line = encode_sport_response(
+        action="stop",
+        ok=True,
+        stopped=True,
+    )
+
+    assert decode_sport_response(line) == {
+        "action": "stop",
+        "ok": True,
+        "stopped": True,
     }
 
 

@@ -1,11 +1,14 @@
 """Hardware-free boundary for a future Unitree Sport adapter."""
 
-import math
 import json
+import math
 from typing import Protocol
 
 
 SPORT_REQUEST_PREFIX = "SPORT_REQUEST="
+SPORT_RESPONSE_PREFIX = "SPORT_RESPONSE="
+_RESPONSE_FIELDS = {"action", "ok", "stopped"}
+_SPORT_ACTIONS = {"health", "move", "stop"}
 _MOVE_FIELDS = {
     "action",
     "forward_mps",
@@ -85,6 +88,44 @@ def decode_sport_request(line):
         payload["forward_mps"],
         payload["lateral_mps"],
         payload["yaw_rate_rps"],
+    )
+
+
+def _response_payload(action, ok, stopped):
+    if action not in _SPORT_ACTIONS:
+        raise ValueError("invalid Sport response action")
+    if type(ok) is not bool or type(stopped) is not bool:
+        raise TypeError("Sport response flags must be booleans")
+    return {
+        "action": action,
+        "ok": ok,
+        "stopped": stopped,
+    }
+
+
+def encode_sport_response(*, action, ok, stopped):
+    """Encode one strict helper acknowledgement."""
+    return SPORT_RESPONSE_PREFIX + json.dumps(
+        _response_payload(action, ok, stopped),
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
+def decode_sport_response(line):
+    """Decode one strict helper acknowledgement."""
+    stripped = str(line).strip()
+    if not stripped.startswith(SPORT_RESPONSE_PREFIX):
+        return None
+    payload = json.loads(
+        stripped[len(SPORT_RESPONSE_PREFIX):]
+    )
+    if not isinstance(payload, dict) or set(payload) != _RESPONSE_FIELDS:
+        raise ValueError("invalid Sport response")
+    return _response_payload(
+        payload["action"],
+        payload["ok"],
+        payload["stopped"],
     )
 
 
