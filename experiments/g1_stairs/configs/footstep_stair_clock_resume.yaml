@@ -5,7 +5,7 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Patch 58c. Continue patch 58 unchanged from run 20261109_163824 model_21200 (2, 4 and 6 cm 10/10 strictly clean with 0 riser contacts at 6 cm, 8 cm 9/10 climbed and 6/10 strictly clean, failures only at stair cycles 1.29-1.39 s where tread 2 leaves under 5 cm of toe room, 10 cm 3/10 climbed) for 3000 iterations in one run so the curriculum keeps its state (it restarts at 6 cm on every resume). Every height improved with this unchanged setup over three runs. Stop and pick an earlier checkpoint if 2, 4 or 6 cm drop below 10/10 or 8 cm does not improve.
+  purpose: Patch 58d. Continue patch 58 unchanged from run 20261109_202912 model_24200 (4, 6 and 8 cm 10/10 strictly clean, 2 cm 8/10 with two brief tread-1 riser contacts, 10 cm 10/10 climbed and clean but 1/10 strictly clean because the foot leaving tread 2 scuffs riser 3 in 9/10, 12 cm 1/10 climbed and effectively untrained) for 3000 iterations. Curriculum resumes where patch 58c ended (mastered 8 cm, frontier starting at 10 cm) instead of restarting at 6 cm. Stop and keep 24200 if 2 to 8 cm lose strict-clean robots or 10 cm does not improve.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -49,11 +49,13 @@ terrain:
     # terrain_curriculum.clean_climb_levels. Roles by env id: flat, review,
     # frontier, frontier. Levels index riser_heights_m.
     type: clean_climb
-    # Frontier envs start at 6 cm, the highest height mastered in patches 57 and 58
-    # (curriculum state is not saved in checkpoints).
-    initial_level: 3
-    # Review envs draw from 2-6 cm until a higher height is mastered.
-    mastered_level: 3
+    # Curriculum state is not saved in checkpoints: resume it from the
+    # patch 58c status (mastered 8 cm; frontier mean 10 cm). Deterministic
+    # 24200 replays: 4/6/8 cm 10/10 strictly clean, 10 cm 10/10 climbed.
+    # Frontier envs start at 10 cm.
+    initial_level: 5
+    # Review envs draw from 2-8 cm until a higher height is mastered.
+    mastered_level: 4
     # Training-time clean rate (with exploration noise) that marks a height
     # mastered; deterministic p56 18200 replays were 6/10 strictly clean at
     # 4 and 6 cm (all toe strikes at cycles >= 1.23 s).
@@ -122,8 +124,8 @@ execution:
 policy_initialization:
   type: rsl_rl_training_resume
   source:
-    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261109_163824/model_21200.pt
-    sha256: 9fa2bc41ca52784c7e390c1b4e7ef484b73d8a6a67e1132135001478cb4b4288
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261109_202912/model_24200.pt
+    sha256: 1384009bb3645e4fe52887a4b3261b84a3324a5f14dcfc4dfaac43d8dfda95f6
   critic_initialization: restored
   optimizer_initialization: restored
   locomotion_observations: 480
