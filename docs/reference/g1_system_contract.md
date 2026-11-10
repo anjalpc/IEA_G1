@@ -691,7 +691,8 @@ Authoritative hand contract:
 | Component | Pinned version/revision |
 |---|---|
 | Unitree SDK2 | `9754cd153af3da471b0fe5f3aa535e426fb11db3` |
-| Unitree SDK2 Python | `65691c8a8bc53b98d3976dba4dbf9d5d20b2e7f5` |
+| Unitree SDK2 Python (development image) | `65691c8a8bc53b98d3976dba4dbf9d5d20b2e7f5` |
+| Unitree SDK2 Python (physical PC2) | `794fb2b3fd9165fd245a7b568698d9e97d8ac0a0` |
 | Unitree MuJoCo | `ae6a8403e272733e9996ef59990880330496177f` |
 | Unitree RL Lab deployment subset | `4960b84732b0c2ec593dccbfe963fda1bcd7b1e3` |
 | MuJoCo | 3.3.6 |
@@ -699,6 +700,16 @@ Authoritative hand contract:
 | NumPy | 1.26.4 |
 | ROS development environment | ROS 2 Humble |
 | Physical PC2 environment | ROS 2 Foxy |
+
+The physical high-level locomotion helper loads only
+`unitree_sdk2py.g1.loco.g1_loco_client.LocoClient` inside its isolated PC2
+process. MOVE maps to `SetVelocity(vx, vy, vyaw, bounded_duration)` and STOP
+maps to `SetVelocity(0.0, 0.0, 0.0, bounded_duration)` so the RPC return
+code remains observable. It must never call `Damp`, `ZeroTorque`, `Sit`, or
+posture-transition methods. A successful STOP response confirms acceptance of
+the zero-velocity RPC; it is not independent physical proof that velocity is
+zero. The relevant `SetVelocity` contract is common to both pinned Python SDK
+revisions above.
 
 DDS/network separation is mandatory:
 

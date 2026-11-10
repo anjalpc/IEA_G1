@@ -1,5 +1,7 @@
 """Tests for the hardware-free Sport backend boundary."""
 
+from unittest.mock import Mock
+
 import pytest
 
 from g1_locomotion_control.sport_backend import (
@@ -122,6 +124,155 @@ def test_protocol_client_stop_requires_confirmed_stop():
     client.stop_move()
 
     assert requests == [{"action": "stop"}]
+
+
+def test_native_helper_maps_stop_only_to_zero_velocity():
+    from g1_locomotion_control.sport_helper import (
+        execute_sport_request,
+    )
+
+    client = Mock()
+    client.SetVelocity.return_value = 0
+
+    response = execute_sport_request(
+        client,
+        {"action": "stop"},
+        duration_seconds=0.25,
+    )
+
+    assert client.SetVelocity.call_args.args == (
+        0.0, 0.0, 0.0, 0.25,
+    )
+    assert decode_sport_response(response) == {
+        "action": "stop",
+        "ok": True,
+        "stopped": True,
+    }
+    assert client.Damp.call_count == 0
+    assert client.ZeroTorque.call_count == 0
+    assert client.Sit.call_count == 0
+
+
+def test_native_helper_maps_move_to_bounded_velocity_rpc():
+    from g1_locomotion_control.sport_helper import (
+        execute_sport_request,
+    )
+
+    client = Mock()
+    client.SetVelocity.return_value = 0
+    request = {
+        "action": "move",
+        "forward_mps": 0.12,
+        "lateral_mps": -0.03,
+        "yaw_rate_rps": 0.25,
+    }
+
+    response = execute_sport_request(
+        client, request, duration_seconds=0.25,
+    )
+
+    assert client.SetVelocity.call_args.args == (
+        0.12, -0.03, 0.25, 0.25,
+    )
+    assert decode_sport_response(response) == {
+        "action": "move",
+        "ok": True,
+        "stopped": False,
+    }
+    assert client.Damp.call_count == 0
+    assert client.ZeroTorque.call_count == 0
+    assert client.Sit.call_count == 0
+
+
+@pytest.mark.parametrize(
+    "duration_seconds",
+    [0.0, -0.1, float("inf"), float("nan")],
+)
+def test_native_helper_rejects_invalid_duration_without_rpc(
+    duration_seconds,
+):
+    from g1_locomotion_control.sport_helper import (
+        execute_sport_request,
+    )
+
+    client = Mock()
+    with pytest.raises(
+        ValueError, match="duration_seconds",
+    ):
+        execute_sport_request(
+            client,
+            {"action": "stop"},
+            duration_seconds=duration_seconds,
+        )
+
+    client.SetVelocity.assert_not_called()
+
+
+def test_native_helper_health_is_read_only():
+    from g1_locomotion_control.sport_helper import (
+        execute_sport_request,
+    )
+
+    client = Mock()
+    response = execute_sport_request(
+        client,
+        {"action": "health"},
+        duration_seconds=0.25,
+        currently_stopped=False,
+    )
+
+    client.SetVelocity.assert_not_called()
+    assert decode_sport_response(response) == {
+        "action": "health",
+        "ok": True,
+        "stopped": False,
+    }
+
+
+def test_native_helper_initializes_pinned_g1_client():
+    from g1_locomotion_control.sport_helper import (
+        create_loco_client,
+    )
+
+    channel_factory = Mock()
+    client = Mock()
+
+    result = create_loco_client(
+        interface="eth0",
+        rpc_timeout_seconds=0.1,
+        channel_factory=channel_factory,
+        client_factory=lambda: client,
+    )
+
+    channel_factory.assert_called_once_with(0, "eth0")
+    client.SetTimeout.assert_called_once_with(0.1)
+    client.Init.assert_called_once_with()
+    assert result is client
+
+
+def test_native_helper_loads_only_official_g1_bindings():
+    from g1_locomotion_control.sport_helper import (
+        load_native_bindings,
+    )
+
+    channel_factory = Mock()
+    client_factory = Mock()
+    modules = {
+        "unitree_sdk2py.core.channel": Mock(
+            ChannelFactoryInitialize=channel_factory,
+        ),
+        "unitree_sdk2py.g1.loco.g1_loco_client": Mock(
+            LocoClient=client_factory,
+        ),
+    }
+    importer = Mock(side_effect=modules.__getitem__)
+
+    assert load_native_bindings(importer) == (
+        channel_factory, client_factory,
+    )
+    assert [
+        item.args[0] for item in importer.call_args_list
+    ] == list(modules)
 
 
 class FakeSportClient:
