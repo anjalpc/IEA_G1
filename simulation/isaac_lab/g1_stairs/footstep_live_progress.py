@@ -30,6 +30,9 @@ from .contact_sensor_contract import FOOT_BODY_NAMES
 from .motion_reference import sole_state
 from .terrain_state import riser_height_per_env, stair_cfg
 
+# Stair plan hit: sideways limit of the distance check (patch 60).
+STAIR_HIT_LATERAL_M = 0.20
+
 
 def ensure_coordinator(env):
     coord = getattr(env, '_g1_footstep_coordinator', None)
@@ -319,10 +322,17 @@ def audit_after_step(env):
         # Swing clearance: each swinging sole above the ground under it, as a
         # fraction of what it must clear (its target level, or the ground it
         # is over if higher) plus a margin. Flat tiles: riser 0, ground 0.
-        from .footstep_rewards import swing_clearance
-        ground = stair_ground_height(
-            centre[..., 0], course["first_riser_x"], course["tread_depth"],
-            course["riser_height"], coordinator.runtime.step_count)
+        from .footstep_rewards import swing_clearance, swing_ground
+        # Patch 60: the ground is also taken 2 cm ahead of the toe, so a
+        # toe about to reach the next riser is paid only for height above
+        # that tread: up first, then forward. Run 20261110_085422
+        # model_27200 at 10-12 cm: swings that scuffed moved the toe forward
+        # faster than they rose (at 12 cm the sole was 1.4 cm below the next
+        # tread top when the toe reached the riser; clean swings 1.7 cm above).
+        ground = swing_ground(
+            centre[..., 0], bounds[..., 1], course["first_riser_x"],
+            course["tread_depth"], course["riser_height"],
+            coordinator.runtime.step_count)
         own_slot = (feet[:, 0:1] == torch.arange(2, device=env.device)[None, :])
         goal = torch.maximum(
             ground, torch.where(own_slot, targets[:, 0, 2:3], targets[:, 1, 2:3]))
@@ -486,22 +496,33 @@ def audit_after_step(env):
     # robots stood on the platform after landing 9-11 cm past it and 8-12 cm
     # wide (12.5-15.9 cm from it, radius 12.5 cm), the plan never finished
     # and the episode ended as a stall.
+    #
+    # Patch 60: on the stair plan the tread mask is the whole check along x
+    # (tread edges, heel overhang, toe before the next riser, platform
+    # overshoot), so the distance check keeps only a sideways limit of
+    # STAIR_HIT_LATERAL_M. Run 20261110_085422 model_27200 at 12 cm: platform
+    # landings that passed the tread mask 13.6 and 17.6 cm to the side were
+    # missed by the 12.5 cm circle; the sideways offset on tread 2 grows
+    # about 1 cm per cm of riser (10 cm at 12 cm). Rows under the rolling
+    # clock keep the 12.5 cm circle.
     step_targets = targets
+    xy_tolerance = 0.08 if flat else 0.125
     if not flat:
-        last = (coordinator.runtime.target_index
-                >= coordinator.runtime.plan_length(flat) - 2) & valid[:, 0]
+        plan = valid[:, 0].clone()
         if rolling_rows is not None:
-            last &= ~rolling_rows
-        if bool(last.any()):
+            plan &= ~rolling_rows
+        if bool(plan.any()):
             step_targets = targets.clone()
             foot_x = centre[rows, feet[:, 0].long(), 0]
-            step_targets[last, 0, 0] = torch.maximum(targets[last, 0, 0], foot_x[last])
+            step_targets[plan, 0, 0] = foot_x[plan]
+            xy_tolerance = torch.where(
+                plan, torch.full_like(foot_x, STAIR_HIT_LATERAL_M),
+                torch.full_like(foot_x, 0.125))
     advanced = coordinator.step(
         step_id=int(env.common_step_counter), dt=float(env.step_dt),
         targets=step_targets, feet=feet, valid=valid, sole_xyz=centre,
         supported=supported, qualified_tread=qualified,
-        # Stairs: anywhere on the tread along x (half tread depth).
-        xy_tolerance=0.08 if flat else 0.125,
+        xy_tolerance=xy_tolerance,
         z_tolerance=0.025 if flat else 0.01,
     )
     env._g1_footstep_landing_audit = {

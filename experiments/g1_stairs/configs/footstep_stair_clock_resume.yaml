@@ -5,7 +5,7 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Patch 58d. Continue patch 58 unchanged from run 20261109_202912 model_24200 (4, 6 and 8 cm 10/10 strictly clean, 2 cm 8/10 with two brief tread-1 riser contacts, 10 cm 10/10 climbed and clean but 1/10 strictly clean because the foot leaving tread 2 scuffs riser 3 in 9/10, 12 cm 1/10 climbed and effectively untrained) for 3000 iterations. Curriculum resumes where patch 58c ended (mastered 8 cm, frontier starting at 10 cm) instead of restarting at 6 cm. Stop and keep 24200 if 2 to 8 cm lose strict-clean robots or 10 cm does not improve.
+  purpose: Patch 60. Resume patch 58d run 20261110_085422 model_27200 (2/4 cm 10/10 strictly clean, 6/8 cm 8/10 with fast-cycle nose landings, 10 cm 10/10 climbed 4/10 strict because the foot leaving tread 2 scuffs riser 3, 12 cm 6/10 climbed, 7/10 with patch 59, 0 strict; 14-20 cm 0/10) for 5000 iterations with patch 59 (first platform target accepts an overshoot) and patch 60 (swing clearance ground read 2 cm ahead of the toe, so up first, then forward; stair plan hit checks x by the tread mask and keeps only a 20 cm sideways limit). Curriculum resumes at mastered 8 cm, frontier 10 cm. Judge on the same robots, 10/12 cm scuff frames down with equal or larger lift-off toe gap, 2-8 cm unchanged, flat unchanged; keep 27200 otherwise.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -50,9 +50,9 @@ terrain:
     # frontier, frontier. Levels index riser_heights_m.
     type: clean_climb
     # Curriculum state is not saved in checkpoints: resume it from the
-    # patch 58c status (mastered 8 cm; frontier mean 10 cm). Deterministic
-    # 24200 replays: 4/6/8 cm 10/10 strictly clean, 10 cm 10/10 climbed.
-    # Frontier envs start at 10 cm.
+    # patch 58d status (mastered 8 cm; 10 cm training clean below 0.5).
+    # Deterministic 27200 replays: 2/4 cm 10/10 strict, 6/8 cm 8/10, 10 cm
+    # 10/10 climbed. Frontier envs start at 10 cm.
     initial_level: 5
     # Review envs draw from 2-8 cm until a higher height is mastered.
     mastered_level: 4
@@ -113,9 +113,9 @@ footstep_clock:
 execution:
   # Patch 57: 4096 (2048 used 6.9 of 23 GB and 40% of the GPU).
   environments: 4096
-  # Resumed run: 3000 more iterations after the checkpoint's own (patch 58c,
+  # Resumed run: 5000 more iterations after the checkpoint's own (patch 60,
   # unattended overnight; checkpoints every 50).
-  maximum_iterations: 3000
+  maximum_iterations: 5000
   training_seed: 42
 # Residual on the frozen official Unitree policy (balance_residual_control);
 # the actor sees all 688 inputs. Policy, critic, optimizer and learning rate
@@ -124,8 +124,8 @@ execution:
 policy_initialization:
   type: rsl_rl_training_resume
   source:
-    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261109_202912/model_24200.pt
-    sha256: 1384009bb3645e4fe52887a4b3261b84a3324a5f14dcfc4dfaac43d8dfda95f6
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261110_085422/model_27200.pt
+    sha256: 09e0afc31518aae427b80878a7da1748ae3dfd704420239091d547582f632c87
   critic_initialization: restored
   optimizer_initialization: restored
   locomotion_observations: 480

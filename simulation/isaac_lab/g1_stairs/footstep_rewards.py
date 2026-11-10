@@ -175,6 +175,10 @@ def cached_stance_support(env):
 # flat lift 5-6.7 cm, pitch rate sd 26 vs 7 deg/s for the prior).
 SWING_CLEARANCE_MARGIN_M = 0.05
 SWING_CLEARANCE_FLAT_MARGIN_M = 0.02
+# Swing clearance ground is also read this far ahead of the modelled toe:
+# the real foot touches a riser 1.5 cm before it (TOE_CONTACT_REACH_M), plus
+# 0.5 cm so the credit drops just before contact, not at it.
+SWING_TOE_LOOKAHEAD_M = 0.02
 
 
 def stair_ground_height(x, first_riser_x, tread_depth, riser_height, step_count):
@@ -183,6 +187,17 @@ def stair_ground_height(x, first_riser_x, tread_depth, riser_height, step_count)
     level = torch.floor((x - first_riser_x[:, None]) / tread_depth[:, None]) + 1.0
     return level.clamp(0.0, float(step_count)) * riser_height[:, None]
 
+
+def swing_ground(centre_x, toe_x, first_riser_x, tread_depth, riser_height, step_count,
+                 lookahead_m=SWING_TOE_LOOKAHEAD_M):
+    """[N,K] ground a swing sole is measured from: the higher of the terrain
+    under its centre and ``lookahead_m`` ahead of its toe. A toe about to
+    reach the next riser is paid only for height above that tread (patch 60:
+    up first, then forward)."""
+    return torch.maximum(
+        stair_ground_height(centre_x, first_riser_x, tread_depth, riser_height, step_count),
+        stair_ground_height(toe_x + lookahead_m, first_riser_x, tread_depth,
+                            riser_height, step_count))
 
 def swing_clearance(sole_bottom, ground, goal, swing, cap=None,
                     *, margin_m=SWING_CLEARANCE_MARGIN_M,

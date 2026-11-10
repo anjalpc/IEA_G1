@@ -167,3 +167,33 @@ class SequenceContractTests(unittest.TestCase):
             [self.event(0, 0)], destination_verified=True
         )
         self.assertEqual(result["outcome"], "NOT_VERIFIED")
+
+
+class PerEnvironmentToleranceTests(unittest.TestCase):
+    def test_one_radius_per_environment(self):
+        runtime = FootstepRuntime(num_envs=2, device='cpu', step_count=3,
+                                  first_foot=torch.tensor([0, 0]))
+        geo = dict(first_riser_x=torch.tensor([1., 1.]), tread_depth=torch.tensor([.25, .25]),
+                   riser_height=torch.tensor([.2, .2]), centre_y=torch.zeros(2),
+                   foot_separation=torch.full((2,), .16))
+        t, f, v = runtime.targets(**geo)
+        sole = torch.zeros(2, 2, 3)
+        sole[torch.arange(2), f[:, 0]] = t[:, 0, :3]
+        sole[:, :, 1] += .15  # both 15 cm to the side
+        runtime.update(targets=t, feet=f, valid=v, sole_xyz=sole,
+                       supported=torch.zeros(2, 2, dtype=torch.bool),
+                       xy_tolerance=.125, z_tolerance=.01)
+        hit = runtime.update(targets=t, feet=f, valid=v, sole_xyz=sole,
+                             supported=torch.ones(2, 2, dtype=torch.bool),
+                             xy_tolerance=torch.tensor([.125, .20]), z_tolerance=.01)
+        self.assertEqual(hit.tolist(), [False, True])
+
+    def test_rejects_bad_tolerance(self):
+        runtime = FootstepRuntime(num_envs=2, device='cpu', step_count=3,
+                                  first_foot=torch.tensor([0, 0]))
+        args = dict(targets=torch.zeros(2, 2, 4), feet=torch.tensor([[0, 1], [0, 1]]),
+                    valid=torch.ones(2, 2, dtype=torch.bool), sole_xyz=torch.zeros(2, 2, 3),
+                    supported=torch.ones(2, 2, dtype=torch.bool), z_tolerance=.01)
+        for bad in (0.0, torch.tensor([.1, 0.]), torch.tensor([.1, .1, .1])):
+            with self.assertRaises(ValueError):
+                runtime.update(xy_tolerance=bad, **args)

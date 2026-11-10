@@ -77,9 +77,11 @@ class FootstepRuntime:
 
     def update(self, *, targets: torch.Tensor, feet: torch.Tensor,
                valid: torch.Tensor, sole_xyz: torch.Tensor,
-               supported: torch.Tensor, xy_tolerance: float,
+               supported: torch.Tensor, xy_tolerance: float | torch.Tensor,
                z_tolerance: float) -> torch.Tensor:
         """Advance only at newly supported target-foot landing within XYZ tolerance.
+
+        ``xy_tolerance`` is one radius or one per environment [N].
 
         Caller is responsible for contact semantics, course frame, collision
         validity and optionally sustained-support gating. Returns [N] advances.
@@ -89,8 +91,10 @@ class FootstepRuntime:
                 or valid.shape != (n, 2) or sole_xyz.shape != (n, 2, 3)
                 or supported.shape != (n, 2) or supported.dtype != torch.bool):
             raise ValueError("invalid update tensor shapes or support dtype")
-        if (not 0 < xy_tolerance or not 0 < z_tolerance):
-            raise ValueError("tolerances must be positive")
+        xy_tolerance = torch.as_tensor(xy_tolerance, device=self.device)
+        if (xy_tolerance.shape not in ((), (n,)) or not bool((xy_tolerance > 0).all())
+                or not 0 < z_tolerance):
+            raise ValueError("tolerances must be positive (scalar or one per environment)")
         if any(x.device != self.device for x in (targets, feet, valid, sole_xyz, supported)):
             raise ValueError("update tensors must be on runtime device")
         rising = supported & ~self.was_supported

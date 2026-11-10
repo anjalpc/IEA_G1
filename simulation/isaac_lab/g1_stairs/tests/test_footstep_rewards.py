@@ -305,3 +305,35 @@ class OffBeatRewardTests(unittest.TestCase):
         self.assertEqual([round(v * env.step_dt, 6) for v in cached_acquisition(env).tolist()], [1.0, 0.0])
         del env._g1_footstep_acquisition_paid
         self.assertEqual([round(v * env.step_dt, 6) for v in cached_acquisition(env).tolist()], [1.0, 1.0])
+
+
+class SwingGroundTests(unittest.TestCase):
+    """Patch 60: ground also read 2 cm ahead of the toe."""
+    def ground(self, centre_x, toe_x):
+        from simulation.isaac_lab.g1_stairs.footstep_rewards import swing_ground
+        return swing_ground(torch.tensor([[centre_x]]), torch.tensor([[toe_x]]),
+                            torch.tensor([1.0]), torch.tensor([.25]), torch.tensor([.12]), 3).item()
+
+    def test_toe_near_next_riser_raises_ground(self):
+        # Sole on tread 1 (riser 2 at 1.25): toe 3 cm back keeps tread 1,
+        # toe 1 cm back reads tread 2.
+        self.assertAlmostEqual(self.ground(1.11, 1.22), .12)
+        self.assertAlmostEqual(self.ground(1.13, 1.24), .24)
+
+    def test_platform_and_flat_unchanged(self):
+        self.assertAlmostEqual(self.ground(1.9, 2.3), .36)  # clamped at the platform
+        self.assertAlmostEqual(self.ground(.5, .6), 0.0)
+
+    def test_scuffing_swing_loses_credit(self):
+        from simulation.isaac_lab.g1_stairs.footstep_rewards import swing_clearance, swing_ground
+        # Swinging from tread 1 to tread 2 (goal .24): sole 10 cm up, toe
+        # 1 cm from riser 2 -> below the tread-2 top, no credit; toe 5 cm
+        # back -> credit for 10 cm above tread 1.
+        def lift(toe):
+            g = swing_ground(torch.tensor([[toe - .11, 0.]]), torch.tensor([[toe, 0.]]),
+                             torch.tensor([1.0]), torch.tensor([.25]), torch.tensor([.12]), 3)
+            goal = torch.maximum(g, torch.tensor([[.24, 0.]]))
+            return swing_clearance(torch.tensor([[.22, 0.]]), g, goal,
+                                   torch.tensor([[1., 0.]])).item()
+        self.assertAlmostEqual(lift(1.24), 0.0)
+        self.assertAlmostEqual(lift(1.20), .10 / .17, places=5)

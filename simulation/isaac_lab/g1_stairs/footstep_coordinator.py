@@ -31,7 +31,7 @@ class FootstepCoordinator:
     def step(self, *, step_id: int, dt: float, targets: torch.Tensor,
              feet: torch.Tensor, valid: torch.Tensor, sole_xyz: torch.Tensor,
              supported: torch.Tensor, qualified_tread: torch.Tensor,
-             xy_tolerance: float, z_tolerance: float) -> torch.Tensor:
+             xy_tolerance: float | torch.Tensor, z_tolerance: float) -> torch.Tensor:
         """Return successful target transitions [N]; idempotent for same step.
 
         qualified_tread must be computed independently from collider/sole bounds
