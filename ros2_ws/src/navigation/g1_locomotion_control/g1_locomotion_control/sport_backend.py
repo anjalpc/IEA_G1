@@ -1,7 +1,71 @@
 """Hardware-free boundary for a future Unitree Sport adapter."""
 
 import math
+import json
 from typing import Protocol
+
+
+SPORT_REQUEST_PREFIX = "SPORT_REQUEST="
+_MOVE_FIELDS = {
+    "action",
+    "forward_mps",
+    "lateral_mps",
+    "yaw_rate_rps",
+}
+
+
+def _move_payload(forward_mps, lateral_mps, yaw_rate_rps):
+    payload = {
+        "action": "move",
+        "forward_mps": float(forward_mps),
+        "lateral_mps": float(lateral_mps),
+        "yaw_rate_rps": float(yaw_rate_rps),
+    }
+    if not all(
+        math.isfinite(payload[field])
+        for field in _MOVE_FIELDS - {"action"}
+    ):
+        raise ValueError("Sport velocity must be finite")
+    return payload
+
+
+def encode_sport_move_request(
+    forward_mps,
+    lateral_mps,
+    yaw_rate_rps,
+):
+    """Encode one validated helper MOVE request."""
+    return SPORT_REQUEST_PREFIX + json.dumps(
+        _move_payload(
+            forward_mps,
+            lateral_mps,
+            yaw_rate_rps,
+        ),
+        allow_nan=False,
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
+def decode_sport_request(line):
+    """Decode one strict helper request line."""
+    stripped = str(line).strip()
+    if not stripped.startswith(SPORT_REQUEST_PREFIX):
+        return None
+    payload = json.loads(
+        stripped[len(SPORT_REQUEST_PREFIX):]
+    )
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != _MOVE_FIELDS
+        or payload.get("action") != "move"
+    ):
+        raise ValueError("invalid Sport request")
+    return _move_payload(
+        payload["forward_mps"],
+        payload["lateral_mps"],
+        payload["yaw_rate_rps"],
+    )
 
 
 class SportBackendError(RuntimeError):

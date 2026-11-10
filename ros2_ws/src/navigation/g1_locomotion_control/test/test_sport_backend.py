@@ -5,7 +5,20 @@ import pytest
 from g1_locomotion_control.sport_backend import (
     SportBackend,
     SportBackendError,
+    decode_sport_request,
+    encode_sport_move_request,
 )
+
+
+def test_sport_move_protocol_round_trip():
+    line = encode_sport_move_request(0.12, -0.03, 0.25)
+
+    assert decode_sport_request(line) == {
+        "action": "move",
+        "forward_mps": 0.12,
+        "lateral_mps": -0.03,
+        "yaw_rate_rps": 0.25,
+    }
 
 
 class FakeSportClient:
