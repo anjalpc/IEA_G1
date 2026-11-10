@@ -1,5 +1,7 @@
 """Tests for the hardware-free Sport backend boundary."""
 
+from io import StringIO
+from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
@@ -273,6 +275,84 @@ def test_native_helper_loads_only_official_g1_bindings():
     assert [
         item.args[0] for item in importer.call_args_list
     ] == list(modules)
+
+
+def test_native_helper_parent_eof_forces_stop():
+    from g1_locomotion_control.sport_helper import run_helper
+
+    client = Mock()
+    client.SetVelocity.return_value = 0
+    input_stream = StringIO(
+        encode_sport_move_request(0.12, -0.03, 0.25)
+        + chr(10)
+    )
+    output_stream = StringIO()
+
+    run_helper(
+        client,
+        input_stream=input_stream,
+        output_stream=output_stream,
+        duration_seconds=0.25,
+    )
+
+    assert [
+        item.args for item in client.SetVelocity.call_args_list
+    ] == [
+        (0.12, -0.03, 0.25, 0.25),
+        (0.0, 0.0, 0.0, 0.25),
+    ]
+    responses = [
+        decode_sport_response(line)
+        for line in output_stream.getvalue().splitlines()
+    ]
+    assert responses == [{
+        "action": "move",
+        "ok": True,
+        "stopped": False,
+    }]
+
+
+def test_native_helper_main_wires_official_client_and_eof_stop():
+    from g1_locomotion_control.sport_helper import main
+
+    channel_factory = Mock()
+    client = Mock()
+    client.SetVelocity.return_value = 0
+    client_factory = Mock(return_value=client)
+    binding_loader = Mock(
+        return_value=(channel_factory, client_factory)
+    )
+    output_stream = StringIO()
+
+    assert main(
+        ["eth0", "--duration-seconds", "0.25",
+         "--rpc-timeout-seconds", "1.0"],
+        input_stream=StringIO(
+            encode_sport_health_request() + chr(10)
+        ),
+        output_stream=output_stream,
+        binding_loader=binding_loader,
+    ) == 0
+
+    binding_loader.assert_called_once_with()
+    channel_factory.assert_called_once_with(0, "eth0")
+    client.SetTimeout.assert_called_once_with(1.0)
+    client.Init.assert_called_once_with()
+    client.SetVelocity.assert_called_once_with(
+        0.0, 0.0, 0.0, 0.25
+    )
+
+
+def test_package_installs_native_sport_helper():
+    setup_text = (
+        Path(__file__).parents[1] / "setup.py"
+    ).read_text(encoding="utf-8")
+
+    assert '"g1_sport_helper = "' in setup_text
+    assert (
+        '"g1_locomotion_control.sport_helper:main"'
+        in setup_text
+    )
 
 
 class FakeSportClient:

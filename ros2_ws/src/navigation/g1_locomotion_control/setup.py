@@ -30,6 +30,10 @@ setup(
                 "g1_locomotion_arbiter = "
                 "g1_locomotion_control.node:main"
             ),
+            (
+                "g1_sport_helper = "
+                "g1_locomotion_control.sport_helper:main"
+            ),
         ],
     },
 )

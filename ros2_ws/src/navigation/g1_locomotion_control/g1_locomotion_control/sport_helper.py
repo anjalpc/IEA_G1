@@ -1,11 +1,46 @@
 """Map strict Sport requests to pinned Unitree G1 calls."""
 
+import argparse
 import importlib
 import math
+import sys
 
 from g1_locomotion_control.sport_backend import (
+    decode_sport_request,
+    decode_sport_response,
     encode_sport_response,
 )
+
+
+def run_helper(
+    client, *, input_stream, output_stream,
+    duration_seconds,
+):
+    """Serve strict requests and stop on parent EOF."""
+    currently_stopped = True
+    try:
+        for line in input_stream:
+            request = decode_sport_request(line)
+            if request is None:
+                continue
+            response = execute_sport_request(
+                client,
+                request,
+                duration_seconds=duration_seconds,
+                currently_stopped=currently_stopped,
+            )
+            acknowledged = decode_sport_response(response)
+            if acknowledged["ok"]:
+                currently_stopped = acknowledged["stopped"]
+            output_stream.write(response + chr(10))
+            output_stream.flush()
+    finally:
+        execute_sport_request(
+            client,
+            {"action": "stop"},
+            duration_seconds=duration_seconds,
+            currently_stopped=currently_stopped,
+        )
 
 
 def load_native_bindings(
@@ -43,6 +78,43 @@ def create_loco_client(
     client.SetTimeout(rpc_timeout_seconds)
     client.Init()
     return client
+
+
+def main(
+    argv=None, *, input_stream=None, output_stream=None,
+    binding_loader=None,
+):
+    """Run the native Sport helper over line-delimited streams."""
+    parser = argparse.ArgumentParser()
+    parser.add_argument("interface")
+    parser.add_argument(
+        "--duration-seconds", type=float, default=0.25
+    )
+    parser.add_argument(
+        "--rpc-timeout-seconds", type=float, default=1.0
+    )
+    arguments = parser.parse_args(argv)
+
+    if binding_loader is None:
+        binding_loader = load_native_bindings
+    channel_factory, client_factory = binding_loader()
+    client = create_loco_client(
+        interface=arguments.interface,
+        rpc_timeout_seconds=arguments.rpc_timeout_seconds,
+        channel_factory=channel_factory,
+        client_factory=client_factory,
+    )
+    run_helper(
+        client,
+        input_stream=(
+            sys.stdin if input_stream is None else input_stream
+        ),
+        output_stream=(
+            sys.stdout if output_stream is None else output_stream
+        ),
+        duration_seconds=arguments.duration_seconds,
+    )
+    return 0
 
 
 def execute_sport_request(

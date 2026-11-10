@@ -710,6 +710,10 @@ posture-transition methods. A successful STOP response confirms acceptance of
 the zero-velocity RPC; it is not independent physical proof that velocity is
 zero. The relevant `SetVelocity` contract is common to both pinned Python SDK
 revisions above.
+The installed `g1_sport_helper` executable accepts the physical interface,
+bounded velocity duration, and RPC timeout. It communicates through strict
+line-delimited requests and must issue the zero-velocity STOP RPC whenever
+its parent stream closes or request processing exits.
 
 DDS/network separation is mandatory:
 
