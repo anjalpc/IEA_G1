@@ -47,6 +47,15 @@ def encode_sport_move_request(
     )
 
 
+def encode_sport_stop_request():
+    """Encode one helper STOP request."""
+    return SPORT_REQUEST_PREFIX + json.dumps(
+        {"action": "stop"},
+        separators=(",", ":"),
+        sort_keys=True,
+    )
+
+
 def decode_sport_request(line):
     """Decode one strict helper request line."""
     stripped = str(line).strip()
@@ -55,6 +64,8 @@ def decode_sport_request(line):
     payload = json.loads(
         stripped[len(SPORT_REQUEST_PREFIX):]
     )
+    if payload == {"action": "stop"}:
+        return payload
     if (
         not isinstance(payload, dict)
         or set(payload) != _MOVE_FIELDS

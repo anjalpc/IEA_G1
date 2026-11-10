@@ -7,6 +7,7 @@ from g1_locomotion_control.sport_backend import (
     SportBackendError,
     decode_sport_request,
     encode_sport_move_request,
+    encode_sport_stop_request,
 )
 
 
@@ -18,6 +19,14 @@ def test_sport_move_protocol_round_trip():
         "forward_mps": 0.12,
         "lateral_mps": -0.03,
         "yaw_rate_rps": 0.25,
+    }
+
+
+def test_sport_stop_protocol_round_trip():
+    line = encode_sport_stop_request()
+
+    assert decode_sport_request(line) == {
+        "action": "stop",
     }
 
 
