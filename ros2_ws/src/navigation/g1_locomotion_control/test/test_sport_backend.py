@@ -948,3 +948,12 @@ def test_sport_helper_exchange_requires_longer_parent_timeout():
             response_timeout_seconds=1.0,
             rpc_timeout_seconds=1.0,
         )
+
+
+def test_pc2_build_selects_physical_locomotion_packages():
+    build_script = (
+        Path(__file__).parents[5] / "scripts" / "build.sh"
+    ).read_text(encoding="utf-8")
+
+    assert "g1_locomotion_interfaces" in build_script
+    assert "g1_locomotion_control" in build_script

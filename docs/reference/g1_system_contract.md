@@ -744,9 +744,11 @@ capacity for the separate simulation, state-estimation, perception, mapping,
 and Nav2 processes. It changes discovery capacity only; domain ownership and
 network isolation remain unchanged.
 
-Never run simulation on hardware domain 0. Never run two low-level physical
-controllers simultaneously. The physical hardware bridge is the only project
-component permitted to command the robot directly.
+Never run simulation on hardware domain 0. Never run two physical controllers
+simultaneously. The explicit physical locomotion arbiter is the only project
+component permitted to issue high-level Sport commands. The physical hardware
+bridge remains the only component permitted to command low-level body or
+peripheral hardware directly.
 
 Dependency definition: [`docker/development/Dockerfile`](../../docker/development/Dockerfile).
 
