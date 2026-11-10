@@ -714,6 +714,11 @@ The installed `g1_sport_helper` executable accepts the physical interface,
 bounded velocity duration, and RPC timeout. It communicates through strict
 line-delimited requests and must issue the zero-velocity STOP RPC whenever
 its parent stream closes or request processing exits.
+The application-side supervisor permits exactly one live helper, uses a
+finite positive response timeout, and treats timeout or closed output as
+helper failure. Shutdown closes the parent input stream first so helper EOF
+can issue STOP, then escalates to terminate and kill only when bounded waits
+fail, and always reaps the child.
 
 DDS/network separation is mandatory:
 

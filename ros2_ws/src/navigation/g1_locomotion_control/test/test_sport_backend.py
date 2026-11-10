@@ -1,5 +1,7 @@
 """Tests for the hardware-free Sport backend boundary."""
 
+import subprocess
+import sys
 from io import StringIO
 from pathlib import Path
 from unittest.mock import Mock
@@ -353,6 +355,196 @@ def test_package_installs_native_sport_helper():
         '"g1_locomotion_control.sport_helper:main"'
         in setup_text
     )
+
+
+def test_sport_helper_exchange_starts_isolated_process():
+    from g1_locomotion_control.sport_process import (
+        SportHelperExchange,
+    )
+
+    process = Mock()
+    process.stdin = Mock()
+    process.stdout = StringIO()
+    process.poll.return_value = None
+    process_factory = Mock(return_value=process)
+    environment = {"ROS_DOMAIN_ID": "0"}
+    exchange = SportHelperExchange(
+        interface="eth0",
+        environment=environment,
+        response_timeout_seconds=0.5,
+        process_factory=process_factory,
+    )
+
+    exchange.start()
+
+    process_factory.assert_called_once_with(
+        [
+            sys.executable,
+            "-m",
+            "g1_locomotion_control.sport_helper",
+            "eth0",
+        ],
+        env=environment,
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=None,
+        text=True,
+        bufsize=1,
+    )
+
+
+def test_sport_helper_exchange_timeout_closes_parent_stream():
+    from g1_locomotion_control.sport_process import (
+        SportHelperExchange,
+    )
+
+    process = Mock()
+    process.stdin = Mock()
+    process.stdout = StringIO()
+    process.poll.return_value = None
+    process_factory = Mock(return_value=process)
+    wait_readable = Mock(return_value=False)
+    exchange = SportHelperExchange(
+        interface="eth0",
+        environment={"ROS_DOMAIN_ID": "0"},
+        response_timeout_seconds=0.5,
+        process_factory=process_factory,
+        wait_readable=wait_readable,
+    )
+    exchange.start()
+
+    with pytest.raises(
+        SportBackendError,
+        match="SPORT_HELPER_TIMEOUT",
+    ):
+        exchange(encode_sport_health_request())
+
+    process.stdin.write.assert_called_once_with(
+        encode_sport_health_request() + chr(10)
+    )
+    process.stdin.flush.assert_called_once_with()
+    process.stdin.close.assert_called_once_with()
+    wait_readable.assert_called_once_with(
+        process.stdout, 0.5
+    )
+    process.terminate.assert_not_called()
+    process.wait.assert_called_once_with(timeout=0.5)
+
+
+@pytest.mark.parametrize(
+    "timeout",
+    [0.0, -0.1, float("inf"), float("nan")],
+)
+def test_sport_helper_exchange_rejects_invalid_timeout(timeout):
+    from g1_locomotion_control.sport_process import (
+        SportHelperExchange,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="response_timeout_seconds",
+    ):
+        SportHelperExchange(
+            interface="eth0",
+            environment={"ROS_DOMAIN_ID": "0"},
+            response_timeout_seconds=timeout,
+        )
+
+
+def test_sport_helper_exchange_rejects_duplicate_start():
+    from g1_locomotion_control.sport_process import (
+        SportHelperExchange,
+    )
+
+    process = Mock()
+    process.stdin = Mock()
+    process.stdout = Mock()
+    process.poll.return_value = None
+    process_factory = Mock(return_value=process)
+    exchange = SportHelperExchange(
+        interface="eth0",
+        environment={"ROS_DOMAIN_ID": "0"},
+        response_timeout_seconds=0.5,
+        process_factory=process_factory,
+    )
+    exchange.start()
+
+    with pytest.raises(
+        RuntimeError,
+        match="already running",
+    ):
+        exchange.start()
+
+    process_factory.assert_called_once_with(
+        [
+            sys.executable,
+            "-m",
+            "g1_locomotion_control.sport_helper",
+            "eth0",
+        ],
+        env={"ROS_DOMAIN_ID": "0"},
+        stdin=subprocess.PIPE,
+        stdout=subprocess.PIPE,
+        stderr=None,
+        text=True,
+        bufsize=1,
+    )
+
+
+def test_sport_helper_exchange_returns_ready_response():
+    from g1_locomotion_control.sport_process import (
+        SportHelperExchange,
+    )
+
+    request = encode_sport_health_request()
+    response = encode_sport_response(
+        action="health", ok=True, stopped=True
+    )
+    process = Mock()
+    process.stdin = StringIO()
+    process.stdout = StringIO(response + chr(10))
+    process.poll.return_value = None
+    wait_readable = Mock(return_value=True)
+    exchange = SportHelperExchange(
+        interface="eth0",
+        environment={"ROS_DOMAIN_ID": "0"},
+        response_timeout_seconds=0.5,
+        process_factory=Mock(return_value=process),
+        wait_readable=wait_readable,
+    )
+    exchange.start()
+
+    assert exchange(request) == response + chr(10)
+    assert process.stdin.getvalue() == request + chr(10)
+    wait_readable.assert_called_once_with(
+        process.stdout, 0.5
+    )
+
+
+def test_sport_helper_exchange_reaps_child_without_pipes():
+    from g1_locomotion_control.sport_process import (
+        SportHelperExchange,
+    )
+
+    process = Mock()
+    process.stdin = None
+    process.stdout = Mock()
+    process.poll.return_value = None
+    exchange = SportHelperExchange(
+        interface="eth0",
+        environment={"ROS_DOMAIN_ID": "0"},
+        response_timeout_seconds=0.5,
+        process_factory=Mock(return_value=process),
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match="pipes unavailable",
+    ):
+        exchange.start()
+
+    process.terminate.assert_called_once_with()
+    process.wait.assert_called_once_with(timeout=0.5)
 
 
 class FakeSportClient:
