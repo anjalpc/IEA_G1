@@ -34,6 +34,16 @@ class TreadTests(unittest.TestCase):
         self.assertEqual(qualified_tread_mask(**x).tolist(),[[False,False]])
         self.assertEqual(qualified_tread_mask(**x,full_sole=False).tolist(),[[True,False]])
 
+    def test_platform_overshoot_accepted_on_both_platform_targets(self):
+        # Patch 59: platform 1 (1.75-2.00) and platform 2 (2.00-2.25) both
+        # accept a landing past the cell; behind the cell start is rejected.
+        for target_x, sole in ((1.875, (1.92, 2.10)), (2.125, (2.20, 2.38))):
+            x=self.setup(); x['targets'][0,0,0]=target_x; x['targets'][0,0,2]=.6
+            x['sole_bounds'][0,0,0:2]=torch.tensor(sole); x['sole_bounds'][0,0,4:]=.6
+            self.assertEqual(qualified_tread_mask(**x,full_sole=False).tolist(),[[True,False]])
+            x['sole_bounds'][0,0,0:2]=torch.tensor((target_x-0.30, target_x-0.12))
+            self.assertEqual(qualified_tread_mask(**x,full_sole=False).tolist(),[[False,False]])
+
     def test_lenient_check_still_needs_correct_tread_level_and_load(self):
         x=self.setup();x['sole_bounds'][0,0,0:2]=torch.tensor([1.27,1.45])
         self.assertEqual(qualified_tread_mask(**x,full_sole=False).tolist(),[[False,False]])

@@ -174,4 +174,6 @@ class TrainingAcceptanceTests(unittest.TestCase):
     def test_last_platform_target_accepts_overshoot(self):
         self.assertTrue(self.mask(5, (2.18, 2.37), .6))     # centre 2.27, past the cell
         self.assertFalse(self.mask(5, (1.90, 2.09), .6))    # centre 1.995, before the cell
-        self.assertFalse(self.mask(4, (2.03, 2.21), .6))    # first platform target keeps its cell
+        # Patch 59: the first platform target accepts an overshoot too.
+        self.assertTrue(self.mask(4, (2.03, 2.21), .6))     # centre 2.12, past its cell
+        self.assertFalse(self.mask(4, (1.55, 1.73), .6))    # centre 1.64, before its cell

@@ -67,9 +67,9 @@ def qualified_tread_mask(*, sole_bounds, vertical_force, targets, feet, valid,
     full_sole=False (training advancement): treads: heel at most
     TREAD_HEEL_OVERHANG_M over the front edge and, below a further riser, toe
     not past it; spot: centre on the cell and toe SPOT_TOE_CLEARANCE_M before
-    the first riser; first platform target: centre on the cell; last
-    platform target: centre at or past its cell start (an overshoot on the
-    platform still completes the plan).
+    the first riser; platform targets: centre at or past their cell start
+    (an overshoot on the platform still completes the plan; patch 59 for the
+    first platform target).
     Both require the sole flat on that level, loaded, and inside the course.
 
     Target XYZ denotes a planned sole centre. The active stair level comes from
@@ -133,7 +133,7 @@ def qualified_tread_mask(*, sole_bounds, vertical_force, targets, feet, valid,
         in_cell = torch.where(
             tread, heel_on & toe_clear,
             torch.where(k < 0, in_cell & spot_toe,
-                        torch.where(k == step_count + 1,
+                        torch.where(k >= step_count,
                                     centre_x >= start[:, None], in_cell)))
     good = (in_cell &
             (y_min >= (-half_width + margin_m)) &

@@ -478,14 +478,18 @@ def audit_after_step(env):
     pre_supported = coordinator.runtime.was_supported.clone()
     pre_primed = coordinator._primed.clone()
 
-    # Last platform target: a landing at or past it also counts (the
-    # tread mask accepts it; the distance check must too), so one
-    # overshoot on the platform does not leave the plan unfinished
-    # (run 20261030_133621: missed by 1 mm, then 15 cm past).
+    # Platform targets: a landing at or past them also counts (the tread
+    # mask accepts it; the distance check must too), so one overshoot on
+    # the platform does not leave the plan unfinished (run 20261030_133621:
+    # last target missed by 1 mm, then 15 cm past). Patch 59: the first
+    # platform target too. Run 20261110_085422 model_27200 at 12 cm: 6/10
+    # robots stood on the platform after landing 9-11 cm past it and 8-12 cm
+    # wide (12.5-15.9 cm from it, radius 12.5 cm), the plan never finished
+    # and the episode ended as a stall.
     step_targets = targets
     if not flat:
         last = (coordinator.runtime.target_index
-                == coordinator.runtime.plan_length(flat) - 1) & valid[:, 0]
+                >= coordinator.runtime.plan_length(flat) - 2) & valid[:, 0]
         if rolling_rows is not None:
             last &= ~rolling_rows
         if bool(last.any()):
