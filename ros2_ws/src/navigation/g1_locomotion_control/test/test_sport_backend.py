@@ -5,6 +5,7 @@ import pytest
 from g1_locomotion_control.sport_backend import (
     SportBackend,
     SportBackendError,
+    SportProtocolClient,
     decode_sport_request,
     decode_sport_response,
     encode_sport_health_request,
@@ -65,6 +66,62 @@ def test_successful_stop_response_must_confirm_stopped():
             ok=True,
             stopped=False,
         )
+
+
+def test_protocol_client_health_uses_read_only_exchange():
+    requests = []
+
+    def exchange(line):
+        requests.append(decode_sport_request(line))
+        return encode_sport_response(
+            action="health",
+            ok=True,
+            stopped=True,
+        )
+
+    client = SportProtocolClient(exchange)
+
+    assert client.healthy() is True
+    assert requests == [{"action": "health"}]
+
+
+def test_protocol_client_move_requires_matching_acknowledgement():
+    requests = []
+
+    def exchange(line):
+        requests.append(decode_sport_request(line))
+        return encode_sport_response(
+            action="move",
+            ok=True,
+            stopped=False,
+        )
+
+    client = SportProtocolClient(exchange)
+    client.move(0.12, -0.03, 0.25)
+
+    assert requests == [{
+        "action": "move",
+        "forward_mps": 0.12,
+        "lateral_mps": -0.03,
+        "yaw_rate_rps": 0.25,
+    }]
+
+
+def test_protocol_client_stop_requires_confirmed_stop():
+    requests = []
+
+    def exchange(line):
+        requests.append(decode_sport_request(line))
+        return encode_sport_response(
+            action="stop",
+            ok=True,
+            stopped=True,
+        )
+
+    client = SportProtocolClient(exchange)
+    client.stop_move()
+
+    assert requests == [{"action": "stop"}]
 
 
 class FakeSportClient:

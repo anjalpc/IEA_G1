@@ -137,6 +137,73 @@ class SportBackendError(RuntimeError):
     """Stable error raised at the Sport backend boundary."""
 
 
+class SportProtocolClient:
+    """Adapt one injected line exchange to the neutral client port."""
+
+    def __init__(self, exchange):
+        if not callable(exchange):
+            raise TypeError("Sport exchange must be callable")
+        self._exchange = exchange
+
+    def _request(self, line, expected_action):
+        response = decode_sport_response(
+            self._exchange(line)
+        )
+        if (
+            response is None
+            or response["action"] != expected_action
+        ):
+            raise SportBackendError(
+                "SPORT_PROTOCOL_ERROR"
+            )
+        return response
+
+    def move(
+        self,
+        forward_mps,
+        lateral_mps,
+        yaw_rate_rps,
+    ):
+        """Forward one validated MOVE request."""
+        response = self._request(
+            encode_sport_move_request(
+                forward_mps,
+                lateral_mps,
+                yaw_rate_rps,
+            ),
+            "move",
+        )
+        if not response["ok"]:
+            raise SportBackendError(
+                "SPORT_MOVE_FAILED"
+            )
+
+    def stop_move(self):
+        """Request and confirm stopped locomotion."""
+        response = self._request(
+            encode_sport_stop_request(),
+            "stop",
+        )
+        if (
+            not response["ok"]
+            or not response["stopped"]
+        ):
+            raise SportBackendError(
+                "SPORT_STOP_FAILED"
+            )
+
+    def healthy(self):
+        """Return helper health without commanding the robot."""
+        try:
+            response = self._request(
+                encode_sport_health_request(),
+                "health",
+            )
+        except Exception:
+            return False
+        return response["ok"]
+
+
 class SportClientPort(Protocol):
     """Project-owned neutral interface for a native Sport client."""
 
