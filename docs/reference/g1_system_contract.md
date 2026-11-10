@@ -720,6 +720,16 @@ helper failure. Shutdown closes the parent input stream first so helper EOF
 can issue STOP, then escalates to terminate and kill only when bounded waits
 fail, and always reaps the child.
 
+The separately installed `g1_physical_locomotion_arbiter` executable is the
+only entry point that injects the supervised physical Sport backend factory.
+The generic `g1_locomotion_arbiter` executable and workstation navigation
+configuration remain recording-only by default. PC2 physical operation uses
+the package-owned `g1_locomotion_control/config/physical_pc2.yaml` profile,
+which explicitly selects `backend: sport`, interface `eth0`, 0.15 m/s forward,
+0.01 m/s lateral, and 0.40 rad/s yaw limits. The helper RPC timeout is 1.0 s
+and the parent response timeout is 1.5 s. Construction fails closed unless the
+parent response timeout is strictly greater than the child RPC timeout.
+
 DDS/network separation is mandatory:
 
 | Environment | Domain | Interface |

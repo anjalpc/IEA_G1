@@ -287,6 +287,98 @@ def test_accepts_only_explicit_injected_sport_backend():
             rclpy.shutdown()
 
 
+def test_constructs_sport_backend_only_from_explicit_factory():
+    if not rclpy.ok():
+        rclpy.init()
+
+    client = Mock()
+    client.healthy.return_value = True
+    backend = SportBackend(client)
+    backend_factory = Mock(return_value=backend)
+    instance = LocomotionArbiterNode(
+        sport_backend_factory=backend_factory,
+        parameter_overrides=[
+            Parameter("backend", value="sport"),
+            Parameter("sport_interface", value="eth0"),
+            Parameter(
+                "sport_response_timeout_seconds",
+                value=1.5,
+            ),
+            Parameter("max_forward_mps", value=0.15),
+            Parameter("max_lateral_mps", value=0.10),
+            Parameter("max_yaw_rate_rps", value=0.40),
+        ],
+    )
+
+    try:
+        assert instance.backend is backend
+        backend_factory.assert_called_once_with(
+            interface="eth0",
+            response_timeout_seconds=1.5,
+            rpc_timeout_seconds=1.0,
+        )
+    finally:
+        instance.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+def test_physical_sport_factory_uses_native_environment():
+    from g1_locomotion_control.node import (
+        physical_sport_backend_factory,
+    )
+
+    backend = Mock()
+    environment_factory = Mock()
+    supervised_factory = Mock(return_value=backend)
+
+    result = physical_sport_backend_factory(
+        interface="eth0",
+        response_timeout_seconds=1.5,
+        rpc_timeout_seconds=1.0,
+        environment_factory=environment_factory,
+        supervised_factory=supervised_factory,
+    )
+
+    assert result is backend
+    supervised_factory.assert_called_once_with(
+        interface="eth0",
+        response_timeout_seconds=1.5,
+        rpc_timeout_seconds=1.0,
+        environment_factory=environment_factory,
+    )
+
+
+def test_destroy_closes_owned_sport_transport():
+    if not rclpy.ok():
+        rclpy.init()
+
+    client = Mock()
+    client.healthy.return_value = True
+    backend = SportBackend(client)
+    backend.shutdown_transport = Mock()
+    instance = LocomotionArbiterNode(
+        sport_backend_factory=Mock(return_value=backend),
+        parameter_overrides=[
+            Parameter("backend", value="sport"),
+            Parameter("sport_interface", value="eth0"),
+            Parameter(
+                "sport_response_timeout_seconds",
+                value=1.5,
+            ),
+            Parameter("max_forward_mps", value=0.15),
+            Parameter("max_lateral_mps", value=0.10),
+            Parameter("max_yaw_rate_rps", value=0.40),
+        ],
+    )
+
+    instance.destroy_node()
+
+    backend.shutdown_transport.assert_called_once_with()
+    if rclpy.ok():
+        rclpy.shutdown()
+
+
 def test_rejects_sport_backend_under_recording_identity():
     if not rclpy.ok():
         rclpy.init()
@@ -380,3 +472,33 @@ def test_constructs_explicit_simulation_backend():
         instance.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
+
+
+def test_physical_main_injects_only_physical_sport_factory(
+    monkeypatch,
+):
+    import g1_locomotion_control.node as node_module
+
+    instance = Mock()
+    node_factory = Mock(return_value=instance)
+    monkeypatch.setattr(
+        node_module,
+        "LocomotionArbiterNode",
+        node_factory,
+    )
+    monkeypatch.setattr(node_module.rclpy, "init", Mock())
+    monkeypatch.setattr(node_module.rclpy, "spin", Mock())
+    monkeypatch.setattr(
+        node_module.rclpy,
+        "ok",
+        Mock(return_value=False),
+    )
+
+    node_module.physical_main(args=["--ros-args"])
+
+    node_factory.assert_called_once_with(
+        sport_backend_factory=(
+            node_module.physical_sport_backend_factory
+        ),
+    )
+    instance.destroy_node.assert_called_once_with()

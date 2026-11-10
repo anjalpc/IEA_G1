@@ -26,6 +26,9 @@ from g1_robot_interfaces.locomotion import PlanarVelocityLimits
 from g1_locomotion_control.arbiter import LocomotionArbiter
 from g1_locomotion_control.backend import RecordingBackend
 from g1_locomotion_control.sport_backend import SportBackend
+from g1_locomotion_control.sport_process import (
+    create_supervised_sport_backend,
+)
 from g1_locomotion_control.simulation_backend import (
     SimulationBackend,
 )
@@ -40,6 +43,27 @@ def backend_state_constant(backend_name):
     raise ValueError("unsupported locomotion backend")
 
 
+def physical_sport_backend_factory(
+    *, interface, response_timeout_seconds,
+    rpc_timeout_seconds,
+    environment_factory=None,
+    supervised_factory=create_supervised_sport_backend,
+):
+    """Build the explicit PC2-owned Sport backend."""
+    if environment_factory is None:
+        from g1_hardware_bridge.native_runtime import (
+            native_dds_environment,
+        )
+        environment_factory = native_dds_environment
+    return supervised_factory(
+        interface=interface,
+        response_timeout_seconds=response_timeout_seconds,
+        rpc_timeout_seconds=rpc_timeout_seconds,
+        environment_factory=environment_factory,
+    )
+
+
+
 class LocomotionArbiterNode(Node):
     """Expose the pure arbiter on the application ROS domain."""
 
@@ -47,6 +71,7 @@ class LocomotionArbiterNode(Node):
         self,
         *,
         backend=None,
+        sport_backend_factory=None,
         parameter_overrides=None,
         lease_factory=None,
         monotonic=None,
@@ -57,10 +82,15 @@ class LocomotionArbiterNode(Node):
         )
 
         self.declare_parameter("backend", "recording")
+        self.declare_parameter("sport_interface", "")
+        self.declare_parameter(
+            "sport_response_timeout_seconds", 1.5
+        )
         self.declare_parameter(
             "command_timeout_seconds",
             0.250,
         )
+        self.declare_parameter("sport_rpc_timeout_seconds", 1.0)
         self.declare_parameter("max_forward_mps", -1.0)
         self.declare_parameter("max_lateral_mps", -1.0)
         self.declare_parameter("max_yaw_rate_rps", -1.0)
@@ -89,7 +119,16 @@ class LocomotionArbiterNode(Node):
             backend_name == "sport"
             and isinstance(backend, SportBackend)
         )
-        if not supported_backend and not explicit_sport_backend:
+        factory_sport_backend = (
+            backend_name == "sport"
+            and backend is None
+            and callable(sport_backend_factory)
+        )
+        if (
+            not supported_backend
+            and not explicit_sport_backend
+            and not factory_sport_backend
+        ):
             raise ValueError(
                 "unsupported locomotion backend"
             )
@@ -131,7 +170,7 @@ class LocomotionArbiterNode(Node):
             self.backend = backend
         elif backend_name == "recording":
             self.backend = RecordingBackend()
-        else:
+        elif backend_name == "simulation":
             self.simulation_command_qos = QoSProfile(
                 history=HistoryPolicy.KEEP_LAST,
                 depth=1,
@@ -147,6 +186,25 @@ class LocomotionArbiterNode(Node):
             )
             self.backend = SimulationBackend(
                 self.simulation_command_publisher
+            )
+
+        else:
+            self.backend = sport_backend_factory(
+                interface=str(
+                    self.get_parameter(
+                        "sport_interface"
+                    ).value
+                ),
+                rpc_timeout_seconds=float(
+                    self.get_parameter(
+                        "sport_rpc_timeout_seconds"
+                    ).value
+                ),
+                response_timeout_seconds=float(
+                    self.get_parameter(
+                        "sport_response_timeout_seconds"
+                    ).value
+                ),
             )
 
         arbiter_arguments = {
@@ -275,8 +333,17 @@ class LocomotionArbiterNode(Node):
         """Safely shut down the arbiter before ROS resources."""
         if not self._destroyed:
             self._destroyed = True
-            self.arbiter.shutdown()
-            self.publish_state()
+            try:
+                self.arbiter.shutdown()
+                self.publish_state()
+            finally:
+                shutdown_transport = getattr(
+                    self.backend,
+                    "shutdown_transport",
+                    None,
+                )
+                if callable(shutdown_transport):
+                    shutdown_transport()
         return super().destroy_node()
 
 
@@ -284,6 +351,20 @@ def main(args=None):
     """Run the recording-only locomotion arbiter node."""
     rclpy.init(args=args)
     node = LocomotionArbiterNode()
+    try:
+        rclpy.spin(node)
+    finally:
+        node.destroy_node()
+        if rclpy.ok():
+            rclpy.shutdown()
+
+
+def physical_main(args=None):
+    """Run the explicitly configured physical Sport arbiter."""
+    rclpy.init(args=args)
+    node = LocomotionArbiterNode(
+        sport_backend_factory=physical_sport_backend_factory,
+    )
     try:
         rclpy.spin(node)
     finally:

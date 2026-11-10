@@ -1,3 +1,5 @@
+from glob import glob
+
 from setuptools import find_packages, setup
 
 
@@ -14,6 +16,10 @@ setup(
             ["resource/" + package_name],
         ),
         ("share/" + package_name, ["package.xml"]),
+        (
+            "share/" + package_name + "/config",
+            glob("config/*.yaml"),
+        ),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
@@ -29,6 +35,10 @@ setup(
             (
                 "g1_locomotion_arbiter = "
                 "g1_locomotion_control.node:main"
+            ),
+            (
+                "g1_physical_locomotion_arbiter = "
+                "g1_locomotion_control.node:physical_main"
             ),
             (
                 "g1_sport_helper = "

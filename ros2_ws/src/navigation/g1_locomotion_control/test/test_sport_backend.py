@@ -7,6 +7,7 @@ from pathlib import Path
 from unittest.mock import Mock
 
 import pytest
+import yaml
 
 from g1_locomotion_control.sport_backend import (
     SportBackend,
@@ -357,6 +358,28 @@ def test_package_installs_native_sport_helper():
     )
 
 
+def test_package_installs_explicit_physical_arbiter():
+    setup_text = (
+        Path(__file__).parents[1] / "setup.py"
+    ).read_text(encoding="utf-8")
+    assert '"g1_physical_locomotion_arbiter = "' in setup_text
+    assert (
+        '"g1_locomotion_control.node:physical_main"'
+        in setup_text
+    )
+
+
+def test_package_declares_hardware_bridge_runtime():
+    package_text = (
+        Path(__file__).parents[1] / "package.xml"
+    ).read_text(encoding="utf-8")
+
+    assert (
+        "<exec_depend>g1_hardware_bridge</exec_depend>"
+        in package_text
+    )
+
+
 def test_sport_helper_exchange_starts_isolated_process():
     from g1_locomotion_control.sport_process import (
         SportHelperExchange,
@@ -383,6 +406,8 @@ def test_sport_helper_exchange_starts_isolated_process():
             "-m",
             "g1_locomotion_control.sport_helper",
             "eth0",
+            "--rpc-timeout-seconds",
+            "0.25",
         ],
         env=environment,
         stdin=subprocess.PIPE,
@@ -481,6 +506,8 @@ def test_sport_helper_exchange_rejects_duplicate_start():
             "-m",
             "g1_locomotion_control.sport_helper",
             "eth0",
+            "--rpc-timeout-seconds",
+            "0.25",
         ],
         env={"ROS_DOMAIN_ID": "0"},
         stdin=subprocess.PIPE,
@@ -545,6 +572,39 @@ def test_sport_helper_exchange_reaps_child_without_pipes():
 
     process.terminate.assert_called_once_with()
     process.wait.assert_called_once_with(timeout=0.5)
+
+
+def test_supervised_sport_backend_owns_exchange_lifecycle():
+    from g1_locomotion_control.sport_process import (
+        create_supervised_sport_backend,
+    )
+
+    environment = {"ROS_DOMAIN_ID": "0"}
+    environment_factory = Mock(return_value=environment)
+    exchange = Mock()
+    exchange_factory = Mock(return_value=exchange)
+
+    backend = create_supervised_sport_backend(
+        interface="eth0",
+        response_timeout_seconds=1.5,
+        rpc_timeout_seconds=1.0,
+        environment_factory=environment_factory,
+        exchange_factory=exchange_factory,
+    )
+
+    assert isinstance(backend, SportBackend)
+    environment_factory.assert_called_once_with()
+    exchange_factory.assert_called_once_with(
+        interface="eth0",
+        environment=environment,
+        response_timeout_seconds=1.5,
+        rpc_timeout_seconds=1.0,
+    )
+    exchange.start.assert_called_once_with()
+
+    backend.shutdown_transport()
+
+    exchange.stop.assert_called_once_with(timeout=1.5)
 
 
 class FakeSportClient:
@@ -815,3 +875,76 @@ def test_healthy_reactivation_clears_fault_before_safe_stop():
     backend.stop()
     backend.deactivate()
     assert backend.active is False
+
+
+def test_package_owns_explicit_physical_pc2_profile():
+    setup_text = (
+        Path(__file__).parents[1] / "setup.py"
+    ).read_text(encoding="utf-8")
+    assert 'glob("config/*.yaml")' in setup_text
+
+    profile = yaml.safe_load((
+        Path(__file__).parents[1]
+        / "config"
+        / "physical_pc2.yaml"
+    ).read_text(encoding="utf-8"))
+    parameters = profile[
+        "g1_locomotion_arbiter"
+    ]["ros__parameters"]
+
+    assert parameters == {
+        "backend": "sport",
+        "sport_interface": "eth0",
+        "sport_response_timeout_seconds": 1.5,
+        "sport_rpc_timeout_seconds": 1.0,
+        "command_timeout_seconds": 0.25,
+        "max_forward_mps": 0.15,
+        "max_lateral_mps": 0.01,
+        "max_yaw_rate_rps": 0.40,
+        "watchdog_rate_hz": 50.0,
+        "state_publish_rate_hz": 10.0,
+    }
+
+
+def test_sport_helper_exchange_passes_shorter_rpc_timeout():
+    from g1_locomotion_control.sport_process import (
+        SportHelperExchange,
+    )
+
+    process = Mock()
+    process.stdin = Mock()
+    process.stdout = StringIO()
+    process.poll.return_value = None
+    process_factory = Mock(return_value=process)
+    exchange = SportHelperExchange(
+        interface="eth0",
+        environment={"ROS_DOMAIN_ID": "0"},
+        response_timeout_seconds=1.5,
+        rpc_timeout_seconds=1.0,
+        process_factory=process_factory,
+    )
+
+    exchange.start()
+
+    command = process_factory.call_args.args[0]
+    assert command[-2:] == [
+        "--rpc-timeout-seconds",
+        "1.0",
+    ]
+
+
+def test_sport_helper_exchange_requires_longer_parent_timeout():
+    from g1_locomotion_control.sport_process import (
+        SportHelperExchange,
+    )
+
+    with pytest.raises(
+        ValueError,
+        match="greater than rpc_timeout_seconds",
+    ):
+        SportHelperExchange(
+            interface="eth0",
+            environment={"ROS_DOMAIN_ID": "0"},
+            response_timeout_seconds=1.0,
+            rpc_timeout_seconds=1.0,
+        )

@@ -5,7 +5,11 @@ import select
 import subprocess
 import sys
 
-from g1_locomotion_control.sport_backend import SportBackendError
+from g1_locomotion_control.sport_backend import (
+    SportBackend,
+    SportBackendError,
+    SportProtocolClient,
+)
 
 
 def _wait_readable(stream, timeout):
@@ -18,6 +22,7 @@ class SportHelperExchange:
     def __init__(
         self, *, interface, environment,
         response_timeout_seconds,
+        rpc_timeout_seconds=None,
         process_factory=subprocess.Popen,
         wait_readable=_wait_readable,
     ):
@@ -34,6 +39,27 @@ class SportHelperExchange:
         self.response_timeout_seconds = float(
             response_timeout_seconds
         )
+        if rpc_timeout_seconds is None:
+            rpc_timeout_seconds = (
+                self.response_timeout_seconds / 2.0
+            )
+        rpc_timeout_seconds = float(rpc_timeout_seconds)
+        if (
+            not math.isfinite(rpc_timeout_seconds)
+            or rpc_timeout_seconds <= 0.0
+        ):
+            raise ValueError(
+                "rpc_timeout_seconds must be finite and positive"
+            )
+        self.rpc_timeout_seconds = rpc_timeout_seconds
+        if (
+            self.response_timeout_seconds
+            <= self.rpc_timeout_seconds
+        ):
+            raise ValueError(
+                "response_timeout_seconds must be greater than "
+                "rpc_timeout_seconds"
+            )
         self.process_factory = process_factory
         self.wait_readable = wait_readable
         self._process = None
@@ -51,6 +77,8 @@ class SportHelperExchange:
                 "-m",
                 "g1_locomotion_control.sport_helper",
                 self.interface,
+                "--rpc-timeout-seconds",
+                str(self.rpc_timeout_seconds),
             ],
             env=self.environment,
             stdin=subprocess.PIPE,
@@ -114,3 +142,43 @@ class SportHelperExchange:
                     process.wait(timeout=timeout)
         else:
             process.wait()
+
+
+class SupervisedSportBackend(SportBackend):
+    """Own a Sport backend and its helper transport."""
+
+    def __init__(
+        self, client, *, exchange, shutdown_timeout_seconds
+    ):
+        super().__init__(client)
+        self._exchange = exchange
+        self._shutdown_timeout_seconds = float(
+            shutdown_timeout_seconds
+        )
+
+    def shutdown_transport(self):
+        """Close and reap the owned helper transport."""
+        self._exchange.stop(
+            timeout=self._shutdown_timeout_seconds
+        )
+
+
+def create_supervised_sport_backend(
+    *, interface, response_timeout_seconds,
+    rpc_timeout_seconds,
+    environment_factory, exchange_factory=SportHelperExchange,
+):
+    """Start one helper and return its owned Sport backend."""
+    environment = environment_factory()
+    exchange = exchange_factory(
+        interface=interface,
+        environment=environment,
+        response_timeout_seconds=response_timeout_seconds,
+        rpc_timeout_seconds=rpc_timeout_seconds,
+    )
+    exchange.start()
+    return SupervisedSportBackend(
+        SportProtocolClient(exchange),
+        exchange=exchange,
+        shutdown_timeout_seconds=response_timeout_seconds,
+    )
