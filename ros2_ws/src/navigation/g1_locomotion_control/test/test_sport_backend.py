@@ -346,6 +346,23 @@ def test_native_helper_main_wires_official_client_and_eof_stop():
     )
 
 
+def test_sport_helper_module_executes_main():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "g1_locomotion_control.sport_helper",
+            "--help",
+        ],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
+
+    assert result.returncode == 0
+    assert "usage:" in result.stdout
+
+
 def test_package_installs_native_sport_helper():
     setup_text = (
         Path(__file__).parents[1] / "setup.py"
