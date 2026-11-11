@@ -1,5 +1,9 @@
-cmake_minimum_required(VERSION 3.5)
+cmake_minimum_required(VERSION 3.10)
 project(g1_locomotion_interfaces)
+
+if(POLICY CMP0148)
+  cmake_policy(SET CMP0148 OLD)
+endif()
 
 find_package(ament_cmake REQUIRED)
 find_package(geometry_msgs REQUIRED)
