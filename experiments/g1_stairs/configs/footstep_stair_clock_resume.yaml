@@ -131,7 +131,7 @@ policy_initialization:
   type: rsl_rl_training_resume
   source:
     path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261111_084902/model_35200.pt
-    sha256: FILL_ON_AWS
+    sha256: 427190a82a3e55b1d36ea696147337ed753fe1b5258c1921e6a85831b1e32bf6
   critic_initialization: restored
   optimizer_initialization: restored
   locomotion_observations: 480
