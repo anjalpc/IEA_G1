@@ -5,7 +5,7 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Patch 60b. Continue patch 60 unchanged from run 20261110_163104 model_32200 (2/4 cm 10/10 strict, 6 cm 9/10, 8 cm 7/10, 10 cm 10/10 climbed 8/10 strict, 12 cm 10/10 climbed with 0 falls but 3/10 strict because the tread-2 foot lands at heel +3 to +4 cm and is dragged 1-2 cm forward almost unloaded before lifting, leaving 1.8 cm toe room so the rising sole clips the riser-3 nosing for one frame; 14 cm 0/10, first step onto tread 1 peaks about 1 cm above the riser) for 3000 iterations. The same drag was trained out at 10 cm between 29250 and 32200. Curriculum resumes at mastered 10 cm, frontier 12 cm. Keep 32200 if 2-10 cm lose strict robots or 12 cm strict does not rise.
+  purpose: Patch 61. Resume patch 60b run 20261111_084902 model_35200 (2-10 cm strictly clean 49/50, 12 cm 10/10 climbed 6/10 strict, 14 cm 0/10 at every checkpoint) for 3000 iterations with 1 cm riser steps above 12 cm. At 14 cm the first step lands with the heel 1.0-1.5 cm over the tread-1 edge (9/10 miss the 1 cm limit), the trailing two-riser step peaks at tread-2 height (robot 7, 28.1 cm), and 3000 iterations at the 14 cm frontier moved neither (first heel -0.7 -0.5 -1.2 -1.2 cm). Every 14 cm episode fails before any success, so the policy gets no successful climbs to learn from; at 12 cm the margins were +2 cm on both steps. Curriculum resumes at mastered 12 cm, frontier 13 cm.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -37,9 +37,15 @@ terrain:
   - 0.08
   - 0.10
   - 0.12
+  # Patch 61: 1 cm steps above 12 cm (p60b 35200: 14 cm fails on the first
+  # step and the trailing step at once, so no climb there succeeds).
+  - 0.13
   - 0.14
+  - 0.15
   - 0.16
+  - 0.17
   - 0.18
+  - 0.19
   - 0.20
   tread_depth_m: 0.25
   step_count: 3
@@ -50,12 +56,12 @@ terrain:
     # frontier, frontier. Levels index riser_heights_m.
     type: clean_climb
     # Curriculum state is not saved in checkpoints: resume it from the
-    # patch 60 status (mastered 10 cm, training clean 0.88; 12 cm 0.38).
-    # Deterministic 32200 replays: 2/4 cm 10/10 strict, 10 cm 10/10 climbed
-    # 8/10 strict, 12 cm 10/10 climbed. Frontier envs start at 12 cm.
-    initial_level: 6
-    # Review envs draw from 2-10 cm until a higher height is mastered.
-    mastered_level: 5
+    # patch 60b status (mastered 12 cm, training clean 0.54). Deterministic
+    # 35200 replays: 2-10 cm 49/50 strict, 12 cm 10/10 climbed, 6/10 strict.
+    # Levels index riser_heights_m: level 6 = 12 cm, level 7 = 13 cm.
+    initial_level: 7
+    # Review envs draw from 2-12 cm until a higher height is mastered.
+    mastered_level: 6
     # Training-time clean rate (with exploration noise) that marks a height
     # mastered; deterministic p56 18200 replays were 6/10 strictly clean at
     # 4 and 6 cm (all toe strikes at cycles >= 1.23 s).
@@ -113,7 +119,7 @@ footstep_clock:
 execution:
   # Patch 57: 4096 (2048 used 6.9 of 23 GB and 40% of the GPU).
   environments: 4096
-  # Resumed run: 3000 more iterations after the checkpoint's own (patch 60b,
+  # Resumed run: 3000 more iterations after the checkpoint's own (patch 61,
   # about 5.7 h on g6; checkpoints every 50).
   maximum_iterations: 3000
   training_seed: 42
@@ -124,8 +130,8 @@ execution:
 policy_initialization:
   type: rsl_rl_training_resume
   source:
-    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261110_163104/model_32200.pt
-    sha256: 61def7db1195e50d7af04654266da10d5cee358e659f6d27409627fac6be930f
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261111_084902/model_35200.pt
+    sha256: FILL_ON_AWS
   critic_initialization: restored
   optimizer_initialization: restored
   locomotion_observations: 480
