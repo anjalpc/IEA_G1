@@ -1018,10 +1018,15 @@ try:
     picked = [float(w) for w in want if w.strip()]
 except ValueError:
     sys.exit(f"--heights takes metres separated by commas, got {sys.argv[1]!r}")
-bad = [w for w in picked if not any(abs(w - h) < 1e-9 for h in have)]
+bad = [w for w in picked if not 0.0 <= w <= 0.20]
 if bad or not picked:
-    sys.exit(f"--heights {bad or sys.argv[1]} not among the run's heights {have}")
-print(" ".join(str(h) for h in have if any(abs(w - h) < 1e-9 for w in picked)))
+    sys.exit(f"--heights {bad or sys.argv[1]} must be in [0.0, 0.20] m")
+new = [w for w in picked if not any(abs(w - h) < 1e-9 for h in have)]
+if new:
+    # The replay sets the riser with --riser_height_override, so any height
+    # works; one the run never trained on is a probe (e.g. 13 cm between 12/14).
+    print(f"Note: {new} not among the run's heights {have}; replayed as probes", file=sys.stderr)
+print(" ".join(str(w) for w in sorted(set(picked))))
 PY
 )" || exit 1
     fi
