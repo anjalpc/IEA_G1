@@ -5,7 +5,7 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Patch 61. Resume patch 60b run 20261111_084902 model_35200 (2-10 cm strictly clean 49/50, 12 cm 10/10 climbed 6/10 strict, 14 cm 0/10 at every checkpoint) for 3000 iterations with 1 cm riser steps above 12 cm. At 14 cm the first step lands with the heel 1.0-1.5 cm over the tread-1 edge (9/10 miss the 1 cm limit), the trailing two-riser step peaks at tread-2 height (robot 7, 28.1 cm), and 3000 iterations at the 14 cm frontier moved neither (first heel -0.7 -0.5 -1.2 -1.2 cm). Every 14 cm episode fails before any success, so the policy gets no successful climbs to learn from; at 12 cm the margins were +2 cm on both steps. Curriculum resumes at mastered 12 cm, frontier 13 cm.
+  purpose: Patch 61. Resume patch 60b run 20261111_084902 model_35200 (2-10 cm strictly clean 49/50, 12 cm 10/10 climbed 6/10 strict, 14 cm 0/10 at every checkpoint) for 9000 iterations with 1 cm riser steps above 12 cm. At 14 cm the first step lands with the heel 1.0-1.5 cm over the tread-1 edge (9/10 miss the 1 cm limit), the trailing two-riser step peaks at tread-2 height (robot 7, 28.1 cm), and 3000 iterations at the 14 cm frontier moved neither (first heel -0.7 -0.5 -1.2 -1.2 cm). Every 14 cm episode fails before any success, so the policy gets no successful climbs to learn from; at 12 cm the margins were +2 cm on both steps. Curriculum resumes at mastered 12 cm, frontier 13 cm.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -119,9 +119,9 @@ footstep_clock:
 execution:
   # Patch 57: 4096 (2048 used 6.9 of 23 GB and 40% of the GPU).
   environments: 4096
-  # Resumed run: 3000 more iterations after the checkpoint's own (patch 61,
-  # about 5.7 h on g6; checkpoints every 50).
-  maximum_iterations: 3000
+  # Resumed run: 9000 more iterations after the checkpoint's own (patch 61,
+  # unattended overnight, about 17 h on g6; checkpoints every 50).
+  maximum_iterations: 9000
   training_seed: 42
 # Residual on the frozen official Unitree policy (balance_residual_control);
 # the actor sees all 688 inputs. Policy, critic, optimizer and learning rate
