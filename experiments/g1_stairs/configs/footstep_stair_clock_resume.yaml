@@ -5,7 +5,7 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Patch 62. Resume patch 61 run 20261111_151604 model_44200 (12/13/14/15 cm 10/10 climbed, 8/9/7/3 strict, 16 cm 2/10, 17 cm 0/10; but 2-8 cm regressed vs 35200 on the same robots, 6 cm strict 10/10 -> 4/10 and 8 cm 9/10 -> 4/10, tread heels 2.5 cm shorter at 4-8 cm, two stalls at 2/4 cm on fast cycles) for 9000 iterations with review heights drawn by weakness (weight 1 - windowed clean rate + 0.1) instead of uniformly, and upright -5 -> -20 (flat pelvis lean grew from +3.5 deg at 32200 to +11.5 deg at 44200, upright on the stairs). Curriculum resumes at mastered 14 cm, frontier 15 cm. Judge on the same robots, 2-8 cm back to the 35200 level (strict >= 9/10) with 12-15 cm no worse than 44200, 16 cm climbing, and flat / platform pelvis lean back below +6 deg.
+  purpose: Patch 62b. Continue patch 62 unchanged from run 20261112_092914 model_47200 (same robots vs 44200, 2/4/6/8 cm strict 10/10/9/9 vs 8/6/4/4, 2-15 cm 10/10 climbed with 0 falls, 16 cm 7/10 climbed vs 2/10, 14/15 cm strict 5/0 vs 7/3 because two-riser swings clip the intermediate riser top for 1-2 frames, mostly the back foot ground -> tread 2 on riser 1; flat lean +10.8 deg vs +11.4, stair posture unchanged) for 7500 iterations. Curriculum resumes at mastered 14 cm, frontier 15 cm.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -119,9 +119,9 @@ footstep_clock:
 execution:
   # Patch 57: 4096 (2048 used 6.9 of 23 GB and 40% of the GPU).
   environments: 4096
-  # Resumed run: 9000 more iterations after the checkpoint's own (patch 62,
-  # unattended overnight, about 17 h on g6; checkpoints every 50).
-  maximum_iterations: 3000
+  # Resumed run: 9000 more iterations after the checkpoint's own (patch 62b,
+  # overnight, about 14.2 h on g6 to finish before 09:00; checkpoints every 50).
+  maximum_iterations: 7500
   training_seed: 42
 # Residual on the frozen official Unitree policy (balance_residual_control);
 # the actor sees all 688 inputs. Policy, critic, optimizer and learning rate
@@ -130,8 +130,8 @@ execution:
 policy_initialization:
   type: rsl_rl_training_resume
   source:
-    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261111_151604/model_44200.pt
-    sha256: 8dc22b89f4df16cb6905e9a24d79242f32e8c56c1b4634ce895f058b63f739ed
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261112_092914/model_47200.pt
+    sha256: FILL_ON_AWS
   critic_initialization: restored
   optimizer_initialization: restored
   locomotion_observations: 480

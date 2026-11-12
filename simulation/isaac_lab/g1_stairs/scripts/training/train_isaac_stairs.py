@@ -875,7 +875,7 @@ def main() -> None:
         # the initial level); a fresh run starts from the official prior and
         # trains 500 or 1500.
         resumed = initialization["type"] == "rsl_rl_training_resume"
-        allowed_iterations = (500, 1000, 2000, 3000, 5000, 9000) if resumed else (500, 1500)
+        allowed_iterations = (500, 1000, 2000, 3000, 5000, 7500, 9000) if resumed else (500, 1500)
         if resolved_config["execution"]["maximum_iterations"] not in allowed_iterations:
             raise RuntimeError(
                 f"Footstep bootstrap must use {allowed_iterations} iterations")
