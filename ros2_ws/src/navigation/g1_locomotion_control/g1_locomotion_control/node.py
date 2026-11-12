@@ -46,6 +46,7 @@ def backend_state_constant(backend_name):
 def physical_sport_backend_factory(
     *, interface, response_timeout_seconds,
     rpc_timeout_seconds,
+    velocity_duration_seconds,
     environment_factory=None,
     supervised_factory=create_supervised_sport_backend,
 ):
@@ -59,6 +60,7 @@ def physical_sport_backend_factory(
         interface=interface,
         response_timeout_seconds=response_timeout_seconds,
         rpc_timeout_seconds=rpc_timeout_seconds,
+        velocity_duration_seconds=velocity_duration_seconds,
         environment_factory=environment_factory,
     )
 
@@ -90,7 +92,13 @@ class LocomotionArbiterNode(Node):
             "command_timeout_seconds",
             0.250,
         )
+        self.declare_parameter(
+            "lease_start_timeout_seconds", 0.250
+        )
         self.declare_parameter("sport_rpc_timeout_seconds", 1.0)
+        self.declare_parameter(
+            "sport_velocity_duration_seconds", 0.25
+        )
         self.declare_parameter("max_forward_mps", -1.0)
         self.declare_parameter("max_lateral_mps", -1.0)
         self.declare_parameter("max_yaw_rate_rps", -1.0)
@@ -144,6 +152,10 @@ class LocomotionArbiterNode(Node):
                 "max_yaw_rate_rps"
             ).value,
         )
+        lease_start_timeout = self.get_parameter(
+            "lease_start_timeout_seconds"
+        ).value
+
         timeout = self.get_parameter(
             "command_timeout_seconds"
         ).value
@@ -200,6 +212,11 @@ class LocomotionArbiterNode(Node):
                         "sport_rpc_timeout_seconds"
                     ).value
                 ),
+                velocity_duration_seconds=float(
+                    self.get_parameter(
+                        "sport_velocity_duration_seconds"
+                    ).value
+                ),
                 response_timeout_seconds=float(
                     self.get_parameter(
                         "sport_response_timeout_seconds"
@@ -211,6 +228,7 @@ class LocomotionArbiterNode(Node):
             "backend": self.backend,
             "velocity_limits": limits,
             "command_timeout_seconds": timeout,
+            "lease_start_timeout_seconds": lease_start_timeout,
             "lease_factory": lease_factory,
         }
         if monotonic is not None:

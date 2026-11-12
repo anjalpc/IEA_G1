@@ -692,7 +692,7 @@ Authoritative hand contract:
 |---|---|
 | Unitree SDK2 | `9754cd153af3da471b0fe5f3aa535e426fb11db3` |
 | Unitree SDK2 Python (development image) | `65691c8a8bc53b98d3976dba4dbf9d5d20b2e7f5` |
-| Unitree SDK2 Python (physical PC2) | `794fb2b3fd9165fd245a7b568698d9e97d8ac0a0` |
+| Unitree SDK2 Python (physical PC2) | `814556d15970dd2ecf1c9984e845ca02ab07e206` |
 | Unitree MuJoCo | `ae6a8403e272733e9996ef59990880330496177f` |
 | Unitree RL Lab deployment subset | `4960b84732b0c2ec593dccbfe963fda1bcd7b1e3` |
 | MuJoCo | 3.3.6 |
@@ -703,13 +703,16 @@ Authoritative hand contract:
 
 The physical high-level locomotion helper loads only
 `unitree_sdk2py.g1.loco.g1_loco_client.LocoClient` inside its isolated PC2
-process. MOVE maps to `SetVelocity(vx, vy, vyaw, bounded_duration)` and STOP
-maps to `SetVelocity(0.0, 0.0, 0.0, bounded_duration)` so the RPC return
-code remains observable. It must never call `Damp`, `ZeroTorque`, `Sit`, or
+process. The physical robot runs Unitree software 1.5.4. Helper startup
+requests the official internal `WALKRUN` controller through API `7111` with
+payload `2` and fails closed unless Unitree returns code `0`. This handoff
+occurs before the helper accepts health, MOVE, or STOP requests. MOVE maps to
+`SetVelocity(vx, vy, vyaw, bounded_duration)` and STOP maps to
+`SetVelocity(0.0, 0.0, 0.0, bounded_duration)` so the RPC return code remains
+observable. It must never call `Damp`, `ZeroTorque`, `Sit`, or
 posture-transition methods. A successful STOP response confirms acceptance of
 the zero-velocity RPC; it is not independent physical proof that velocity is
-zero. The relevant `SetVelocity` contract is common to both pinned Python SDK
-revisions above.
+zero. These contracts use the pinned physical PC2 Python SDK revision above.
 The installed `g1_sport_helper` executable accepts the physical interface,
 bounded velocity duration, and RPC timeout. It communicates through strict
 line-delimited requests and must issue the zero-velocity STOP RPC whenever
@@ -725,10 +728,17 @@ only entry point that injects the supervised physical Sport backend factory.
 The generic `g1_locomotion_arbiter` executable and workstation navigation
 configuration remain recording-only by default. PC2 physical operation uses
 the package-owned `g1_locomotion_control/config/physical_pc2.yaml` profile,
-which explicitly selects `backend: sport`, interface `eth0`, 0.15 m/s forward,
-0.01 m/s lateral, and 0.40 rad/s yaw limits. The helper RPC timeout is 1.0 s
-and the parent response timeout is 1.5 s. Construction fails closed unless the
-parent response timeout is strictly greater than the child RPC timeout.
+which explicitly selects `backend: sport`, interface `eth0`, 0.30 m/s forward,
+0.01 m/s lateral, and 0.40 rad/s yaw limits. The physical helper velocity
+duration is 1.0 s, the helper RPC timeout is 1.0 s, and the parent response
+timeout is 1.5 s. Each streamed command refreshes the velocity duration; it
+does not limit total navigation time. A newly granted physical lease may remain
+stopped for up to 5.0 s while its first command is delivered; expiry reports
+`LEASE_START_TIMEOUT`. After the first accepted command, the arbiter uses its
+independent 0.25 s command watchdog and normally issues an explicit STOP first.
+The 1.0 s SDK duration remains the final firmware-side fallback if the parent
+and helper disappear. Construction fails closed unless the parent response
+timeout is strictly greater than the child RPC timeout.
 
 DDS/network separation is mandatory:
 

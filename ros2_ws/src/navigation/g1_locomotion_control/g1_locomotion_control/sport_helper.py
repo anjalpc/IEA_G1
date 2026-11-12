@@ -77,6 +77,11 @@ def create_loco_client(
     client = client_factory()
     client.SetTimeout(rpc_timeout_seconds)
     client.Init()
+    switch_code = client.SwitchToInternalCtrl(2)
+    if switch_code != 0:
+        raise RuntimeError(
+            "SPORT_INTERNAL_CONTROL_UNAVAILABLE"
+        )
     return client
 
 

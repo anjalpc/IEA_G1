@@ -23,6 +23,7 @@ class SportHelperExchange:
         self, *, interface, environment,
         response_timeout_seconds,
         rpc_timeout_seconds=None,
+        velocity_duration_seconds=0.25,
         process_factory=subprocess.Popen,
         wait_readable=_wait_readable,
     ):
@@ -36,6 +37,17 @@ class SportHelperExchange:
             raise ValueError(
                 "response_timeout_seconds must be finite and positive"
             )
+        velocity_duration_seconds = float(
+            velocity_duration_seconds
+        )
+        if (
+            not math.isfinite(velocity_duration_seconds)
+            or velocity_duration_seconds <= 0.0
+        ):
+            raise ValueError(
+                "velocity_duration_seconds must be finite and positive"
+            )
+        self.velocity_duration_seconds = velocity_duration_seconds
         self.response_timeout_seconds = float(
             response_timeout_seconds
         )
@@ -77,6 +89,8 @@ class SportHelperExchange:
                 "-m",
                 "g1_locomotion_control.sport_helper",
                 self.interface,
+                "--duration-seconds",
+                str(self.velocity_duration_seconds),
                 "--rpc-timeout-seconds",
                 str(self.rpc_timeout_seconds),
             ],
@@ -166,7 +180,8 @@ class SupervisedSportBackend(SportBackend):
 def create_supervised_sport_backend(
     *, interface, response_timeout_seconds,
     rpc_timeout_seconds,
-    environment_factory, exchange_factory=SportHelperExchange,
+    environment_factory, velocity_duration_seconds=0.25,
+    exchange_factory=SportHelperExchange,
 ):
     """Start one helper and return its owned Sport backend."""
     environment = environment_factory()
@@ -175,6 +190,7 @@ def create_supervised_sport_backend(
         environment=environment,
         response_timeout_seconds=response_timeout_seconds,
         rpc_timeout_seconds=rpc_timeout_seconds,
+        velocity_duration_seconds=velocity_duration_seconds,
     )
     exchange.start()
     return SupervisedSportBackend(

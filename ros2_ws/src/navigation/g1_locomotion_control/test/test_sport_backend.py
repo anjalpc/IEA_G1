@@ -241,6 +241,7 @@ def test_native_helper_initializes_pinned_g1_client():
 
     channel_factory = Mock()
     client = Mock()
+    client.SwitchToInternalCtrl.return_value = 0
 
     result = create_loco_client(
         interface="eth0",
@@ -253,6 +254,47 @@ def test_native_helper_initializes_pinned_g1_client():
     client.SetTimeout.assert_called_once_with(0.1)
     client.Init.assert_called_once_with()
     assert result is client
+
+
+def test_native_helper_requests_internal_walkrun_control():
+    from g1_locomotion_control.sport_helper import (
+        create_loco_client,
+    )
+
+    client = Mock()
+    client.SwitchToInternalCtrl.return_value = 0
+
+    create_loco_client(
+        interface="eth0",
+        rpc_timeout_seconds=0.1,
+        channel_factory=Mock(),
+        client_factory=Mock(return_value=client),
+    )
+
+    client.SwitchToInternalCtrl.assert_called_once_with(2)
+
+
+
+def test_native_helper_rejects_failed_internal_control_handoff():
+    from g1_locomotion_control.sport_helper import (
+        create_loco_client,
+    )
+
+    client = Mock()
+    client.SwitchToInternalCtrl.return_value = 77
+
+    with pytest.raises(
+        RuntimeError,
+        match="SPORT_INTERNAL_CONTROL_UNAVAILABLE",
+    ):
+        create_loco_client(
+            interface="eth0",
+            rpc_timeout_seconds=0.1,
+            channel_factory=Mock(),
+            client_factory=Mock(return_value=client),
+        )
+
+    client.SetVelocity.assert_not_called()
 
 
 def test_native_helper_loads_only_official_g1_bindings():
@@ -320,6 +362,7 @@ def test_native_helper_main_wires_official_client_and_eof_stop():
 
     channel_factory = Mock()
     client = Mock()
+    client.SwitchToInternalCtrl.return_value = 0
     client.SetVelocity.return_value = 0
     client_factory = Mock(return_value=client)
     binding_loader = Mock(
@@ -412,6 +455,7 @@ def test_sport_helper_exchange_starts_isolated_process():
         interface="eth0",
         environment=environment,
         response_timeout_seconds=0.5,
+        velocity_duration_seconds=1.0,
         process_factory=process_factory,
     )
 
@@ -423,6 +467,8 @@ def test_sport_helper_exchange_starts_isolated_process():
             "-m",
             "g1_locomotion_control.sport_helper",
             "eth0",
+            "--duration-seconds",
+            "1.0",
             "--rpc-timeout-seconds",
             "0.25",
         ],
@@ -523,6 +569,8 @@ def test_sport_helper_exchange_rejects_duplicate_start():
             "-m",
             "g1_locomotion_control.sport_helper",
             "eth0",
+            "--duration-seconds",
+            "0.25",
             "--rpc-timeout-seconds",
             "0.25",
         ],
@@ -605,6 +653,7 @@ def test_supervised_sport_backend_owns_exchange_lifecycle():
         interface="eth0",
         response_timeout_seconds=1.5,
         rpc_timeout_seconds=1.0,
+        velocity_duration_seconds=0.25,
         environment_factory=environment_factory,
         exchange_factory=exchange_factory,
     )
@@ -616,6 +665,7 @@ def test_supervised_sport_backend_owns_exchange_lifecycle():
         environment=environment,
         response_timeout_seconds=1.5,
         rpc_timeout_seconds=1.0,
+        velocity_duration_seconds=0.25,
     )
     exchange.start.assert_called_once_with()
 
@@ -914,8 +964,10 @@ def test_package_owns_explicit_physical_pc2_profile():
         "sport_interface": "eth0",
         "sport_response_timeout_seconds": 1.5,
         "sport_rpc_timeout_seconds": 1.0,
+        "sport_velocity_duration_seconds": 1.0,
+        "lease_start_timeout_seconds": 5.0,
         "command_timeout_seconds": 0.25,
-        "max_forward_mps": 0.15,
+        "max_forward_mps": 0.30,
         "max_lateral_mps": 0.01,
         "max_yaw_rate_rps": 0.40,
         "watchdog_rate_hz": 50.0,

@@ -63,6 +63,7 @@ class LocomotionArbiter:
         backend,
         velocity_limits,
         command_timeout_seconds,
+        lease_start_timeout_seconds=None,
         monotonic=time.monotonic,
         lease_factory=None,
     ):
@@ -81,7 +82,22 @@ class LocomotionArbiter:
 
         self._backend = backend
         self._velocity_limits = velocity_limits
+        if lease_start_timeout_seconds is None:
+            lease_start_timeout_seconds = timeout
+        lease_start_timeout_seconds = float(
+            lease_start_timeout_seconds
+        )
+        if (
+            not math.isfinite(lease_start_timeout_seconds)
+            or lease_start_timeout_seconds <= 0.0
+        ):
+            raise ValueError(
+                "lease_start_timeout_seconds must be finite and positive"
+            )
         self._command_timeout_seconds = timeout
+        self._lease_start_timeout_seconds = (
+            lease_start_timeout_seconds
+        )
         self._monotonic = monotonic
         self._lease_factory = (
             lease_factory
@@ -176,7 +192,7 @@ class LocomotionArbiter:
             self._active_owner = owner
             self._lease_id = lease_id
             self._lease_started_at = now
-            self._last_valid_command_at = now
+            self._last_valid_command_at = None
             self._reason = "LEASE_GRANTED"
             self._stopped = True
 
@@ -284,13 +300,18 @@ class LocomotionArbiter:
         with self._lock:
             if self._active_owner == OWNER_NONE:
                 return False
-            elapsed = (
-                self._monotonic()
-                - self._last_valid_command_at
-            )
-            if elapsed < self._command_timeout_seconds:
+            now = self._monotonic()
+            if self._last_valid_command_at is None:
+                elapsed = now - self._lease_started_at
+                timeout = self._lease_start_timeout_seconds
+                reason = "LEASE_START_TIMEOUT"
+            else:
+                elapsed = now - self._last_valid_command_at
+                timeout = self._command_timeout_seconds
+                reason = "COMMAND_TIMEOUT"
+            if elapsed < timeout:
                 return False
-            self._stop_and_revoke("COMMAND_TIMEOUT")
+            self._stop_and_revoke(reason)
             return True
 
     def set_emergency_stop(self):

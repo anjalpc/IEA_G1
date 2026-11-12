@@ -30,7 +30,7 @@ class LeaseFactory:
         return next(self.tokens)
 
 
-def arbiter():
+def arbiter(lease_start_timeout_seconds=None):
     backend = RecordingBackend()
     clock = FakeClock()
     instance = LocomotionArbiter(
@@ -41,6 +41,7 @@ def arbiter():
             yaw_rate_rps=0.4,
         ),
         command_timeout_seconds=0.250,
+        lease_start_timeout_seconds=lease_start_timeout_seconds,
         monotonic=clock,
         lease_factory=LeaseFactory(),
     )
@@ -78,7 +79,7 @@ def test_watchdog_does_not_expire_before_deadline():
     assert backend.stop_count == 0
 
 
-def test_watchdog_stops_and_revokes_at_exact_deadline():
+def test_lease_start_watchdog_stops_and_revokes_at_exact_deadline():
     instance, backend, clock = arbiter()
     acquire(instance)
     clock.now += 0.250
@@ -89,8 +90,26 @@ def test_watchdog_stops_and_revokes_at_exact_deadline():
     assert changed is True
     assert snapshot.active_owner == OWNER_NONE
     assert snapshot.stopped is True
-    assert snapshot.reason == "COMMAND_TIMEOUT"
+    assert snapshot.reason == "LEASE_START_TIMEOUT"
     assert backend.stop_count == 1
+
+
+def test_stopped_lease_uses_separate_start_deadline():
+    instance, backend, clock = arbiter(
+        lease_start_timeout_seconds=5.0
+    )
+    acquire(instance)
+    clock.now += 0.250
+
+    assert instance.check_watchdog() is False
+    assert instance.snapshot().active_owner == OWNER_NAVIGATION
+
+    clock.now += 4.750
+
+    assert instance.check_watchdog() is True
+    assert instance.snapshot().reason == "LEASE_START_TIMEOUT"
+    assert backend.stop_count == 1
+
 
 
 def test_valid_zero_command_refreshes_watchdog_deadline():

@@ -219,6 +219,9 @@ def timed_node():
             Parameter("max_forward_mps", value=0.5),
             Parameter("max_lateral_mps", value=0.25),
             Parameter("max_yaw_rate_rps", value=0.4),
+            Parameter(
+                "lease_start_timeout_seconds", value=5.0
+            ),
             Parameter("watchdog_rate_hz", value=50.0),
             Parameter("state_publish_rate_hz", value=10.0),
         ],
@@ -239,7 +242,7 @@ def test_creates_required_watchdog_and_state_timers(timed_node):
     assert instance.state_timer.timer_period_ns == 100_000_000
 
 
-def test_watchdog_callback_revokes_expired_lease(timed_node):
+def test_watchdog_uses_configured_lease_start_deadline(timed_node):
     instance, clock = timed_node
     acquire_navigation(instance)
     clock.now += 0.250
@@ -247,8 +250,16 @@ def test_watchdog_callback_revokes_expired_lease(timed_node):
     instance.watchdog_callback()
 
     snapshot = instance.arbiter.snapshot()
+    assert snapshot.active_owner == LocomotionCommand.OWNER_NAVIGATION
+    assert snapshot.reason == "LEASE_GRANTED"
+    assert instance.backend.stop_count == 0
+
+    clock.now += 4.750
+    instance.watchdog_callback()
+
+    snapshot = instance.arbiter.snapshot()
     assert snapshot.active_owner == 0
-    assert snapshot.reason == "COMMAND_TIMEOUT"
+    assert snapshot.reason == "LEASE_START_TIMEOUT"
     assert instance.backend.stop_count == 1
 
 
@@ -304,6 +315,10 @@ def test_constructs_sport_backend_only_from_explicit_factory():
                 "sport_response_timeout_seconds",
                 value=1.5,
             ),
+            Parameter(
+                "sport_velocity_duration_seconds",
+                value=1.0,
+            ),
             Parameter("max_forward_mps", value=0.15),
             Parameter("max_lateral_mps", value=0.10),
             Parameter("max_yaw_rate_rps", value=0.40),
@@ -316,6 +331,7 @@ def test_constructs_sport_backend_only_from_explicit_factory():
             interface="eth0",
             response_timeout_seconds=1.5,
             rpc_timeout_seconds=1.0,
+            velocity_duration_seconds=1.0,
         )
     finally:
         instance.destroy_node()
@@ -336,6 +352,7 @@ def test_physical_sport_factory_uses_native_environment():
         interface="eth0",
         response_timeout_seconds=1.5,
         rpc_timeout_seconds=1.0,
+        velocity_duration_seconds=1.0,
         environment_factory=environment_factory,
         supervised_factory=supervised_factory,
     )
@@ -345,6 +362,7 @@ def test_physical_sport_factory_uses_native_environment():
         interface="eth0",
         response_timeout_seconds=1.5,
         rpc_timeout_seconds=1.0,
+        velocity_duration_seconds=1.0,
         environment_factory=environment_factory,
     )
 
