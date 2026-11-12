@@ -253,3 +253,38 @@ class CleanClimbCurriculumTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ReviewWeightTests(unittest.TestCase):
+    """Patch 62: review practice goes to the weakest mastered heights."""
+
+    def test_weights_follow_the_clean_rate_with_a_floor(self):
+        attempts = torch.tensor([0.0, 500, 500, 500, 50, 500])
+        clean = torch.tensor([0.0, 500, 300, 250, 50, 400])
+        w = tc.review_weights(attempts, clean, torch.tensor(4))
+        # level 0 (flat) and above mastered get nothing; level 4 has too few
+        # window episodes and counts as rate 0.
+        expected = [0.0, 0.1, 0.5, 0.6, 1.1, 0.0]
+        for got, want in zip(w.tolist(), expected):
+            self.assertAlmostEqual(got, want, places=5)
+
+    def test_review_draws_follow_the_weights_and_stay_in_range(self):
+        torch.manual_seed(0)
+        n = 20000
+        level = torch.ones(n, dtype=torch.long)
+        role = torch.full((n,), tc.REVIEW, dtype=torch.long)
+        no = torch.zeros(n, dtype=torch.bool)
+        weights = torch.tensor([0.0, 0.1, 0.5, 0.0, 0.0])
+        new = tc.next_levels(level, role, no, no, no, torch.tensor(2), 4, 2, weights)
+        self.assertTrue(bool(((new >= 1) & (new <= 2)).all()))
+        share = (new == 2).float().mean().item()
+        self.assertAlmostEqual(share, 0.5 / 0.6, delta=0.02)
+
+    def test_uniform_without_weights(self):
+        torch.manual_seed(0)
+        n = 20000
+        level = torch.ones(n, dtype=torch.long)
+        role = torch.full((n,), tc.REVIEW, dtype=torch.long)
+        no = torch.zeros(n, dtype=torch.bool)
+        new = tc.next_levels(level, role, no, no, no, torch.tensor(2), 4, 2)
+        self.assertAlmostEqual((new == 2).float().mean().item(), 0.5, delta=0.02)

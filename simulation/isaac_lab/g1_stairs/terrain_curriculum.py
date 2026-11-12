@@ -176,6 +176,7 @@ CLEAN_CLIMB_ROLES = ("flat", "review", "frontier", "frontier")
 FLAT, REVIEW, FRONTIER = 0, 1, 2
 CLEAN_CLIMB_WINDOW = 500.0      # episodes per height in the clean-rate window
 CLEAN_CLIMB_MIN_ATTEMPTS = 100  # window episodes before a height can count as mastered
+REVIEW_WEIGHT_FLOOR = 0.1      # review weight of a height at clean rate 1 (patch 62)
 CLEAN_CLIMB_KEYS = {"enabled", "type", "initial_level", "mastered_level",
                     "mastered_clean_rate", "max_levels_ahead"}
 # Episode outcome counters (stair episodes, windowed), logged as shares.
@@ -248,17 +249,40 @@ def compute_mastered(attempts, clean, current, initial, rate, minimum=CLEAN_CLIM
     return torch.maximum(current, reached.clamp(1, levels - 1))
 
 
-def next_levels(level, role, success, climbed, completed, mastered, top, ahead):
+def review_weights(attempts, clean, mastered, minimum=CLEAN_CLIMB_MIN_ATTEMPTS,
+                   floor=REVIEW_WEIGHT_FLOOR):
+    """[levels] review sampling weight: 1 - windowed clean rate + ``floor`` on
+    levels 1..mastered (a level with fewer than ``minimum`` window episodes
+    counts as rate 0), 0 elsewhere.
+
+    Patch 62: uniform review let the low heights slip while the frontier
+    moved up (run 20261111_151604 model_44200 vs 20261111_084902 model_35200,
+    same robots: 6 cm strict 10/10 -> 4/10, 8 cm 9/10 -> 4/10, tread heels
+    2.5 cm shorter at 4-8 cm; training clean 6/8 cm 0.83/0.85 -> 0.61/0.63
+    while 14 cm became mastered). Weak heights now get more review episodes;
+    the floor keeps every mastered height in practice."""
+    rate = torch.where(attempts >= minimum, clean / attempts.clamp_min(1e-6),
+                       torch.zeros_like(attempts))
+    level = torch.arange(attempts.shape[0], device=attempts.device)
+    keep = (level >= 1) & (level <= mastered)
+    return torch.where(keep, (1.0 - rate).clamp_min(0.0) + floor, torch.zeros_like(rate))
+
+
+def next_levels(level, role, success, climbed, completed, mastered, top, ahead, weights=None):
     """New level per env from its role and episode outcome.
 
-    flat: 0. review: drawn uniformly from 1..mastered. frontier: +1 after a
-    clean climb, -1 after an episode without a completed climb, within
+    flat: 0. review: drawn from 1..mastered, uniformly or by ``weights``
+    ([levels], zero outside 1..mastered). frontier: +1 after a clean climb,
+    -1 after an episode without a completed climb, within
     [1, min(top, mastered + ahead)].
     """
     cap = torch.clamp(mastered + ahead, max=top)
     step = success.long() - (completed & ~climbed).long()
     frontier = torch.minimum(torch.clamp(level + step, min=1), cap)
-    review = torch.randint(0, 1 << 30, level.shape, device=level.device) % mastered + 1
+    if weights is None:
+        review = torch.randint(0, 1 << 30, level.shape, device=level.device) % mastered + 1
+    else:
+        review = torch.multinomial(weights, level.numel(), replacement=True).view_as(level)
     return torch.where(role == FLAT, torch.zeros_like(level),
                        torch.where(role == REVIEW, review, frontier))
 
@@ -327,7 +351,8 @@ def clean_climb_levels(
     state.mastered = compute_mastered(state.attempts, state.clean, state.mastered,
                                       state.mastered_initial, mastered_clean_rate)
 
-    new = next_levels(old, role, success, climbed, judged, state.mastered, top, max_levels_ahead)
+    new = next_levels(old, role, success, climbed, judged, state.mastered, top, max_levels_ahead,
+                      review_weights(state.attempts, state.clean, state.mastered))
     start = torch.where(role == FLAT, torch.zeros_like(old),
                         torch.where(role == REVIEW, new,
                                     torch.full_like(old, min(initial_level, top))))

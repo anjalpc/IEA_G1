@@ -5,7 +5,7 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Patch 61. Resume patch 60b run 20261111_084902 model_35200 (2-10 cm strictly clean 49/50, 12 cm 10/10 climbed 6/10 strict, 14 cm 0/10 at every checkpoint) for 9000 iterations with 1 cm riser steps above 12 cm. At 14 cm the first step lands with the heel 1.0-1.5 cm over the tread-1 edge (9/10 miss the 1 cm limit), the trailing two-riser step peaks at tread-2 height (robot 7, 28.1 cm), and 3000 iterations at the 14 cm frontier moved neither (first heel -0.7 -0.5 -1.2 -1.2 cm). Every 14 cm episode fails before any success, so the policy gets no successful climbs to learn from; at 12 cm the margins were +2 cm on both steps. Curriculum resumes at mastered 12 cm, frontier 13 cm.
+  purpose: Patch 62. Resume patch 61 run 20261111_151604 model_44200 (12/13/14/15 cm 10/10 climbed, 8/9/7/3 strict, 16 cm 2/10, 17 cm 0/10; but 2-8 cm regressed vs 35200 on the same robots, 6 cm strict 10/10 -> 4/10 and 8 cm 9/10 -> 4/10, tread heels 2.5 cm shorter at 4-8 cm, two stalls at 2/4 cm on fast cycles) for 9000 iterations with review heights drawn by weakness (weight 1 - windowed clean rate + 0.1) instead of uniformly, and upright -5 -> -20 (flat pelvis lean grew from +3.5 deg at 32200 to +11.5 deg at 44200, upright on the stairs). Curriculum resumes at mastered 14 cm, frontier 15 cm. Judge on the same robots, 2-8 cm back to the 35200 level (strict >= 9/10) with 12-15 cm no worse than 44200, 16 cm climbing, and flat / platform pelvis lean back below +6 deg.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -56,12 +56,12 @@ terrain:
     # frontier, frontier. Levels index riser_heights_m.
     type: clean_climb
     # Curriculum state is not saved in checkpoints: resume it from the
-    # patch 60b status (mastered 12 cm, training clean 0.54). Deterministic
-    # 35200 replays: 2-10 cm 49/50 strict, 12 cm 10/10 climbed, 6/10 strict.
-    # Levels index riser_heights_m: level 6 = 12 cm, level 7 = 13 cm.
-    initial_level: 7
-    # Review envs draw from 2-12 cm until a higher height is mastered.
-    mastered_level: 6
+    # patch 61 status (mastered 14 cm, training clean 0.53; 15 cm 0.09).
+    # Deterministic 44200 replays: 12-15 cm 10/10 climbed, 16 cm 2/10.
+    # Levels index riser_heights_m: level 8 = 14 cm, level 9 = 15 cm.
+    initial_level: 9
+    # Review envs draw from 2-14 cm, weighted towards the weakest (patch 62).
+    mastered_level: 8
     # Training-time clean rate (with exploration noise) that marks a height
     # mastered; deterministic p56 18200 replays were 6/10 strictly clean at
     # 4 and 6 cm (all toe strikes at cycles >= 1.23 s).
@@ -119,7 +119,7 @@ footstep_clock:
 execution:
   # Patch 57: 4096 (2048 used 6.9 of 23 GB and 40% of the GPU).
   environments: 4096
-  # Resumed run: 9000 more iterations after the checkpoint's own (patch 61,
+  # Resumed run: 9000 more iterations after the checkpoint's own (patch 62,
   # unattended overnight, about 17 h on g6; checkpoints every 50).
   maximum_iterations: 9000
   training_seed: 42
@@ -130,8 +130,8 @@ execution:
 policy_initialization:
   type: rsl_rl_training_resume
   source:
-    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261111_084902/model_35200.pt
-    sha256: 427190a82a3e55b1d36ea696147337ed753fe1b5258c1921e6a85831b1e32bf6
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261111_151604/model_44200.pt
+    sha256: FILL_ON_AWS
   critic_initialization: restored
   optimizer_initialization: restored
   locomotion_observations: 480
@@ -297,7 +297,14 @@ reward_experiment:
         # drift +47 deg in 12 s, right foot loaded 35-60% of its window).
         footstep_acquisition: 3.0
         footstep_target_progress: 0.5
-        upright: -5.0
+        # Patch 62: -5 -> -20. Flat / platform pelvis forward lean grew with
+        # the curriculum: +3.5 (32200), +5.5 (35200), +8.0 (38850), +9.8
+        # (41500), +11.5 deg (44200, platform after 14 cm +10.1) while the
+        # body stays upright on the stairs (-1.7 deg at 14 cm). At -5 the
+        # lean cost 0.2/s at 11.5 deg (0.05/s at 5.5 deg), next to ~7/s of
+        # acquisition: effectively free. At -20: 0.8/s at 11.5 deg, ~0.1/s
+        # at the stair posture.
+        upright: -20.0
         action_rate: -0.05
         dof_pos_limits: -5.0
         feet_slide: -0.2
