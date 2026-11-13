@@ -870,12 +870,12 @@ def main() -> None:
             raise RuntimeError("Footstep bootstrap requires command.terrain_split")
         initialization = resolved_config["policy_initialization"]
         # A resumed run continues a footstep run (its own policy, critic and
-        # optimizer) for 500 to 9000 more iterations (the curriculum state is
+        # optimizer) for 500 to 15000 more iterations (the curriculum state is
         # not saved, so long unattended runs keep it instead of restarting at
         # the initial level); a fresh run starts from the official prior and
         # trains 500 or 1500.
         resumed = initialization["type"] == "rsl_rl_training_resume"
-        allowed_iterations = (500, 1000, 2000, 3000, 5000, 7500, 9000) if resumed else (500, 1500)
+        allowed_iterations = (500, 1000, 2000, 3000, 5000, 7500, 9000, 15000) if resumed else (500, 1500)
         if resolved_config["execution"]["maximum_iterations"] not in allowed_iterations:
             raise RuntimeError(
                 f"Footstep bootstrap must use {allowed_iterations} iterations")
