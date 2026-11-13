@@ -121,7 +121,7 @@ execution:
   environments: 4096
   # Resumed run: 9000 more iterations after the checkpoint's own (patch 62c,
   # about 17 h on g6; checkpoints every 50).
-  maximum_iterations: 9000
+  maximum_iterations: 15000
   training_seed: 42
 # Residual on the frozen official Unitree policy (balance_residual_control);
 # the actor sees all 688 inputs. Policy, critic, optimizer and learning rate
