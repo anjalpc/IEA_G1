@@ -182,6 +182,21 @@ class ResidualMagnitudeTests(unittest.TestCase):
                               _g1_balance_executed_action=executed)
         self.assertEqual(residual_magnitude(env).tolist(), [0.0, 5.0])
 
+    def test_off_plan_counts_more(self):
+        """Patch 63: off the stair plan the correction costs 4x."""
+        from types import SimpleNamespace
+        from simulation.isaac_lab.g1_stairs.footstep_rewards import (
+            RESIDUAL_OFF_PLAN_FACTOR, residual_magnitude)
+        teacher = torch.zeros(3, 2)
+        executed = torch.tensor([[1.0, 0.0], [1.0, 0.0], [0.0, 2.0]])
+        clock = SimpleNamespace(on_plan=torch.tensor([True, False, False]))
+        env = SimpleNamespace(num_envs=3, _g1_balance_teacher_action=teacher,
+                              _g1_balance_executed_action=executed,
+                              _g1_rolling_clock=clock)
+        self.assertEqual(RESIDUAL_OFF_PLAN_FACTOR, 4.0)
+        self.assertEqual(residual_magnitude(env).tolist(), [1.0, 4.0, 16.0])
+        self.assertEqual(residual_magnitude(env, off_plan_factor=1.0).tolist(), [1.0, 1.0, 4.0])
+
     def test_requires_residual_wrapper(self):
         from types import SimpleNamespace
         from simulation.isaac_lab.g1_stairs.footstep_rewards import residual_magnitude

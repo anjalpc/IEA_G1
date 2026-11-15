@@ -5,7 +5,7 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Patch 62c. Continue patch 62 unchanged from run 20261112_165742 model_54700 (same robots vs 47200, 2-13 cm 54/70 strict vs 56/70, 14 cm 7/10 vs 5, 15 cm 9/10 climbed 6/10 strict vs 0, 16 cm 8/10 climbed, 17 cm 3/10; flat lean +6.5 deg vs +10.8; the back foot's two-riser step lands on target up to 15 cm and 1.5 / 3 cm short at 16 / 17 cm with joints at most 54 percent of range and stance knee torque 0.78 of its limit) for 9000 iterations. Curriculum resumes at mastered 15 cm, frontier 16 cm.
+  purpose: Patch 63. Resume patch 62c run 20261113_090445 model_69700 (same robots vs 54700, 14-17 cm 10/10 climbed and 9/9/10/9 strict, 18 cm 7/10 climbed, 19 / 20 cm 0/10; but flat walking slowed and shortened, 0.32 m/s at 0.35 command, step 13.7 cm vs 16.1 at 35200, double support 46 percent, arm swing 3.2 deg, platform the same, while the flat correction grew, legs 0.19 -> 0.29, hip roll / yaw 0.64 -> 1.09; 6-12 cm strict 7/8/8/8 vs 8/10/9/10 at 54700) for 11500 iterations with residual_magnitude counted 4 times off the stair plan (flat tiles, approach, platform). Curriculum resumes at mastered 17 cm, frontier 18 cm. Pass, same robots, flat speed >= 0.34 m/s, step >= 15 cm, flat leg correction <= 0.2, platform speed >= 0.33, 14-18 cm no worse than 69700.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -56,12 +56,12 @@ terrain:
     # frontier, frontier. Levels index riser_heights_m.
     type: clean_climb
     # Curriculum state is not saved in checkpoints: resume it from the
-    # patch 62b status (mastered 15 cm, training clean 0.63; 16 cm 0.15).
-    # Deterministic 54700 replays: 2-14 cm all climbed, 15 cm 9/10, 16 cm 8/10.
-    # Levels index riser_heights_m: level 9 = 15 cm, level 10 = 16 cm.
-    initial_level: 10
-    # Review envs draw from 2-15 cm, weighted towards the weakest (patch 62).
-    mastered_level: 9
+    # patch 62c status (mastered 17 cm, training clean 0.65; 18 cm 0.37).
+    # Deterministic 69700 replays: 14-17 cm 10/10 climbed, 18 cm 7/10.
+    # Levels index riser_heights_m: level 11 = 17 cm, level 12 = 18 cm.
+    initial_level: 12
+    # Review envs draw from 2-17 cm, weighted towards the weakest (patch 62).
+    mastered_level: 11
     # Training-time clean rate (with exploration noise) that marks a height
     # mastered; deterministic p56 18200 replays were 6/10 strictly clean at
     # 4 and 6 cm (all toe strikes at cycles >= 1.23 s).
@@ -119,9 +119,9 @@ footstep_clock:
 execution:
   # Patch 57: 4096 (2048 used 6.9 of 23 GB and 40% of the GPU).
   environments: 4096
-  # Resumed run: 9000 more iterations after the checkpoint's own (patch 62c,
-  # about 17 h on g6; checkpoints every 50).
-  maximum_iterations: 15000
+  # Resumed run: 11500 more iterations after the checkpoint's own (patch 63,
+  # Sunday to Monday 08:00, about 21.6 h on g6; checkpoints every 50).
+  maximum_iterations: 11500
   training_seed: 42
 # Residual on the frozen official Unitree policy (balance_residual_control);
 # the actor sees all 688 inputs. Policy, critic, optimizer and learning rate
@@ -130,8 +130,8 @@ execution:
 policy_initialization:
   type: rsl_rl_training_resume
   source:
-    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261112_165742/model_54700.pt
-    sha256: bdc7d191540ae2a84864982a5a3f96c773252ebc1f5e602e1f7de3e998d87f4b
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261113_090445/model_69700.pt
+    sha256: FILL_ON_AWS
   critic_initialization: restored
   optimizer_initialization: restored
   locomotion_observations: 480

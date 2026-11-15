@@ -355,7 +355,12 @@ def cached_failure_event(env):
     return _per_event(env, value)
 
 
-def residual_magnitude(env):
+# Patch 63: residual_magnitude counts this many times off the stair plan
+# (flat tiles, the approach before the plan, the platform after it).
+RESIDUAL_OFF_PLAN_FACTOR = 4.0
+
+
+def residual_magnitude(env, off_plan_factor=RESIDUAL_OFF_PLAN_FACTOR):
     """Squared size of the correction applied on top of the frozen Unitree
     action, in raw action units (x 0.25 rad), summed over the 29 joints.
 
@@ -363,6 +368,13 @@ def residual_magnitude(env):
     after clipping. With a negative weight the correction stays near zero
     wherever it earns nothing (flat walking stays Unitree's) and is spent
     only where it pays (lift and placement at the stairs).
+
+    Patch 63: weighted ``off_plan_factor`` times off the stair plan. With one
+    weight everywhere the flat correction grew with the stair curriculum
+    (flat mean |raw residual|, 35200 -> 69700: legs 0.19 -> 0.29, hip roll /
+    yaw 0.64 -> 1.09) while flat walking slowed and shortened (0.38 -> 0.32
+    m/s at 0.35 command, step 16.1 -> 13.7 cm, double support 41 -> 46 %,
+    arm swing 8.7 -> 3.2 deg); the platform after the climb the same.
     """
     teacher = getattr(env, "_g1_balance_teacher_action", None)
     executed = getattr(env, "_g1_balance_executed_action", None)
@@ -372,4 +384,9 @@ def residual_magnitude(env):
         )
     if teacher.shape != executed.shape or teacher.shape[0] != env.num_envs:
         raise RuntimeError("invalid teacher/executed action shapes")
-    return torch.sum(torch.square(executed - teacher), dim=1)
+    value = torch.sum(torch.square(executed - teacher), dim=1)
+    clock = getattr(env, "_g1_rolling_clock", None)
+    if clock is None:
+        return value
+    return value * torch.where(clock.on_plan, torch.ones_like(value),
+                               torch.full_like(value, off_plan_factor))
