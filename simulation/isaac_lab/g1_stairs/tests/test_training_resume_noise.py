@@ -3,7 +3,7 @@ import unittest
 import torch
 from torch import nn
 
-from simulation.isaac_lab.g1_stairs.training_resume import cap_action_noise_std
+from simulation.isaac_lab.g1_stairs.training_resume import cap_action_noise_std, raise_action_noise_std
 
 
 class _Scalar(nn.Module):
@@ -39,6 +39,24 @@ class CapNoiseTests(unittest.TestCase):
             cap_action_noise_std(_Scalar([1.0, 1.0, 1.0]), 0.0, self.partner)
         with self.assertRaises(ValueError):
             cap_action_noise_std(_Scalar([1.0, 1.0]), 0.5, self.partner)
+
+
+class RaiseNoiseTests(unittest.TestCase):
+    partner = (1, 0, 2)
+
+    def test_raises_only_below_the_minimum(self):
+        p = _Scalar([0.005, 0.005, 0.02])
+        old, new = raise_action_noise_std(p, [0.08, 0.08, 0.0], self.partner)
+        torch.testing.assert_close(torch.tensor(old), torch.tensor([0.005, 0.005, 0.02]))
+        torch.testing.assert_close(p.std.detach(), torch.tensor([0.08, 0.08, 0.02]))
+        q = _Log([0.3, 0.3, 0.01])
+        raise_action_noise_std(q, [0.08, 0.08, 0.05], self.partner)
+        torch.testing.assert_close(q.log_std.exp().detach(), torch.tensor([0.3, 0.3, 0.05]))
+
+    def test_rejects_bad_input(self):
+        for low in ([0.08, 0.05, 0.0], [-0.1, -0.1, 0.0], [0.08, 0.08]):
+            with self.assertRaises(ValueError):
+                raise_action_noise_std(_Scalar([0.01, 0.01, 0.01]), low, self.partner)
 
 
 if __name__ == "__main__":

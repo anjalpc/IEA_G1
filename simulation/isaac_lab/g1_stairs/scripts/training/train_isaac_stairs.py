@@ -1233,6 +1233,22 @@ def main() -> None:
             print("[RESUME] action noise std capped at", float(noise_cap), flush=True)
             for name, a, b in zip(BODY_JOINTS, old_std, new_std):
                 print(f"[RESUME]   {name}: {a:.3f} -> {b:.3f}", flush=True)
+        # Patch 65: one-time minimum for the restored std of named joints.
+        noise_min = resolved_config.get("ppo", {}).get("resume_action_noise_std_min_by_joint")
+        if noise_min:
+            from simulation.isaac_lab.g1_stairs.contracts import BODY_JOINTS
+            from simulation.isaac_lab.g1_stairs.footstep_symmetry import JOINT_PERMUTATION
+            from simulation.isaac_lab.g1_stairs.training_resume import raise_action_noise_std
+            unknown = sorted(set(noise_min) - set(BODY_JOINTS))
+            if unknown:
+                raise ValueError(f"resume_action_noise_std_min_by_joint: unknown joints {unknown}")
+            old_std, new_std = raise_action_noise_std(
+                runner.alg.policy,
+                [float(noise_min.get(name, 0.0)) for name in BODY_JOINTS],
+                JOINT_PERMUTATION)
+            for name, a, b in zip(BODY_JOINTS, old_std, new_std):
+                if a != b:
+                    print(f"[RESUME]   std raised {name}: {a:.3f} -> {b:.3f}", flush=True)
     elif initialization_type == "zero_residual_actor":
         initialize_zero_residual_actor(runner)
     elif initialization_type not in (None, "random"):

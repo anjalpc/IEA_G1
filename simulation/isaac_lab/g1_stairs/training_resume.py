@@ -91,3 +91,35 @@ def cap_action_noise_std(policy, cap, partner):
         new = 0.5 * (new + new[torch.as_tensor(partner, device=new.device)])
         param.data.copy_(from_std(new))
     return old.cpu().tolist(), new.cpu().tolist()
+
+
+def raise_action_noise_std(policy, minimum, partner):
+    """Raise the restored exploration std to at least ``minimum[i]`` per
+    action, once, on resume (it stays a free parameter afterwards).
+
+    With no entropy bonus the std only shrinks. Run 20261116_091452
+    model_84200: hip pitch 0.005, knee 0.007, ankle pitch 0.010 raw units
+    (about 0.002 rad on the joint), so the policy tried almost nothing new on
+    the joints that lift and place the foot: after 3000 iterations with a
+    knee clip of 3 the knee correction peaked at +2.1, a crouch cost of
+    1.7/s moved the flat stance knee 0.58 -> 0.54 rad, and 19 cm needed over
+    10,000 iterations for its first climbs. Not a floor: patch 46's std
+    floor (policy_shaping) was removed in patch 47 (forward lean, riser
+    stall). ``minimum`` must be left/right symmetric. Returns (old, new).
+    """
+    if hasattr(policy, "std"):
+        param, to_std, from_std = policy.std, (lambda p: p), (lambda s: s)
+    elif hasattr(policy, "log_std"):
+        param, to_std, from_std = policy.log_std, torch.exp, torch.log
+    else:
+        raise ValueError("policy has neither std nor log_std")
+    low = torch.as_tensor(minimum, dtype=param.dtype, device=param.device)
+    if low.shape != param.shape or len(partner) != param.numel():
+        raise ValueError("std minimum does not match the action width")
+    if bool((low < 0.0).any()) or not torch.equal(low, low[torch.as_tensor(partner, device=low.device)]):
+        raise ValueError("std minimum must be >= 0 and left/right symmetric")
+    with torch.no_grad():
+        old = to_std(param.data).clone()
+        new = torch.maximum(old, low)
+        param.data.copy_(from_std(new))
+    return old.cpu().tolist(), new.cpu().tolist()
