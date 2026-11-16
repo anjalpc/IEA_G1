@@ -968,8 +968,8 @@ cd /workspace/IEA_G1
 # as seed k). Single-robot replays were GPU-bound on the A10G (3 in parallel
 # 107 s vs 55 s alone), so batching robots is the speed-up, not processes.
 cmd_traces() {
-    local USAGE="Usage: simctl traces [<checkpoint>...] [--parallel <n>] [--name <tag>] [--symmetry check|average] [--heights <m,m,...>]"
-    local CKPTS=() PARALLEL=3 NAME=traces SYM=check ONLY=""
+    local USAGE="Usage: simctl traces [<checkpoint>...] [--parallel <n>] [--name <tag>] [--symmetry check|average] [--heights <m,m,...>] [--executed-clip <x>]"
+    local CKPTS=() PARALLEL=3 NAME=traces SYM=check ONLY="" EXEC_CLIP=""
     while [ $# -gt 0 ]; do
         case "$1" in
             --parallel) PARALLEL="${2:?$USAGE}"; shift 2 ;;
@@ -978,6 +978,10 @@ cmd_traces() {
             # A subset of the run's training heights (all by default), e.g.
             # --heights 0,0.06,0.10,0.14 for a curriculum run.
             --heights) ONLY="${2:?$USAGE}"; shift 2 ;;
+            # Zero-training probe: replay with another executed action clip
+            # (balance_residual_control.executed_clip, raw action units; joint
+            # target = default + 0.25 rad x action). Needs its own --name.
+            --executed-clip) EXEC_CLIP="${2:?$USAGE}"; shift 2 ;;
             [0-9]*) CKPTS+=("$1"); shift ;;
             *) echo "$USAGE" >&2; exit 1 ;;
         esac
@@ -1006,6 +1010,23 @@ cmd_traces() {
     CFG="experiments/g1_stairs/runs/${RUN_ID}/resolved_config.yaml"
     EVAL="experiments/g1_stairs/outputs/evaluation/${NAME}/${RUN_ID}"
     [ -f "$CFG" ] || { echo "Resolved config not found: $CFG" >&2; exit 1; }
+    if [ -n "$EXEC_CLIP" ]; then
+        [ "$NAME" != traces ] || { echo "--executed-clip needs --name <tag> (keeps probe traces apart)" >&2; exit 1; }
+        mkdir -p "$EVAL"
+        python3 - "$CFG" "$EVAL/resolved_config_probe.yaml" "$EXEC_CLIP" <<'PY' || exit 1
+import sys, yaml
+cfg = yaml.safe_load(open(sys.argv[1])); clip = float(sys.argv[3])
+if not 0.0 < clip <= 10.0:
+    sys.exit("--executed-clip must be in (0, 10]")
+ctl = cfg.get("balance_residual_control")
+if not isinstance(ctl, dict) or "executed_clip" not in ctl:
+    sys.exit("run has no balance_residual_control.executed_clip")
+print(f"Probe: executed_clip {ctl['executed_clip']} -> {clip}", file=sys.stderr)
+ctl["executed_clip"] = clip
+yaml.safe_dump(cfg, open(sys.argv[2], "w"), sort_keys=False)
+PY
+        CFG="$EVAL/resolved_config_probe.yaml"
+    fi
     for M in "${CKPTS[@]}"; do
         [ -f "${TRAIN_DIR}/model_${M}.pt" ] || { echo "Checkpoint not found: ${TRAIN_DIR}/model_${M}.pt" >&2; exit 1; }
     done
