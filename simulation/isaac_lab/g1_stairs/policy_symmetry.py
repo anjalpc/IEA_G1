@@ -29,13 +29,20 @@ from __future__ import annotations
 
 import torch
 
+from .balance_residual import clamp_abs, residual_clip_vector
 from .footstep_symmetry import mirror_actions, mirror_policy_obs
 
 
-def make_actor_symmetric(policy, residual_clip: float, raw_hook=None) -> None:
-    """Make ``policy.actor`` mirror-symmetric in place (idempotent)."""
-    if residual_clip <= 0.0:
+def make_actor_symmetric(policy, residual_clip, raw_hook=None) -> None:
+    """Make ``policy.actor`` mirror-symmetric in place (idempotent).
+
+    ``residual_clip``: one number or one per joint ([29], left = right;
+    balance_residual.residual_clip_vector)."""
+    clip = torch.as_tensor(residual_clip, dtype=torch.float32)
+    if not bool((clip > 0.0).all()):
         raise ValueError("residual_clip must be positive")
+    if clip.ndim and not torch.equal(mirror_actions(clip.unsqueeze(0)).abs().squeeze(0), clip):
+        raise ValueError("per-joint residual_clip must be the same left and right")
     if getattr(policy, "actor_obs_normalization", False):
         # The mirror acts on raw observations; a normaliser in front of the
         # actor would need its own mirrored statistics.
@@ -44,7 +51,6 @@ def make_actor_symmetric(policy, residual_clip: float, raw_hook=None) -> None:
     if getattr(actor, "_g1_symmetric", False):
         return
     forward = actor.forward
-    clip = float(residual_clip)
 
     def symmetric_forward(x):
         single = x.ndim == 1
@@ -53,7 +59,7 @@ def make_actor_symmetric(policy, residual_clip: float, raw_hook=None) -> None:
         raw, raw_m = forward(torch.cat([x, mirror_policy_obs(x)], dim=0)).split(x.shape[0])
         if raw_hook is not None and torch.is_grad_enabled():
             raw, raw_m = raw_hook(raw), raw_hook(raw_m)
-        out = 0.5 * (raw.clamp(-clip, clip) + mirror_actions(raw_m.clamp(-clip, clip)))
+        out = 0.5 * (clamp_abs(raw, clip) + mirror_actions(clamp_abs(raw_m, clip)))
         return out.squeeze(0) if single else out
 
     actor.forward = symmetric_forward
@@ -71,7 +77,7 @@ def apply_from_config(policy, resolved_config, raw_hook=None) -> bool:
     residual = resolved_config.get("balance_residual_control") or {}
     if "residual_clip" not in residual:
         raise ValueError("ppo.symmetric_actor needs balance_residual_control.residual_clip")
-    make_actor_symmetric(policy, float(residual["residual_clip"]), raw_hook=raw_hook)
+    make_actor_symmetric(policy, residual_clip_vector(residual, device="cpu"), raw_hook=raw_hook)
     print("[INFO] Symmetric actor: (clip(f(s)) + M clip(f(M s))) / 2, clip",
-          float(residual["residual_clip"]), flush=True)
+          float(residual["residual_clip"]), "wider:", residual.get("residual_clip_by_joint") or {}, flush=True)
     return True

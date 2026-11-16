@@ -182,21 +182,6 @@ class ResidualMagnitudeTests(unittest.TestCase):
                               _g1_balance_executed_action=executed)
         self.assertEqual(residual_magnitude(env).tolist(), [0.0, 5.0])
 
-    def test_off_plan_counts_more(self):
-        """Patch 63: off the stair plan the correction costs 4x."""
-        from types import SimpleNamespace
-        from simulation.isaac_lab.g1_stairs.footstep_rewards import (
-            RESIDUAL_OFF_PLAN_FACTOR, residual_magnitude)
-        teacher = torch.zeros(3, 2)
-        executed = torch.tensor([[1.0, 0.0], [1.0, 0.0], [0.0, 2.0]])
-        clock = SimpleNamespace(on_plan=torch.tensor([True, False, False]))
-        env = SimpleNamespace(num_envs=3, _g1_balance_teacher_action=teacher,
-                              _g1_balance_executed_action=executed,
-                              _g1_rolling_clock=clock)
-        self.assertEqual(RESIDUAL_OFF_PLAN_FACTOR, 4.0)
-        self.assertEqual(residual_magnitude(env).tolist(), [1.0, 4.0, 16.0])
-        self.assertEqual(residual_magnitude(env, off_plan_factor=1.0).tolist(), [1.0, 1.0, 4.0])
-
     def test_requires_residual_wrapper(self):
         from types import SimpleNamespace
         from simulation.isaac_lab.g1_stairs.footstep_rewards import residual_magnitude
@@ -300,6 +285,26 @@ class FootStumbleTests(unittest.TestCase):
         cfg = SimpleNamespace(name="contact_forces", body_ids=[0, 1])
         out = foot_stumble(env, cfg) * env.step_dt
         self.assertEqual([round(v, 6) for v in out.tolist()], [1.0, 0.0, 0.0, 1.0])
+
+
+class StanceKneeBendTests(unittest.TestCase):
+    def test_charges_scheduled_stance_knees_beyond_the_limit_on_rows(self):
+        from simulation.isaac_lab.g1_stairs.footstep_rewards import (
+            STANCE_KNEE_LIMIT_RAD, stance_knee_bend)
+        self.assertEqual(STANCE_KNEE_LIMIT_RAD, 0.35)
+        knee = torch.tensor([[0.20, 0.30], [0.55, 0.85], [0.55, 0.85], [0.55, 0.85]])
+        stance = torch.tensor([[True, True], [True, True], [True, False], [True, True]])
+        rows = torch.tensor([True, True, True, False])
+        torch.testing.assert_close(
+            stance_knee_bend(knee, stance, rows), torch.tensor([0.0, 0.70, 0.20, 0.0]))
+
+    def test_reads_cached_value_per_second(self):
+        from types import SimpleNamespace
+        from simulation.isaac_lab.g1_stairs.footstep_rewards import cached_stance_knee_bend
+        env = SimpleNamespace(num_envs=2, _g1_footstep_stance_knee_bend=torch.tensor([0.0, 0.2]))
+        torch.testing.assert_close(cached_stance_knee_bend(env), torch.tensor([0.0, 0.2]))
+        with self.assertRaises(RuntimeError):
+            cached_stance_knee_bend(SimpleNamespace(num_envs=2))
 
 
 class OffBeatRewardTests(unittest.TestCase):

@@ -284,6 +284,37 @@ def cached_swing_clearance(env):
         raise RuntimeError("missing cached swing clearance")
     return value
 
+# Patch 64: stance knees bent beyond this off the stair plan are charged.
+# Scheduled-stance knee, flat, model_35200 (natural gait): median 0.20,
+# p99 0.36 rad; model_81200: median 0.51 rad.
+STANCE_KNEE_LIMIT_RAD = 0.35
+
+
+def stance_knee_bend(knee_pos, stance, rows, limit=STANCE_KNEE_LIMIT_RAD):
+    """Crouch measure [N]: knee flexion beyond ``limit`` [rad], summed over
+    the feet the clock schedules as stance, on ``rows`` only.
+
+    Patch 64. The flat, approach and platform gait sank into a crouch as the
+    stair curriculum went up (flat stance knee 0.20 rad at model_35200 ->
+    0.58 at model_81200, step 16 -> 13.4 cm, 0.38 -> 0.32 m/s at 0.35
+    command, stance knee torque 7.5 -> 11.9 Nm). residual_magnitude cannot
+    hold the posture (patch 63): the teacher follows the crouched state, so
+    executed - teacher stays small. This measures the posture itself. Mean
+    per step on flat: 0.001 rad at model_35200, 0.19 rad at model_81200.
+    Scheduled stance, not contact, so unloading a foot does not avoid it.
+    Not charged on the stair plan, where deep stance flexion is the climb.
+    """
+    excess = torch.clamp(knee_pos - limit, min=0.0) * stance.to(knee_pos.dtype)
+    return torch.where(rows, excess.sum(dim=-1), torch.zeros_like(excess[:, 0]))
+
+
+def cached_stance_knee_bend(env):
+    """Stance knee flexion beyond the limit off the stair plan, per second."""
+    value = getattr(env, "_g1_footstep_stance_knee_bend", None)
+    if value is None or value.shape != (env.num_envs,):
+        raise RuntimeError("missing cached stance knee bend")
+    return value
+
 
 # Sole clearance above the riser edge that earns full lift credit. The
 # Unitree prior's swing sole clearance is ~1.5-2 cm, so a lift capped at
@@ -355,12 +386,7 @@ def cached_failure_event(env):
     return _per_event(env, value)
 
 
-# Patch 63: residual_magnitude counts this many times off the stair plan
-# (flat tiles, the approach before the plan, the platform after it).
-RESIDUAL_OFF_PLAN_FACTOR = 4.0
-
-
-def residual_magnitude(env, off_plan_factor=RESIDUAL_OFF_PLAN_FACTOR):
+def residual_magnitude(env):
     """Squared size of the correction applied on top of the frozen Unitree
     action, in raw action units (x 0.25 rad), summed over the 29 joints.
 
@@ -368,13 +394,6 @@ def residual_magnitude(env, off_plan_factor=RESIDUAL_OFF_PLAN_FACTOR):
     after clipping. With a negative weight the correction stays near zero
     wherever it earns nothing (flat walking stays Unitree's) and is spent
     only where it pays (lift and placement at the stairs).
-
-    Patch 63: weighted ``off_plan_factor`` times off the stair plan. With one
-    weight everywhere the flat correction grew with the stair curriculum
-    (flat mean |raw residual|, 35200 -> 69700: legs 0.19 -> 0.29, hip roll /
-    yaw 0.64 -> 1.09) while flat walking slowed and shortened (0.38 -> 0.32
-    m/s at 0.35 command, step 16.1 -> 13.7 cm, double support 41 -> 46 %,
-    arm swing 8.7 -> 3.2 deg); the platform after the climb the same.
     """
     teacher = getattr(env, "_g1_balance_teacher_action", None)
     executed = getattr(env, "_g1_balance_executed_action", None)
@@ -384,9 +403,4 @@ def residual_magnitude(env, off_plan_factor=RESIDUAL_OFF_PLAN_FACTOR):
         )
     if teacher.shape != executed.shape or teacher.shape[0] != env.num_envs:
         raise RuntimeError("invalid teacher/executed action shapes")
-    value = torch.sum(torch.square(executed - teacher), dim=1)
-    clock = getattr(env, "_g1_rolling_clock", None)
-    if clock is None:
-        return value
-    return value * torch.where(clock.on_plan, torch.ones_like(value),
-                               torch.full_like(value, off_plan_factor))
+    return torch.sum(torch.square(executed - teacher), dim=1)

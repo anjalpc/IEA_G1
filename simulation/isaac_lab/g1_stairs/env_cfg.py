@@ -1391,6 +1391,10 @@ class FootstepRewardsCfg(StairRewardsCfg):
         self.landing_impact = RewTerm(
             func=footstep_rewards.cached_landing_impact, weight=-1.0
         )
+        # Patch 64: crouch off the stair plan. Weight from the config.
+        self.stance_knee_bend = RewTerm(
+            func=footstep_rewards.cached_stance_knee_bend, weight=-1.0
+        )
         # Pelvis roll/pitch as Unitree's base_angular_velocity, plus yaw
         # relative to the command (patch 39). Weight from the config.
         self.base_angular_velocity = RewTerm(

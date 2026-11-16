@@ -843,7 +843,7 @@ def main() -> None:
                                     "footstep_clearance_progress"}) | {
                 "clock_stance_support", "clock_swing_motion", "uncommanded_yaw",
                 "swing_clearance", "foot_stumble", "off_beat_step",
-                "landing_impact",
+                "landing_impact", "stance_knee_bend",
             }
         from simulation.isaac_lab.g1_stairs.reward_runtime import (
             active_reward_weights,
@@ -1259,9 +1259,10 @@ def main() -> None:
             raise ValueError("action_mean_bound_coeff/action_std_floor/symmetry_mirror_loss_clipped need balance_residual_control.residual_clip")
         from simulation.isaac_lab.g1_stairs.policy_shaping import PolicyShaping
         from simulation.isaac_lab.g1_stairs.footstep_symmetry import mirror_actions
+        from simulation.isaac_lab.g1_stairs.balance_residual import residual_clip_vector
         shaping = PolicyShaping(
             runner.alg.policy,
-            residual_clip=float(residual_cfg["residual_clip"]),
+            residual_clip=residual_clip_vector(residual_cfg, device="cpu"),
             bound_coeff=bound_coeff,
             std_floor=std_floor,
             log_every=int(agent_cfg.algorithm.num_learning_epochs) * int(agent_cfg.algorithm.num_mini_batches),

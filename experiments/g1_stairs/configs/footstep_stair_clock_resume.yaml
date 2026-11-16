@@ -5,7 +5,7 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Patch 63. Resume patch 62c run 20261113_090445 model_69700 (same robots vs 54700, 14-17 cm 10/10 climbed and 9/9/10/9 strict, 18 cm 7/10 climbed, 19 / 20 cm 0/10; but flat walking slowed and shortened, 0.32 m/s at 0.35 command, step 13.7 cm vs 16.1 at 35200, double support 46 percent, arm swing 3.2 deg, platform the same, while the flat correction grew, legs 0.19 -> 0.29, hip roll / yaw 0.64 -> 1.09; 6-12 cm strict 7/8/8/8 vs 8/10/9/10 at 54700) for 11500 iterations with residual_magnitude counted 4 times off the stair plan (flat tiles, approach, platform). Curriculum resumes at mastered 17 cm, frontier 18 cm. Pass, same robots, flat speed >= 0.34 m/s, step >= 15 cm, flat leg correction <= 0.2, platform speed >= 0.33, 14-18 cm no worse than 69700.
+  purpose: Patch 64. Resume patch 63 run 20261115_092331 model_81200 (same robots, 2-16 cm strict 10/10/10/10/7/9/10/9/10, 17 and 18 cm 9/10 climbed, 19 / 20 cm 0/10) for 3000 iterations with more knee and hip pitch authority and a crouch cost. Authority, the first tall step put the knee command on executed_clip 5.0 (target 1.55 rad) from 16 cm up and peak sole height stayed 19.2 cm at every riser; zero-training replay with executed_clip 7 lifted the same robots 2 cm more (19 cm clearance +0.3 -> +2.3 cm, heel -1.5 -> -0.3) until the knee stopped at teacher + residual_clip 2; so executed_clip 7 and residual_clip 3 on knee and hip pitch. Crouch, flat stance knee 0.20 rad at 35200 -> 0.58 at 81200 (step 16 -> 13.4 cm, 0.38 -> 0.32 m/s at 0.35) and patch 63 did not stop it, so stance_knee_bend charges scheduled-stance knee flexion beyond 0.35 rad off the stair plan and the patch 63 factor is removed. Curriculum resumes at mastered 18 cm, frontier 19 cm. Pass, same robots, flat stance knee <= 0.40 rad and falling, step >= 14.5 cm, speed >= 0.34; 19 cm first step heel >= -1 cm on 8/10 and robots climbing; 2-18 cm no worse than 81200.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -56,12 +56,12 @@ terrain:
     # frontier, frontier. Levels index riser_heights_m.
     type: clean_climb
     # Curriculum state is not saved in checkpoints: resume it from the
-    # patch 62c status (mastered 17 cm, training clean 0.65; 18 cm 0.37).
-    # Deterministic 69700 replays: 14-17 cm 10/10 climbed, 18 cm 7/10.
-    # Levels index riser_heights_m: level 11 = 17 cm, level 12 = 18 cm.
-    initial_level: 12
-    # Review envs draw from 2-17 cm, weighted towards the weakest (patch 62).
-    mastered_level: 11
+    # patch 63 run (19 cm was the frontier for most of it, 0 clean climbs).
+    # Deterministic 81200 replays: 2-16 cm 10/10 climbed, 17 / 18 cm 9/10.
+    # Levels index riser_heights_m: level 12 = 18 cm, level 13 = 19 cm.
+    initial_level: 13
+    # Review envs draw from 2-18 cm, weighted towards the weakest (patch 62).
+    mastered_level: 12
     # Training-time clean rate (with exploration noise) that marks a height
     # mastered; deterministic p56 18200 replays were 6/10 strictly clean at
     # 4 and 6 cm (all toe strikes at cycles >= 1.23 s).
@@ -121,7 +121,7 @@ execution:
   environments: 4096
   # Resumed run: 11500 more iterations after the checkpoint's own (patch 63,
   # Sunday to Monday 08:00, about 21.6 h on g6; checkpoints every 50).
-  maximum_iterations: 11500
+  maximum_iterations: 3000
   training_seed: 42
 # Residual on the frozen official Unitree policy (balance_residual_control);
 # the actor sees all 688 inputs. Policy, critic, optimizer and learning rate
@@ -130,8 +130,8 @@ execution:
 policy_initialization:
   type: rsl_rl_training_resume
   source:
-    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261113_090445/model_69700.pt
-    sha256: 13419408a43d4e26d04b441031d447bc0d2a61be79d3d3cd20a4c1f0fab33775
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261115_092331/model_81200.pt
+    sha256: FILL_ON_AWS
   critic_initialization: restored
   optimizer_initialization: restored
   locomotion_observations: 480
@@ -151,7 +151,16 @@ balance_residual_control:
   # Raw Unitree action units (x 0.25 rad). Legs: up to +-2 units = +-0.5 rad
   # for riser lift and foot placement; waist and arms stay near the teacher.
   residual_clip: 2.0
-  executed_clip: 5.0
+  # Patch 64: the tall first step needs more than teacher + 2 on the swing
+  # knee and hip (run 20261115_092331 model_81200, replay with executed_clip
+  # 7: knee action stopped at 5.46-5.58 on all 10 robots at 18-20 cm).
+  residual_clip_by_joint:
+    left_hip_pitch_joint: 3.0
+    right_hip_pitch_joint: 3.0
+    left_knee_joint: 3.0
+    right_knee_joint: 3.0
+  # Patch 64: 5.0 -> 7.0 (knee target 0.30 + 7 x 0.25 = 2.05 rad of 2.88).
+  executed_clip: 7.0
   scale_by_joint:
     left_hip_pitch_joint: 1.00
     right_hip_pitch_joint: 1.00
@@ -282,6 +291,7 @@ reward_experiment:
         # still advances): without that, step-to cost ~1.6 per target and
         # could still beat a riskier 50 cm alternating stride.
         off_beat_step: -1.0
+        stance_knee_bend: -10.0
         # Landing impact, per touchdown: ((v - 0.3) / 0.3)^2 for the sole
         # downward speed v above 0.3 m/s (Unitree prior 0.20). Run
         # 20261031_212003 model_3700: 0.48 m/s flat, 0.81 m/s stairs (p90

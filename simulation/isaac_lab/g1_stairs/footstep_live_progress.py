@@ -34,6 +34,9 @@ from .terrain_state import riser_height_per_env, stair_cfg
 STAIR_HIT_LATERAL_M = 0.20
 
 
+KNEE_JOINT_NAMES = ("left_knee_joint", "right_knee_joint")  # foot order
+
+
 def ensure_coordinator(env):
     coord = getattr(env, '_g1_footstep_coordinator', None)
     if coord is None:
@@ -349,6 +352,14 @@ def audit_after_step(env):
         off_beat, clock_state.liftoff_on_turn, clock_state.liftoff_x = off_beat_steps(
             clock_state.prev_supported, supported, clock_state.liftoff_on_turn,
             clock_state.liftoff_x, centre[..., 0], on_turn, plan_rows)
+        # Patch 64: crouch off the stair plan (flat tiles, approach, platform).
+        from .footstep_rewards import stance_knee_bend
+        knee_ids = getattr(env, "_g1_knee_joint_ids", None)
+        if knee_ids is None:
+            knee_ids = [list(robot.joint_names).index(name) for name in KNEE_JOINT_NAMES]
+            env._g1_knee_joint_ids = knee_ids
+        env._g1_footstep_stance_knee_bend = stance_knee_bend(
+            data.joint_pos[:, knee_ids], ~scheduled, keep & ~clock_state.on_plan)
         # Landing impact on all tiles (before prev_supported moves on).
         sole_vz = sole_velocity[..., 2]
         impact = landing_impact(

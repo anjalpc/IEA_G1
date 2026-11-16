@@ -42,6 +42,28 @@ class SymmetricActorTests(unittest.TestCase):
         torch.testing.assert_close(a_m, mirror_actions(a), atol=1e-5, rtol=0)
         self.assertLessEqual(float(a.abs().max()), 2.0 + 1e-6)
 
+    def test_per_joint_clip_stays_equivariant(self):
+        """Patch 64: wider clip on knee and hip pitch, same left and right."""
+        from simulation.isaac_lab.g1_stairs.balance_residual import residual_clip_vector
+        from simulation.isaac_lab.g1_stairs.contracts import BODY_JOINTS
+        wide = {f"{s}_{n}_joint": 3.0 for s in ("left", "right") for n in ("knee", "hip_pitch")}
+        cfg = {"ppo": {"symmetric_actor": True},
+               "balance_residual_control": {"residual_clip": 2.0, "residual_clip_by_joint": wide}}
+        p = _Policy(); apply_from_config(p, cfg)
+        s = torch.randn(64, POLICY_WIDTH)
+        with torch.no_grad():
+            a, a_m = p.actor(s), p.actor(mirror_policy_obs(s))
+        torch.testing.assert_close(a_m, mirror_actions(a), atol=1e-5, rtol=0)
+        clip = residual_clip_vector(cfg["balance_residual_control"], device="cpu")
+        self.assertTrue(bool((a.abs() <= clip + 1e-6).all()))
+        narrow = [i for i, n in enumerate(BODY_JOINTS) if n not in wide]
+        self.assertLessEqual(float(a[:, narrow].abs().max()), 2.0 + 1e-6)
+
+    def test_per_joint_clip_must_be_mirror_symmetric(self):
+        clip = torch.full((29,), 2.0); clip[0] = 3.0      # one side only
+        with self.assertRaises(ValueError):
+            make_actor_symmetric(_Policy(), clip)
+
     def test_matches_replay_average(self):
         # record_view.py --symmetry average: (clip(pi(s)) + M clip(pi(M s))) / 2
         p = _Policy(); s = torch.randn(8, POLICY_WIDTH)

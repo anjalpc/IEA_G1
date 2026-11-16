@@ -10,6 +10,7 @@ from simulation.isaac_lab.g1_stairs.balance_residual import (
     _policy_observation,
     compose_balance_residual_action,
     load_frozen_rsl_actor,
+    residual_clip_vector,
     residual_scale_vector,
 )
 from simulation.isaac_lab.g1_stairs.contracts import BODY_JOINTS
@@ -72,6 +73,38 @@ class BalanceResidualTests(unittest.TestCase):
             executed_clip=5.0,
         )
         self.assertTrue(torch.allclose(executed[0], scale))
+
+    def test_per_joint_residual_clip(self):
+        """Patch 64: knee and hip pitch get a wider clip, the rest keep the base."""
+        control = {"residual_clip": 2.0, "residual_clip_by_joint": {
+            "left_knee_joint": 3.0, "right_knee_joint": 3.0,
+            "left_hip_pitch_joint": 3.0, "right_hip_pitch_joint": 3.0}}
+        clip = residual_clip_vector(control, device="cpu")
+        wide = [BODY_JOINTS.index(n) for n in control["residual_clip_by_joint"]]
+        self.assertEqual(clip.shape, (29,))
+        self.assertEqual(sorted(i for i in range(29) if clip[i] == 3.0), sorted(wide))
+        self.assertEqual(float(clip.min()), 2.0)
+        teacher = torch.zeros((2, 29))
+        residual = torch.stack([torch.full((29,), 10.0), torch.full((29,), -10.0)])
+        executed = compose_balance_residual_action(
+            teacher, residual, residual_scale=torch.ones(29), residual_clip=clip, executed_clip=8.0)
+        self.assertTrue(torch.equal(executed[0], clip))
+        self.assertTrue(torch.equal(executed[1], -clip))
+        # Without overrides: the scalar everywhere (old behaviour).
+        self.assertTrue(torch.equal(residual_clip_vector({"residual_clip": 2.0}, device="cpu"),
+                                    torch.full((29,), 2.0)))
+
+    def test_per_joint_residual_clip_is_validated(self):
+        for bad in ({"left_knee_joint": 3.0},                              # right partner differs
+                    {"left_knee_joint": 3.0, "right_knee_joint": 2.5},
+                    {"no_such_joint": 3.0},
+                    {"left_knee_joint": 0.0, "right_knee_joint": 0.0}):
+            with self.assertRaises(ValueError):
+                residual_clip_vector({"residual_clip": 2.0, "residual_clip_by_joint": bad}, device="cpu")
+        with self.assertRaises(ValueError):
+            compose_balance_residual_action(
+                torch.zeros((1, 29)), torch.zeros((1, 29)), residual_scale=torch.ones(29),
+                residual_clip=torch.ones(5), executed_clip=5.0)
 
     def test_executed_action_has_final_safety_clip(self):
         teacher = torch.full((1, 29), 4.9)

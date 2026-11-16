@@ -452,6 +452,9 @@ class GeometryTrace:
                 "cached_landing_impact": cached(
                     "_g1_footstep_landing_impact"
                 ),
+                "cached_stance_knee_bend": cached(
+                    "_g1_footstep_stance_knee_bend"
+                ),
                 "acquisition_paid": (
                     bool(env._g1_footstep_acquisition_paid[i].item())
                     if hasattr(env, "_g1_footstep_acquisition_paid")

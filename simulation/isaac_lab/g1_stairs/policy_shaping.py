@@ -71,7 +71,7 @@ class _AddGrad(torch.autograd.Function):
         return grad + extra, None
 
 
-def bound_gradient(mean: torch.Tensor, clip: float, coeff: float, partner=None) -> torch.Tensor:
+def bound_gradient(mean: torch.Tensor, clip, coeff: float, partner=None) -> torch.Tensor:
     """Gradient the bound adds to the mean. partner=None: d/dmean of
     bound_loss (plain L1). partner=callable (mirror_actions): each output's
     pull scaled by excess / max(excess, partner excess)."""
@@ -85,7 +85,7 @@ def bound_gradient(mean: torch.Tensor, clip: float, coeff: float, partner=None) 
     return coeff * weight * torch.sign(mean) / rows
 
 
-def bound_loss(mean: torch.Tensor, clip: float, coeff: float) -> torch.Tensor:
+def bound_loss(mean: torch.Tensor, clip, coeff: float) -> torch.Tensor:
     """Plain L1 bound loss; its gradient is bound_gradient(partner=None)."""
     rows = mean.shape[0] if mean.ndim > 1 else 1
     return coeff * torch.relu(mean.abs() - clip).sum() / rows
@@ -94,12 +94,15 @@ def bound_loss(mean: torch.Tensor, clip: float, coeff: float) -> torch.Tensor:
 class PolicyShaping:
     """Wraps ``policy.update_distribution``; keeps simple statistics."""
 
-    def __init__(self, policy, *, residual_clip: float, bound_coeff: float = 0.0,
+    def __init__(self, policy, *, residual_clip, bound_coeff: float = 0.0,
                  std_floor: float = 0.0, log_every: int = 0, partner=None,
                  clip_mirror_means: bool = False, symmetric: bool = False):
-        if residual_clip <= 0.0 or bound_coeff < 0.0 or std_floor < 0.0:
+        # residual_clip: one number or one per joint ([29],
+        # balance_residual.residual_clip_vector); moved to the means' device on use.
+        self.clip = torch.as_tensor(residual_clip, dtype=torch.float32)
+        if not bool((self.clip > 0.0).all()) or bound_coeff < 0.0 or std_floor < 0.0:
             raise ValueError("residual_clip > 0, bound_coeff >= 0, std_floor >= 0 required")
-        self.clip, self.coeff, self.floor = float(residual_clip), float(bound_coeff), float(std_floor)
+        self.coeff, self.floor = float(bound_coeff), float(std_floor)
         self.log_every = int(log_every)
         self.partner = None if symmetric else partner
         self.symmetric = bool(symmetric)
@@ -114,10 +117,16 @@ class PolicyShaping:
             self._act_inference = policy.act_inference
             policy.act_inference = self.act_inference
 
+    def _clip_on(self, like):
+        if self.clip.device != like.device:
+            self.clip = self.clip.to(like.device)
+        return self.clip
+
     def act_inference(self, obs):
         mean = self._act_inference(obs)
         if torch.is_grad_enabled():
-            return mean.clamp(-self.clip, self.clip)
+            clip = self._clip_on(mean)
+            return torch.maximum(torch.minimum(mean, clip), -clip)
         return mean
 
     def raw_hook(self, raw):
@@ -125,12 +134,12 @@ class PolicyShaping:
         if self.coeff <= 0.0 or not raw.requires_grad:
             return raw
         with torch.no_grad():
-            excess = torch.relu(raw.abs() - self.clip)
+            excess = torch.relu(raw.abs() - self._clip_on(raw))
             # Tensors, read only when printed: float() here waited for the
             # GPU on every minibatch (5% of the training thread, py-spy p57).
             self._outside = self._outside + (excess > 0).float().mean()
             self._excess = self._excess + excess.sum(dim=-1).mean()
-            extra = bound_gradient(raw, self.clip, self.coeff)
+            extra = bound_gradient(raw, self._clip_on(raw), self.coeff)
         self._hook_calls += 1
         return _AddGrad.apply(raw, extra)
 
@@ -152,10 +161,10 @@ class PolicyShaping:
                     self._hook_calls = 0
         elif self.coeff > 0.0 and torch.is_grad_enabled() and mean.requires_grad:
             with torch.no_grad():
-                excess = torch.relu(mean.abs() - self.clip)
+                excess = torch.relu(mean.abs() - self._clip_on(mean))
                 self._outside += float((excess > 0).float().mean())
                 self._excess += float(excess.sum(dim=-1).mean())
-                extra = bound_gradient(mean, self.clip, self.coeff, self.partner)
+                extra = bound_gradient(mean, self._clip_on(mean), self.coeff, self.partner)
             self.calls += 1
             mean = _AddGrad.apply(mean, extra)
             if self.log_every and self.calls % self.log_every == 0:

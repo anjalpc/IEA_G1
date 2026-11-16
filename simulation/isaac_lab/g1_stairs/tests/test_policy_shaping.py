@@ -34,6 +34,20 @@ class PolicyShapingTests(unittest.TestCase):
         self.assertTrue(torch.equal(policy.act_inference(obs), mean0))   # deployment path untouched
         self.assertAlmostEqual(float(policy.std.detach()[0]), 0.02, places=6)       # parameter unchanged
 
+    def test_per_output_clip(self):
+        """Patch 64: the bound and the clipped mirror means take one clip per output."""
+        mean = torch.tensor([[2.5, 2.5, -2.5]], requires_grad=True)
+        clip = torch.tensor([2.0, 3.0, 2.0])
+        torch.testing.assert_close(bound_gradient(mean, clip, 0.01), torch.tensor([[0.01, 0.0, -0.01]]))
+        self.assertAlmostEqual(float(bound_loss(mean, clip, 0.01)), 0.01, places=6)
+        policy, obs = self.make(std=0.5, bias=[5.0, 2.5, -4.0])
+        with torch.no_grad():
+            policy.actor[-1].weight.zero_()
+        PolicyShaping(policy, residual_clip=clip, clip_mirror_means=True)
+        with torch.enable_grad():
+            out = policy.act_inference(obs)
+        self.assertEqual(out[0].tolist(), [2.0, 2.5, -2.0])
+
     def test_bound_gradient_equals_explicit_loss(self):
         policy, obs = self.make(std=0.5, bias=[5.0, -4.0, 0.0])
         shaping = PolicyShaping(policy, residual_clip=2.0, bound_coeff=0.01)

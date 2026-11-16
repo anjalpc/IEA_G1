@@ -234,15 +234,59 @@ def residual_scale_vector(
     return torch.tensor(values, device=device, dtype=dtype)
 
 
+def residual_clip_vector(
+    control: dict,
+    *,
+    device: str | torch.device,
+    dtype: torch.dtype = torch.float32,
+) -> torch.Tensor:
+    """[29] residual clip in BODY_JOINTS order (raw action units).
+
+    ``residual_clip`` everywhere; ``residual_clip_by_joint`` overrides single
+    joints. Left and right must match: the symmetric actor clips f(s) and
+    f(M s) with the same vector (policy_symmetry).
+
+    Patch 64: per joint because only the swing knee and hip pitch run out of
+    correction on tall risers (run 20261115_092331 model_81200: first-step
+    knee command pinned at teacher + 2 and at the executed clip from 16 cm
+    up, foot apex 19.2 cm at every riser), while waist, hip roll / yaw and
+    arm outputs sit beyond the clip most of the time and must stay bounded.
+    """
+    base = float(control.get("residual_clip", 1.0))
+    by_joint = control.get("residual_clip_by_joint") or {}
+    if not isinstance(by_joint, dict):
+        raise ValueError("residual_clip_by_joint must be a mapping")
+    unknown = sorted(set(by_joint) - set(BODY_JOINTS))
+    if unknown:
+        raise ValueError("unknown residual_clip_by_joint joints: " + ", ".join(unknown))
+    values = [float(by_joint.get(name, base)) for name in BODY_JOINTS]
+    if any(value <= 0.0 for value in values):
+        raise ValueError("residual clips must be > 0")
+    clip = dict(zip(BODY_JOINTS, values))
+    for name in BODY_JOINTS:
+        if name.startswith("left_") and clip[name] != clip["right_" + name[len("left_"):]]:
+            raise ValueError(f"residual clip of {name} differs from its right partner")
+    return torch.tensor(values, device=device, dtype=dtype)
+
+
+def clamp_abs(value: torch.Tensor, clip) -> torch.Tensor:
+    """Clamp to +-clip; ``clip`` is a number or a tensor broadcast over joints."""
+    clip = torch.as_tensor(clip, device=value.device, dtype=value.dtype)
+    return torch.maximum(torch.minimum(value, clip), -clip)
+
+
 def compose_balance_residual_action(
     teacher_action: torch.Tensor,
     residual_action: torch.Tensor,
     *,
     residual_scale: torch.Tensor,
-    residual_clip: float,
+    residual_clip: float | torch.Tensor,
     executed_clip: float,
 ) -> torch.Tensor:
-    """Compose teacher + bounded residual in raw 29-D action units."""
+    """Compose teacher + bounded residual in raw 29-D action units.
+
+    ``residual_clip``: one number or one per joint ([29], residual_clip_vector).
+    """
 
     if teacher_action.shape != residual_action.shape:
         raise ValueError(
@@ -257,14 +301,15 @@ def compose_balance_residual_action(
         raise ValueError(
             f"residual_scale must have shape ({len(BODY_JOINTS)},)"
         )
-    if residual_clip <= 0.0 or executed_clip <= 0.0:
-        raise ValueError("residual_clip and executed_clip must be > 0")
+    clip = torch.as_tensor(residual_clip, device=residual_action.device, dtype=residual_action.dtype)
+    if clip.shape not in ((), (len(BODY_JOINTS),)) or not bool((clip > 0.0).all()) or executed_clip <= 0.0:
+        raise ValueError("residual_clip (scalar or one per joint) and executed_clip must be > 0")
     if not torch.isfinite(teacher_action).all():
         raise RuntimeError("balance teacher produced non-finite action")
     if not torch.isfinite(residual_action).all():
         raise RuntimeError("residual policy produced non-finite action")
 
-    bounded_residual = residual_action.clamp(-residual_clip, residual_clip)
+    bounded_residual = clamp_abs(residual_action, clip)
     executed = teacher_action + bounded_residual * residual_scale
     return executed.clamp(-executed_clip, executed_clip)
 
@@ -313,7 +358,7 @@ class FrozenBalanceResidualWrapper:
         teacher_onnx: str | Path | None = None,
         teacher_observation_dim: int | None = None,
         scale_by_joint: dict[str, float],
-        residual_clip: float = 1.0,
+        residual_clip: float | torch.Tensor = 1.0,
         executed_clip: float = 5.0,
         teacher_symmetry: str = "off",
     ) -> None:
@@ -344,10 +389,12 @@ class FrozenBalanceResidualWrapper:
             scale_by_joint,
             device=self.device,
         )
-        self._residual_clip = float(residual_clip)
+        # One number or one per joint ([29], residual_clip_vector).
+        self._residual_clip = torch.as_tensor(residual_clip, device=self.device, dtype=torch.float32)
         self._executed_clip = float(executed_clip)
-        if self._residual_clip <= 0.0:
-            raise ValueError("residual_clip must be > 0")
+        if (self._residual_clip.shape not in ((), (len(BODY_JOINTS),))
+                or not bool((self._residual_clip > 0.0).all())):
+            raise ValueError("residual_clip must be > 0 (scalar or one per joint)")
         if self._executed_clip <= 0.0:
             raise ValueError("executed_clip must be > 0")
 
@@ -360,7 +407,10 @@ class FrozenBalanceResidualWrapper:
             "[INFO] Frozen balance residual controller:",
             {
                 **self.teacher_metadata,
-                "residual_clip": self._residual_clip,
+                "residual_clip": float(self._residual_clip.min()),
+                "residual_clip_wider": ({} if self._residual_clip.ndim == 0 else {
+                    name: value for name, value in zip(BODY_JOINTS, self._residual_clip.tolist())
+                    if value != float(self._residual_clip.min())}),
                 "executed_clip": self._executed_clip,
                 "scale_by_joint": {
                     name: float(self._scale[index].item())
@@ -446,7 +496,7 @@ def wrap_balance_residual_from_config(wrapped, resolved_config: dict[str, Any]):
         teacher_onnx=teacher_onnx,
         teacher_observation_dim=cfg.get("teacher_observation_dim"),
         scale_by_joint=scale_by_joint,
-        residual_clip=float(cfg.get("residual_clip", 1.0)),
+        residual_clip=residual_clip_vector(cfg, device="cpu"),
         executed_clip=float(cfg.get("executed_clip", 5.0)),
         teacher_symmetry=str(cfg.get("teacher_symmetry", "off")),
     )

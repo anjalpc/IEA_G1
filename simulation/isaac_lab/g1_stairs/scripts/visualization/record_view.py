@@ -834,7 +834,8 @@ def main() -> None:
         mirror = {"err_sum": None, "clip_err_sum": None, "sat_sum": None, "sq_sum": None, "n": 0}
         # The residual wrapper clips the policy output before execution, so
         # equivariance and averaging are judged on the clipped residual.
-        residual_clip = float(getattr(env, "_residual_clip", float("inf")))
+        # One number or one per joint ([29], balance_residual.residual_clip_vector).
+        residual_clip = torch.as_tensor(getattr(env, "_residual_clip", float("inf")))
 
         def acc(key, value):
             mirror[key] = value if mirror.get(key) is None else mirror[key] + value
@@ -861,8 +862,9 @@ def main() -> None:
             actions = policy(obs)
             if mirror is not None:
                 actions_m = fsym.mirror_actions(policy(mirrored_obs(obs)))
-                clipped = actions.clamp(-residual_clip, residual_clip)
-                clipped_m = actions_m.clamp(-residual_clip, residual_clip)
+                residual_clip = residual_clip.to(actions.device)
+                clipped = torch.maximum(torch.minimum(actions, residual_clip), -residual_clip)
+                clipped_m = torch.maximum(torch.minimum(actions_m, residual_clip), -residual_clip)
                 # Per robot: [num_envs, joints].
                 err = actions_m - actions
                 acc("err_sum", err.abs())
@@ -913,7 +915,8 @@ def main() -> None:
                 "steps": n,
                 "rms_policy_action": float(mirror["sq_sum"][k] / n) ** 0.5,
                 "mean_abs_by_joint": per_joint("err_sum", k),
-                "residual_clip": residual_clip,
+                "residual_clip": (float(residual_clip) if residual_clip.ndim == 0
+                                  else dict(zip(BODY_JOINTS, residual_clip.tolist()))),
                 "clipped_mean_abs_by_joint": per_joint("clip_err_sum", k),
                 "saturated_fraction_by_joint": per_joint("sat_sum", k),
                 # signed: mean of M pi(M s) - pi(s); a steady bias shows a
