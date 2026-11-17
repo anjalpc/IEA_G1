@@ -74,7 +74,7 @@ class ScheduleTests(unittest.TestCase):
         self.assertAlmostEqual(out[0].item(), 0.6, places=6)       # level: fixed cycle
         self.assertAlmostEqual(out[1].item(), 0.85, places=6)      # approach: speed cycle
         self.assertAlmostEqual(out[2].item(), 0.55, places=6)      # stride cap
-        self.assertAlmostEqual(out[3].item(), 0.66, places=6)      # jitter
+        self.assertAlmostEqual(out[3].item(), 0.6, places=6)       # no jitter on level rows
 
     def test_period_level_validated(self):
         base = {"enabled": True, "period_slow_s": 1.0, "period_fast_s": 0.7, "period_stairs_s": 1.25,

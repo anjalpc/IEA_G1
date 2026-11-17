@@ -5,7 +5,7 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Patch 65. Resume patch 64 run 20261116_091452 model_84200 (same robots, 17 cm 10/10, 18 cm 9/10, first 19 cm climbs 2/10, 20 cm 0/10; 6 cm 7/10 with 3 falls; flat 0.34 m/s, steps equal, stance knee 0.54 rad) for 7500 iterations with the exploration std of hip pitch, knee and ankle pitch raised once to 0.08 on resume, nothing else changed. The restored std was 0.005 / 0.007 / 0.010 raw units on those joints (about 0.002 rad), so the policy tried almost nothing new, the knee correction peaked at +2.1 of its new clip 3, the crouch cost of 1.7/s moved the flat stance knee only 0.58 -> 0.54, and 19 cm took over 10,000 iterations to its first climbs. 19 / 20 cm now clear the riser (+1.6 / +1.4 cm) and fail on landing reach (heel -0.8 / -1.7 cm, limit -1). Curriculum resumes at mastered 18 cm, frontier 19 cm. Pass, same robots, flat stance knee <= 0.45 rad, 19 cm >= 5/10 climbed, 20 cm first-step heel >= -1 cm on 5/10, 2-18 cm no worse than 81200 (6 cm back to >= 9/10).
+  purpose: Patch 67. Resume patch 65 run 20261116_170635 model_91700 (same robots, 2-20 cm climbed 10/10 except 6 cm 9/10, 20 cm 10/10 strict; flat 0.32 m/s with a 1 cm backward heel slide per step, 9.8 deg lean, roll rate 21 deg/s) for 7500 iterations with a fixed 0.56 s level-ground clock cycle (flat tiles and after the climb, no jitter; approach and stairs unchanged). Unitree's teacher walks 0.56 s at every speed; under the old 0.75-0.85 s clock our flat rewards scored its smooth walk 6.9 vs 12.3 for 91700, under a 0.59 s clock 8.1 vs -5.6, so training now pulls the flat gait towards the teacher's instead of away. Curriculum mastered 19 cm, frontier 20 cm. Pass, same robots, flat roll rate <= 15 deg/s, no heel slide, lean <= 3 deg, turn within 0.1 deg/s, first step within 0.25 s, 20 cm >= 9/10 strict, 2-19 cm no worse than 91700.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -56,12 +56,12 @@ terrain:
     # frontier, frontier. Levels index riser_heights_m.
     type: clean_climb
     # Curriculum state is not saved in checkpoints: resume it from the
-    # patch 64 run (mastered 18 cm, 19 cm training clean 0.002).
-    # Deterministic 84200 replays: 17 cm 10/10, 18 cm 9/10, 19 cm 2/10.
-    # Levels index riser_heights_m: level 12 = 18 cm, level 13 = 19 cm.
-    initial_level: 13
-    # Review envs draw from 2-18 cm, weighted towards the weakest (patch 62).
-    mastered_level: 12
+    # patch 65 run (mastered 19 cm, 20 cm training clean 0.34).
+    # Deterministic 91700 replays: 19 cm 10/10, 20 cm 10/10 strict.
+    # Levels index riser_heights_m: level 13 = 19 cm, level 14 = 20 cm.
+    initial_level: 14
+    # Review envs draw from 2-19 cm, weighted towards the weakest (patch 62).
+    mastered_level: 13
     # Training-time clean rate (with exploration noise) that marks a height
     # mastered; deterministic p56 18200 replays were 6/10 strictly clean at
     # 4 and 6 cm (all toe strikes at cycles >= 1.23 s).
@@ -112,6 +112,11 @@ footstep_clock:
   # from the per-height cycle and swing columns of trace_report.py.
   period_stairs_per_m: 2.15
   period_stairs_rise_from_m: 0.06
+  # Patch 67: fixed level-ground cycle (flat tiles and after the climb, no
+  # jitter): the frozen teacher's own rhythm, 3.5 steps/s at 0.35 / 0.5 /
+  # 0.6 m/s (run 20261116_170635 gate replays, cycle 0.56 s). The approach
+  # keeps period_slow_s / period_fast_s, the stairs period_stairs_s.
+  period_level_s: 0.56
   period_jitter: 0.1
   # Stride (two steps) = speed x cycle time, capped here: above the cap only
   # the rhythm gets quicker.
@@ -130,8 +135,8 @@ execution:
 policy_initialization:
   type: rsl_rl_training_resume
   source:
-    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261116_091452/model_84200.pt
-    sha256: 8bf047a83c5e8b194b7b41cac285f5ede288bb89cc442b6a4417d14cdee6679a
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261116_170635/model_91700.pt
+    sha256: FILL_ON_AWS
   critic_initialization: restored
   optimizer_initialization: restored
   locomotion_observations: 480

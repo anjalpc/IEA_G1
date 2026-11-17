@@ -132,12 +132,15 @@ def walk_period(forward_speed, scale, level, cfg):
     teacher, whose own gait keeps ~0.57 s at every speed (3.5 steps/s
     measured at 0.35 / 0.5 / 0.6 m/s, run 20261116_170635 gate replays);
     the stair approach keeps speed_period, whose longer steps lead into one
-    foot per tread.
+    foot per tread. No per-episode jitter on level rows: the teacher's
+    rhythm does not vary, and with jitter its own walk drifts in and out of
+    the clock's phase (0.56 s teacher vs 0.59 s clock: lift-off phase slid
+    0.02-0.11 per cycle, replay ck_tea_035), which the clock terms charge.
     """
     period = speed_period(forward_speed, scale, cfg)
     if "period_level_s" not in cfg:
         return period
-    fixed = torch.minimum(scale * cfg["period_level_s"],
+    fixed = torch.minimum(torch.full_like(period, cfg["period_level_s"]),
                           cfg["max_stride_m"] / forward_speed.abs().clamp_min(1e-6))
     return torch.where(level, fixed, period)
 
