@@ -257,3 +257,41 @@ class UnitreeOnnxTeacherTests(unittest.TestCase):
             path = self._write_onnx(Path(tmp))
             with self.assertRaises(ValueError):
                 load_frozen_unitree_onnx_teacher(path, device="cpu", observation_dim=688)
+
+
+def test_residual_gate_weight_on_stairs_fades_after_climb():
+    from simulation.isaac_lab.g1_stairs.balance_residual import residual_gate_weight
+
+    prev = torch.tensor([1.0, 1.0, 0.0, 0.5, 0.3])
+    active = torch.tensor([True, False, False, False, True])
+    reset = torch.tensor([False, False, True, True, False])
+    w = residual_gate_weight(prev, active, reset, dt=0.02, fade_s=0.8)
+    torch.testing.assert_close(w, torch.tensor([1.0, 0.975, 0.0, 0.0, 1.0]))
+    for _ in range(60):
+        w = residual_gate_weight(w, torch.zeros(5, dtype=torch.bool), torch.zeros(5, dtype=torch.bool), 0.02, 0.8)
+    assert bool((w == 0.0).all())
+
+
+def test_residual_gate_weight_rejects_bad_fade():
+    import pytest
+    from simulation.isaac_lab.g1_stairs.balance_residual import residual_gate_weight
+
+    with pytest.raises(ValueError):
+        residual_gate_weight(torch.ones(1), torch.ones(1, dtype=torch.bool), torch.zeros(1, dtype=torch.bool), 0.02, 0.0)
+
+
+def test_gated_residual_off_on_flat_tiles_and_after_the_climb(monkeypatch):
+    from types import SimpleNamespace
+    from simulation.isaac_lab.g1_stairs import terrain_state
+    from simulation.isaac_lab.g1_stairs.balance_residual import FrozenBalanceResidualWrapper
+
+    env = SimpleNamespace(step_dt=0.02, episode_length_buf=torch.tensor([0, 0, 5]),
+                          _g1_rolling_clock=SimpleNamespace(climbed=torch.tensor([False, False, True])))
+    monkeypatch.setattr(terrain_state, "riser_height_per_env", lambda e: torch.tensor([0.0, 0.2, 0.2]))
+    w = FrozenBalanceResidualWrapper.__new__(FrozenBalanceResidualWrapper)
+    w._wrapped = SimpleNamespace(unwrapped=env)
+    w._gate, w._gate_fade_s, w._gate_weight = "stair_tiles", 0.8, torch.ones(3)
+    w._residual_clip = torch.tensor(2.0)
+    out = w._gated(torch.full((3, len(BODY_JOINTS)), 3.0))
+    # flat tile (reset): 0; stair tile, not climbed: clipped residual; climbed: fading
+    torch.testing.assert_close(out[:, 0], torch.tensor([0.0, 2.0, 2.0 * 0.975]))

@@ -968,8 +968,8 @@ cd /workspace/IEA_G1
 # as seed k). Single-robot replays were GPU-bound on the A10G (3 in parallel
 # 107 s vs 55 s alone), so batching robots is the speed-up, not processes.
 cmd_traces() {
-    local USAGE="Usage: simctl traces [<checkpoint>...] [--parallel <n>] [--name <tag>] [--symmetry check|average] [--heights <m,m,...>] [--executed-clip <x>]"
-    local CKPTS=() PARALLEL=3 NAME=traces SYM=check ONLY="" EXEC_CLIP=""
+    local USAGE="Usage: simctl traces [<checkpoint>...] [--parallel <n>] [--name <tag>] [--symmetry check|average] [--heights <m,m,...>] [--executed-clip <x>] [--residual-gate <fade_s>]"
+    local CKPTS=() PARALLEL=3 NAME=traces SYM=check ONLY="" EXEC_CLIP="" GATE=""
     while [ $# -gt 0 ]; do
         case "$1" in
             --parallel) PARALLEL="${2:?$USAGE}"; shift 2 ;;
@@ -982,6 +982,10 @@ cmd_traces() {
             # (balance_residual_control.executed_clip, raw action units; joint
             # target = default + 0.25 rad x action). Needs its own --name.
             --executed-clip) EXEC_CLIP="${2:?$USAGE}"; shift 2 ;;
+            # Zero-training probe: residual only on stair tiles until the
+            # climb is complete, then faded out over <fade_s> s (Unitree
+            # teacher alone on flat tiles and the platform). Needs --name.
+            --residual-gate) GATE="${2:?$USAGE}"; shift 2 ;;
             [0-9]*) CKPTS+=("$1"); shift ;;
             *) echo "$USAGE" >&2; exit 1 ;;
         esac
@@ -1010,19 +1014,28 @@ cmd_traces() {
     CFG="experiments/g1_stairs/runs/${RUN_ID}/resolved_config.yaml"
     EVAL="experiments/g1_stairs/outputs/evaluation/${NAME}/${RUN_ID}"
     [ -f "$CFG" ] || { echo "Resolved config not found: $CFG" >&2; exit 1; }
-    if [ -n "$EXEC_CLIP" ]; then
-        [ "$NAME" != traces ] || { echo "--executed-clip needs --name <tag> (keeps probe traces apart)" >&2; exit 1; }
+    if [ -n "$EXEC_CLIP$GATE" ]; then
+        [ "$NAME" != traces ] || { echo "--executed-clip / --residual-gate need --name <tag> (keeps probe traces apart)" >&2; exit 1; }
         mkdir -p "$EVAL"
-        python3 - "$CFG" "$EVAL/resolved_config_probe.yaml" "$EXEC_CLIP" <<'PY' || exit 1
+        python3 - "$CFG" "$EVAL/resolved_config_probe.yaml" "$EXEC_CLIP" "$GATE" <<'PY' || exit 1
 import sys, yaml
-cfg = yaml.safe_load(open(sys.argv[1])); clip = float(sys.argv[3])
-if not 0.0 < clip <= 10.0:
-    sys.exit("--executed-clip must be in (0, 10]")
+cfg = yaml.safe_load(open(sys.argv[1])); clip, gate = sys.argv[3], sys.argv[4]
 ctl = cfg.get("balance_residual_control")
 if not isinstance(ctl, dict) or "executed_clip" not in ctl:
     sys.exit("run has no balance_residual_control.executed_clip")
-print(f"Probe: executed_clip {ctl['executed_clip']} -> {clip}", file=sys.stderr)
-ctl["executed_clip"] = clip
+if clip:
+    clip = float(clip)
+    if not 0.0 < clip <= 10.0:
+        sys.exit("--executed-clip must be in (0, 10]")
+    print(f"Probe: executed_clip {ctl['executed_clip']} -> {clip}", file=sys.stderr)
+    ctl["executed_clip"] = clip
+if gate:
+    fade = float(gate)
+    if not 0.0 < fade <= 5.0:
+        sys.exit("--residual-gate fade must be in (0, 5] s")
+    print(f"Probe: residual on stair tiles only, faded over {fade} s after the climb", file=sys.stderr)
+    ctl["residual_gate"] = "stair_tiles"
+    ctl["residual_gate_fade_s"] = fade
 yaml.safe_dump(cfg, open(sys.argv[2], "w"), sort_keys=False)
 PY
         CFG="$EVAL/resolved_config_probe.yaml"

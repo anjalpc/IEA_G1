@@ -347,6 +347,21 @@ def _policy_observation(observations: Any) -> torch.Tensor:
     )
 
 
+def residual_gate_weight(previous, active, reset, dt, fade_s):
+    """Residual weight [N] for the stair-tile gate (patch 66, replay option).
+
+    1 while ``active`` (a stair tile not yet climbed); after the climb it
+    falls linearly to 0 over ``fade_s`` seconds, so the platform and flat
+    tiles end on the frozen Unitree teacher alone; 0 from the start on flat
+    tiles (``reset`` rows that are not active).
+    """
+    if fade_s <= 0.0:
+        raise ValueError("residual gate fade must be > 0 s")
+    faded = (previous - dt / fade_s).clamp_min(0.0)
+    off = torch.where(reset, torch.zeros_like(previous), faded)
+    return torch.where(active, torch.ones_like(previous), off)
+
+
 class FrozenBalanceResidualWrapper:
     """Interpret RSL-RL actions as bounded residuals around a frozen teacher."""
 
@@ -361,8 +376,15 @@ class FrozenBalanceResidualWrapper:
         residual_clip: float | torch.Tensor = 1.0,
         executed_clip: float = 5.0,
         teacher_symmetry: str = "off",
+        residual_gate: str = "off",
+        residual_gate_fade_s: float = 0.8,
     ) -> None:
         self._wrapped = wrapped
+        if residual_gate not in ("off", "stair_tiles"):
+            raise ValueError("residual_gate must be 'off' or 'stair_tiles'")
+        self._gate = residual_gate
+        self._gate_fade_s = float(residual_gate_fade_s)
+        self._gate_weight = None
         if (teacher_checkpoint is None) == (teacher_onnx is None):
             raise ValueError("set exactly one of teacher_checkpoint or teacher_onnx")
         if teacher_onnx is not None:
@@ -412,6 +434,7 @@ class FrozenBalanceResidualWrapper:
                     name: value for name, value in zip(BODY_JOINTS, self._residual_clip.tolist())
                     if value != float(self._residual_clip.min())}),
                 "executed_clip": self._executed_clip,
+                "residual_gate": self._gate,
                 "scale_by_joint": {
                     name: float(self._scale[index].item())
                     for index, name in enumerate(BODY_JOINTS)
@@ -442,6 +465,8 @@ class FrozenBalanceResidualWrapper:
 
         with torch.no_grad():
             teacher_actions = self._teacher(policy_obs)
+        if self._gate == "stair_tiles":
+            residual_actions = self._gated(residual_actions)
 
         executed_actions = compose_balance_residual_action(
             teacher_actions,
@@ -465,6 +490,25 @@ class FrozenBalanceResidualWrapper:
         result = self._wrapped.step(executed_actions)
         self._last_observations = result[0]
         return result
+
+
+    def _gated(self, residual_actions: torch.Tensor) -> torch.Tensor:
+        """Scale the clipped residual by the stair-tile gate weight."""
+        from .terrain_state import riser_height_per_env
+
+        env = self.unwrapped
+        active = riser_height_per_env(env) > 0.0
+        clock = getattr(env, "_g1_rolling_clock", None)
+        if clock is not None:
+            active = active & ~clock.climbed
+        reset = env.episode_length_buf == 0
+        if self._gate_weight is None:
+            self._gate_weight = active.to(residual_actions.dtype)
+        self._gate_weight = residual_gate_weight(
+            self._gate_weight, active, reset, float(env.step_dt), self._gate_fade_s)
+        env._g1_residual_gate_weight = self._gate_weight
+        clip = self._residual_clip.to(residual_actions.device)
+        return clamp_abs(residual_actions, clip) * self._gate_weight[:, None]
 
 
 def wrap_balance_residual_from_config(wrapped, resolved_config: dict[str, Any]):
@@ -499,4 +543,6 @@ def wrap_balance_residual_from_config(wrapped, resolved_config: dict[str, Any]):
         residual_clip=residual_clip_vector(cfg, device="cpu"),
         executed_clip=float(cfg.get("executed_clip", 5.0)),
         teacher_symmetry=str(cfg.get("teacher_symmetry", "off")),
+        residual_gate=str(cfg.get("residual_gate", "off")),
+        residual_gate_fade_s=float(cfg.get("residual_gate_fade_s", 0.8)),
     )
