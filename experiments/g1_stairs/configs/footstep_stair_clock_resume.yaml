@@ -5,7 +5,7 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Patch 67. Resume patch 65 run 20261116_170635 model_91700 (same robots, 2-20 cm climbed 10/10 except 6 cm 9/10, 20 cm 10/10 strict; flat 0.32 m/s with a 1 cm backward heel slide per step, 9.8 deg lean, roll rate 21 deg/s) for 7500 iterations with a fixed 0.56 s level-ground clock cycle (flat tiles and after the climb, no jitter; approach and stairs unchanged). Unitree's teacher walks 0.56 s at every speed; under the old 0.75-0.85 s clock our flat rewards scored its smooth walk 6.9 vs 12.3 for 91700, under a 0.59 s clock 8.1 vs -5.6, so training now pulls the flat gait towards the teacher's instead of away. Curriculum mastered 19 cm, frontier 20 cm. Pass, same robots, flat roll rate <= 15 deg/s, no heel slide, lean <= 3 deg, turn within 0.1 deg/s, first step within 0.25 s, 20 cm >= 9/10 strict, 2-19 cm no worse than 91700.
+  purpose: Patch 67. Resume patch 65 run 20261116_170635 model_91700 (same robots, 2-20 cm climbed 10/10 except 6 cm 9/10, 20 cm 10/10 strict; flat 0.32 m/s with a 1 cm backward heel slide per step, 9.8 deg lean, roll rate 21 deg/s) for 10500 iterations (to about 08:30) with a fixed 0.56 s level-ground clock cycle (flat tiles and after the climb, no jitter; approach and stairs unchanged). Unitree's teacher walks 0.56 s at every speed; under the old 0.75-0.85 s clock our flat rewards scored its smooth walk 6.9 vs 12.3 for 91700, under a 0.59 s clock 8.1 vs -5.6, so training now pulls the flat gait towards the teacher's instead of away. Curriculum mastered 19 cm, frontier 20 cm. Pass, same robots, flat roll rate <= 15 deg/s, no heel slide, lean <= 3 deg, turn within 0.1 deg/s, first step within 0.25 s, 20 cm >= 9/10 strict, 2-19 cm no worse than 91700.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -126,7 +126,7 @@ execution:
   environments: 4096
   # Resumed run: 11500 more iterations after the checkpoint's own (patch 63,
   # Sunday to Monday 08:00, about 21.6 h on g6; checkpoints every 50).
-  maximum_iterations: 7500
+  maximum_iterations: 10500
   training_seed: 42
 # Residual on the frozen official Unitree policy (balance_residual_control);
 # the actor sees all 688 inputs. Policy, critic, optimizer and learning rate
