@@ -968,8 +968,8 @@ cd /workspace/IEA_G1
 # as seed k). Single-robot replays were GPU-bound on the A10G (3 in parallel
 # 107 s vs 55 s alone), so batching robots is the speed-up, not processes.
 cmd_traces() {
-    local USAGE="Usage: simctl traces [<checkpoint>...] [--parallel <n>] [--name <tag>] [--symmetry check|average] [--heights <m,m,...>] [--executed-clip <x>] [--residual-gate <fade_s>] [--speed <m/s>]"
-    local CKPTS=() PARALLEL=3 NAME=traces SYM=check ONLY="" EXEC_CLIP="" GATE="" SPEED=""
+    local USAGE="Usage: simctl traces [<checkpoint>...] [--parallel <n>] [--name <tag>] [--symmetry check|average] [--heights <m,m,...>] [--executed-clip <x>] [--residual-gate <fade_s>] [--speed <m/s>] [--raw-teacher] [--ramp <s>]"
+    local CKPTS=() PARALLEL=3 NAME=traces SYM=check ONLY="" EXEC_CLIP="" GATE="" SPEED="" RAW="" RAMP=""
     while [ $# -gt 0 ]; do
         case "$1" in
             --parallel) PARALLEL="${2:?$USAGE}"; shift 2 ;;
@@ -989,6 +989,10 @@ cmd_traces() {
             # Zero-training probe: replay with another forward command
             # (commands.forward_velocity_mps, m/s). Needs --name.
             --speed) SPEED="${2:?$USAGE}"; shift 2 ;;
+            # Probes: Unitree teacher without mirror averaging; forward
+            # command ramped from 0 over <s> s (flat only). Need --name.
+            --raw-teacher) RAW=1; shift ;;
+            --ramp) RAMP="${2:?$USAGE}"; shift 2 ;;
             [0-9]*) CKPTS+=("$1"); shift ;;
             *) echo "$USAGE" >&2; exit 1 ;;
         esac
@@ -1017,12 +1021,12 @@ cmd_traces() {
     CFG="experiments/g1_stairs/runs/${RUN_ID}/resolved_config.yaml"
     EVAL="experiments/g1_stairs/outputs/evaluation/${NAME}/${RUN_ID}"
     [ -f "$CFG" ] || { echo "Resolved config not found: $CFG" >&2; exit 1; }
-    if [ -n "$EXEC_CLIP$GATE$SPEED" ]; then
-        [ "$NAME" != traces ] || { echo "--executed-clip / --residual-gate / --speed need --name <tag> (keeps probe traces apart)" >&2; exit 1; }
+    if [ -n "$EXEC_CLIP$GATE$SPEED$RAW$RAMP" ]; then
+        [ "$NAME" != traces ] || { echo "probe options (--executed-clip --residual-gate --speed --raw-teacher --ramp) need --name <tag> (keeps probe traces apart)" >&2; exit 1; }
         mkdir -p "$EVAL"
-        python3 - "$CFG" "$EVAL/resolved_config_probe.yaml" "$EXEC_CLIP" "$GATE" "$SPEED" <<'PY' || exit 1
+        python3 - "$CFG" "$EVAL/resolved_config_probe.yaml" "$EXEC_CLIP" "$GATE" "$SPEED" "$RAW" "$RAMP" <<'PY' || exit 1
 import sys, yaml
-cfg = yaml.safe_load(open(sys.argv[1])); clip, gate, speed = sys.argv[3], sys.argv[4], sys.argv[5]
+cfg = yaml.safe_load(open(sys.argv[1])); clip, gate, speed, raw, ramp = sys.argv[3:8]
 ctl = cfg.get("balance_residual_control")
 if not isinstance(ctl, dict) or "executed_clip" not in ctl:
     sys.exit("run has no balance_residual_control.executed_clip")
@@ -1048,6 +1052,18 @@ if speed:
         sys.exit("run has no commands.forward_velocity_mps")
     print(f"Probe: forward command {cmd['forward_velocity_mps']} -> {v} m/s", file=sys.stderr)
     cmd["forward_velocity_mps"] = [v, v]
+if raw:
+    ctl = cfg.get("balance_residual_control")
+    if not isinstance(ctl, dict):
+        sys.exit("run has no balance_residual_control")
+    print(f"Probe: teacher_symmetry {ctl.get('teacher_symmetry', 'off')} -> off (raw Unitree teacher)", file=sys.stderr)
+    ctl["teacher_symmetry"] = "off"
+if ramp:
+    r = float(ramp)
+    if not 0.0 < r <= 5.0:
+        sys.exit("--ramp must be in (0, 5] s")
+    print(f"Probe: forward command ramps from 0 over {r} s (flat replays only)", file=sys.stderr)
+    cfg.setdefault("replay", {})["command_ramp_s"] = r
 yaml.safe_dump(cfg, open(sys.argv[2], "w"), sort_keys=False)
 PY
         CFG="$EVAL/resolved_config_probe.yaml"
@@ -1137,7 +1153,7 @@ PY
 }
 
 cmd_video() {
-    local VIDEO_USAGE="Usage: simctl video <checkpoint> [--height <m>] [--seed <n>] [--trace-only] [--markers] [--residual-gate <fade_s>] [--speed <m/s>]"
+    local VIDEO_USAGE="Usage: simctl video <checkpoint> [--height <m>] [--seed <n>] [--trace-only] [--markers] [--residual-gate <fade_s>] [--speed <m/s>] [--raw-teacher] [--ramp <s>]"
     if [ $# -lt 1 ]; then
         echo "$VIDEO_USAGE"
         exit 1
@@ -1155,6 +1171,9 @@ cmd_video() {
     GATE_SUFFIX=""
     SPEED=""
     SPEED_SUFFIX=""
+    RAW=""
+    RAMP=""
+    PROBE_SUFFIX=""
 
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -1196,6 +1215,17 @@ cmd_video() {
                 [ $# -ge 2 ] || { echo "$VIDEO_USAGE"; exit 1; }
                 SPEED="$2"
                 SPEED_SUFFIX="_v${2/./p}"
+                shift 2
+                ;;
+            --raw-teacher)
+                RAW=1
+                PROBE_SUFFIX="${PROBE_SUFFIX}_raw"
+                shift
+                ;;
+            --ramp)
+                [ $# -ge 2 ] || { echo "$VIDEO_USAGE"; exit 1; }
+                RAMP="$2"
+                PROBE_SUFFIX="${PROBE_SUFFIX}_ramp${2/./p}"
                 shift 2
                 ;;
             *)
@@ -1243,7 +1273,7 @@ cmd_video() {
         HEIGHT_OPTION="--riser_height_override ${HEIGHT}"
     fi
 
-    OUTPUT_DIR="/workspace/IEA_G1/experiments/g1_stairs/outputs/videos/${RUN_ID}/model_${CHECKPOINT}${HEIGHT_SUFFIX}${SEED_SUFFIX}${MARKERS_SUFFIX}${GATE_SUFFIX}${SPEED_SUFFIX}_side"
+    OUTPUT_DIR="/workspace/IEA_G1/experiments/g1_stairs/outputs/videos/${RUN_ID}/model_${CHECKPOINT}${HEIGHT_SUFFIX}${SEED_SUFFIX}${MARKERS_SUFFIX}${GATE_SUFFIX}${SPEED_SUFFIX}${PROBE_SUFFIX}_side"
 
     PROJECT_COMMIT="$(git rev-parse HEAD)"
     ISAACLAB_COMMIT="3c6e67bb5c7ada942a6d1884ab69338f57596f77"
@@ -1260,12 +1290,12 @@ cmd_video() {
         exit 1
     fi
 
-    if [ -n "$GATE$SPEED" ]; then
-        local PROBE="${REPO}/experiments/g1_stairs/outputs/videos/${RUN_ID}/resolved_config_probe${GATE_SUFFIX}${SPEED_SUFFIX}.yaml"
+    if [ -n "$GATE$SPEED$RAW$RAMP" ]; then
+        local PROBE="${REPO}/experiments/g1_stairs/outputs/videos/${RUN_ID}/resolved_config_probe${GATE_SUFFIX}${SPEED_SUFFIX}${PROBE_SUFFIX}.yaml"
         mkdir -p "$(dirname "$PROBE")"
-        python3 - "$RESOLVED_CONFIG" "$PROBE" "$GATE" "$SPEED" <<'PY' || exit 1
+        python3 - "$RESOLVED_CONFIG" "$PROBE" "$GATE" "$SPEED" "$RAW" "$RAMP" <<'PY' || exit 1
 import sys, yaml
-cfg = yaml.safe_load(open(sys.argv[1])); gate, speed = sys.argv[3], sys.argv[4]
+cfg = yaml.safe_load(open(sys.argv[1])); gate, speed, raw, ramp = sys.argv[3:7]
 if gate:
     fade = float(gate)
     if not 0.0 < fade <= 5.0:
@@ -1284,6 +1314,18 @@ if speed:
         sys.exit("run has no commands.forward_velocity_mps")
     print(f"Probe: forward command {cmd['forward_velocity_mps']} -> {v} m/s", file=sys.stderr)
     cmd["forward_velocity_mps"] = [v, v]
+if raw:
+    ctl = cfg.get("balance_residual_control")
+    if not isinstance(ctl, dict):
+        sys.exit("run has no balance_residual_control")
+    print(f"Probe: teacher_symmetry {ctl.get('teacher_symmetry', 'off')} -> off (raw Unitree teacher)", file=sys.stderr)
+    ctl["teacher_symmetry"] = "off"
+if ramp:
+    r = float(ramp)
+    if not 0.0 < r <= 5.0:
+        sys.exit("--ramp must be in (0, 5] s")
+    print(f"Probe: forward command ramps from 0 over {r} s (flat replays only)", file=sys.stderr)
+    cfg.setdefault("replay", {})["command_ramp_s"] = r
 yaml.safe_dump(cfg, open(sys.argv[2], "w"), sort_keys=False)
 PY
         RESOLVED_CONFIG="$PROBE"

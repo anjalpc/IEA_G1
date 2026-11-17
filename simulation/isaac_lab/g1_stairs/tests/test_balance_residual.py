@@ -295,3 +295,15 @@ def test_gated_residual_off_on_flat_tiles_and_after_the_climb(monkeypatch):
     out = w._gated(torch.full((3, len(BODY_JOINTS)), 3.0))
     # flat tile (reset): 0; stair tile, not climbed: clipped residual; climbed: fading
     torch.testing.assert_close(out[:, 0], torch.tensor([0.0, 2.0, 2.0 * 0.975]))
+
+
+def test_ramp_forward_command():
+    import pytest
+    from simulation.isaac_lab.g1_stairs.command_runtime import ramp_forward_command
+
+    cmd = torch.full((3, 3), 9.0)
+    ramp_forward_command(cmd, 1.0, torch.tensor([0.0, 0.5, 2.0]), 1.0)
+    torch.testing.assert_close(cmd[:, 0], torch.tensor([0.0, 0.5, 1.0]))
+    assert bool((cmd[:, 1:] == 9.0).all())
+    with pytest.raises(ValueError):
+        ramp_forward_command(cmd, 1.0, torch.zeros(3), 0.0)

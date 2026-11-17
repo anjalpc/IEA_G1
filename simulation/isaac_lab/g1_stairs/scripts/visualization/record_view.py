@@ -808,6 +808,25 @@ def main() -> None:
             (float(hero[0]), float(hero[1])), showcase["spread"])
         env.unwrapped.sim.set_camera_view(eye=eye, target=lookat)
 
+    # Replay probe (simctl --ramp): flat replays only; the forward command
+    # rises from 0 instead of starting at full speed.
+    command_ramp_s = float(((resolved_config or {}).get("replay") or {}).get("command_ramp_s", 0.0))
+    ramp = None
+    if command_ramp_s > 0.0:
+        if replay is None or applied_riser_height_m != 0.0:
+            raise SystemExit("replay.command_ramp_s is only for flat replays (--riser_height_override 0)")
+        from simulation.isaac_lab.g1_stairs.command_runtime import ramp_forward_command
+        command_term = env.unwrapped.command_manager.get_term("base_velocity")
+
+        def ramp():
+            elapsed = env.unwrapped.episode_length_buf.float() * float(env.unwrapped.step_dt)
+            ramp_forward_command(command_term.vel_command_b, replay.forward_velocity_mps,
+                                 elapsed, command_ramp_s)
+
+        ramp()
+        obs = env.get_observations()
+        print(f"[INFO] Forward command ramp 0 -> {replay.forward_velocity_mps} m/s over {command_ramp_s} s", flush=True)
+
     steps = 0
     if showcase is not None:
         apply_hold(env.unwrapped)
@@ -889,6 +908,8 @@ def main() -> None:
                 if args.symmetry == "average":
                     actions = 0.5 * (clipped + clipped_m)
             obs, _, _, _ = env.step(actions)
+            if ramp is not None:
+                ramp()
             if markers is not None:
                 markers.update(env.unwrapped)
 
