@@ -72,7 +72,7 @@ def validate_clock_cfg(cfg) -> dict | None:
         return None
     required = {"enabled", "period_slow_s", "period_fast_s", "period_stairs_s",
                 "period_jitter", "max_stride_m"}
-    optional = {"period_stairs_per_m", "period_stairs_rise_from_m"}
+    optional = {"period_stairs_per_m", "period_stairs_rise_from_m", "period_level_s"}
     unknown = set(cfg) - required - optional
     if unknown:
         raise ValueError(f"unknown footstep_clock keys: {sorted(unknown)}")
@@ -98,7 +98,11 @@ def validate_clock_cfg(cfg) -> dict | None:
     stride = float(cfg["max_stride_m"])
     if not 0.2 <= stride <= 0.8:
         raise ValueError("footstep_clock.max_stride_m must be in [0.2, 0.8]")
-    return {"enabled": True, "period_slow_s": slow, "period_fast_s": fast,
+    level = cfg.get("period_level_s")
+    if level is not None and not 0.4 <= float(level) <= 2.0:
+        raise ValueError("footstep_clock.period_level_s must be in [0.4, 2.0]")
+    out_level = {} if level is None else {"period_level_s": float(level)}
+    return {**out_level, "enabled": True, "period_slow_s": slow, "period_fast_s": fast,
             "period_stairs_s": stairs, "period_stairs_per_m": per_m,
             "period_stairs_rise_from_m": rise_from,
             "period_jitter": jitter, "max_stride_m": stride}
@@ -118,6 +122,24 @@ def stair_period(riser_height, scale, cfg):
         raise ValueError("riser height and scale shapes differ")
     extra = (riser_height - cfg.get("period_stairs_rise_from_m", 0.0)).clamp_min(0.0)
     return scale * (cfg["period_stairs_s"] + cfg.get("period_stairs_per_m", 0.0) * extra)
+
+
+def walk_period(forward_speed, scale, level, cfg):
+    """[N] cycle time of rolling rows. Without ``period_level_s``:
+    speed_period everywhere. With it (patch 67): level rows (flat tiles,
+    and stair tiles after the climb) walk a fixed ``period_level_s`` cycle
+    (times jitter, same stride cap), the rhythm of the frozen Unitree
+    teacher, whose own gait keeps ~0.57 s at every speed (3.5 steps/s
+    measured at 0.35 / 0.5 / 0.6 m/s, run 20261116_170635 gate replays);
+    the stair approach keeps speed_period, whose longer steps lead into one
+    foot per tread.
+    """
+    period = speed_period(forward_speed, scale, cfg)
+    if "period_level_s" not in cfg:
+        return period
+    fixed = torch.minimum(scale * cfg["period_level_s"],
+                          cfg["max_stride_m"] / forward_speed.abs().clamp_min(1e-6))
+    return torch.where(level, fixed, period)
 
 
 def speed_period(forward_speed, scale, cfg):

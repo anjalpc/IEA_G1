@@ -18,7 +18,8 @@ from .footstep_isaac_adapter import course_root_pose, course_tensors
 from .footstep_clock import (
     RollingClockState, approach_steps_left, clock_schedule, follow_plan_foot,
     heading_targets, landing_impact, late_swing_cap, moving, own_window,
-    rolling_origin, speed_period, stair_period, swing_progress, follow_heading)
+    rolling_origin, stair_period, swing_progress, follow_heading,
+    walk_period)
 from .footstep_mixing import (
     course_exit_timeout, stair_escape, stair_steering, target_stalled,
 )
@@ -114,7 +115,7 @@ def apply_rolling_clock(env, state, *, centre, targets, feet, valid, resets,
     walking = ((moving(command) & rows) | (plan & valid[:, 0])) & ~resets
     cfg = env.cfg.footstep_clock
     state.period_s = torch.where(
-        rows, speed_period(command[:, 0], state.period_scale, cfg),
+        rows, walk_period(command[:, 0], state.period_scale, ~stairs | state.climbed, cfg),
         stair_period(riser, state.period_scale, cfg))
     state.phase = follow_plan_foot(state.phase, state.swinging, feet[:, 0], plan)
     schedule, assigned = clock_schedule(state.phase)

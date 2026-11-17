@@ -968,8 +968,8 @@ cd /workspace/IEA_G1
 # as seed k). Single-robot replays were GPU-bound on the A10G (3 in parallel
 # 107 s vs 55 s alone), so batching robots is the speed-up, not processes.
 cmd_traces() {
-    local USAGE="Usage: simctl traces [<checkpoint>...] [--parallel <n>] [--name <tag>] [--symmetry check|average] [--heights <m,m,...>] [--executed-clip <x>] [--residual-gate <fade_s>] [--speed <m/s>] [--raw-teacher] [--ramp <s>] [--raw-start <s>]"
-    local CKPTS=() PARALLEL=3 NAME=traces SYM=check ONLY="" EXEC_CLIP="" GATE="" SPEED="" RAW="" RAMP="" RAW_START=""
+    local USAGE="Usage: simctl traces [<checkpoint>...] [--parallel <n>] [--name <tag>] [--symmetry check|average] [--heights <m,m,...>] [--executed-clip <x>] [--residual-gate <fade_s>] [--speed <m/s>] [--raw-teacher] [--ramp <s>] [--raw-start <s>] [--clock-level <s>]"
+    local CKPTS=() PARALLEL=3 NAME=traces SYM=check ONLY="" EXEC_CLIP="" GATE="" SPEED="" RAW="" RAMP="" RAW_START="" CLOCK_LEVEL=""
     while [ $# -gt 0 ]; do
         case "$1" in
             --parallel) PARALLEL="${2:?$USAGE}"; shift 2 ;;
@@ -995,6 +995,8 @@ cmd_traces() {
             --ramp) RAMP="${2:?$USAGE}"; shift 2 ;;
             # Probe: raw teacher for the first <s> s of a move (first step).
             --raw-start) RAW_START="${2:?$USAGE}"; shift 2 ;;
+            # Probe: footstep_clock.period_level_s (fixed level-ground cycle).
+            --clock-level) CLOCK_LEVEL="${2:?$USAGE}"; shift 2 ;;
             [0-9]*) CKPTS+=("$1"); shift ;;
             *) echo "$USAGE" >&2; exit 1 ;;
         esac
@@ -1023,12 +1025,12 @@ cmd_traces() {
     CFG="experiments/g1_stairs/runs/${RUN_ID}/resolved_config.yaml"
     EVAL="experiments/g1_stairs/outputs/evaluation/${NAME}/${RUN_ID}"
     [ -f "$CFG" ] || { echo "Resolved config not found: $CFG" >&2; exit 1; }
-    if [ -n "$EXEC_CLIP$GATE$SPEED$RAW$RAMP$RAW_START" ]; then
+    if [ -n "$EXEC_CLIP$GATE$SPEED$RAW$RAMP$RAW_START$CLOCK_LEVEL" ]; then
         [ "$NAME" != traces ] || { echo "probe options (--executed-clip --residual-gate --speed --raw-teacher --ramp) need --name <tag> (keeps probe traces apart)" >&2; exit 1; }
         mkdir -p "$EVAL"
-        python3 - "$CFG" "$EVAL/resolved_config_probe.yaml" "$EXEC_CLIP" "$GATE" "$SPEED" "$RAW" "$RAMP" "$RAW_START" <<'PY' || exit 1
+        python3 - "$CFG" "$EVAL/resolved_config_probe.yaml" "$EXEC_CLIP" "$GATE" "$SPEED" "$RAW" "$RAMP" "$RAW_START" "$CLOCK_LEVEL" <<'PY' || exit 1
 import sys, yaml
-cfg = yaml.safe_load(open(sys.argv[1])); clip, gate, speed, raw, ramp, raw_start = sys.argv[3:9]
+cfg = yaml.safe_load(open(sys.argv[1])); clip, gate, speed, raw, ramp, raw_start, clock_level = sys.argv[3:10]
 ctl = cfg.get("balance_residual_control")
 if not isinstance(ctl, dict) or "executed_clip" not in ctl:
     sys.exit("run has no balance_residual_control.executed_clip")
@@ -1075,6 +1077,15 @@ if raw_start:
         sys.exit("--raw-start needs balance_residual_control.teacher_symmetry average")
     print(f"Probe: raw Unitree teacher for the first {rs} s of each move, then averaged", file=sys.stderr)
     ctl["teacher_start_raw_s"] = rs
+if clock_level:
+    lv = float(clock_level)
+    if not 0.4 <= lv <= 2.0:
+        sys.exit("--clock-level must be in [0.4, 2.0] s")
+    clk = cfg.get("footstep_clock")
+    if not isinstance(clk, dict) or not clk.get("enabled"):
+        sys.exit("run has no footstep_clock")
+    print(f"Probe: level-ground clock cycle {lv} s (flat tiles and after the climb)", file=sys.stderr)
+    clk["period_level_s"] = lv
 yaml.safe_dump(cfg, open(sys.argv[2], "w"), sort_keys=False)
 PY
         CFG="$EVAL/resolved_config_probe.yaml"

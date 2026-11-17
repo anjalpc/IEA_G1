@@ -63,6 +63,27 @@ class ScheduleTests(unittest.TestCase):
         self.assertAlmostEqual(out[4].item(), 0.55, places=6)      # stride cap 0.55 m
         self.assertAlmostEqual(out[5].item(), 0.935, places=6)     # jitter scale
 
+    def test_walk_period_level_rows(self):
+        cfg = {"enabled": True, "period_slow_s": 1.0, "period_fast_s": 0.7, "period_jitter": 0.1, "max_stride_m": 0.55}
+        speed = torch.tensor([0.35, 0.35, 1.0, 0.35])
+        scale = torch.tensor([1.0, 1.0, 1.0, 1.1])
+        level = torch.tensor([True, False, True, True])
+        # no period_level_s: speed_period everywhere
+        torch.testing.assert_close(fc.walk_period(speed, scale, level, cfg), fc.speed_period(speed, scale, cfg))
+        out = fc.walk_period(speed, scale, level, {**cfg, "period_level_s": 0.6})
+        self.assertAlmostEqual(out[0].item(), 0.6, places=6)       # level: fixed cycle
+        self.assertAlmostEqual(out[1].item(), 0.85, places=6)      # approach: speed cycle
+        self.assertAlmostEqual(out[2].item(), 0.55, places=6)      # stride cap
+        self.assertAlmostEqual(out[3].item(), 0.66, places=6)      # jitter
+
+    def test_period_level_validated(self):
+        base = {"enabled": True, "period_slow_s": 1.0, "period_fast_s": 0.7, "period_stairs_s": 1.25,
+                "period_jitter": 0.1, "max_stride_m": 0.55}
+        self.assertNotIn("period_level_s", fc.validate_clock_cfg(base))
+        self.assertEqual(fc.validate_clock_cfg({**base, "period_level_s": 0.6})["period_level_s"], 0.6)
+        with self.assertRaises(ValueError):
+            fc.validate_clock_cfg({**base, "period_level_s": 0.3})
+
     def test_own_window(self):
         phase = torch.tensor([0.10, 0.20, 0.60, 0.70, 0.10, 0.60])
         foot = torch.tensor([0, 0, 0, 0, 1, 1])
