@@ -968,8 +968,8 @@ cd /workspace/IEA_G1
 # as seed k). Single-robot replays were GPU-bound on the A10G (3 in parallel
 # 107 s vs 55 s alone), so batching robots is the speed-up, not processes.
 cmd_traces() {
-    local USAGE="Usage: simctl traces [<checkpoint>...] [--parallel <n>] [--name <tag>] [--symmetry check|average] [--heights <m,m,...>] [--executed-clip <x>] [--residual-gate <fade_s>]"
-    local CKPTS=() PARALLEL=3 NAME=traces SYM=check ONLY="" EXEC_CLIP="" GATE=""
+    local USAGE="Usage: simctl traces [<checkpoint>...] [--parallel <n>] [--name <tag>] [--symmetry check|average] [--heights <m,m,...>] [--executed-clip <x>] [--residual-gate <fade_s>] [--speed <m/s>]"
+    local CKPTS=() PARALLEL=3 NAME=traces SYM=check ONLY="" EXEC_CLIP="" GATE="" SPEED=""
     while [ $# -gt 0 ]; do
         case "$1" in
             --parallel) PARALLEL="${2:?$USAGE}"; shift 2 ;;
@@ -986,6 +986,9 @@ cmd_traces() {
             # climb is complete, then faded out over <fade_s> s (Unitree
             # teacher alone on flat tiles and the platform). Needs --name.
             --residual-gate) GATE="${2:?$USAGE}"; shift 2 ;;
+            # Zero-training probe: replay with another forward command
+            # (commands.forward_velocity_mps, m/s). Needs --name.
+            --speed) SPEED="${2:?$USAGE}"; shift 2 ;;
             [0-9]*) CKPTS+=("$1"); shift ;;
             *) echo "$USAGE" >&2; exit 1 ;;
         esac
@@ -1014,12 +1017,12 @@ cmd_traces() {
     CFG="experiments/g1_stairs/runs/${RUN_ID}/resolved_config.yaml"
     EVAL="experiments/g1_stairs/outputs/evaluation/${NAME}/${RUN_ID}"
     [ -f "$CFG" ] || { echo "Resolved config not found: $CFG" >&2; exit 1; }
-    if [ -n "$EXEC_CLIP$GATE" ]; then
-        [ "$NAME" != traces ] || { echo "--executed-clip / --residual-gate need --name <tag> (keeps probe traces apart)" >&2; exit 1; }
+    if [ -n "$EXEC_CLIP$GATE$SPEED" ]; then
+        [ "$NAME" != traces ] || { echo "--executed-clip / --residual-gate / --speed need --name <tag> (keeps probe traces apart)" >&2; exit 1; }
         mkdir -p "$EVAL"
-        python3 - "$CFG" "$EVAL/resolved_config_probe.yaml" "$EXEC_CLIP" "$GATE" <<'PY' || exit 1
+        python3 - "$CFG" "$EVAL/resolved_config_probe.yaml" "$EXEC_CLIP" "$GATE" "$SPEED" <<'PY' || exit 1
 import sys, yaml
-cfg = yaml.safe_load(open(sys.argv[1])); clip, gate = sys.argv[3], sys.argv[4]
+cfg = yaml.safe_load(open(sys.argv[1])); clip, gate, speed = sys.argv[3], sys.argv[4], sys.argv[5]
 ctl = cfg.get("balance_residual_control")
 if not isinstance(ctl, dict) or "executed_clip" not in ctl:
     sys.exit("run has no balance_residual_control.executed_clip")
@@ -1036,6 +1039,15 @@ if gate:
     print(f"Probe: residual on stair tiles only, faded over {fade} s after the climb", file=sys.stderr)
     ctl["residual_gate"] = "stair_tiles"
     ctl["residual_gate_fade_s"] = fade
+if speed:
+    v = float(speed)
+    if not 0.0 < v <= 1.0:
+        sys.exit("--speed must be in (0, 1.0] m/s")
+    cmd = cfg.get("commands")
+    if not isinstance(cmd, dict) or "forward_velocity_mps" not in cmd:
+        sys.exit("run has no commands.forward_velocity_mps")
+    print(f"Probe: forward command {cmd['forward_velocity_mps']} -> {v} m/s", file=sys.stderr)
+    cmd["forward_velocity_mps"] = [v, v]
 yaml.safe_dump(cfg, open(sys.argv[2], "w"), sort_keys=False)
 PY
         CFG="$EVAL/resolved_config_probe.yaml"
@@ -1125,7 +1137,7 @@ PY
 }
 
 cmd_video() {
-    local VIDEO_USAGE="Usage: simctl video <checkpoint> [--height <m>] [--seed <n>] [--trace-only] [--markers] [--residual-gate <fade_s>]"
+    local VIDEO_USAGE="Usage: simctl video <checkpoint> [--height <m>] [--seed <n>] [--trace-only] [--markers] [--residual-gate <fade_s>] [--speed <m/s>]"
     if [ $# -lt 1 ]; then
         echo "$VIDEO_USAGE"
         exit 1
@@ -1141,6 +1153,8 @@ cmd_video() {
     MARKERS_SUFFIX=""
     GATE=""
     GATE_SUFFIX=""
+    SPEED=""
+    SPEED_SUFFIX=""
 
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -1175,6 +1189,13 @@ cmd_video() {
                 [ $# -ge 2 ] || { echo "$VIDEO_USAGE"; exit 1; }
                 GATE="$2"
                 GATE_SUFFIX="_gate"
+                shift 2
+                ;;
+            --speed)
+                # Forward command in m/s (replays default to the run's 0.35).
+                [ $# -ge 2 ] || { echo "$VIDEO_USAGE"; exit 1; }
+                SPEED="$2"
+                SPEED_SUFFIX="_v${2/./p}"
                 shift 2
                 ;;
             *)
@@ -1222,7 +1243,7 @@ cmd_video() {
         HEIGHT_OPTION="--riser_height_override ${HEIGHT}"
     fi
 
-    OUTPUT_DIR="/workspace/IEA_G1/experiments/g1_stairs/outputs/videos/${RUN_ID}/model_${CHECKPOINT}${HEIGHT_SUFFIX}${SEED_SUFFIX}${MARKERS_SUFFIX}${GATE_SUFFIX}_side"
+    OUTPUT_DIR="/workspace/IEA_G1/experiments/g1_stairs/outputs/videos/${RUN_ID}/model_${CHECKPOINT}${HEIGHT_SUFFIX}${SEED_SUFFIX}${MARKERS_SUFFIX}${GATE_SUFFIX}${SPEED_SUFFIX}_side"
 
     PROJECT_COMMIT="$(git rev-parse HEAD)"
     ISAACLAB_COMMIT="3c6e67bb5c7ada942a6d1884ab69338f57596f77"
@@ -1239,19 +1260,30 @@ cmd_video() {
         exit 1
     fi
 
-    if [ -n "$GATE" ]; then
-        local PROBE="${REPO}/experiments/g1_stairs/outputs/videos/${RUN_ID}/resolved_config_gate.yaml"
+    if [ -n "$GATE$SPEED" ]; then
+        local PROBE="${REPO}/experiments/g1_stairs/outputs/videos/${RUN_ID}/resolved_config_probe${GATE_SUFFIX}${SPEED_SUFFIX}.yaml"
         mkdir -p "$(dirname "$PROBE")"
-        python3 - "$RESOLVED_CONFIG" "$PROBE" "$GATE" <<'PY' || exit 1
+        python3 - "$RESOLVED_CONFIG" "$PROBE" "$GATE" "$SPEED" <<'PY' || exit 1
 import sys, yaml
-cfg = yaml.safe_load(open(sys.argv[1])); fade = float(sys.argv[3])
-if not 0.0 < fade <= 5.0:
-    sys.exit("--residual-gate fade must be in (0, 5] s")
-ctl = cfg.get("balance_residual_control")
-if not isinstance(ctl, dict) or not ctl.get("enabled", False):
-    sys.exit("run has no balance_residual_control")
-ctl["residual_gate"] = "stair_tiles"
-ctl["residual_gate_fade_s"] = fade
+cfg = yaml.safe_load(open(sys.argv[1])); gate, speed = sys.argv[3], sys.argv[4]
+if gate:
+    fade = float(gate)
+    if not 0.0 < fade <= 5.0:
+        sys.exit("--residual-gate fade must be in (0, 5] s")
+    ctl = cfg.get("balance_residual_control")
+    if not isinstance(ctl, dict) or not ctl.get("enabled", False):
+        sys.exit("run has no balance_residual_control")
+    ctl["residual_gate"] = "stair_tiles"
+    ctl["residual_gate_fade_s"] = fade
+if speed:
+    v = float(speed)
+    if not 0.0 < v <= 1.0:
+        sys.exit("--speed must be in (0, 1.0] m/s")
+    cmd = cfg.get("commands")
+    if not isinstance(cmd, dict) or "forward_velocity_mps" not in cmd:
+        sys.exit("run has no commands.forward_velocity_mps")
+    print(f"Probe: forward command {cmd['forward_velocity_mps']} -> {v} m/s", file=sys.stderr)
+    cmd["forward_velocity_mps"] = [v, v]
 yaml.safe_dump(cfg, open(sys.argv[2], "w"), sort_keys=False)
 PY
         RESOLVED_CONFIG="$PROBE"
