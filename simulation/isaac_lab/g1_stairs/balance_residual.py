@@ -362,6 +362,23 @@ def residual_gate_weight(previous, active, reset, dt, fade_s):
     return torch.where(active, torch.ones_like(previous), off)
 
 
+def start_raw_mask(moving_s, moving, reset, dt, start_s):
+    """Raw-teacher start (patch 66e): returns (new moving time [N], use raw [N]).
+
+    The mirror-averaged teacher cannot pick a first foot from a symmetric
+    standing start: T(s) steps one leg, M T(M s) the other, the average lifts
+    neither. Flat replays at 0.35-0.6 m/s held both feet down for 0.5 s while
+    the pelvis ran 8-12 cm ahead of them; at 1.0 m/s 10/10 fell. The raw
+    teacher steps within 0.2 s. So the raw teacher drives the first
+    ``start_s`` seconds after a move command begins (from standing or reset),
+    then the averaged one.
+    """
+    if start_s <= 0.0:
+        raise ValueError("raw-teacher start must be > 0 s")
+    moving_s = torch.where(moving & ~reset, moving_s + dt, torch.zeros_like(moving_s))
+    return moving_s, moving & (moving_s <= start_s)
+
+
 class FrozenBalanceResidualWrapper:
     """Interpret RSL-RL actions as bounded residuals around a frozen teacher."""
 
@@ -378,8 +395,11 @@ class FrozenBalanceResidualWrapper:
         teacher_symmetry: str = "off",
         residual_gate: str = "off",
         residual_gate_fade_s: float = 0.8,
+        teacher_start_raw_s: float = 0.0,
     ) -> None:
         self._wrapped = wrapped
+        self._start_raw_s = float(teacher_start_raw_s)
+        self._moving_s = None
         if residual_gate not in ("off", "stair_tiles"):
             raise ValueError("residual_gate must be 'off' or 'stair_tiles'")
         self._gate = residual_gate
@@ -402,6 +422,9 @@ class FrozenBalanceResidualWrapper:
             self._teacher_prefix = False
         if teacher_symmetry not in ("off", "average"):
             raise ValueError("teacher_symmetry must be 'off' or 'average'")
+        self._raw_teacher = self._teacher
+        if self._start_raw_s < 0.0 or (self._start_raw_s > 0.0 and teacher_symmetry != "average"):
+            raise ValueError("teacher_start_raw_s needs teacher_symmetry average and must be >= 0")
         if teacher_symmetry == "average":
             if not self._teacher_prefix:
                 raise ValueError("teacher_symmetry needs the Unitree ONNX teacher (480-D prefix)")
@@ -435,6 +458,7 @@ class FrozenBalanceResidualWrapper:
                     if value != float(self._residual_clip.min())}),
                 "executed_clip": self._executed_clip,
                 "residual_gate": self._gate,
+                "teacher_start_raw_s": self._start_raw_s,
                 "scale_by_joint": {
                     name: float(self._scale[index].item())
                     for index, name in enumerate(BODY_JOINTS)
@@ -463,10 +487,12 @@ class FrozenBalanceResidualWrapper:
             self._teacher_prefix,
         )
 
-        with torch.no_grad():
-            teacher_actions = self._teacher(policy_obs)
         if self._gate == "stair_tiles":
             residual_actions = self._gated(residual_actions)
+        with torch.no_grad():
+            teacher_actions = self._teacher(policy_obs)
+            if self._start_raw_s > 0.0:
+                teacher_actions = self._raw_start(policy_obs, teacher_actions)
 
         executed_actions = compose_balance_residual_action(
             teacher_actions,
@@ -511,6 +537,24 @@ class FrozenBalanceResidualWrapper:
         return clamp_abs(residual_actions, clip) * self._gate_weight[:, None]
 
 
+    def _raw_start(self, policy_obs, averaged):
+        """Raw teacher for the first steps of a move (start_raw_mask); with
+        the residual gate only where the teacher walks alone."""
+        env = self.unwrapped
+        command = env.command_manager.get_command("base_velocity")
+        moving = (command[:, :2].norm(dim=-1) > 0.05) | (command[:, 2].abs() > 0.05)
+        if self._moving_s is None:
+            self._moving_s = torch.zeros(moving.shape, device=averaged.device)
+        self._moving_s, use_raw = start_raw_mask(
+            self._moving_s, moving, env.episode_length_buf == 0,
+            float(env.step_dt), self._start_raw_s)
+        if self._gate_weight is not None:
+            use_raw = use_raw & (self._gate_weight == 0.0)
+        if not bool(use_raw.any()):
+            return averaged
+        return torch.where(use_raw[:, None], self._raw_teacher(policy_obs), averaged)
+
+
 def wrap_balance_residual_from_config(wrapped, resolved_config: dict[str, Any]):
     """Wrap an RSL-RL env when frozen-balance residual control is enabled."""
 
@@ -545,4 +589,5 @@ def wrap_balance_residual_from_config(wrapped, resolved_config: dict[str, Any]):
         teacher_symmetry=str(cfg.get("teacher_symmetry", "off")),
         residual_gate=str(cfg.get("residual_gate", "off")),
         residual_gate_fade_s=float(cfg.get("residual_gate_fade_s", 0.8)),
+        teacher_start_raw_s=float(cfg.get("teacher_start_raw_s", 0.0)),
     )

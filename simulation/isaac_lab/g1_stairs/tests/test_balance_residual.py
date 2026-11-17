@@ -307,3 +307,41 @@ def test_ramp_forward_command():
     assert bool((cmd[:, 1:] == 9.0).all())
     with pytest.raises(ValueError):
         ramp_forward_command(cmd, 1.0, torch.zeros(3), 0.0)
+
+
+def test_start_raw_mask_first_seconds_of_a_move():
+    import pytest
+    from simulation.isaac_lab.g1_stairs.balance_residual import start_raw_mask
+
+    t = torch.zeros(3)
+    moving = torch.tensor([True, True, False])
+    reset = torch.tensor([True, False, False])
+    t, raw = start_raw_mask(t, moving, reset, 0.02, 0.3)
+    assert raw.tolist() == [True, True, False]
+    torch.testing.assert_close(t, torch.tensor([0.0, 0.02, 0.0]))
+    for _ in range(20):
+        t, raw = start_raw_mask(t, moving, torch.zeros(3, dtype=torch.bool), 0.02, 0.3)
+    assert raw.tolist() == [False, False, False]
+    # standing again restarts the count
+    t, raw = start_raw_mask(t, torch.tensor([False, True, False]), torch.zeros(3, dtype=torch.bool), 0.02, 0.3)
+    t, raw = start_raw_mask(t, torch.tensor([True, True, False]), torch.zeros(3, dtype=torch.bool), 0.02, 0.3)
+    assert raw.tolist() == [True, False, False]
+    with pytest.raises(ValueError):
+        start_raw_mask(t, moving, reset, 0.02, 0.0)
+
+
+def test_raw_start_only_where_the_teacher_walks_alone():
+    from types import SimpleNamespace
+    from simulation.isaac_lab.g1_stairs.balance_residual import FrozenBalanceResidualWrapper
+
+    cmd = torch.tensor([[0.5, 0.0, 0.0], [0.5, 0.0, 0.0], [0.0, 0.0, 0.0]])
+    env = SimpleNamespace(step_dt=0.02, episode_length_buf=torch.tensor([0, 0, 0]),
+                          command_manager=SimpleNamespace(get_command=lambda name: cmd))
+    w = FrozenBalanceResidualWrapper.__new__(FrozenBalanceResidualWrapper)
+    w._wrapped = SimpleNamespace(unwrapped=env)
+    w._start_raw_s, w._moving_s = 0.3, None
+    w._gate_weight = torch.tensor([0.0, 1.0, 0.0])
+    w._raw_teacher = lambda obs: torch.ones(3, 29)
+    out = w._raw_start(torch.zeros(3, 480), torch.zeros(3, 29))
+    # env 0: flat, moving -> raw; env 1: residual on (stairs) -> averaged; env 2: standing -> averaged
+    assert out[:, 0].tolist() == [1.0, 0.0, 0.0]

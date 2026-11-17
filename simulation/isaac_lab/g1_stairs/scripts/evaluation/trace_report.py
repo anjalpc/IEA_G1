@@ -47,6 +47,12 @@ GATE = dict(top_clean=0.8, lower_clean=0.9, first_heel_cm=1.0, first_heel_share=
             flat_drift_degps=0.7, flat_lateral_cm=35.0, speed_ratio=(0.85, 1.20))
 
 
+
+def _mean_or_nan(values):
+    """Mean of the non-missing values (a robot that falls before 1 s has none)."""
+    values = [v for v in values if v is not None]
+    return st.fmean(values) if values else float("nan")
+
 def _yaw(q):
     w, x, y, z = q
     return math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
@@ -191,7 +197,7 @@ def judge(height, eps, top):
     if height == 0:
         drift = max(abs(e["drift"] or 0) for e in eps)
         lat = st.fmean(abs(e["lateral"]) for e in eps)
-        ratio = st.fmean(e["vx"] / e["cmd"] for e in eps if e["cmd"])
+        ratio = _mean_or_nan(e["vx"] / e["cmd"] for e in eps if e["cmd"] and e["vx"] is not None)
         lo, hi = GATE["speed_ratio"]
         return [(f"turn <= {GATE['flat_drift_degps']} deg/s", drift <= GATE["flat_drift_degps"]),
                 (f"sideways <= {GATE['flat_lateral_cm']:.0f} cm", lat <= GATE["flat_lateral_cm"]),
@@ -251,7 +257,7 @@ def main(argv=None):
                   f"{str(sum(e['strikes'] for e in eps)) if stairs else '-':>8s}"
                   f"{str(sum(e['nose'] for e in eps)) if stairs else '-':>5s}"
                   f"{_f(st.median(heels) if heels else None, '+.1f') if stairs else '-':>12s}"
-                  f"{st.fmean(e['vx'] for e in eps):6.2f}/{st.fmean(e['cmd'] for e in eps):.2f}"
+                  f"{_mean_or_nan(e['vx'] for e in eps):6.2f}/{_mean_or_nan(e['cmd'] for e in eps):.2f}"
                   f"{st.fmean(e['drift'] or 0 for e in eps):+11.2f}{st.fmean(e['lateral'] for e in eps):+8.0f}"
                   f"{_f(st.fmean(plat) if plat else None, '+.2f') if stairs else '-':>10s}"
                   f"   {_pair(_mean_pair(eps, 'stride'), '.0f', 100):>11s}  {_pair(_mean_pair(eps, 'knee'), '.2f'):>9s}"
@@ -272,7 +278,7 @@ def main(argv=None):
                              f" swing {_f(e['swing'], '.2f')}"
                              f" train-clean {'-' if e['train_clean'] is None else int(e['train_clean'])}"
                              if stairs else "")
-                          + f" speed {e['vx']:.2f} turn {_f(e['drift'], '+.2f')} side {e['lateral']:+.0f}")
+                          + f" speed {_f(e['vx'], '.2f')} turn {_f(e['drift'], '+.2f')} side {e['lateral']:+.0f}")
         print(f"Stair heights passing in order from the lowest: up to "
               f"{f'{clean_through} cm' if clean_through else 'none'}")
         print(f"RESULT checkpoint {ckpt}: {'PASS' if ok_all else 'FAIL'}")
