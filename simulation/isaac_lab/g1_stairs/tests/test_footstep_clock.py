@@ -93,6 +93,16 @@ class ScheduleTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             fc.validate_clock_cfg({**base, "level_rewards_off": "yes"})
 
+    def test_level_rewards_start_validated(self):
+        base = {"enabled": True, "period_slow_s": 1.0, "period_fast_s": 0.7, "period_stairs_s": 1.25,
+                "period_jitter": 0.1, "max_stride_m": 0.55, "level_rewards_off": True}
+        self.assertEqual(fc.validate_clock_cfg({**base, "level_rewards_start_s": 1.0})["level_rewards_start_s"], 1.0)
+        self.assertNotIn("level_rewards_start_s", fc.validate_clock_cfg(base))
+        for bad in ({**base, "level_rewards_start_s": 4.0},
+                    {**base, "level_rewards_off": False, "level_rewards_start_s": 1.0}):
+            with self.assertRaises(ValueError):
+                fc.validate_clock_cfg(bad)
+
     def test_unpay_level_ground(self):
         from types import SimpleNamespace
         env = SimpleNamespace(_g1_footstep_acquisition_paid=torch.tensor([True, True, False]),

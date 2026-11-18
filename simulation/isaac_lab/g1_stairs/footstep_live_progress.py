@@ -638,6 +638,21 @@ def audit_after_step(env):
     if clock_state is not None and env.cfg.footstep_clock.get("level_rewards_off", False):
         from .footstep_clock import unpay_level_ground
         level = rolling_rows & ((riser_height_per_env(env) <= 0.0) | clock_state.climbed)
+        start_s = env.cfg.footstep_clock.get("level_rewards_start_s", 0.0)
+        if start_s > 0.0:
+            # The first seconds of a move (from reset or standing) keep the
+            # clock rewards: the mirror-averaged teacher alone cannot pick a
+            # first foot and stands 0.5 s while the pelvis runs 8-12 cm ahead
+            # (gate replays, run 20261116_170635); the clock's first target
+            # pays the policy to start on its beat (model_91700: 0.16 s).
+            from .balance_residual import start_raw_mask
+            moved = getattr(env, "_g1_move_time_s", None)
+            if moved is None:
+                moved = torch.zeros(env.num_envs, device=env.device)
+            moved, starting = start_raw_mask(
+                moved, clock_state.active, resets, float(env.step_dt), start_s)
+            env._g1_move_time_s = moved
+            level = level & ~starting
         unpay_level_ground(env, level)
     steer_stair_command(env, coordinator.runtime, flat, resets,
                         course["tread_depth"], clock_state)
