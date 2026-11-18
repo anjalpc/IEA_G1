@@ -84,6 +84,26 @@ class ScheduleTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             fc.validate_clock_cfg({**base, "period_level_s": 0.3})
 
+    def test_level_rewards_off_validated(self):
+        base = {"enabled": True, "period_slow_s": 1.0, "period_fast_s": 0.7, "period_stairs_s": 1.25,
+                "period_jitter": 0.1, "max_stride_m": 0.55}
+        self.assertNotIn("level_rewards_off", fc.validate_clock_cfg(base))
+        self.assertTrue(fc.validate_clock_cfg({**base, "level_rewards_off": True})["level_rewards_off"])
+        self.assertNotIn("level_rewards_off", fc.validate_clock_cfg({**base, "level_rewards_off": False}))
+        with self.assertRaises(ValueError):
+            fc.validate_clock_cfg({**base, "level_rewards_off": "yes"})
+
+    def test_unpay_level_ground(self):
+        from types import SimpleNamespace
+        env = SimpleNamespace(_g1_footstep_acquisition_paid=torch.tensor([True, True, False]),
+                              _g1_footstep_net_progress=torch.tensor([0.5, 0.5, 0.5]),
+                              _g1_footstep_swing_clearance=torch.tensor([1.0, 1.0, 1.0]))
+        fc.unpay_level_ground(env, torch.tensor([True, False, True]))
+        self.assertEqual(env._g1_footstep_acquisition_paid.tolist(), [False, True, False])
+        self.assertEqual(env._g1_footstep_net_progress.tolist(), [0.0, 0.5, 0.0])
+        self.assertEqual(env._g1_footstep_swing_clearance.tolist(), [0.0, 1.0, 0.0])
+        self.assertIn("_g1_footstep_stance_knee_bend", fc.LEVEL_UNPAID)
+
     def test_own_window(self):
         phase = torch.tensor([0.10, 0.20, 0.60, 0.70, 0.10, 0.60])
         foot = torch.tensor([0, 0, 0, 0, 1, 1])

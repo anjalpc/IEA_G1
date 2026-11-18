@@ -72,7 +72,8 @@ def validate_clock_cfg(cfg) -> dict | None:
         return None
     required = {"enabled", "period_slow_s", "period_fast_s", "period_stairs_s",
                 "period_jitter", "max_stride_m"}
-    optional = {"period_stairs_per_m", "period_stairs_rise_from_m", "period_level_s"}
+    optional = {"period_stairs_per_m", "period_stairs_rise_from_m", "period_level_s",
+                "level_rewards_off"}
     unknown = set(cfg) - required - optional
     if unknown:
         raise ValueError(f"unknown footstep_clock keys: {sorted(unknown)}")
@@ -102,6 +103,11 @@ def validate_clock_cfg(cfg) -> dict | None:
     if level is not None and not 0.4 <= float(level) <= 2.0:
         raise ValueError("footstep_clock.period_level_s must be in [0.4, 2.0]")
     out_level = {} if level is None else {"period_level_s": float(level)}
+    off = cfg.get("level_rewards_off", False)
+    if not isinstance(off, bool):
+        raise ValueError("footstep_clock.level_rewards_off must be true or false")
+    if off:
+        out_level["level_rewards_off"] = True
     return {**out_level, "enabled": True, "period_slow_s": slow, "period_fast_s": fast,
             "period_stairs_s": stairs, "period_stairs_per_m": per_m,
             "period_stairs_rise_from_m": rise_from,
@@ -483,3 +489,37 @@ class RollingClockState:
                 torch.where(rows, self.cycle_yaw_error, torch.zeros_like(average)))
             self.yaw_error_sum = torch.where(wrapped, torch.zeros_like(average), self.yaw_error_sum)
             self.yaw_error_time = torch.where(wrapped, torch.zeros_like(average), self.yaw_error_time)
+
+
+# Patch 68: footstep and clock rewards that are not paid on level ground
+# (flat tiles, and stair tiles after the climb) when level_rewards_off is set.
+LEVEL_UNPAID = ("_g1_footstep_acquisition_paid", "_g1_footstep_net_progress",
+                "_g1_footstep_stance_support", "_g1_footstep_directed_swing",
+                "_g1_footstep_swing_clearance", "_g1_footstep_off_beat",
+                "_g1_footstep_stance_knee_bend")
+
+
+def unpay_level_ground(env, level):
+    """Zero the footstep / clock reward caches on ``level`` rows [N].
+
+    Patch 68. On flat ground these terms (target hits paid per touchdown,
+    clock-window contact and swing scores, swing clearance) were 10.5 of the
+    15.1 flat reward per second at run 20261117_112347 model_102200 and the
+    policy met them with low (0.5 cm), short, toe-up swings that touched down
+    4-5 cm short and then skidded back 1-5 cm unloaded (peak 94 cm/s),
+    pelvis speed swinging 0.16-0.51 m/s within each step. The frozen Unitree
+    teacher alone walks flat ground smoothly (pelvis speed sd 0.01 m/s, roll
+    rate 13 deg/s, turn +-0.05 deg/s) but hits few clock targets, so these
+    terms rank it below any clock-compliant gait. Off on level ground, what
+    remains (velocity tracking, residual_magnitude, posture and smoothness
+    terms) is best served by the teacher's own walk; the stair approach and
+    the stairs keep every term.
+    """
+    for name in LEVEL_UNPAID:
+        value = getattr(env, name, None)
+        if value is None:
+            continue
+        if value.dtype == torch.bool:
+            setattr(env, name, value & ~level)
+        else:
+            setattr(env, name, torch.where(level, torch.zeros_like(value), value))

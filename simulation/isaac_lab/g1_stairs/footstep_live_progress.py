@@ -635,6 +635,10 @@ def audit_after_step(env):
     since = since + float(env.step_dt)
     since[advanced] = 0.0
     env._g1_footstep_since_advance = since
+    if clock_state is not None and env.cfg.footstep_clock.get("level_rewards_off", False):
+        from .footstep_clock import unpay_level_ground
+        level = rolling_rows & ((riser_height_per_env(env) <= 0.0) | clock_state.climbed)
+        unpay_level_ground(env, level)
     steer_stair_command(env, coordinator.runtime, flat, resets,
                         course["tread_depth"], clock_state)
     if clock_state is None:
