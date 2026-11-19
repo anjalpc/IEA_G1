@@ -46,7 +46,7 @@ def test_uses_explicit_conservative_height_slice():
     parameters = load_parameters()
 
     assert parameters["min_height"] == 0.05
-    assert parameters["max_height"] == 1.75
+    assert parameters["max_height"] == 1.50
 
 
 def test_uses_explicit_scan_geometry_and_range():

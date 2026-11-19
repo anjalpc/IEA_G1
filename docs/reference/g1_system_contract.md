@@ -498,7 +498,12 @@ is created lazily only while `/scan` has a subscriber. Therefore the
 input topic may be absent from the ROS graph when no mapping or
 navigation consumer is active.
 
-The initial projection envelope is 0.05 m through 1.75 m above
+The 1.50 m ceiling is a provisional upright, arms-down mapping setting:
+measured head height is approximately 1.35 m and the secured hook is above
+1.60 m. It is not validated for raised arms or every walking posture.
+Robot-body and support filtering remain separate; raw clouds are unchanged.
+
+The trial projection envelope is 0.05 m through 1.50 m above
 `base_footprint`, with a 0.25 m minimum and 40 m maximum range,
 360-degree coverage, 0.5-degree angular bins, and a 0.1 s scan time.
 These are conservative integration values, not validated physical
