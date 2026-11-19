@@ -123,3 +123,23 @@
 - Floor plane was fitted offline; snapshot-time robot TF and independent calibration remain unverified. This is not live obstacle-avoidance qualification.
 
 - Next: verify synchronized depth calibration and camera-to-base transforms before live perception integration.
+
+## Grounded depth and TF experiment — 2026-11-19
+
+- Temporary PC2 profile: depth only, 848x480 at 15 Hz; color, infrared and camera IMU disabled. CLI overrides were ineffective; a temporary YAML applied correctly. Persistent camera YAML unchanged.
+
+- Initial full-stream run reported frame-resource exhaustion. Reduced-stream delivery measured approximately 15 Hz; long-duration reliability remains unqualified.
+
+- Suspended capture retained separately: depth-tf-stationary-20261119. Grounded captures: depth-tf-grounded-20261119, depth-tf-box12cm-50cm-20261119, depth-tf-box12cm-20cm-20261119, under ros2_ws/log/glim_gpu_benchmark/.
+
+- Grounded snapshot: exact depth/CameraInfo stamp match, image-time camera-to-pelvis TF lookup succeeded, nearest pelvis IMU offset 6.166 ms.
+
+- Floor estimate across three frames: camera distance 1.2897–1.2911 m. Single-frame floor/IMU normal disagreement 2.18 degrees; inferred pelvis height 0.8205 m. Configured 0.785 m remains unchanged pending calibration investigation.
+
+- Operator measured box height 0.12 m; placements approximately 0.50 m and 0.20 m from toe tips to nearest box face.
+
+- Common camera-floor region: forward 0–1.2 m, lateral +/-0.4 m. Counts at 0.04–0.16 m height: baseline 583; box50 12328; box20 15981.
+
+- Low-return median forward positions relative to camera floor projection: baseline 1.118 m; box50 0.534 m; box20 0.336 m. These are not toe-referenced distance measurements.
+
+- Stationary forward-box visibility supported. Moving obstacle retention, thin bars, side/rear coverage, measured clearance and autonomous avoidance remain unqualified. Depth is not connected to Nav2.
