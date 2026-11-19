@@ -169,3 +169,17 @@
 - Full cloud only: no floor filtering, obstacle qualification or connection to Nav2. Next: complete checkpoint validation and save it before adding diagnostic obstacle filtering.
 
 - Checkpoint validation: full ROS workspace 994 tests, 0 errors, 0 failures, 2 skipped; configuration validator and graphify update passed. Updated Docker-image rebuild remains pending.
+
+## Automatic floor-selection checkpoint — 2026-11-19
+
+- Twelve geometry tests and the perception package build/test gate passed.
+
+- Selection uses recorded points, timestamped camera-to-pelvis TF and nearest pelvis IMU gravity; no saved floor plane is supplied.
+
+- Middle-frame candidate pelvis distances: baseline 0.8273 m; box50 0.8298 m; box20 0.8223 m. Raised counts in the selected region: 0, 12167, 15631 respectively. Selected-surface height p90: 12.6 cm at box50 and 12.9 cm at box20.
+
+- Baseline selection elapsed 11.4 ms in one offline observation; not a runtime benchmark. Results saved in ros2_ws/log/glim_gpu_benchmark/automatic-floor-comparison-20261119.json.
+
+- Distance bounds 0.65–0.95 m were experimental replay settings, not universal walking limits. Ground identity, live freshness/TF handling and moving-operation robustness remain unqualified.
+
+- Next: read-only live diagnostic filtering with explicit unknown status and stale-output clearing. No Nav2 obstacle input or autonomous motion has been enabled.

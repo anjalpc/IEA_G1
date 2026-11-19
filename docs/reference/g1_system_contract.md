@@ -1092,3 +1092,9 @@ g1_navigation_perception/depth_preview.launch.py starts only the upstream depth_
 
 
 The development image declares ros-humble-depth-image-proc. The current container installation, perception package build/tests and installed preview launch passed. Rebuilding and validating the updated image remain pending. The temporary PC2 depth-only 848x480x15 profile used during these checks does not replace the persistent camera configuration.
+
+### Experimental offline floor selection — 2026-11-19
+
+
+
+The perception geometry module fits candidate planes and performs deterministic sampled selection with explicit caller-supplied distance bounds. Diagnostic criteria currently use a 10-degree tilt limit, 20 mm inlier tolerance, at least 30 inliers and 35 percent sampled support. Insufficient supported geometry returns None. These criteria do not establish semantic ground identity: a raised surface inside the permitted distance band can still be ambiguous. The selector is not connected to live navigation or command generation.
