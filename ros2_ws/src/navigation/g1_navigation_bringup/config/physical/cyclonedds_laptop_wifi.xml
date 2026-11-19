@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CycloneDDS>
+  <Domain id="42">
+    <General>
+      <Interfaces>
+        <NetworkInterface
+          name="wlp3s0"
+          multicast="false"/>
+      </Interfaces>
+      <AllowMulticast>false</AllowMulticast>
+    </General>
+    <Discovery>
+      <ParticipantIndex>auto</ParticipantIndex>
+      <MaxAutoParticipantIndex>63</MaxAutoParticipantIndex>
+      <Peers>
+        <Peer Address="192.168.188.160"/>
+        <Peer Address="192.168.188.117"/>
+      </Peers>
+    </Discovery>
+  </Domain>
+</CycloneDDS>

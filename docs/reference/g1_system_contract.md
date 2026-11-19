@@ -1061,6 +1061,14 @@ Update this document in the same change whenever any of these change:
 After such a change, run `simulation/mujoco/validate_config.py`, the stair geometry
 tests, and `graphify update .`.
 
+### Opt-in Wi-Fi mapping
+
+The opt-in physical_wifi_mapping.launch.py selects the domain-42 laptop Wi-Fi DDS profile and glim_mid360_wifi configuration, starts one topic_tools relay, and includes the existing read-only mapping launch. Wired defaults remain unchanged. PC2 publishes the unchanged raw cloud on /g1/transport/lidar/points_wifi; only the laptop relay subscribes to that transport topic and republishes /g1/sensors/lidar/points locally. GLIM uses reliable cloud input with depth 5. Health, freshness, timestamp, and motion limits remain unchanged.
+
+Profiles bind laptop wlp3s0 at 192.168.188.117 and PC2 wlan0 at 192.168.188.160. Verify addresses before reuse. The PC2 profile applies only to ROS domain 42, preserving native Unitree domain 0. Profile files are config/physical/cyclonedds_laptop_wifi.xml and cyclonedds_pc2_wifi.xml in g1_navigation_bringup.
+
+The bounded manual Wi-Fi check recorded 258 samples at all five odometry stages, maximum header gap 100.758 ms, no gaps over 150 ms or nonadvancing timestamps, canonical p95 age 155.333 ms and maximum age 170.687 ms. Scan delivery reached 211.692 ms gaps and 260.876 ms age. Estimated displacement was 0.326 m; independent distance accuracy was not measured. This is bounded continuity evidence, not unrestricted autonomous-navigation qualification.
+
 ### Nav2 binary-pin refresh — 2026-11-18
 
 The Nav2 lock retains upstream version 1.1.20 and pins the available November binary rebuilds of the same 35 packages. The September binaries were no longer available from the active ROS apt index. Installation simulation reported 35 upgrades, no additions, and no removals. Existing runtime measurements used the September binaries; the rebuilt image requires separate validation before live use. No installed packages in the running container were upgraded by this lock refresh.

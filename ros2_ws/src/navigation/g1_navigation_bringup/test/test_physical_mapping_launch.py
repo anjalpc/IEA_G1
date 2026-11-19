@@ -67,3 +67,36 @@ def test_cmake_registers_physical_mapping_contract():
 
     assert "test_physical_mapping_launch" in cmake
     assert "test/test_physical_mapping_launch.py" in cmake
+
+
+def test_wifi_mapping_composes_one_relay_and_existing_mapping():
+    """Wi-Fi mapping selects tested profiles without command nodes."""
+    import importlib.util
+    path = PACKAGE_ROOT / "launch/physical_wifi_mapping.launch.py"
+    assert path.is_file(), str(path)
+    spec = importlib.util.spec_from_file_location("wifi_mapping", path)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    calls = {"nodes": [], "includes": [], "environment": {}}
+    module.get_package_share_directory = lambda name: str(PACKAGE_ROOT)
+    module.Node = lambda **kw: calls["nodes"].append(kw)
+    module.IncludeLaunchDescription = lambda source, **kw: calls["includes"].append((source, kw))
+    module.PythonLaunchDescriptionSource = lambda path: path
+    module.SetEnvironmentVariable = lambda name, value: calls["environment"].update({name: value})
+    module.LaunchDescription = lambda entities: entities
+    module.generate_launch_description()
+    assert calls["nodes"] == [{
+        "package": "topic_tools", "executable": "relay",
+        "name": "g1_wifi_cloud_relay", "output": "screen",
+        "arguments": ["/g1/transport/lidar/points_wifi", "/g1/sensors/lidar/points"]
+    }]
+    assert len(calls["includes"]) == 1
+    source, options = calls["includes"][0]
+    assert source == str(PACKAGE_ROOT / "launch/physical_mapping.launch.py")
+    assert dict(options["launch_arguments"])["glim_configuration"] == str(
+        PACKAGE_ROOT / "config/physical/glim_mid360_wifi"
+    )
+    assert calls["environment"]["ROS_DOMAIN_ID"] == "42"
+    assert calls["environment"]["CYCLONEDDS_URI"] == (
+        "file://" + str(PACKAGE_ROOT / "config/physical/cyclonedds_laptop_wifi.xml")
+    )

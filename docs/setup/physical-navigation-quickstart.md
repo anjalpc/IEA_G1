@@ -218,3 +218,13 @@ Confirm no duplicates remain on PC2:
 ```bash
 pgrep -af   'g1_hardware_bridge.low_state.helper|hardware_state|livox_ros_driver2_node'   || echo "PASS: physical PC2 publishers stopped"
 ```
+
+## Opt-in Wi-Fi mapping
+
+Use config/physical/cyclonedds_laptop_wifi.xml and cyclonedds_pc2_wifi.xml from g1_navigation_bringup. Current interfaces/addresses are wlp3s0/192.168.188.117 and wlan0/192.168.188.160; verify them before startup. Deploy the PC2 XML by SCP to /home/unitree/IEA_G1/livox_ws/config/cyclonedds_pc2_wifi.xml and use that persistent path as CYCLONEDDS_URI for domain-42 PC2 sensor nodes.
+
+For this mode, change only the Livox cloud remap to /livox/lidar:=/g1/transport/lidar/points_wifi. Keep the IMU remap unchanged. Do not also publish the canonical cloud directly from PC2.
+
+After building and sourcing the laptop overlay, run ros2 launch g1_navigation_bringup physical_wifi_mapping.launch.py. It selects the laptop Wi-Fi profile and reliable GLIM profile and starts one relay. Do not run an additional manual relay, localization launch, or mapping launch alongside it. Diagnostic and recording terminals still need domain 42 and the Wi-Fi CYCLONEDDS_URI explicitly set.
+
+Keep PointCloud2 disabled during movement. Bounded stationary/manual continuity checks passed; longer route coverage, autonomous control, and physical communications-loss stopping still require validation.
