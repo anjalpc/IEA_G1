@@ -137,7 +137,7 @@ class PhysicalBodyNode(Node):
     def imu_callback(self, message):
         """Qualify and retain one atomic pelvis-IMU sample."""
 
-        self.imu_health.observe(
+        accepted = self.imu_health.observe(
             stamp=_stamp_seconds(message.header.stamp),
             frame_id=message.header.frame_id,
             orientation=(
@@ -166,6 +166,9 @@ class PhysicalBodyNode(Node):
                 message.linear_acceleration_covariance
             ),
         )
+        if not accepted:
+            return
+
         self.latest_imu = message
         self.imu_history.append(message)
         self.imu_history = self.imu_history[

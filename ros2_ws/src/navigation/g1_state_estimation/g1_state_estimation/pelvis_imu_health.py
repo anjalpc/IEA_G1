@@ -155,14 +155,14 @@ class PelvisImuHealthBoundary:
         )
         if not well_formed:
             self._invalidate()
-            return
+            return False
 
         if (
             self._last_stamp is not None
             and stamp <= self._last_stamp
         ):
             self._invalidate()
-            return
+            return False
 
         acceleration_norm = self._norm(
             linear_acceleration
@@ -170,6 +170,30 @@ class PelvisImuHealthBoundary:
         angular_velocity_norm = self._norm(
             angular_velocity
         )
+        now = self._now()
+        fresh_qualified = (
+            self._valid is True
+            and self._warmup_count >= self._limits.warmup_samples
+            and now is not None
+            and self._observed_at is not None
+            and 0.0 <= now - self._observed_at
+            <= self._limits.stale_after_seconds
+        )
+        if (
+            math.isfinite(acceleration_norm)
+            and not (
+                self._limits.minimum_acceleration_norm
+                <= acceleration_norm
+                <= self._limits.maximum_acceleration_norm
+            )
+            and fresh_qualified
+            and self._unit_quaternion(orientation)
+            and angular_velocity_norm
+            <= self._limits.maximum_angular_velocity_norm
+        ):
+            self._last_stamp = stamp
+            return False
+
         plausible = (
             self._unit_quaternion(orientation)
             and acceleration_norm
@@ -183,11 +207,12 @@ class PelvisImuHealthBoundary:
         self._last_stamp = stamp
         if not plausible:
             self._invalidate()
-            return
+            return False
 
         self._valid = True
         self._observed_at = self._now()
         self._warmup_count += 1
+        return True
 
     def snapshot(self):
         """Return current readiness without exposing private state."""

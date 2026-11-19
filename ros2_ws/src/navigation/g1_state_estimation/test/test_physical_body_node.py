@@ -1,6 +1,7 @@
 """ROS contract tests for staged physical-body odometry."""
 
 import math
+import pytest
 from pathlib import Path
 
 import rclpy
@@ -228,3 +229,53 @@ def test_package_installs_entrypoint_and_calibration():
     assert "maximum_sync_offset_seconds: 0.05" in (
         configuration_text
     )
+
+
+@pytest.mark.parametrize("acceleration", [22.33, 3.589])
+def test_rejected_spike_is_not_buffered_or_used_for_projection(acceleration):
+    node, clock = make_node()
+    recorder = PublisherRecorder()
+    node.odometry_publisher = recorder
+    try:
+        node.imu_callback(imu(100.00))
+        node.imu_callback(imu(100.01))
+        clock.now += 0.02
+        rejected = imu(100.10)
+        rejected.linear_acceleration.z = acceleration
+        node.imu_callback(rejected)
+
+        assert rejected not in node.imu_history
+        assert node.latest_imu is not rejected
+        node.odometry_callback(odometry(100.10))
+        assert recorder.messages == []
+
+        clock.now += 0.02
+        node.imu_callback(imu(100.11))
+        assert len(recorder.messages) == 1
+    finally:
+        destroy(node)
+
+
+@pytest.mark.parametrize("acceleration", [22.33, 3.589])
+def test_rejected_spike_does_not_expand_timestamp_matching(acceleration):
+    node, clock = make_node()
+    recorder = PublisherRecorder()
+    node.odometry_publisher = recorder
+    try:
+        node.imu_callback(imu(100.00))
+        node.imu_callback(imu(100.01))
+        clock.now += 0.02
+        rejected = imu(100.10)
+        rejected.linear_acceleration.z = acceleration
+        node.imu_callback(rejected)
+        node.odometry_callback(odometry(100.10))
+        assert recorder.messages == []
+
+        clock.now += 0.02
+        node.imu_callback(imu(100.20))
+        assert recorder.messages == []
+        assert node.pending_odometry == []
+        node.odometry_callback(odometry(100.20))
+        assert len(recorder.messages) == 1
+    finally:
+        destroy(node)

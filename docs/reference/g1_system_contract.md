@@ -279,6 +279,19 @@ odometry. Subsequent authority and mapping proofs authorize
 `/g1/state/odometry` and read-only mapping only. They do not prove extended
 walking robustness or authorize localization, Nav2, or locomotion.
 
+After pelvis-IMU warmup, an isolated out-of-range acceleration sample with otherwise
+valid fields is discarded while fresh qualified history remains available.
+Discarding it neither refreshes the last-good receipt time nor counts it
+toward warmup. Only accepted samples enter the timestamp-matching history.
+The 4–15 m/s² per-sample acceleration bounds, 20-sample startup warmup,
+100 ms freshness limit, and 50 ms synchronization limit remain unchanged.
+Malformed data, invalid orientation, excessive angular
+velocity, and nonadvancing timestamps retain their invalidating behavior.
+Out-of-range acceleration at startup or after freshness expires still
+invalidates qualification. Repeated rejected samples cannot extend freshness.
+No rejected measurement, fabricated attitude, or widened synchronization
+window is used to fill a gap.
+
 ### Physical LowState source
 
 On PC2, `g1_hardware_bridge` owns one read-only physical source for measured

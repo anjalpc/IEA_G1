@@ -156,3 +156,80 @@ def test_fails_closed_when_input_becomes_stale():
 
     assert instance.snapshot().ready is False
     assert instance.snapshot().reason == "PELVIS_IMU_STALE"
+
+
+def test_isolated_high_acceleration_preserves_fresh_qualified_stream():
+    instance, clock = boundary(warmup_samples=3)
+    for index in range(3):
+        clock.now += 0.02
+        observe(instance, stamp=100.0 + index * 0.02)
+    assert instance.snapshot().ready is True
+
+    clock.now += 0.02
+    observe(instance, stamp=100.06,
+            linear_acceleration=(0.0, 0.0, 22.33251329794858))
+    assert instance.snapshot().ready is True
+
+    clock.now += 0.02
+    observe(instance, stamp=100.08)
+    assert instance.snapshot().ready is True
+
+
+def test_spikes_cannot_extend_freshness_or_mask_hard_faults():
+    instance, clock = boundary(warmup_samples=1)
+    observe(instance)
+    clock.now += 0.02
+    observe(instance, stamp=100.02,
+            linear_acceleration=(0.0, 0.0, 22.33))
+    assert instance.snapshot().ready is True
+    clock.now += 0.09
+    assert instance.snapshot().ready is False
+
+    for fault in (
+        dict(frame_id="wrong_imu", linear_acceleration=(0.0, 0.0, 2.0)),
+        dict(linear_acceleration=(math.nan, 0.0, 9.81)),
+        dict(orientation=(0.0, 0.0, 0.0, 2.0),
+             linear_acceleration=(0.0, 0.0, 22.33)),
+        dict(angular_velocity=(11.0, 0.0, 0.0),
+             linear_acceleration=(0.0, 0.0, 22.33)),
+    ):
+        instance, clock = boundary(warmup_samples=1)
+        observe(instance)
+        clock.now += 0.02
+        observe(instance, stamp=100.02, **fault)
+        assert instance.snapshot().ready is False
+
+
+def test_brief_low_acceleration_preserves_fresh_qualified_stream():
+    instance, clock = boundary(warmup_samples=3)
+    for index in range(3):
+        clock.now += 0.02
+        observe(instance, stamp=100.0 + index * 0.02)
+    assert instance.snapshot().ready is True
+
+    clock.now += 0.02
+    observe(instance, stamp=100.06,
+            linear_acceleration=(0.0, 0.0, 3.589))
+    assert instance.snapshot().ready is True
+
+    clock.now += 0.02
+    observe(instance, stamp=100.08)
+    assert instance.snapshot().ready is True
+
+
+def test_sustained_low_acceleration_cannot_extend_freshness():
+    instance, clock = boundary(warmup_samples=3)
+    for index in range(3):
+        clock.now += 0.02
+        observe(instance, stamp=100.0 + index * 0.02)
+    assert instance.snapshot().ready is True
+
+    for index in range(1, 7):
+        clock.now += 0.02
+        observe(instance, stamp=100.04 + index * 0.02,
+                linear_acceleration=(0.0, 0.0, 2.285))
+    assert instance.snapshot().ready is False
+
+    clock.now += 0.02
+    observe(instance, stamp=100.18)
+    assert instance.snapshot().reason == "WARMING_UP"
