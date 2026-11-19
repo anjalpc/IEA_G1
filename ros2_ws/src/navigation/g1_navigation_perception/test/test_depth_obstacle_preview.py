@@ -175,3 +175,38 @@ def test_retry_grace_never_retains_expired_output(preview):
     node.received = time.monotonic()
     node.active_stamp = clock.ns - 350_000_001
     assert not node.can_defer()
+
+
+def test_configured_gpu_selector_preserves_output_timestamp(preview):
+    from g1_navigation_perception.depth_geometry import select_floor_plane
+
+    node, clock = preview
+    calls = []
+
+    def gpu_stub(points, up, *, distance_bounds):
+        calls.append(distance_bounds)
+        return select_floor_plane(points, up, distance_bounds=distance_bounds)
+
+    node.gpu_selector = gpu_stub
+    message = inputs(node, clock)
+    node.cloud_callback(message)
+    node.process_latest()
+    assert calls == [node.bounds]
+    assert node.status_pub.messages[-1].data == "DIAGNOSTIC_CANDIDATE"
+    assert node.cloud_pub.messages[-1].header.stamp == message.header.stamp
+
+
+def test_gpu_failure_falls_back_to_cpu(preview):
+    node, clock = preview
+
+    def unavailable(*args, **kwargs):
+        raise RuntimeError("simulated CUDA failure")
+
+    node.gpu_selector = unavailable
+    message = inputs(node, clock)
+    node.cloud_callback(message)
+    node.process_latest()
+    assert node.gpu_selector is None
+    assert node.status_pub.messages[-1].data == "DIAGNOSTIC_CANDIDATE"
+    assert node.cloud_pub.messages[-1].header.stamp == message.header.stamp
+    assert node.cloud_pub.messages[-1].width > 0

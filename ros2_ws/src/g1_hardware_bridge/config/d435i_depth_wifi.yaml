@@ -1,0 +1,33 @@
+# Opt-in depth-only Wi-Fi diagnostic profile; output 424x240 at 15 Hz.
+/d435/d435:
+  ros__parameters:
+    camera_name: d435
+    serial_no: '254322073626'
+    device_type: d435i
+    depth_module.profile: 848x480x15
+    rgb_camera.profile: 640x480x30
+    enable_depth: true
+    enable_color: false
+    enable_infra1: false
+    enable_infra2: false
+    enable_fisheye1: false
+    enable_fisheye2: false
+    enable_confidence: false
+    enable_pose: false
+    enable_gyro: false
+    enable_accel: false
+    gyro_fps: 200
+    accel_fps: 100
+    unite_imu_method: 0
+    enable_sync: false
+    pointcloud.enable: false
+    align_depth.enable: false
+    colorizer.enable: false
+    publish_tf: true
+    tf_publish_rate: 0.0
+    rgb_camera.power_line_frequency: 1
+    initial_reset: false
+    wait_for_device_timeout: 10.0
+    reconnect_timeout: 6.0
+    decimation_filter.enable: true
+    decimation_filter.filter_magnitude: 2

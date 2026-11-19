@@ -202,3 +202,29 @@ Evidence: ros2_ws/log/glim_gpu_benchmark/depth-wall-floor-20261119-133753
 contains three wall-frame NPZ snapshots and the source recording.
 Earlier floor regression fixtures are in the perception package tests.
 Updated thesis notes outside the repository remain to be appended.
+
+## CUDA and decimated depth checkpoint — 2026-11-19
+
+Offline CUDA geometry: median 15.554 ms versus CPU 59.717 ms on three wall
+frames, including GPU transfers. Sixteen recorded module comparisons passed;
+nine baseline/box masks matched exactly. Live CUDA initially still stalled.
+PC2-local camera timing was steady; laptop delivery improved after
+magnitude-2 depth decimation to 424x240 at 15 Hz. Box appearance/removal passed.
+
+Next: build/validate the updated GPU image without replacing the live
+container, install/deploy the opt-in camera profile via SCP (no PC2 Git),
+check installed launcher and profile, append thesis evidence outside the
+repository, then review, commit and push. Do not connect this diagnostic
+cloud to Nav2 until separately validated.
+
+### Reproducibility verification completed
+
+The updated GPU image built and passed a disposable-container CUDA floor
+fitting check with CuPy 14.2.0, NumPy 2.2.6 and CUDA runtime 12.9.
+Both affected package gates passed and pip reported no broken requirements.
+Thesis addendum and copied evidence:
+~/Documents/ChatGPT/G1_Navigation_Thesis/2026-11-19_Depth_GPU_Checkpoint.md
+
+Remaining: deploy the saved camera profile via SCP, verify the reusable
+launcher in a fresh runtime, and validate Nav2 obstacle/stopping integration.
+The currently running container was not replaced by the image build.

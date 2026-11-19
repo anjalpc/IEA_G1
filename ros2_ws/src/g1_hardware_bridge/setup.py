@@ -17,6 +17,7 @@ setup(
                 "config/hardware.yaml",
                 "config/camera.yaml",
                 "config/d435i.yaml",
+                "config/d435i_depth_wifi.yaml",
             ],
         ),
     ],

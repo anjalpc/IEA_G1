@@ -219,4 +219,9 @@ RUN curl -fsSL \
       < /tmp/glim-gpu-packages.lock && \
     ldconfig && \
     rm -rf /var/lib/apt/lists/* /tmp/cuda-keyring.deb
+COPY depth-gpu-requirements.lock /tmp/depth-gpu-requirements.lock
+RUN python3 -m venv --system-site-packages /opt/iea-depth-gpu && \
+    /opt/iea-depth-gpu/bin/python -m pip install --no-cache-dir \
+      -r /tmp/depth-gpu-requirements.lock && \
+    /opt/iea-depth-gpu/bin/python -m pip check
 USER dev

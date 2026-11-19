@@ -30,9 +30,33 @@ class DepthObstaclePreview(Node):
         self.bounds = (
             self.declare_parameter("minimum_floor_distance_m", 0.65).value,
             self.declare_parameter("maximum_floor_distance_m", 0.95).value)
+        self.gpu_selector = None
+        backend = self.declare_parameter("compute_backend", "cpu").value
+        if backend not in ("cpu", "cuda"):
+            raise ValueError("compute_backend must be cpu or cuda")
+        if backend == "cuda":
+            try:
+                from .depth_geometry_gpu import select_floor_plane_gpu
+                x, y = np.meshgrid(np.linspace(0.3, 0.8, 10),
+                                   np.linspace(-0.3, 0.3, 10))
+                warmup = np.column_stack((x.ravel(), y.ravel(),
+                                          np.full(x.size, -0.8)))
+                plane = select_floor_plane_gpu(
+                    warmup, [0., 0., 1.], distance_bounds=self.bounds)
+                if plane is None:
+                    raise RuntimeError("CUDA warm-up did not find the test plane")
+                self.gpu_selector = select_floor_plane_gpu
+            except Exception as error:
+                self.get_logger().warning(
+                    f"CUDA unavailable; using CPU floor fitting: {error}")
+        selected = "cuda" if self.gpu_selector is not None else "cpu"
+        self.get_logger().info(f"Floor fitting backend: {selected}")
         self.imus = deque(maxlen=100)
         self.pending = None
         self.last_processed_at = None
+        self.last_timing_log = time.monotonic()
+        self.max_callback_gap_ms = 0.0
+        self.max_input_age_ms = 0.0
         cloud_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
         self.previous = self.received = self.active_stamp = self.reason = None
         self.buffer = Buffer(cache_time=Duration(seconds=3))
@@ -48,6 +72,16 @@ class DepthObstaclePreview(Node):
                                      self.cloud_callback, cloud_qos)]
         self.timer = self.create_timer(0.1, self.watchdog)
         self.processing_timer = self.create_timer(0.02, self.process_latest)
+
+    def select_floor(self, points, up):
+        if self.gpu_selector is not None:
+            try:
+                return self.gpu_selector(points, up, distance_bounds=self.bounds)
+            except Exception as error:
+                self.gpu_selector = None
+                self.get_logger().warning(
+                    f"CUDA floor fitting failed; switching to CPU: {error}")
+        return select_floor_plane(points, up, distance_bounds=self.bounds)
 
     def emit(self, points, stamp, reason):
         header = Header(stamp=stamp, frame_id="pelvis")
@@ -71,7 +105,14 @@ class DepthObstaclePreview(Node):
                 self.clear("CLOUD_STALE")
 
     def cloud_callback(self, message):
-        self.received = time.monotonic()
+        received = time.monotonic()
+        if self.received is not None:
+            self.max_callback_gap_ms = max(
+                self.max_callback_gap_ms, (received - self.received) * 1000)
+        self.received = received
+        age_ms = (self.get_clock().now().nanoseconds
+                  - stamp_ns(message.header)) / 1e6
+        self.max_input_age_ms = max(self.max_input_age_ms, age_ms)
         self.pending = message
 
     def can_defer(self):
@@ -124,7 +165,7 @@ class DepthObstaclePreview(Node):
             side = np.cross(up, forward)
             floor_region = ((points @ forward > 0.2) & (points @ forward < 1.2)
                             & (np.abs(points @ side) < 0.4))
-            plane = select_floor_plane(points[floor_region], up, distance_bounds=self.bounds)
+            plane = self.select_floor(points[floor_region], up)
             if plane is None:
                 self.clear("FLOOR_UNKNOWN")
                 return
@@ -137,6 +178,20 @@ class DepthObstaclePreview(Node):
                 return
             self.emit(points[keep], message.header.stamp, "DIAGNOSTIC_CANDIDATE")
             self.active_stamp = source_stamp
+            finished = time.monotonic()
+            if finished - self.last_timing_log >= 5.0:
+                elapsed_ms = (finished - self.last_processed_at) * 1000
+                output_age_ms = (
+                    self.get_clock().now().nanoseconds - source_stamp) / 1e6
+                backend = "cuda" if self.gpu_selector is not None else "cpu"
+                self.get_logger().info(
+                    f"TIMING backend={backend} callback_ms={elapsed_ms:.1f} "
+                    f"output_age_ms={output_age_ms:.1f} "
+                    f"max_input_age_ms={self.max_input_age_ms:.1f} "
+                    f"max_input_gap_ms={self.max_callback_gap_ms:.1f}")
+                self.last_timing_log = finished
+                self.max_callback_gap_ms = 0.0
+                self.max_input_age_ms = 0.0
         except TransformException as error:
             if self.can_defer():
                 return

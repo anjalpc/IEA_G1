@@ -1128,3 +1128,49 @@ These observations do not qualify autonomous obstacle avoidance.
 
 Run numerical processing with OPENBLAS_NUM_THREADS=1, OMP_NUM_THREADS=1 and
 MKL_NUM_THREADS=1. GPU acceleration has not yet been implemented or measured.
+
+### Optional diagnostic CUDA floor fitting — 2026-11-19
+
+The depth obstacle preview accepts compute_backend=cpu (default) or cuda.
+CUDA selection imports the optional CuPy module and warms it before sensor
+subscriptions start. Initialization or execution failure logs a warning
+and selects the CPU implementation. Input timestamps, exact-time TF,
+IMU matching, cloud-age checks and diagnostic-only endpoints are unchanged.
+Only floor fitting is accelerated; transforms and obstacle filtering
+remain on CPU. No Nav2 or locomotion connection is added.
+
+An isolated benchmark environment uses CuPy 14.2.0, NumPy 2.2.6 and CUDA
+runtime 12.9 on the RTX 3070 laptop. Three recorded wall frames measured
+median geometry times of 59.717 ms CPU and 15.554 ms GPU, including GPU
+transfers and synchronization but excluding ROS. Nine baseline/box
+snapshots had identical obstacle masks; seven floor regression inputs
+also agreed within a plane-component tolerance of 1e-5. Two additional
+prototype rejection cases agreed. These are offline comparisons, not
+live timing or autonomous-navigation qualification. The optional CuPy environment is now declared in the GPU image; its build and fresh-container CUDA floor-fitting smoke test passed.
+
+### Depth Wi-Fi delivery checkpoint — 2026-11-19
+
+The separate opt-in d435i_depth_wifi.yaml profile captures depth at
+848x480x15, disables color, infrared publication, camera IMU and stream
+synchronization, and enables magnitude-2 decimation. Verified driver output
+is 424x240 with updated CameraInfo. The existing d435i.yaml remains available.
+The reduced depth payload is approximately 24.4 Mbps before transport
+overhead, versus 97.7 Mbps at the original dimensions and same frame rate.
+
+Before decimation, PC2-local depth was steady while laptop-side images
+showed gaps over 400 ms. After decimation, the shown stationary image
+measurement was near 15 Hz with a maximum interval of 78 ms. The user
+confirmed the 12 cm box appeared and disappeared on removal. Subsequent
+logs reported sampled CUDA callbacks of 10–18 ms, output ages of 44–108 ms,
+and maximum reported input gaps up to 134 ms, without rejection transitions
+in that excerpt. This is bounded diagnostic evidence, not obstacle-avoidance
+or unrestricted-navigation qualification.
+
+The GPU Docker target declares an isolated /opt/iea-depth-gpu environment
+using depth-gpu-requirements.lock. CPU-image Python dependencies are not
+replaced. scripts/depth-obstacle-preview.sh selects the optional CUDA
+environment when present, otherwise CPU; explicit cpu selection is supported.
+The node also falls back with a warning if CUDA initialization/execution
+fails. The updated GPU image built successfully and a fresh-container CUDA floor-fitting smoke test passed. Fresh-container live-launch validation remains pending.
+The launcher starts only the diagnostic filter; sensors, robot TF and the
+upstream depth converter must already be running.
