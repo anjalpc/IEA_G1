@@ -143,3 +143,29 @@
 - Low-return median forward positions relative to camera floor projection: baseline 1.118 m; box50 0.534 m; box20 0.336 m. These are not toe-referenced distance measurements.
 
 - Stationary forward-box visibility supported. Moving obstacle retention, thin bars, side/rear coverage, measured clearance and autonomous avoidance remain unqualified. Depth is not connected to Nav2.
+
+## Depth reference-frame and nearby-floor checks — 2026-11-19
+
+- Recorded camera chain matches the expected model: torso_link to d435_link uses the pinned Unitree mount; d435_link to depth_frame is identity; depth optical rotation is (-0.5, 0.5, -0.5, 0.5). No extra transform identified; physical extrinsic accuracy remains unproven.
+
+- Upright target: approximate horizontal tape distance 1.00–1.01 m; fitted face perpendicular distance 1.0126 m, p95 plane residual 12.66 mm. This rough check does not establish full depth calibration. Scale unchanged.
+
+- Distant-region plane intercepts were not independent camera-height measurements. Unfiltered distant regions contained many elevated returns; the earlier masked preview showed only selected near-plane points.
+
+- Nearby baseline floor region: 0.4–0.8 m forward, lateral +/-0.4 m; 99.5 percent of points within 20 mm of the original reference plane.
+
+- Using the refined nearby floor and a 0–0.8 m forward region: baseline zero raised returns; box50 11445 returns with height p10/p50/p90 5.9/10.8/12.0 cm; box20 15281 returns at 6.4/11.7/12.7 cm. Selection height band 4–18 cm; percentiles describe selected surfaces, not independent box-height accuracy.
+
+- Cross-capture comparison assumes unchanged robot pose. No calibration, standing-height constant or live navigation input was changed. Next: read-only depth-obstacle output with timestamp, calibration and transform checks.
+
+## Read-only depth preview — 2026-11-19
+
+- Robot stayed in place; operator moved only the box. Eight geometry tests and recorded transform height-invariance check passed.
+
+- depth_image_proc installed in the current container; diagnostic cloud measured approximately 15 Hz and displayed in RViz with fixed frame pelvis.
+
+- Added depth_preview.launch.py and declared package/Docker dependencies. Perception package build/tests and installed launch passed. Updated-image rebuild and broader workspace gate pending.
+
+- Full cloud only: no floor filtering, obstacle qualification or connection to Nav2. Next: complete checkpoint validation and save it before adding diagnostic obstacle filtering.
+
+- Checkpoint validation: full ROS workspace 994 tests, 0 errors, 0 failures, 2 skipped; configuration validator and graphify update passed. Updated Docker-image rebuild remains pending.

@@ -1082,3 +1082,13 @@ The bounded manual Wi-Fi check recorded 258 samples at all five odometry stages,
 ### Nav2 binary-pin refresh — 2026-11-18
 
 The Nav2 lock retains upstream version 1.1.20 and pins the available November binary rebuilds of the same 35 packages. The September binaries were no longer available from the active ROS apt index. Installation simulation reported 35 upgrades, no additions, and no removals. Existing runtime measurements used the September binaries; the rebuilt image requires separate validation before live use. No installed packages in the running container were upgraded by this lock refresh.
+
+### Opt-in depth cloud preview — 2026-11-19
+
+
+
+g1_navigation_perception/depth_preview.launch.py starts only the upstream depth_image_proc point_cloud_xyz_node. It consumes /d435/depth/image_rect_raw and /d435/depth/camera_info and publishes the full, unfiltered cloud on /g1/diagnostics/depth/points, retaining the image timestamp and optical frame. It starts no camera driver, odometry authority, mapping, planner, controller or command node. This diagnostic topic is not a Nav2 input and provides no obstacle qualification or stopping guarantee.
+
+
+
+The development image declares ros-humble-depth-image-proc. The current container installation, perception package build/tests and installed preview launch passed. Rebuilding and validating the updated image remain pending. The temporary PC2 depth-only 848x480x15 profile used during these checks does not replace the persistent camera configuration.

@@ -36,3 +36,25 @@ def heights_above_plane(points, plane):
     if not np.isfinite(length) or length <= 0:
         raise ValueError("plane normal must have finite positive length")
     return points @ (plane[:3] / length) + plane[3] / length
+
+
+def transform_points(points, translation, quaternion_xyzw):
+    """Apply a source-to-target rigid transform to XYZ metres."""
+    points = np.asarray(points, dtype=float)
+    translation = np.asarray(translation, dtype=float)
+    quaternion = np.asarray(quaternion_xyzw, dtype=float)
+    if points.ndim != 2 or points.shape[1] != 3:
+        raise ValueError("points must have shape (N, 3)")
+    if not np.isfinite(points).all():
+        raise ValueError("points must be finite")
+    if translation.shape != (3,) or not np.isfinite(translation).all():
+        raise ValueError("translation must contain three finite values")
+    if quaternion.shape != (4,) or not np.isfinite(quaternion).all():
+        raise ValueError("quaternion must contain four finite values")
+    length = np.linalg.norm(quaternion)
+    if not np.isfinite(length) or abs(length - 1.0) > 0.001:
+        raise ValueError("quaternion must have unit length")
+    quaternion = quaternion / length
+    vector, scalar = quaternion[:3], quaternion[3]
+    cross = np.cross(vector, points)
+    return points + 2 * scalar * cross + 2 * np.cross(vector, cross) + translation

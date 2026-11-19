@@ -163,7 +163,7 @@ RUN apt-get update && \
     xargs -r apt-get install -y --no-install-recommends \
       < /tmp/nav2-packages.lock && \
     apt-get install -y --no-install-recommends \
-      ros-humble-pointcloud-to-laserscan \
+      ros-humble-pointcloud-to-laserscan ros-humble-depth-image-proc \
       ros-humble-rmw-cyclonedds-cpp \
       ros-humble-topic-tools ros-humble-rviz2 \
       ros-humble-slam-toolbox && \

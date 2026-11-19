@@ -68,3 +68,28 @@ def test_rejects_invalid_floor_planes():
     for plane in ([0., 0., 0., 1.], [0., 0., np.nan, 0.], [0., 1.]):
         with pytest.raises(ValueError, match="plane"):
             heights_above_plane([[0., 0., 0.]], plane)
+
+
+def test_rigid_transform_rotates_then_translates_without_mutation():
+    from g1_navigation_perception.depth_geometry import transform_points
+
+    points = np.array([[1., 0., 0.], [0., 0., 0.]])
+    original = points.copy()
+    q = [0., 0., np.sqrt(0.5), np.sqrt(0.5)]
+    result = transform_points(points, [1., 2., 3.], q)
+    np.testing.assert_allclose(result, [[1., 3., 3.], [1., 2., 3.]])
+    np.testing.assert_array_equal(points, original)
+    assert transform_points(np.empty((0, 3)), [0., 0., 0.], q).shape == (0, 3)
+
+
+def test_rigid_transform_rejects_invalid_inputs():
+    import pytest
+    from g1_navigation_perception.depth_geometry import transform_points
+
+    for points, translation, q in (
+            ([[0., 0., 0.]], [0., 0., 0.], [0., 0., 0., 0.]),
+            ([[0., 0., 0.]], [0., 0., 0.], [0., 0., 0., 2.]),
+            ([[0., 0., 0.]], [0., 0., np.nan], [0., 0., 0., 1.]),
+            ([[np.inf, 0., 0.]], [0., 0., 0.], [0., 0., 0., 1.])):
+        with pytest.raises(ValueError):
+            transform_points(points, translation, q)
