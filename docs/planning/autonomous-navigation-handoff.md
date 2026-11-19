@@ -183,3 +183,22 @@
 - Distance bounds 0.65–0.95 m were experimental replay settings, not universal walking limits. Ground identity, live freshness/TF handling and moving-operation robustness remain unqualified.
 
 - Next: read-only live diagnostic filtering with explicit unknown status and stale-output clearing. No Nav2 obstacle input or autonomous motion has been enabled.
+
+
+## Depth preview CPU checkpoint — 2026-11-19
+
+Live diagnostic floor selection now recovers the recorded near-wall view.
+The original full-region selection is preserved; height-prior filtering is
+a fallback only. Manual movement recovered without a new floor reference,
+but a roughly 0.41-second stale interruption remains unresolved.
+
+Next: profile CPU stages on saved recordings, then benchmark a batched GPU
+candidate including transfers and synchronization. Compare plane/obstacle
+outputs as well as latency. Retain CPU fallback and existing timestamp
+checks. No Nav2 obstacle input or robot command integration is authorized
+by this diagnostic checkpoint.
+
+Evidence: ros2_ws/log/glim_gpu_benchmark/depth-wall-floor-20261119-133753
+contains three wall-frame NPZ snapshots and the source recording.
+Earlier floor regression fixtures are in the perception package tests.
+Updated thesis notes outside the repository remain to be appended.

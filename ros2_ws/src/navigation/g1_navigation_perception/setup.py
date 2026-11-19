@@ -39,4 +39,7 @@ setup(
     ),
     license="Proprietary",
     extras_require={"test": ["pytest"]},
+    entry_points={"console_scripts": [
+        "depth_obstacle_preview = g1_navigation_perception.depth_obstacle_preview:main",
+    ]},
 )

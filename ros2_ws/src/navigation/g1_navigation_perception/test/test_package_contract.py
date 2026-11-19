@@ -1,5 +1,6 @@
 """Package contract for workstation navigation perception."""
 
+import ast
 from pathlib import Path
 import xml.etree.ElementTree as ET
 
@@ -65,10 +66,33 @@ def test_package_contains_no_custom_projection_algorithm():
     forbidden = (
         "PointCloud2ConstIterator",
         "laser_geometry",
-        "create_subscription(PointCloud2",
     )
 
     for path in source_root.glob("*.py"):
         source = path.read_text(encoding="utf-8")
+        if path.name != "depth_obstacle_preview.py":
+            assert "create_subscription(PointCloud2" not in source
         for token in forbidden:
             assert token not in source
+
+
+def test_depth_diagnostic_node_has_only_approved_endpoints():
+    path = PACKAGE_ROOT / PACKAGE_NAME / "depth_obstacle_preview.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    expected = {
+        "create_publisher": {
+            "/g1/diagnostics/depth/obstacles", "/g1/diagnostics/depth/status"},
+        "create_subscription": {
+            "/g1/diagnostics/depth/points", "/g1/state/imu_raw"},
+    }
+    for method, topics in expected.items():
+        actual = set()
+        for call in ast.walk(tree):
+            if not isinstance(call, ast.Call):
+                continue
+            if not isinstance(call.func, ast.Attribute) or call.func.attr != method:
+                continue
+            assert len(call.args) >= 2
+            assert isinstance(call.args[1], ast.Constant)
+            actual.add(call.args[1].value)
+        assert actual == topics

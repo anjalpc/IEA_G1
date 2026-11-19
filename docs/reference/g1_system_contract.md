@@ -1098,3 +1098,33 @@ The development image declares ros-humble-depth-image-proc. The current containe
 
 
 The perception geometry module fits candidate planes and performs deterministic sampled selection with explicit caller-supplied distance bounds. Diagnostic criteria currently use a 10-degree tilt limit, 20 mm inlier tolerance, at least 30 inliers and 35 percent sampled support. Insufficient supported geometry returns None. These criteria do not establish semantic ground identity: a raised surface inside the permitted distance band can still be ambiguous. The selector is not connected to live navigation or command generation.
+
+
+### Experimental live depth obstacle preview — 2026-11-19
+
+The opt-in depth_obstacle_preview node publishes only diagnostic obstacles
+and status, in pelvis coordinates. It is not connected to Nav2 or locomotion.
+Inputs retain their image timestamps and require exact-time TF, pelvis IMU
+matching within 50 ms, a maximum cloud age of 350 ms and at most 50 ms future
+offset. Missing or rejected context produces empty diagnostic output.
+A latest-cloud cache limits geometry processing to 10 Hz, with non-blocking
+TF retries. Brief deferral retains only previously published output that
+remains within its original freshness limit.
+
+Floor fitting uses the local forward region 0.2–1.2 m and lateral +/-0.4 m.
+The original selection runs first. If unsupported, a height-prior filter
+excludes points incompatible with the configured distance bounds and tilt
+limit before retrying selection. The 10-degree tilt, 20 mm inlier tolerance,
+30-point minimum and 35-percent support criteria remain; fallback support
+is measured over the filtered fitting inputs. All original points remain
+available for obstacle classification. This prior does not prove semantic
+ground identity, and raised surfaces may remain ambiguous.
+
+Recorded wall captures recovered candidate planes near 0.823 m below the
+pelvis. Earlier regression checks were preserved. A subsequent manual
+back-and-forward check reported no FLOOR_UNKNOWN or TF rejection, but one
+approximately 0.41-second stale/processing interruption remained.
+These observations do not qualify autonomous obstacle avoidance.
+
+Run numerical processing with OPENBLAS_NUM_THREADS=1, OMP_NUM_THREADS=1 and
+MKL_NUM_THREADS=1. GPU acceleration has not yet been implemented or measured.

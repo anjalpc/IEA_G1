@@ -112,16 +112,22 @@ def select_floor_plane(points, up_direction, *, distance_bounds):
     minimum = max(30, int(np.ceil(0.35 * len(sample))))
     rng = np.random.default_rng(42)
     best, best_support = None, 0
-    for _ in range(96):
+    for _ in range(192):
         try:
             plane = fit_floor_candidate(sample[rng.choice(len(sample), 3,
                                                          replace=False)], up)
             if not bounds[0] <= plane[3] <= bounds[1]:
                 continue
             mask = np.abs(heights_above_plane(sample, plane)) <= 0.02
-            if np.count_nonzero(mask) < minimum:
+            # Refine before enforcing the final support fraction.
+            if np.count_nonzero(mask) < 30:
                 continue
-            plane = fit_floor_candidate(sample[mask], up)
+            for refinement in range(4):
+                plane = fit_floor_candidate(sample[mask], up)
+                updated = np.abs(heights_above_plane(sample, plane)) <= 0.02
+                if np.count_nonzero(updated) < 30 or np.array_equal(updated, mask):
+                    break
+                mask = updated
         except ValueError:
             continue
         support = np.count_nonzero(
@@ -133,4 +139,12 @@ def select_floor_plane(points, up_direction, *, distance_bounds):
                     and support > best_support)
         if lower or stronger:
             best, best_support = plane, support
+    if best is None:
+        # Retry only after the original full-region selection has failed.
+        margin = np.linalg.norm(points, axis=1) * np.sin(np.deg2rad(10.0)) + 0.02
+        height = points @ up
+        plausible = points[(height >= -bounds[1] - margin)
+                           & (height <= -bounds[0] + margin)]
+        if 30 <= len(plausible) < len(points):
+            return select_floor_plane(plausible, up, distance_bounds=bounds)
     return best

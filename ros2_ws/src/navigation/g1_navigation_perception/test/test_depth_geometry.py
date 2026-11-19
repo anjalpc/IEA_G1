@@ -145,3 +145,56 @@ def test_floor_selection_returns_unknown_for_wall_or_outside_prior():
         x.ravel(), y.ravel(), np.full(x.size, -0.68)))
     assert select_floor_plane(
         raised_only, [0., 0., 1.], distance_bounds=(0.75, 0.9)) is None
+
+
+def test_refines_marginal_floor_hypothesis_before_final_support_gate():
+    from pathlib import Path
+    from g1_navigation_perception.depth_geometry import select_floor_plane
+    from g1_navigation_perception.depth_geometry import heights_above_plane
+
+    path = Path(__file__).parent / "data/floor_refinement_failure.npz"
+    with np.load(path) as data:
+        points, up = data["points"], data["up"]
+        plane = select_floor_plane(
+            points, up, distance_bounds=data["distance_bounds"])
+    assert plane is not None
+    support = np.mean(np.abs(heights_above_plane(points, plane)) <= 0.02)
+    assert support >= 0.35
+    assert 0.79 < plane[3] < 0.85
+
+
+def test_floor_selection_converges_on_recorded_flicker_frames():
+    from pathlib import Path
+    from g1_navigation_perception.depth_geometry import select_floor_plane
+    from g1_navigation_perception.depth_geometry import heights_above_plane
+
+    path = Path(__file__).parent / "data/floor_flicker_sequence.npz"
+    with np.load(path) as data:
+        for index, name in enumerate(data["frame_names"]):
+            points, up = data[f"points_{index}"], data[f"up_{index}"]
+            plane = select_floor_plane(points, up, distance_bounds=(0.65, 0.95))
+            assert plane is not None, str(name)
+            support = np.mean(np.abs(heights_above_plane(points, plane)) <= 0.02)
+            assert support >= 0.35, str(name)
+            assert 0.79 < plane[3] < 0.85, str(name)
+
+
+def test_floor_selection_handles_dominant_wall_without_mutating_input():
+    from g1_navigation_perception.depth_geometry import select_floor_plane
+
+    x, y = np.meshgrid(np.linspace(0.2, 0.8, 20),
+                       np.linspace(-0.3, 0.3, 20))
+    floor = np.column_stack((x.ravel(), y.ravel(), np.full(x.size, -0.8)))
+    lateral, height = np.meshgrid(np.linspace(-0.3, 0.3, 40),
+                                  np.linspace(-0.7, 0.3, 40))
+    wall = np.column_stack((np.full(lateral.size, 0.9),
+                            lateral.ravel(), height.ravel()))
+    points = np.vstack((floor, wall))
+    original = points.copy()
+    plane = select_floor_plane(points, [0., 0., 1.],
+                               distance_bounds=(0.65, 0.95))
+    assert plane is not None
+    np.testing.assert_allclose(plane, [0., 0., 1., 0.8], atol=0.01)
+    np.testing.assert_array_equal(points, original)
+    assert select_floor_plane(wall, [0., 0., 1.],
+                              distance_bounds=(0.65, 0.95)) is None
