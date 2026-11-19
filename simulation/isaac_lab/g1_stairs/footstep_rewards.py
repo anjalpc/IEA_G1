@@ -316,6 +316,37 @@ def cached_stance_knee_bend(env):
     return value
 
 
+# Patch 71: pelvis pitch free up to this on level ground. Unitree teacher
+# alone on flat: -0.1 deg; model_94100 6.8, 91700 9.8, 96100 13.4 deg.
+LEVEL_PITCH_DEADBAND_RAD = 0.0524  # 3 deg
+
+
+def level_pitch(projected_gravity_b, rows, deadband=LEVEL_PITCH_DEADBAND_RAD):
+    """Pelvis pitch beyond ``deadband`` [rad], either sign, on ``rows`` [N].
+
+    Patch 71. Pitch = asin(gravity x in the pelvis frame), + = forward lean.
+    Linear, unlike upright (flat_orientation_l2, quadratic): at 13 deg the
+    upright term charged 0.16/s per extra degree while the lean bought about
+    0.24/s per degree on the paid platform (model_91700 -> 96100: swing-leg
+    residual 1.80 -> 0.85 action units, residual_magnitude +0.33/s, target
+    hits +0.32/s, upright -0.35/s; doc g1-p70-lean-mechanism). The lean is
+    made at the stance hip and adds leg reach in place of residual. Level
+    ground only (flat tiles, platform after the climb): the stair approach
+    keeps its forward pitch (+2.2 deg before the 20 cm step at 91700, 10/10).
+    """
+    g_x = projected_gravity_b[:, 0].clamp(-1.0, 1.0)
+    excess = torch.clamp(torch.asin(g_x).abs() - deadband, min=0.0)
+    return torch.where(rows, excess, torch.zeros_like(excess))
+
+
+def cached_level_pitch(env):
+    """Pelvis pitch beyond the deadband on level ground, per second."""
+    value = getattr(env, "_g1_footstep_level_pitch", None)
+    if value is None or value.shape != (env.num_envs,):
+        raise RuntimeError("missing cached level pitch")
+    return value
+
+
 # Sole clearance above the riser edge that earns full lift credit. The
 # Unitree prior's swing sole clearance is ~1.5-2 cm, so a lift capped at
 # exactly the riser height still stubs the edge.

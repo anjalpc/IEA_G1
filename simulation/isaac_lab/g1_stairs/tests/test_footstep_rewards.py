@@ -307,6 +307,28 @@ class StanceKneeBendTests(unittest.TestCase):
             cached_stance_knee_bend(SimpleNamespace(num_envs=2))
 
 
+class LevelPitchTests(unittest.TestCase):
+    def test_charges_pitch_beyond_the_deadband_either_sign_on_rows(self):
+        import math
+        from simulation.isaac_lab.g1_stairs.footstep_rewards import (
+            LEVEL_PITCH_DEADBAND_RAD, level_pitch)
+        self.assertAlmostEqual(LEVEL_PITCH_DEADBAND_RAD, math.radians(3.0), places=3)
+        pitch = torch.tensor([0.0, 0.03, 0.2, -0.2, 0.2])   # rad, + = forward
+        gravity = torch.stack([torch.sin(pitch), torch.zeros(5), -torch.cos(pitch)], dim=-1)
+        rows = torch.tensor([True, True, True, True, False])
+        excess = 0.2 - LEVEL_PITCH_DEADBAND_RAD
+        torch.testing.assert_close(
+            level_pitch(gravity, rows), torch.tensor([0.0, 0.0, excess, excess, 0.0]))
+
+    def test_reads_cached_value_per_second(self):
+        from types import SimpleNamespace
+        from simulation.isaac_lab.g1_stairs.footstep_rewards import cached_level_pitch
+        env = SimpleNamespace(num_envs=2, _g1_footstep_level_pitch=torch.tensor([0.0, 0.1]))
+        torch.testing.assert_close(cached_level_pitch(env), torch.tensor([0.0, 0.1]))
+        with self.assertRaises(RuntimeError):
+            cached_level_pitch(SimpleNamespace(num_envs=2))
+
+
 class OffBeatRewardTests(unittest.TestCase):
     def test_reads_cached_count_per_event(self):
         from types import SimpleNamespace

@@ -188,6 +188,8 @@ reward_experiment:
         # could still beat a riskier 50 cm alternating stride.
         off_beat_step: -1.0
         stance_knee_bend: -10.0
+        # Patch 71: pelvis pitch beyond 3 deg on level ground (see the resume config).
+        level_pitch: -15.0
         # Landing impact, per touchdown: ((v - 0.3) / 0.3)^2 for the sole
         # downward speed v above 0.3 m/s (Unitree prior 0.20). Run
         # 20261031_212003 model_3700: 0.48 m/s flat, 0.81 m/s stairs (p90

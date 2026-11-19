@@ -361,6 +361,11 @@ def audit_after_step(env):
             env._g1_knee_joint_ids = knee_ids
         env._g1_footstep_stance_knee_bend = stance_knee_bend(
             data.joint_pos[:, knee_ids], ~scheduled, keep & ~clock_state.on_plan)
+        # Patch 71: forward lean on level ground (flat tiles, platform after
+        # the climb); the stair approach and the stairs are not charged.
+        from .footstep_rewards import level_pitch
+        level_rows = keep & ((riser_height_per_env(env) <= 0.0) | clock_state.climbed)
+        env._g1_footstep_level_pitch = level_pitch(data.projected_gravity_b, level_rows)
         # Landing impact on all tiles (before prev_supported moves on).
         sole_vz = sole_velocity[..., 2]
         impact = landing_impact(

@@ -5,7 +5,7 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Patch 70. Resume patch 68 run 20261118_092203 model_94100 (flat no skid, first step 0.16 s, turn within 0.04 deg/s; 20 cm 7/10 strict) for 2000 iterations (to about 14:45) with the platform after the climb paid again (footstep_clock.level_rewards_paid_after_climb); flat tiles stay unpaid except the first second of a move; patch 69's 0.56 s level clock removed (same contract as patch 68 otherwise). Under patch 68 / 69 the unpaid platform scored -1.2..-2.4 reward/s against -1 for a fall (91700 under the paid platform +9.5/s), so completing a climb lost its value; 20 cm stair-approach pitch drifted +3.5 (91700) -> -0.4 (94100) -> -5.5 deg (103100) and 20 cm fell 10/10 -> 7/10 -> 0/10. Patch 67 (platform paid) kept 20 cm 9/9. Pass, same robots, 20 cm >= 9/10 strict, 20 cm approach pitch >= +2 deg, 2-19 cm no worse than 91700; flat no worse than 94100 (no skid, sole lift >= 2 cm, stance slip <= 2%, touchdowns = scheduled, speed >= 0.32 at 0.35, turn within 0.1 deg/s, first step <= 0.25 s); platform skid <= 1 cm, lift >= 2 cm.
+  purpose: Patch 71. Resume patch 70 run 20261119_094854 model_96100 (20 cm 9/10 strict with the best heel margins so far, flat no skid, touchdowns on schedule, landings on target, 0.35 m/s; but pelvis lean 13.4 deg flat, 11.4 platform) for 7500 iterations (overnight, to about 07:30) with the same rules on all level ground (footstep and clock rewards paid on flat tiles and the platform alike; patch 68-70 level_rewards_off removed) and a new level_pitch cost, -15 per rad of pelvis pitch beyond 3 deg on level ground only (flat tiles, platform after the climb; not the stair approach or the stairs). The lean replaces swing-leg residual (91700 -> 96100 swing |residual| 1.80 -> 0.85, made at the stance hip) and bought about 0.24/s per degree on the paid platform against 0.16/s per degree of quadratic upright cost (doc g1-p70-lean-mechanism). Pass, same robots, flat and platform pelvis pitch <= 6 deg; flat no skid, touchdowns = scheduled, speed >= 0.33, lift >= 2 cm; 20 cm >= 9/10 strict; 8-19 cm no worse than 96100; event-aligned pitch before the first 20 cm step >= 0 deg. Stop early, 40% checkpoint with flat pitch not below 10 deg, or 20 cm below 7/10, or flat skid / double touchdowns back (91700-style).
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -56,9 +56,8 @@ terrain:
     # frontier, frontier. Levels index riser_heights_m.
     type: clean_climb
     # Curriculum state is not saved in checkpoints: resume it from the
-    # patch 68 run (mastered 19 cm, 20 cm training clean 0.34). Patch 69
-    # (run 20261118_150939) ended at 20 cm training clean 0 and is discarded.
-    # Deterministic 94100 replays: 19 cm 10/9, 20 cm 7/10.
+    # patch 70 run (training ended mastered 20 cm, 20 cm clean 0.47, 19 cm
+    # 0.70). Deterministic 96100 replays: 19 cm 10/10, 20 cm 9/10 strict.
     # Levels index riser_heights_m: level 13 = 19 cm, level 14 = 20 cm.
     initial_level: 14
     # Review envs draw from 2-19 cm, weighted towards the weakest (patch 62).
@@ -113,24 +112,11 @@ footstep_clock:
   # from the per-height cycle and swing columns of trace_report.py.
   period_stairs_per_m: 2.15
   period_stairs_rise_from_m: 0.06
-  # Patch 68: footstep and clock rewards unpaid on level ground (flat tiles
-  # and after the climb): there the teacher's own walk is the target, and
-  # paid target hits produced short, skidding clock-compliant steps (patch
-  # 67, run 20261117_112347). Approach and stairs keep every term.
-  level_rewards_off: true
-  # ... except in the first second of a move (from reset or standing): the
-  # averaged teacher alone waits 0.5 s for its first step while the pelvis
-  # runs 8-12 cm ahead; the clock's first targets pay a prompt start (91700
-  # lifts its first foot at 0.16 s under the same rewards).
-  level_rewards_start_s: 1.0
-  # Patch 70: the platform after the climb stays paid (flat tiles stay
-  # unpaid). Unpaid, it scored -1.2..-2.4/s (climb-end yaw transient,
-  # residual, posture) against -1 once for a fall, so finishing a climb was
-  # worth less than falling: patches 68-69 lost 20 cm 10/10 -> 0/10 while the
-  # stair posture leaned back (runs 20261118_092203 / 150939). Patch 69's
-  # 0.56 s level clock is removed: under training it produced a 0.8 cm-lift
-  # shuffle with 6.7 touchdowns/s on all level ground (as in patch 67).
-  level_rewards_paid_after_climb: true
+  # Patches 68-70 left footstep and clock rewards unpaid on level ground
+  # (level_rewards_off). Patch 71 removes that: flat tiles and the platform
+  # look identical to the policy and share one gait, so they get one set of
+  # rules (patch 70: flat unpaid, platform paid, flat copied the paid
+  # platform gait). The level-ground lean is charged by level_pitch.
   period_jitter: 0.1
   # Stride (two steps) = speed x cycle time, capped here: above the cap only
   # the rhythm gets quicker.
@@ -140,7 +126,7 @@ execution:
   environments: 4096
   # Resumed run: 11500 more iterations after the checkpoint's own (patch 63,
   # Sunday to Monday 08:00, about 21.6 h on g6; checkpoints every 50).
-  maximum_iterations: 2000
+  maximum_iterations: 7500
   training_seed: 42
 # Residual on the frozen official Unitree policy (balance_residual_control);
 # the actor sees all 688 inputs. Policy, critic, optimizer and learning rate
@@ -149,8 +135,8 @@ execution:
 policy_initialization:
   type: rsl_rl_training_resume
   source:
-    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261118_092203/model_94100.pt
-    sha256: c2adb8b6a596f6d590a5fa2b24e48a50462c7a068469b0b117d3fa76f833336d
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261119_094854/model_96100.pt
+    sha256: FILL_ON_AWS
   critic_initialization: restored
   optimizer_initialization: restored
   locomotion_observations: 480
@@ -321,6 +307,13 @@ reward_experiment:
         # could still beat a riskier 50 cm alternating stride.
         off_beat_step: -1.0
         stance_knee_bend: -10.0
+        # Patch 71: pelvis pitch beyond 3 deg (either sign) on level ground
+        # only (flat tiles, platform after the climb), per rad per second.
+        # Linear: 0.26/s per degree, against the ~0.24/s per degree the lean
+        # bought on the paid platform (91700 -> 96100) and upright's 0.16.
+        # Cost at the traced postures: 94100 0.96/s, 91700 1.78, 96100 2.66
+        # (flat); stair approach and stairs 0.
+        level_pitch: -15.0
         # Landing impact, per touchdown: ((v - 0.3) / 0.3)^2 for the sole
         # downward speed v above 0.3 m/s (Unitree prior 0.20). Run
         # 20261031_212003 model_3700: 0.48 m/s flat, 0.81 m/s stairs (p90

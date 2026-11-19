@@ -45,6 +45,7 @@ BEHAVIOUR = (
     ("Toe hits step edge", "Episode_Reward/foot_stumble", "down", True),
     ("Hard landings", "Episode_Reward/landing_impact", "down", True),
     ("Crouch off the stairs", "Episode_Reward/stance_knee_bend", "down", True),
+    ("Lean on level ground", "Episode_Reward/level_pitch", "down", True),
     ("Unwanted turning", "Episode_Reward/uncommanded_yaw", "down", True),
     ("Speed error m/s", "Metrics/base_velocity/error_vel_xy", "down", False),
     ("Episode length s", "Mean episode length", "up", False),
