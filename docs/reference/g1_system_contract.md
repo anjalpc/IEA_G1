@@ -180,7 +180,7 @@ native Unitree domain-0 LowState helper. The physical interaction entry point
 pins this PC2 wired configuration explicitly and does not inherit an ambient
 `CYCLONEDDS_URI`.
 
-The workstation uses pinned CPU-only GLIM 1.2.2 packages. GLIM consumes the
+The workstation uses pinned GLIM 1.2.2 packages with CPU odometry selected by default. GLIM consumes the
 raw cloud and MID-360 IMU, uses absolute nanosecond per-point timestamps,
 applies the Livox acceleration scale `9.80665`, and runs odometry estimation
 with local and global GLIM mapping disabled. SLAM Toolbox or AMCL, not GLIM,
@@ -775,6 +775,13 @@ peripheral hardware directly.
 
 Dependency definition: [`docker/development/Dockerfile`](../../docker/development/Dockerfile).
 
+The Docker `cpu` target uses `glim-packages.lock`; the optional `gpu` target
+replaces the three CPU GLIM packages using `glim-gpu-packages.lock` and installs
+CUDA runtime 12.2.140. NVIDIA driver support comes from the host.
+GPU GLIM remains experimental: stationary replay showed no clear CPU-time
+benefit. GPU availability does not select the GPU estimator or authorize motion.
+Both variants retain the existing odometry health and DDS isolation boundaries.
+
 ## Model and policy assets
 
 ### Active local assets
@@ -1053,3 +1060,7 @@ Update this document in the same change whenever any of these change:
 
 After such a change, run `simulation/mujoco/validate_config.py`, the stair geometry
 tests, and `graphify update .`.
+
+### Nav2 binary-pin refresh — 2026-11-18
+
+The Nav2 lock retains upstream version 1.1.20 and pins the available November binary rebuilds of the same 35 packages. The September binaries were no longer available from the active ROS apt index. Installation simulation reported 35 upgrades, no additions, and no removals. Existing runtime measurements used the September binaries; the rebuilt image requires separate validation before live use. No installed packages in the running container were upgraded by this lock refresh.

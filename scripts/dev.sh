@@ -61,12 +61,21 @@ export HOST_UID="$(id -u)"
 export HOST_GID="$(id -g)"
 cd "${DOCKER_DIR}"
 
+
+compose_files=(-f docker-compose.yml)
+if [[ "${action}" != "stop" ]] && command -v nvidia-smi >/dev/null 2>&1 &&
+    nvidia-smi >/dev/null 2>&1 &&
+    docker info --format "{{json .Runtimes}}" 2>/dev/null | grep -q nvidia; then
+    compose_files+=(-f docker-compose.gpu.yml)
+    echo "GPU: NVIDIA enabled"
+else
+    echo "GPU: CPU configuration"
+fi
 if [[ "${action}" == "build" ]]; then
-    docker compose -f docker-compose.yml build "${SERVICE}"
+    docker compose "${compose_files[@]}" build "${SERVICE}"
     exit 0
 fi
 
-compose_files=(-f docker-compose.yml)
 if [[ "${gui}" == true && "${action}" != "stop" ]]; then
     if [[ ! -d /dev/dri || -z "${DISPLAY:-}" ]]; then
         echo "ERROR: --gui requires /dev/dri and an active X11 DISPLAY." >&2

@@ -1,4 +1,4 @@
-FROM ros:humble-ros-base-jammy
+FROM ros:humble-ros-base-jammy AS cpu
 
 ENV DEBIAN_FRONTEND=noninteractive
 
@@ -165,7 +165,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends \
       ros-humble-pointcloud-to-laserscan \
       ros-humble-rmw-cyclonedds-cpp \
-      ros-humble-rviz2 \
+      ros-humble-topic-tools ros-humble-rviz2 \
       ros-humble-slam-toolbox && \
     rm -rf /var/lib/apt/lists/*
 
@@ -205,3 +205,18 @@ USER dev
 WORKDIR /workspace/IEA_G1
 
 CMD ["bash"]
+
+FROM cpu AS gpu
+USER root
+COPY glim-gpu-packages.lock /tmp/glim-gpu-packages.lock
+RUN curl -fsSL \
+      https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2204/x86_64/cuda-keyring_1.1-1_all.deb \
+      -o /tmp/cuda-keyring.deb && \
+    dpkg -i /tmp/cuda-keyring.deb && \
+    apt-get update && \
+    xargs -r apt-get install -y --no-install-recommends \
+      libgtsam-points-dev- ros-humble-glim- ros-humble-glim-ros- \
+      < /tmp/glim-gpu-packages.lock && \
+    ldconfig && \
+    rm -rf /var/lib/apt/lists/* /tmp/cuda-keyring.deb
+USER dev

@@ -1,0 +1,8 @@
+services:
+  iea_g1_dev:
+    image: iea_g1_dev:humble-gpu
+    build:
+      target: gpu
+    gpus: all
+    environment:
+      NVIDIA_DRIVER_CAPABILITIES: compute,utility,graphics,display,video

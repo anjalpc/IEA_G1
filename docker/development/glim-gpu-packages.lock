@@ -1,0 +1,7 @@
+libgtsam-points-cuda12.2-dev=1.2.2
+ros-humble-glim-cuda12.2=1.2.2-0jammy
+ros-humble-glim-ros-cuda12.2=1.2.2-0jammy
+cuda-cudart-12-2=12.2.140-1
+cuda-toolkit-12-2-config-common=12.2.140-1
+cuda-toolkit-12-config-common=12.9.79-1
+cuda-toolkit-config-common=13.5.37-1

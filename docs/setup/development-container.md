@@ -165,3 +165,16 @@ The file is ignored by Git. Without `--proxy`, proxy variables are cleared.
 Start an already-built container with:
 
     ./scripts/dev.sh start --headless --no-build
+
+## Automatic NVIDIA image selection
+
+The launcher checks `nvidia-smi` and the Docker NVIDIA runtime. When available,
+it adds `docker-compose.gpu.yml`, selecting target `gpu` and image
+`iea_g1_dev:humble-gpu`; otherwise it selects target `cpu` and `iea_g1_dev:humble`.
+The GPU image pins its additional dependencies in `glim-gpu-packages.lock`.
+Normal build and start commands use this selection. Headless shell entry
+reuses an already-running container without changing its image or GPU access.
+GPU libraries do not change the default CPU GLIM navigation profile.
+The experimental GPU profile and replay evidence are under
+`ros2_ws/log/glim_gpu_benchmark/`; this ignored directory is local evidence,
+not a version-controlled deployment profile.
