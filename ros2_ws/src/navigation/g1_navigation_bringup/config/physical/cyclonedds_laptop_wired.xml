@@ -4,7 +4,7 @@
     <General>
       <Interfaces>
         <NetworkInterface
-          name="enp2s0f0"
+          name="eno1"
           multicast="false"/>
       </Interfaces>
       <AllowMulticast>false</AllowMulticast>

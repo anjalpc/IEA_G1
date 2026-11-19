@@ -170,7 +170,7 @@ PC2 publishes these observations on ROS application domain `42`:
 
 Project-owned wired CycloneDDS configurations live under
 `g1_navigation_bringup/config/physical`. They bind the workstation to
-`enp2s0f0` at `192.168.123.99` and PC2 to `eth0` at
+`eno1` at `192.168.123.99` and PC2 to `eth0` at
 `192.168.123.164`, disable multicast, and use explicit peers. Both sides use
 automatic participant indices through `63`; PC2 lists both the workstation
 and itself so cross-machine discovery and local diagnostics use predictable
