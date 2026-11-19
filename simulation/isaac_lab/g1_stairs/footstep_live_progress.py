@@ -637,7 +637,14 @@ def audit_after_step(env):
     env._g1_footstep_since_advance = since
     if clock_state is not None and env.cfg.footstep_clock.get("level_rewards_off", False):
         from .footstep_clock import unpay_level_ground
-        level = rolling_rows & ((riser_height_per_env(env) <= 0.0) | clock_state.climbed)
+        level = riser_height_per_env(env) <= 0.0
+        if not env.cfg.footstep_clock.get("level_rewards_paid_after_climb", False):
+            # Patch 70 option: with it set, the platform after a climb stays
+            # paid. Unpaid, the platform scores -1.2..-2.4/s (climb-end yaw
+            # transient, residual, posture) against -1 for a fall, so finishing
+            # a climb is worth less than falling (runs 20261118_092203/150939).
+            level = level | clock_state.climbed
+        level = rolling_rows & level
         start_s = env.cfg.footstep_clock.get("level_rewards_start_s", 0.0)
         if start_s > 0.0:
             # The first seconds of a move (from reset or standing) keep the

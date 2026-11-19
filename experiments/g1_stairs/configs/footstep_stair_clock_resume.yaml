@@ -5,7 +5,7 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Patch 69. Resume patch 68 run 20261118_092203 model_94100 (same robots, flat no heel skid, first step 0.16 s, turn within 0.04 deg/s, but step 420 ms on the old clock, legs nearly straight 0.07 rad, roll 26 deg/s, lean 6.8 deg; 20 cm 7/10) for 9000 iterations with the level-ground clock at the teacher's 0.56 s rhythm; level rewards stay off except the first second of a move. Replay of 94100 with a 0.56 s level clock moved its step time 420 -> 280 ms (teacher 280) without other change, so the policy steps to the clock it sees; with the clock on the teacher's rhythm the residual can fall towards zero on flat (flat residual cost 1.06 -> 0.60 per s over patch 68). Curriculum mastered 19 cm, frontier 20 cm. Pass, same robots, flat step time 280 ms (sd <= 10), lowest knee >= 0.2 rad, roll rate <= 15 deg/s, lean <= 3 deg, no skid, turn within 0.1 deg/s, first step <= 0.25 s; 20 cm >= 9/10 strict; 2-19 cm no worse than 91700.
+  purpose: Patch 70. Resume patch 68 run 20261118_092203 model_94100 (flat no skid, first step 0.16 s, turn within 0.04 deg/s; 20 cm 7/10 strict) for 2000 iterations (to about 14:45) with the platform after the climb paid again (footstep_clock.level_rewards_paid_after_climb); flat tiles stay unpaid except the first second of a move; patch 69's 0.56 s level clock removed (same contract as patch 68 otherwise). Under patch 68 / 69 the unpaid platform scored -1.2..-2.4 reward/s against -1 for a fall (91700 under the paid platform +9.5/s), so completing a climb lost its value; 20 cm stair-approach pitch drifted +3.5 (91700) -> -0.4 (94100) -> -5.5 deg (103100) and 20 cm fell 10/10 -> 7/10 -> 0/10. Patch 67 (platform paid) kept 20 cm 9/9. Pass, same robots, 20 cm >= 9/10 strict, 20 cm approach pitch >= +2 deg, 2-19 cm no worse than 91700; flat no worse than 94100 (no skid, sole lift >= 2 cm, stance slip <= 2%, touchdowns = scheduled, speed >= 0.32 at 0.35, turn within 0.1 deg/s, first step <= 0.25 s); platform skid <= 1 cm, lift >= 2 cm.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -56,7 +56,8 @@ terrain:
     # frontier, frontier. Levels index riser_heights_m.
     type: clean_climb
     # Curriculum state is not saved in checkpoints: resume it from the
-    # patch 68 run (mastered 19 cm, 20 cm training clean 0.34).
+    # patch 68 run (mastered 19 cm, 20 cm training clean 0.34). Patch 69
+    # (run 20261118_150939) ended at 20 cm training clean 0 and is discarded.
     # Deterministic 94100 replays: 19 cm 10/9, 20 cm 7/10.
     # Levels index riser_heights_m: level 13 = 19 cm, level 14 = 20 cm.
     initial_level: 14
@@ -122,11 +123,14 @@ footstep_clock:
   # runs 8-12 cm ahead; the clock's first targets pay a prompt start (91700
   # lifts its first foot at 0.16 s under the same rewards).
   level_rewards_start_s: 1.0
-  # Patch 69: the level-ground clock at the frozen teacher's own rhythm
-  # (0.56 s cycle at every speed, no jitter). The policy steps to the clock
-  # it observes (94100 replay: step time 420 -> 280 ms with this cycle), so
-  # zero residual and the observed clock now agree on flat ground.
-  period_level_s: 0.56
+  # Patch 70: the platform after the climb stays paid (flat tiles stay
+  # unpaid). Unpaid, it scored -1.2..-2.4/s (climb-end yaw transient,
+  # residual, posture) against -1 once for a fall, so finishing a climb was
+  # worth less than falling: patches 68-69 lost 20 cm 10/10 -> 0/10 while the
+  # stair posture leaned back (runs 20261118_092203 / 150939). Patch 69's
+  # 0.56 s level clock is removed: under training it produced a 0.8 cm-lift
+  # shuffle with 6.7 touchdowns/s on all level ground (as in patch 67).
+  level_rewards_paid_after_climb: true
   period_jitter: 0.1
   # Stride (two steps) = speed x cycle time, capped here: above the cap only
   # the rhythm gets quicker.
@@ -136,7 +140,7 @@ execution:
   environments: 4096
   # Resumed run: 11500 more iterations after the checkpoint's own (patch 63,
   # Sunday to Monday 08:00, about 21.6 h on g6; checkpoints every 50).
-  maximum_iterations: 9000
+  maximum_iterations: 2000
   training_seed: 42
 # Residual on the frozen official Unitree policy (balance_residual_control);
 # the actor sees all 688 inputs. Policy, critic, optimizer and learning rate

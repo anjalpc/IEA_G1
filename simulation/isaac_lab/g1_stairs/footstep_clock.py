@@ -73,7 +73,7 @@ def validate_clock_cfg(cfg) -> dict | None:
     required = {"enabled", "period_slow_s", "period_fast_s", "period_stairs_s",
                 "period_jitter", "max_stride_m"}
     optional = {"period_stairs_per_m", "period_stairs_rise_from_m", "period_level_s",
-                "level_rewards_off", "level_rewards_start_s"}
+                "level_rewards_off", "level_rewards_start_s", "level_rewards_paid_after_climb"}
     unknown = set(cfg) - required - optional
     if unknown:
         raise ValueError(f"unknown footstep_clock keys: {sorted(unknown)}")
@@ -113,6 +113,11 @@ def validate_clock_cfg(cfg) -> dict | None:
         raise ValueError("footstep_clock.level_rewards_start_s must be in [0, 3] and needs level_rewards_off")
     if start > 0.0:
         out_level["level_rewards_start_s"] = start
+    after = cfg.get("level_rewards_paid_after_climb", False)
+    if not isinstance(after, bool) or (after and not off):
+        raise ValueError("footstep_clock.level_rewards_paid_after_climb must be true or false and needs level_rewards_off")
+    if after:
+        out_level["level_rewards_paid_after_climb"] = True
     return {**out_level, "enabled": True, "period_slow_s": slow, "period_fast_s": fast,
             "period_stairs_s": stairs, "period_stairs_per_m": per_m,
             "period_stairs_rise_from_m": rise_from,
