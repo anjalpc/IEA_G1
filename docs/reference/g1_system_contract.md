@@ -295,13 +295,13 @@ window is used to fill a gap.
 ### Physical LowState source
 
 On PC2, `g1_hardware_bridge` owns one read-only physical source for measured
-waist and pelvis IMU state. The isolated native helper subscribes once to
+body-joint and pelvis IMU state. The isolated native helper subscribes once to
 Unitree `rt/lowstate` on DDS domain `0`; it creates no command publisher and
 never writes robot state.
 
 Each accepted native tick produces one atomic sample containing:
 
-- waist yaw, roll, and pitch positions;
+- all 29 measured body positions, plus retained legacy waist fields;
 - pelvis IMU quaternion in Unitree `wxyz` order;
 - pelvis angular velocity;
 - pelvis linear acceleration.
@@ -322,7 +322,9 @@ The hardware indices for mode-machine `5` are:
 | 13 | `waist_roll_joint` |
 | 14 | `waist_pitch_joint` |
 
-Joint output order is yaw, roll, then pitch. All motor and IMU values must be
+Full-body joint output follows `sdk_order` in
+`simulation/mujoco/config/joint_mapping.yaml`. Legacy payloads retain
+waist yaw, roll, then pitch. All motor and IMU values must be
 finite, the quaternion must have unit length within the declared tolerance,
 and the native tick must advance. Invalid IMU data rejects the entire atomic
 sample rather than releasing partial joint state.
@@ -429,7 +431,10 @@ This package consumes no hardware. Its installed
 consumes the three measured waist positions from `/joint_states`.
 
 The installed `physical_robot_state.launch.py` derives a runtime-only
-physical description from the same URDF. It requires exactly one
+physical description from the pinned full URDF and its 34 visual meshes.
+Unitree rubber-hand links are omitted. BrainCo visuals follow measured wrists
+with fixed fingers and relaxed thumbs; finger positions are not measured.
+It requires exactly one
 `mid360_joint`, preserves its translation and pitch, and changes its
 roll from zero to pi for the verified upside-down physical mount. It
 does not modify the standard source URDF used by simulation.

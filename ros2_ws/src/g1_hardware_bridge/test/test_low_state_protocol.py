@@ -134,7 +134,7 @@ def test_rate_limits_advancing_ticks_without_sleeping():
     assert due["tick"] == 12
 
 
-def test_encodes_only_minimal_protocol_fields():
+def test_encodes_atomic_protocol_fields():
     imu = imu_measurement()
     sample = normalize_atomic_sample(
         tick=123,
@@ -154,9 +154,11 @@ def test_encodes_only_minimal_protocol_fields():
         "orientation_wxyz": [0.5, 0.5, 0.5, 0.5],
         "positions": [0.12, -0.13, 0.14],
         "tick": 123,
+        "body_positions": motor_positions(),
     }
     assert set(payload) == {
         "tick",
+        "body_positions",
         "positions",
         "orientation_wxyz",
         "angular_velocity_xyz",
@@ -230,6 +232,7 @@ def test_normalizes_one_atomic_low_state_sample():
         linear_acceleration_xyz=imu["linear_acceleration_xyz"],
     ) == {
         "tick": 123,
+        "body_positions": motor_positions(),
         "positions": [0.12, -0.13, 0.14],
         "orientation_wxyz": [0.5, 0.5, 0.5, 0.5],
         "angular_velocity_xyz": [0.1, -0.2, 0.3],
@@ -317,3 +320,25 @@ def test_invalid_atomic_sample_does_not_consume_tick():
     )
 
     assert accepted["tick"] == 10
+
+
+def test_atomic_body_positions_round_trip():
+    positions = motor_positions()
+    sample = normalize_atomic_sample(
+        tick=123, motor_positions=positions, **imu_measurement()
+    )
+    assert sample["positions"] == [0.12, -0.13, 0.14]
+    assert sample["body_positions"] == positions
+    assert decode_sample(encode_sample(sample)) == sample
+
+
+@pytest.mark.parametrize("positions", [
+    [0.0] * 28, [0.0] * 30, [math.nan] + [0.0] * 28
+])
+def test_rejects_malformed_body_positions(positions):
+    sample = normalize_atomic_sample(
+        tick=123, motor_positions=motor_positions(), **imu_measurement()
+    )
+    sample["body_positions"] = positions
+    with pytest.raises(ValueError):
+        encode_sample(sample)

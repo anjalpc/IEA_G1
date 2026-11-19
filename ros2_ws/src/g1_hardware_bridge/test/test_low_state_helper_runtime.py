@@ -83,6 +83,7 @@ def test_initializes_read_only_domain_zero_subscriber():
 
     assert subscriber.callback(low_state()) is True
     assert decode_sample(lines[0]) == {
+        "body_positions": [motor.q for motor in low_state().motor_state],
         "tick": 123,
         "positions": [0.12, 0.13, 0.14],
         "orientation_wxyz": [1.0, 0.0, 0.0, 0.0],

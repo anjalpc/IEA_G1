@@ -25,3 +25,7 @@ subset must not represent them as Unitree rubber hands.
 
 Every retained joint origin, axis, type, and limit must be covered by
 contract tests against the values recorded from this pinned source.
+
+## Physical RViz display
+
+The physical launch uses vendor/g1_29dof.urdf and 34 meshes from the pinned revision above. It removes Unitree rubber-hand links and joints, preserves all 29 measured body joints and navigation transforms, and applies the verified physical MID-360 inversion. The simulation kinematic subset remains unchanged. BrainCo Revo2 static hand visuals with relaxed thumbs use the mounts from simulation/mujoco/model_composition.py; finger motion is not measured. These visuals do not change planner collision checking or filter sensor data.

@@ -4,3 +4,9 @@ simulation/mujoco/vendor/** whitespace=-trailing-space,-blank-at-eof
 
 # Unified diffs require a leading context marker on otherwise blank lines.
 vendor/**/*.patch whitespace=-trailing-space,-blank-at-eof
+
+# Preserve pinned physical-display assets exactly as redistributed.
+
+ros2_ws/src/navigation/g1_robot_description/vendor/g1_29dof.urdf -text whitespace=cr-at-eol
+
+ros2_ws/src/navigation/g1_robot_description/vendor/brainco_revo2/** -text whitespace=-trailing-space,-blank-at-eof

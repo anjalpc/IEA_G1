@@ -10,6 +10,18 @@ JOINT_NAMES = (
     "waist_roll_joint",
     "waist_pitch_joint",
 )
+BODY_JOINT_NAMES = tuple(
+    f"{side}_{joint}_joint"
+    for side in ("left", "right")
+    for joint in ("hip_pitch", "hip_roll", "hip_yaw",
+                  "knee", "ankle_pitch", "ankle_roll")
+) + JOINT_NAMES + tuple(
+    f"{side}_{joint}_joint"
+    for side in ("left", "right")
+    for joint in ("shoulder_pitch", "shoulder_roll", "shoulder_yaw",
+                  "elbow", "wrist_roll", "wrist_pitch", "wrist_yaw")
+)
+
 JOINT_INDICES = (12, 13, 14)
 OUTPUT_PREFIX = "LOW_STATE="
 
@@ -118,6 +130,9 @@ def normalize_atomic_sample(
         tick,
         motor_positions,
     )
+    sample["body_positions"] = list(_validated_vector(
+        "body_positions", motor_positions[:29], 29
+    ))
     sample["orientation_wxyz"] = list(
         _validated_orientation_wxyz(
             orientation_wxyz
@@ -145,13 +160,16 @@ def _validated_protocol_sample(sample):
         raise TypeError(
             "LowState payload must be a JSON object"
         )
-    if set(sample) != _PROTOCOL_FIELDS:
+    if set(sample) - {"body_positions"} != _PROTOCOL_FIELDS:
         raise ValueError(
             "LowState payload fields are invalid"
         )
 
     return {
         "tick": _validated_tick(sample["tick"]),
+        **({"body_positions": list(_validated_vector(
+            "body_positions", sample["body_positions"], 29
+        ))} if "body_positions" in sample else {}),
         "positions": list(
             _validated_waist_positions(
                 sample["positions"]

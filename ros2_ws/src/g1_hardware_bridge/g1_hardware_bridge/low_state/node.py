@@ -25,6 +25,7 @@ from g1_hardware_bridge.low_state.monitor import (
 )
 from g1_hardware_bridge.low_state.protocol import (
     JOINT_NAMES,
+    BODY_JOINT_NAMES,
 )
 from g1_hardware_bridge.native_runtime import (
     native_dds_environment,
@@ -61,8 +62,11 @@ def build_joint_state_message(sample, stamp):
     """Build one standard measured waist JointState message."""
     message = JointState()
     message.header.stamp = stamp
-    message.name = JOINT_NAMES
-    message.position = sample["positions"]
+    full_body = "body_positions" in sample
+    message.name = BODY_JOINT_NAMES if full_body else JOINT_NAMES
+    message.position = (
+        sample["body_positions"] if full_body else sample["positions"]
+    )
     return message
 
 

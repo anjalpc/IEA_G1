@@ -45,7 +45,7 @@ def low_state(
     )
 
 
-def test_emits_valid_minimal_protocol_line():
+def test_emits_valid_atomic_protocol_line():
     lines = []
     reader = LowStateReader(
         gate=LowStateGate(
@@ -58,6 +58,7 @@ def test_emits_valid_minimal_protocol_line():
 
     assert len(lines) == 1
     assert decode_sample(lines[0]) == {
+        "body_positions": [motor.q for motor in low_state().motor_state],
         "tick": 123,
         "positions": [0.12, -0.13, 0.14],
         "orientation_wxyz": [1.0, 0.0, 0.0, 0.0],

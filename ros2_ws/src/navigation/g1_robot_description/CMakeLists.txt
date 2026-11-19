@@ -4,7 +4,7 @@ project(g1_robot_description)
 find_package(ament_cmake REQUIRED)
 
 install(
-  DIRECTORY urdf vendor launch
+  DIRECTORY urdf vendor launch meshes
   DESTINATION share/${PROJECT_NAME}
 )
 
@@ -30,6 +30,11 @@ if(BUILD_TESTING)
     test_runtime_launch
     test/test_runtime_launch.py
   )
+  ament_add_pytest_test(
+    test_physical_runtime_launch
+    test/test_physical_runtime_launch.py
+  )
+
 endif()
 
 ament_package()

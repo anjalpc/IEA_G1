@@ -342,3 +342,20 @@ def test_repeated_unsuccessful_restarts_fail_closed(monkeypatch):
     finally:
         if node is not None:
             node.stop_monitor()
+
+
+def test_builds_full_body_joint_state():
+    from pathlib import Path
+    import yaml
+    root = Path(__file__).resolve().parents[4]
+    mapping = yaml.safe_load((root / "simulation/mujoco/config/joint_mapping.yaml").read_text())
+    positions = [0.01 * i for i in range(29)]
+    stamp = Time(sec=12, nanosec=345)
+    message = build_joint_state_message({
+        "positions": positions[12:15], "body_positions": positions
+    }, stamp)
+    assert list(message.name) == [mapping["sdk_order"][i] for i in range(29)]
+    assert list(message.position) == positions
+    assert message.header.stamp == stamp
+    assert list(message.velocity) == []
+    assert list(message.effort) == []
