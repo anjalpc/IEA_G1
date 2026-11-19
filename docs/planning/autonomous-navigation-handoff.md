@@ -228,3 +228,17 @@ Thesis addendum and copied evidence:
 Remaining: deploy the saved camera profile via SCP, verify the reusable
 launcher in a fresh runtime, and validate Nav2 obstacle/stopping integration.
 The currently running container was not replaced by the image build.
+
+
+### Fresh-container launcher verification — 2026-11-19
+
+The reusable launcher initially failed because nounset was enabled while
+sourcing ROS setup. Nounset is now disabled only around ROS/overlay sourcing.
+A fresh GPU container subsequently selected the CUDA backend and published
+diagnostic candidates. Reported steady callbacks were approximately 10–12 ms.
+
+The run also showed a startup stall of approximately five seconds, stale
+processing and temporarily unavailable TF, followed by recovery. Later
+reported input gaps included 398 ms and 331 ms. Therefore the launcher is
+functionally verified, but continuous timing robustness is not qualified.
+The diagnostic output remains disconnected from Nav2 and locomotion.

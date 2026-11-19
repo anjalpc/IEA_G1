@@ -1174,3 +1174,17 @@ The node also falls back with a warning if CUDA initialization/execution
 fails. The updated GPU image built successfully and a fresh-container CUDA floor-fitting smoke test passed. Fresh-container live-launch validation remains pending.
 The launcher starts only the diagnostic filter; sensors, robot TF and the
 upstream depth converter must already be running.
+
+
+### Fresh-container launcher verification — 2026-11-19
+
+The reusable launcher initially failed because nounset was enabled while
+sourcing ROS setup. Nounset is now disabled only around ROS/overlay sourcing.
+A fresh GPU container subsequently selected the CUDA backend and published
+diagnostic candidates. Reported steady callbacks were approximately 10–12 ms.
+
+The run also showed a startup stall of approximately five seconds, stale
+processing and temporarily unavailable TF, followed by recovery. Later
+reported input gaps included 398 ms and 331 ms. Therefore the launcher is
+functionally verified, but continuous timing robustness is not qualified.
+The diagnostic output remains disconnected from Nav2 and locomotion.

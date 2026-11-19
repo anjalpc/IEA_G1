@@ -8,8 +8,11 @@ case "${requested}" in
     *) echo "Usage: $0 [auto|cpu|cuda]" >&2; exit 2 ;;
 esac
 
+# ROS setup scripts may read optional unset variables.
+set +u
 source /opt/ros/humble/setup.bash
 source "${project_root}/ros2_ws/install/setup.bash"
+set -u
 export ROS_DOMAIN_ID=42 ROS_LOCALHOST_ONLY=0
 export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
 export CYCLONEDDS_URI="file://${project_root}/ros2_ws/src/navigation/g1_navigation_bringup/config/physical/cyclonedds_laptop_wifi.xml"
