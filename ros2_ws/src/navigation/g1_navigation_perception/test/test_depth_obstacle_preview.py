@@ -29,6 +29,7 @@ def preview():
     rclpy.init()
     node = DepthObstaclePreview()
     node.cloud_pub, node.status_pub = Recorder(), Recorder()
+    node.health_pub = Recorder()
     clock = SimpleNamespace(ns=2_000_000_000)
     node.get_clock = lambda: SimpleNamespace(now=lambda: Time(nanoseconds=clock.ns))
     try:
@@ -210,3 +211,41 @@ def test_gpu_failure_falls_back_to_cpu(preview):
     assert node.status_pub.messages[-1].data == "DIAGNOSTIC_CANDIDATE"
     assert node.cloud_pub.messages[-1].header.stamp == message.header.stamp
     assert node.cloud_pub.messages[-1].width > 0
+
+
+def test_health_preserves_observation_stamp_and_reports_rejection(preview):
+    from diagnostic_msgs.msg import DiagnosticStatus
+
+    node, clock = preview
+    message = inputs(node, clock)
+    node.cloud_callback(message)
+    node.process_latest()
+    health = node.health_pub.messages[-1]
+    assert health.header == node.cloud_pub.messages[-1].header
+    assert health.header.stamp == message.header.stamp
+    assert len(health.status) == 1
+    assert health.status[0].name == "g1_depth_obstacle_preview"
+    assert health.status[0].level == DiagnosticStatus.OK
+
+    clock.ns += 350_000_001
+    node.watchdog()
+    health = node.health_pub.messages[-1]
+    assert health.header == node.cloud_pub.messages[-1].header
+    assert health.status[0].level == DiagnosticStatus.ERROR
+    assert health.status[0].message == "CLOUD_STALE"
+    assert node.cloud_pub.messages[-1].width == 0
+
+
+@pytest.mark.parametrize("reason", [
+    "FLOOR_UNKNOWN", "TF_UNAVAILABLE", "IMU_UNSYNCHRONIZED", "CLOUD_TIMEOUT",
+])
+def test_rejected_geometry_never_reports_healthy(preview, reason):
+    from diagnostic_msgs.msg import DiagnosticStatus
+
+    node, clock = preview
+    node.clear(reason)
+    health = node.health_pub.messages[-1]
+    assert health.header == node.cloud_pub.messages[-1].header
+    assert health.status[0].level == DiagnosticStatus.ERROR
+    assert health.status[0].message == reason
+    assert node.cloud_pub.messages[-1].width == 0

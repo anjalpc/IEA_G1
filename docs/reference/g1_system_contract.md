@@ -1229,3 +1229,102 @@ with no rejection transitions shown. Box appearance/removal was previously
 confirmed at 424x240. This closes the bounded diagnostic checkpoint.
 Nav2 obstacle integration, automatic stopping and unrestricted navigation
 remain unqualified; the diagnostic output is not connected to control.
+
+### Timestamped diagnostic depth health — 2026-11-20
+
+The depth preview additionally publishes diagnostic_msgs/DiagnosticArray on
+/g1/diagnostics/depth/health with reliable, volatile depth-one QoS.
+Its header exactly matches the corresponding diagnostic obstacle cloud.
+A single status named g1_depth_obstacle_preview reports OK only for
+DIAGNOSTIC_CANDIDATE; all rejection reasons report ERROR with that reason
+in message. Existing text status remains available.
+
+Candidate health retains the source-image timestamp. Rejection/clear health
+matches the empty rejection cloud and cannot represent healthy free space.
+Consumers must check status, source age, matching cloud timestamp/frame and
+receipt freshness; arrival order across topics is not guaranteed.
+This addition is diagnostic only. No costmap input, command gate or physical
+navigation behavior is changed by this step.
+
+### Isolated depth costmap preview — 2026-11-20
+
+depth_costmap_preview.launch.py starts only upstream nav2_costmap_2d and its
+lifecycle manager. It accepts replay points on the separate diagnostic topic
+/g1/diagnostics/depth/costmap_input and publishes a diagnostic costmap.
+It starts no sensors, planner, controller, command adapter or locomotion backend.
+
+The preview uses pelvis as both global and robot frame to test rasterization
+without localization. Its height limits are body-relative, not floor heights.
+Depth marks obstacles only; filtered obstacle points do not clear free space.
+Marked cells may remain until the preview is reset. This is not a driving
+costmap, obstacle-removal proof or stale-data motion gate.
+The head angle must remain at the reference setting used for the recordings.
+
+The isolated depth costmap preview uses lifecycle-manager bond_timeout=0.0:
+the standalone upstream Costmap2DROS executable does not create a bond.
+Lifecycle configure/activate services remain in use. This exception applies
+only to the no-control preview, not physical navigation or locomotion.
+
+The isolated depth costmap preview uses lifecycle-manager bond_timeout=0.0:
+the standalone upstream Costmap2DROS executable does not create a bond.
+Lifecycle configure/activate services remain in use. This exception applies
+only to the no-control preview, not physical navigation or locomotion.
+
+### Optional offline voxel clearing preview — 2026-11-20
+
+The standalone costmap launch accepts params_file; its marking-only default
+is unchanged. depth_voxel_preview.yaml selects the upstream VoxelLayer.
+Filtered marks use /g1/diagnostics/depth/costmap_input with clearing false.
+Full depth rays use /g1/diagnostics/depth/costmap_clear with marking false.
+Both require a recorded camera-origin transform named depth_preview_camera.
+This avoids using filtered obstacle points as free-space evidence.
+
+The diagnostic voxel volume spans -0.9 to +0.7 m in pelvis coordinates,
+using 16 vertical bins of 0.1 m. It is an experiment for the recorded 12 cm
+box, not qualification of smaller obstacles or a physical driving profile.
+No planner, controller, motion gate or locomotion backend is started.
+
+### Offline voxel frame correction — 2026-11-20
+
+The initial pelvis-aligned voxel replay marked 59 near-field box cells,
+but retained 39 after the clear-floor scene. Offline geometry showed
+39 old box voxels coinciding with newly observed floor voxels.
+This partial-clearing result is retained as a failed removal test.
+
+The optional voxel preview now uses depth_preview_ground for both costmap
+and reference pose, with origin_z=-0.07 m. Vertical resolution remains
+0.1 m with 16 bins. A single rigid floor-reference transform, derived from
+the recorded clear-floor scene, must be used for both scenes. The recorded
+camera origin is transformed through that same reference. This is an
+offline representation test, not a new physical TF authority or calibration
+valid for arbitrary walking poses. Marking-only defaults remain unchanged.
+
+
+### Offline depth-to-Nav2 checkpoint — 2026-11-20
+
+Timestamped diagnostic depth health was added and tested. It does not yet
+gate commands. The standalone costmap preview starts only the upstream
+costmap and lifecycle manager; no controller or locomotion backend.
+
+Marking replay: clear-floor scene had zero nearby occupied cells; the
+12 cm box scene had 59. Both scenes marked 100 percent of the expected
+occupied cells at 5 cm horizontal resolution.
+
+The first 3D-clearing replay retained 39 of 59 box cells. Geometry showed
+39 old box voxels coinciding with observed floor voxels in the coarse,
+pelvis-aligned grid. A corrected replay used one fixed floor reference
+derived from the clear-floor recording for both scenes. With unchanged
+vertical resolution and marking thresholds, the box marked 59 cells and
+the subsequent clear-floor scene removed all 59, without an intervening
+map reset. Failed and successful reports are both preserved.
+
+These are frozen snapshots with test timestamps. They do not establish
+live timing, dynamic walking-frame accuracy, or autonomous stopping.
+The offline floor-reference transform must not be copied into the physical
+TF authority as a calibration valid for all poses.
+
+The user reports that manual head adjustment moves both camera and LiDAR.
+The head setting remained unchanged through these recordings. The current
+model assumes fixed sensor mounting; the numerical adjustment angle is
+not independently recorded. Live sensor-to-body/floor alignment must be
+verified before production costmap integration.

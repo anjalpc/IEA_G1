@@ -9,6 +9,7 @@ from rclpy.duration import Duration
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, qos_profile_sensor_data
 from rclpy.time import Time
+from diagnostic_msgs.msg import DiagnosticArray, DiagnosticStatus
 from sensor_msgs.msg import Imu, PointCloud2
 from sensor_msgs_py.point_cloud2 import create_cloud_xyz32, read_points_numpy
 from std_msgs.msg import Header, String
@@ -79,6 +80,8 @@ class DepthObstaclePreview(Node):
             PointCloud2, "/g1/diagnostics/depth/obstacles", qos_profile_sensor_data)
         self.status_pub = self.create_publisher(
             String, "/g1/diagnostics/depth/status", 1)
+        self.health_pub = self.create_publisher(
+            DiagnosticArray, "/g1/diagnostics/depth/health", 1)
         self.subscriptions_owned = [
             self.create_subscription(Imu, "/g1/state/imu_raw",
                                      lambda m: self.imus.append(m), qos_profile_sensor_data),
@@ -109,6 +112,13 @@ class DepthObstaclePreview(Node):
         points = np.asarray(points, dtype=np.float32).reshape(-1, 3)
         self.cloud_pub.publish(create_cloud_xyz32(header, points))
         self.status_pub.publish(String(data=reason))
+        level = (DiagnosticStatus.OK if reason == "DIAGNOSTIC_CANDIDATE"
+                 else DiagnosticStatus.ERROR)
+        self.health_pub.publish(DiagnosticArray(
+            header=header,
+            status=[DiagnosticStatus(
+                level=level, name="g1_depth_obstacle_preview", message=reason)],
+        ))
         if reason != self.reason:
             self.get_logger().info(reason)
             self.reason = reason

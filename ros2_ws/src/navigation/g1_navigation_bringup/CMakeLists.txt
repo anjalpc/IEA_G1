@@ -65,6 +65,10 @@ if(BUILD_TESTING)
     test_localization_simulation_launch
     test/test_localization_simulation_launch.py
   )
+  ament_add_pytest_test(
+    test_depth_costmap_preview
+    test/test_depth_costmap_preview.py
+  )
 endif()
 
 ament_package()

@@ -81,7 +81,8 @@ def test_depth_diagnostic_node_has_only_approved_endpoints():
     tree = ast.parse(path.read_text(encoding="utf-8"))
     expected = {
         "create_publisher": {
-            "/g1/diagnostics/depth/obstacles", "/g1/diagnostics/depth/status"},
+            "/g1/diagnostics/depth/obstacles", "/g1/diagnostics/depth/status",
+            "/g1/diagnostics/depth/health"},
         "create_subscription": {
             "/g1/diagnostics/depth/points", "/g1/state/imu_raw"},
     }

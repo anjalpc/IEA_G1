@@ -272,3 +272,33 @@ with no rejection transitions shown. Box appearance/removal was previously
 confirmed at 424x240. This closes the bounded diagnostic checkpoint.
 Nav2 obstacle integration, automatic stopping and unrestricted navigation
 remain unqualified; the diagnostic output is not connected to control.
+
+
+### Offline depth-to-Nav2 checkpoint — 2026-11-20
+
+Timestamped diagnostic depth health was added and tested. It does not yet
+gate commands. The standalone costmap preview starts only the upstream
+costmap and lifecycle manager; no controller or locomotion backend.
+
+Marking replay: clear-floor scene had zero nearby occupied cells; the
+12 cm box scene had 59. Both scenes marked 100 percent of the expected
+occupied cells at 5 cm horizontal resolution.
+
+The first 3D-clearing replay retained 39 of 59 box cells. Geometry showed
+39 old box voxels coinciding with observed floor voxels in the coarse,
+pelvis-aligned grid. A corrected replay used one fixed floor reference
+derived from the clear-floor recording for both scenes. With unchanged
+vertical resolution and marking thresholds, the box marked 59 cells and
+the subsequent clear-floor scene removed all 59, without an intervening
+map reset. Failed and successful reports are both preserved.
+
+These are frozen snapshots with test timestamps. They do not establish
+live timing, dynamic walking-frame accuracy, or autonomous stopping.
+The offline floor-reference transform must not be copied into the physical
+TF authority as a calibration valid for all poses.
+
+The user reports that manual head adjustment moves both camera and LiDAR.
+The head setting remained unchanged through these recordings. The current
+model assumes fixed sensor mounting; the numerical adjustment angle is
+not independently recorded. Live sensor-to-body/floor alignment must be
+verified before production costmap integration.
