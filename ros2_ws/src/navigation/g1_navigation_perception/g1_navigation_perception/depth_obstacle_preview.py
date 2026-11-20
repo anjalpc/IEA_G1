@@ -41,10 +41,23 @@ class DepthObstaclePreview(Node):
                                    np.linspace(-0.3, 0.3, 10))
                 warmup = np.column_stack((x.ravel(), y.ravel(),
                                           np.full(x.size, -0.8)))
-                plane = select_floor_plane_gpu(
-                    warmup, [0., 0., 1.], distance_bounds=self.bounds)
-                if plane is None:
-                    raise RuntimeError("CUDA warm-up did not find the test plane")
+                wall_y, wall_z = np.meshgrid(
+                    np.linspace(-0.3, 0.3, 50), np.linspace(-0.3, 0.3, 80))
+                wall = np.column_stack((np.full(wall_y.size, 0.9),
+                                        wall_y.ravel(), wall_z.ravel()))
+                scenes = (
+                    ("clear_floor", warmup),
+                    ("wall_fallback", np.vstack((warmup, wall))),
+                )
+                for label, scene in scenes:
+                    started = time.monotonic()
+                    plane = select_floor_plane_gpu(
+                        scene, [0., 0., 1.], distance_bounds=self.bounds)
+                    if plane is None:
+                        raise RuntimeError(f"CUDA warm-up failed: {label}")
+                    self.get_logger().info(
+                        f"CUDA_WARMUP path={label} "
+                        f"elapsed_ms={(time.monotonic() - started) * 1000:.1f}")
                 self.gpu_selector = select_floor_plane_gpu
             except Exception as error:
                 self.get_logger().warning(
@@ -54,6 +67,7 @@ class DepthObstaclePreview(Node):
         self.imus = deque(maxlen=100)
         self.pending = None
         self.last_processed_at = None
+        self.first_geometry_pending = True
         self.last_timing_log = time.monotonic()
         self.max_callback_gap_ms = 0.0
         self.max_input_age_ms = 0.0
@@ -76,7 +90,14 @@ class DepthObstaclePreview(Node):
     def select_floor(self, points, up):
         if self.gpu_selector is not None:
             try:
-                return self.gpu_selector(points, up, distance_bounds=self.bounds)
+                started = time.monotonic()
+                plane = self.gpu_selector(points, up, distance_bounds=self.bounds)
+                elapsed_ms = (time.monotonic() - started) * 1000
+                if elapsed_ms > 100:
+                    self.get_logger().warning(
+                        f"CUDA_FIT_SLOW elapsed_ms={elapsed_ms:.1f} "
+                        f"region_points={len(points)}")
+                return plane
             except Exception as error:
                 self.gpu_selector = None
                 self.get_logger().warning(
@@ -172,6 +193,11 @@ class DepthObstaclePreview(Node):
             height = heights_above_plane(points, plane)
             keep = ((height > 0.04) & (height < 1.50) & (points[:, 0] > 0)
                     & (points[:, 0] < 2.0) & (np.abs(points[:, 1]) < 0.75))
+            if self.first_geometry_pending:
+                elapsed_ms = (time.monotonic() - self.last_processed_at) * 1000
+                self.get_logger().info(
+                    f"FIRST_GEOMETRY elapsed_ms={elapsed_ms:.1f}")
+                self.first_geometry_pending = False
             age = self.get_clock().now().nanoseconds - source_stamp
             if not -50_000_000 <= age <= 350_000_000:
                 self.clear("PROCESSING_STALE")

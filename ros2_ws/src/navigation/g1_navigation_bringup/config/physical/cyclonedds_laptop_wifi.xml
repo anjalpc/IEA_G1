@@ -17,5 +17,8 @@
         <Peer Address="192.168.188.117"/>
       </Peers>
     </Discovery>
+    <Internal>
+      <SocketReceiveBufferSize min="4MiB" max="4MiB"/>
+    </Internal>
   </Domain>
 </CycloneDDS>

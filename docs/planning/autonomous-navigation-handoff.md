@@ -242,3 +242,33 @@ processing and temporarily unavailable TF, followed by recovery. Later
 reported input gaps included 398 ms and 331 ms. Therefore the launcher is
 functionally verified, but continuous timing robustness is not qualified.
 The diagnostic output remains disconnected from Nav2 and locomotion.
+
+
+### Depth/GPU timing checkpoint completed — 2026-11-19
+
+First-frame profiling located approximately 4983 ms inside CUDA floor fitting.
+A fixed 2048-column batch excludes padding from all inlier/support counts.
+Sixteen recorded CPU/GPU comparisons and nine obstacle masks still agreed.
+Startup now warms both clear-floor and wall-fallback paths before subscriptions.
+In the verified cold-container run, warm-up took approximately 8.3 and 3.2 s,
+but first live geometry took 9.8 ms; expensive preparation no longer blocked
+the live callbacks. Startup may briefly lack TF while its buffer fills.
+
+The laptop had 355 UDP receive-buffer errors in 25 s with rmem_max=212992.
+After requesting 4 MiB DDS buffers, raising the host ceiling to 8 MiB and
+restarting the converter/preview, a 30 s check reported 68762 UDP datagrams
+and zero InErrors, RcvbufErrors or SndbufErrors. These are system-wide
+counters, not per-topic attribution, but timing improved in the same trial.
+
+The ceiling is installed through /etc/sysctl.d/90-iea-g1-dds.conf;
+the repository source is config/sysctl/90-iea-g1-dds.conf. Reproducing
+this laptop DDS configuration requires installing that host setting first.
+Wi-Fi power saving was disabled during the trial but did not independently
+resolve the gaps; no persistent power-saving change was made.
+
+The final manual movement-check excerpt reported callback times of
+10.0–18.1 ms, output ages of 37.7–105.8 ms and input gaps up to 88.7 ms,
+with no rejection transitions shown. Box appearance/removal was previously
+confirmed at 424x240. This closes the bounded diagnostic checkpoint.
+Nav2 obstacle integration, automatic stopping and unrestricted navigation
+remain unqualified; the diagnostic output is not connected to control.

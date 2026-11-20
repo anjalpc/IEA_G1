@@ -1171,7 +1171,7 @@ using depth-gpu-requirements.lock. CPU-image Python dependencies are not
 replaced. scripts/depth-obstacle-preview.sh selects the optional CUDA
 environment when present, otherwise CPU; explicit cpu selection is supported.
 The node also falls back with a warning if CUDA initialization/execution
-fails. The updated GPU image built successfully and a fresh-container CUDA floor-fitting smoke test passed. Fresh-container live-launch validation remains pending.
+fails. The updated GPU image built successfully and a fresh-container CUDA floor-fitting smoke test passed. Fresh-container live launch was subsequently verified; see the completed timing checkpoint below.
 The launcher starts only the diagnostic filter; sensors, robot TF and the
 upstream depth converter must already be running.
 
@@ -1188,3 +1188,44 @@ processing and temporarily unavailable TF, followed by recovery. Later
 reported input gaps included 398 ms and 331 ms. Therefore the launcher is
 functionally verified, but continuous timing robustness is not qualified.
 The diagnostic output remains disconnected from Nav2 and locomotion.
+
+### Laptop DDS receive-buffer trial — 2026-11-19
+
+During a 25-second diagnostic run, laptop UDP counters increased by 355
+RcvbufErrors; PC2 reported zero. Both kernel rmem_max values were 212992.
+These counters are system-wide and do not identify the affected socket.
+Disabling Wi-Fi power saving did not remove the observed delivery gaps.
+
+A provisional laptop-only trial requests a 4 MiB CycloneDDS receive buffer
+and raises the host net.core.rmem_max ceiling to 8 MiB. Existing sockets
+must be recreated by restarting the relevant laptop processes. The subsequent completed checkpoint below records persistence and measured improvement. No freshness limits are relaxed.
+
+
+### Depth/GPU timing checkpoint completed — 2026-11-19
+
+First-frame profiling located approximately 4983 ms inside CUDA floor fitting.
+A fixed 2048-column batch excludes padding from all inlier/support counts.
+Sixteen recorded CPU/GPU comparisons and nine obstacle masks still agreed.
+Startup now warms both clear-floor and wall-fallback paths before subscriptions.
+In the verified cold-container run, warm-up took approximately 8.3 and 3.2 s,
+but first live geometry took 9.8 ms; expensive preparation no longer blocked
+the live callbacks. Startup may briefly lack TF while its buffer fills.
+
+The laptop had 355 UDP receive-buffer errors in 25 s with rmem_max=212992.
+After requesting 4 MiB DDS buffers, raising the host ceiling to 8 MiB and
+restarting the converter/preview, a 30 s check reported 68762 UDP datagrams
+and zero InErrors, RcvbufErrors or SndbufErrors. These are system-wide
+counters, not per-topic attribution, but timing improved in the same trial.
+
+The ceiling is installed through /etc/sysctl.d/90-iea-g1-dds.conf;
+the repository source is config/sysctl/90-iea-g1-dds.conf. Reproducing
+this laptop DDS configuration requires installing that host setting first.
+Wi-Fi power saving was disabled during the trial but did not independently
+resolve the gaps; no persistent power-saving change was made.
+
+The final manual movement-check excerpt reported callback times of
+10.0–18.1 ms, output ages of 37.7–105.8 ms and input gaps up to 88.7 ms,
+with no rejection transitions shown. Box appearance/removal was previously
+confirmed at 424x240. This closes the bounded diagnostic checkpoint.
+Nav2 obstacle integration, automatic stopping and unrestricted navigation
+remain unqualified; the diagnostic output is not connected to control.

@@ -28,10 +28,14 @@ def select_floor_plane_gpu(points, up_direction, *, distance_bounds):
         if len(points) < 30:
             return None
         sample = points[::max(1, int(np.ceil(len(points) / 2048)))]
-        minimum = max(30, int(np.ceil(.35 * len(sample))))
+        sample_count = len(sample)
+        minimum = max(30, int(np.ceil(.35 * sample_count)))
+        # Warm-up and live fitting share one shape. Padding is never an inlier.
+        sample = cp.pad(sample, ((0, 2048 - sample_count), (0, 0)))
+        real_columns = cp.arange(2048) < sample_count
         rng = np.random.default_rng(42)
         indices = cp.asarray(np.array([
-            rng.choice(len(sample), 3, replace=False) for _ in range(192)]))
+            rng.choice(sample_count, 3, replace=False) for _ in range(192)]))
         triples = sample[indices]
         normals = cp.cross(triples[:, 1] - triples[:, 0],
                            triples[:, 2] - triples[:, 0])
@@ -42,7 +46,8 @@ def select_floor_plane_gpu(points, up_direction, *, distance_bounds):
         offsets = -cp.sum(normals * triples.mean(axis=1), axis=1)
         valid &= (normals @ up >= cos_limit)
         valid &= (offsets >= bounds[0]) & (offsets <= bounds[1])
-        mask = cp.abs(normals @ sample.T + offsets[:, None]) <= .02
+        mask = ((cp.abs(normals @ sample.T + offsets[:, None]) <= .02)
+                & real_columns[None, :])
         valid &= mask.sum(axis=1) >= 30
         active = valid.copy()
 
@@ -61,14 +66,16 @@ def select_floor_plane_gpu(points, up_direction, *, distance_bounds):
             valid &= (~active) | fit_ok
             normals = cp.where(active[:, None], fitted, normals)
             offsets = cp.where(active, fitted_offsets, offsets)
-            updated = cp.abs(normals @ sample.T + offsets[:, None]) <= .02
+            updated = ((cp.abs(normals @ sample.T + offsets[:, None]) <= .02)
+                       & real_columns[None, :])
             changing = cp.any(updated != mask, axis=1)
             enough = updated.sum(axis=1) >= 30
             continue_refining = active & fit_ok & changing & enough
             mask = cp.where(continue_refining[:, None], updated, mask)
             active = continue_refining
 
-        support = (cp.abs(normals @ sample.T + offsets[:, None]) <= .02).sum(axis=1)
+        support = ((cp.abs(normals @ sample.T + offsets[:, None]) <= .02)
+                   & real_columns[None, :]).sum(axis=1)
         valid &= (support >= minimum) & (offsets >= bounds[0]) & (offsets <= bounds[1])
         candidates = cp.asnumpy(cp.column_stack((
             normals, offsets, support, valid.astype(cp.float64))))
