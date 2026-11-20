@@ -29,15 +29,25 @@ TOE_CONTACT_REACH_M = 0.015
 
 
 def tread_placement_quality(*, sole_bounds, targets, feet, first_riser_x,
-                            tread_depth, riser_height, step_count):
-    """[N] acquisition pay factor of the assigned foot on a stair tread.
+                            tread_depth, riser_height, step_count,
+                            sole_centre=None, level_radius=None):
+    """[N] acquisition pay factor of the assigned foot.
 
-    1.0 with the sole centre on the planned target, falling linearly with
-    the x error to TREAD_QUALITY_FLOOR at either physical limit: backwards
-    where the heel reaches the TREAD_HEEL_OVERHANG_M acceptance limit,
-    forwards where the toe reaches the riser ahead (TOE_CONTACT_REACH_M short
-    of the tread end), and below. Rows whose current target is not a tread
-    (flat tiles, approach, platform) get 1.0.
+    Treads: 1.0 with the sole centre on the planned target, falling linearly
+    with the x error to TREAD_QUALITY_FLOOR at either physical limit:
+    backwards where the heel reaches the TREAD_HEEL_OVERHANG_M acceptance
+    limit, forwards where the toe reaches the riser ahead
+    (TOE_CONTACT_REACH_M short of the tread end), and below.
+
+    Other targets (flat tiles, approach, the ground placement before the
+    riser, platform): 1.0 when ``level_radius`` is None; else (patch 72) the
+    same grading by horizontal distance, TREAD_QUALITY_FLOOR at
+    ``level_radius`` (the acceptance radius). Patch 71 model_103600 landed
+    3.7 cm short of flat targets (0.33 m/s for 0.35: ~0.8 cm per step,
+    settled at 0.8 / 0.2 behind the rolling targets) at full pay, and the
+    same gait landed the first 20 cm step 2.3 cm short of a 2.75 cm heel
+    budget; the pre-riser placement was overshot by 3-8 cm at full pay on
+    every checkpoint, +7-8 cm on every 6 cm failure.
     """
     n = sole_bounds.shape[0]
     target_x = targets[:, 0, 0]
@@ -54,7 +64,12 @@ def tread_placement_quality(*, sole_bounds, targets, feet, first_riser_x,
     limit = torch.where(offset < 0, back, ahead)
     error = (offset.abs() / limit.clamp_min(1e-3)).clamp(0.0, 1.0)
     quality = 1.0 - (1.0 - TREAD_QUALITY_FLOOR) * error
-    return torch.where(tread, quality, torch.ones_like(quality))
+    other = torch.ones_like(quality)
+    if level_radius is not None:
+        c = sole_centre[torch.arange(n, device=sole_centre.device), feet[:, 0].long(), :2]
+        distance = torch.linalg.vector_norm(c - targets[:, 0, :2], dim=-1)
+        other = 1.0 - (1.0 - TREAD_QUALITY_FLOOR) * (distance / level_radius).clamp(0.0, 1.0)
+    return torch.where(tread, quality, other)
 
 
 def qualified_tread_mask(*, sole_bounds, vertical_force, targets, feet, valid,

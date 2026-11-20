@@ -5,7 +5,7 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Patch 71. Resume patch 70 run 20261119_094854 model_96100 (20 cm 9/10 strict with the best heel margins so far, flat no skid, touchdowns on schedule, landings on target, 0.35 m/s; but pelvis lean 13.4 deg flat, 11.4 platform) for 7500 iterations (overnight, to about 07:30) with the same rules on all level ground (footstep and clock rewards paid on flat tiles and the platform alike; patch 68-70 level_rewards_off removed) and a new level_pitch cost, -15 per rad of pelvis pitch beyond 3 deg on level ground only (flat tiles, platform after the climb; not the stair approach or the stairs). The lean replaces swing-leg residual (91700 -> 96100 swing |residual| 1.80 -> 0.85, made at the stance hip) and bought about 0.24/s per degree on the paid platform against 0.16/s per degree of quadratic upright cost (doc g1-p70-lean-mechanism). Pass, same robots, flat and platform pelvis pitch <= 6 deg; flat no skid, touchdowns = scheduled, speed >= 0.33, lift >= 2 cm; 20 cm >= 9/10 strict; 8-19 cm no worse than 96100; event-aligned pitch before the first 20 cm step >= 0 deg. Stop early, 40% checkpoint with flat pitch not below 10 deg, or 20 cm below 7/10, or flat skid / double touchdowns back (91700-style).
+  purpose: Patch 72. Resume patch 71 run 20261119_153236 model_103600 (most natural flat and platform walk so far, pitch 1.9 deg, stance knee 0.30, roll 18 deg/s, no skid; but 20 cm 6/10 strict and 6 cm 5/10) for 10500 iterations (overnight, ~20 h) with graded placement on every non-tread target (flat tiles, approach, the pre-riser placement, platform), 1.0 on target to 0.5 at the 12.5 cm acceptance radius, like the tread grading of patch 53. Evidence (doc g1-p71-first-step-handover), 103600 lands 3.7 cm short of flat targets at full pay (0.33 m/s for 0.35) and the first 20 cm step 2.3 cm short of a 2.75 cm heel budget; the pre-riser placement is overshot 3-8 cm at full pay, +7-8 cm on every 6 cm failure. Paper check, graded flat pay 103600 6.01/s vs on-target 96100 6.67/s (+0.66), touchdowns unchanged, lean still unprofitable (level_pitch 2.6/s at 96100's lean). Pass, same robots, flat landing - target within 1.5 cm, speed >= 0.34, pitch <= 4 deg, stance knee median <= 0.35, roll <= 18 deg/s, no skid; first 20 cm step landing - target >= -1.5 cm; pre-riser overshoot <= 4 cm; 20 cm >= 9/10 strict; 6 cm >= 8/10; 8-19 cm no worse than 103600. Unattended run, judge afterwards by tracing 40%, 70%, last and the training-curve peak of 20 cm clean; discard checkpoints after flat pitch > 6 deg, crouch status > 0.20, 20 cm below 6/10, or flat skid / double touchdowns.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -56,8 +56,8 @@ terrain:
     # frontier, frontier. Levels index riser_heights_m.
     type: clean_climb
     # Curriculum state is not saved in checkpoints: resume it from the
-    # patch 70 run (training ended mastered 20 cm, 20 cm clean 0.47, 19 cm
-    # 0.70). Deterministic 96100 replays: 19 cm 10/10, 20 cm 9/10 strict.
+    # patch 71 run (training ended mastered 19 cm, 20 cm clean 0.27, 19 cm
+    # 0.65). Deterministic 103600 replays: 19 cm 10/10, 20 cm 6/10 strict.
     # Levels index riser_heights_m: level 13 = 19 cm, level 14 = 20 cm.
     initial_level: 14
     # Review envs draw from 2-19 cm, weighted towards the weakest (patch 62).
@@ -126,7 +126,7 @@ execution:
   environments: 4096
   # Resumed run: 11500 more iterations after the checkpoint's own (patch 63,
   # Sunday to Monday 08:00, about 21.6 h on g6; checkpoints every 50).
-  maximum_iterations: 7500
+  maximum_iterations: 10500
   training_seed: 42
 # Residual on the frozen official Unitree policy (balance_residual_control);
 # the actor sees all 688 inputs. Policy, critic, optimizer and learning rate
@@ -135,8 +135,8 @@ execution:
 policy_initialization:
   type: rsl_rl_training_resume
   source:
-    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261119_094854/model_96100.pt
-    sha256: 8ff27ae227482abf611b75fc8b2327e984c28e01508ebaca8c917601b4885aba
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261119_153236/model_103600.pt
+    sha256: FILL_ON_AWS
   critic_initialization: restored
   optimizer_initialization: restored
   locomotion_observations: 480

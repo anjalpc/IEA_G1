@@ -156,3 +156,23 @@ class TreadPlacementQualityTests(unittest.TestCase):
         self.assertEqual(self.q(heel=0.5, target_x=0.8), 1.0)      # approach
         self.assertEqual(self.q(heel=1.6, target_x=1.875), 1.0)    # platform
         self.assertEqual(self.q(heel=0.99, riser=0.0), 1.0)        # flat tile
+
+    def lq(self, heel, target_x, riser=0.04, dy=0.0):
+        a = self.args(heel=heel, target_x=target_x, riser=riser)
+        b = a["sole_bounds"]
+        centre = torch.stack([0.5 * (b[..., 0] + b[..., 1]), 0.5 * (b[..., 2] + b[..., 3]) + dy,
+                              b[..., 4]], dim=-1)
+        return tread_placement_quality(**a, sole_centre=centre, level_radius=0.125).item()
+
+    def test_level_targets_graded_by_distance(self):
+        # Patch 72: non-tread targets pay 1.0 on target, 0.5 at the 12.5 cm radius.
+        self.assertAlmostEqual(self.lq(heel=0.71, target_x=0.8), 1.0, places=5)      # approach, on target
+        self.assertAlmostEqual(self.lq(heel=0.75, target_x=0.8), 1 - 0.5 * 0.04 / 0.125, places=4)
+        self.assertAlmostEqual(self.lq(heel=0.67, target_x=0.8), 1 - 0.5 * 0.04 / 0.125, places=4)
+        self.assertAlmostEqual(self.lq(heel=0.95, target_x=0.8), 0.5, places=5)      # beyond the radius
+        self.assertAlmostEqual(self.lq(heel=0.71, target_x=0.8, riser=0.0, dy=0.03), 1 - 0.5 * 0.03 / 0.125, places=4)
+        self.assertAlmostEqual(self.lq(heel=1.785, target_x=1.875), 1.0, places=5)   # platform
+
+    def test_level_grading_leaves_treads_unchanged(self):
+        for heel in (0.99, 1.0, 1.02, 1.04):
+            self.assertAlmostEqual(self.lq(heel=heel, target_x=1.11), self.q(heel=heel), places=6)

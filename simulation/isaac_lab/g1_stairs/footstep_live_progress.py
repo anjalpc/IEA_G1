@@ -563,7 +563,9 @@ def audit_after_step(env):
     env._g1_footstep_last_advanced = advanced
     env._g1_footstep_acquisition_paid = advanced
     # Patch 53: stair tread hits pay by placement (1.0 on the planned centre,
-    # 0.5 at the heel-overhang limit); flat, approach and rolling rows 1.0.
+    # 0.5 at the heel-overhang limit). Patch 72: every other target (flat
+    # tiles, approach, the pre-riser placement, platform) is graded the same
+    # way by horizontal distance, 0.5 at the 12.5 cm acceptance radius.
     quality = torch.ones(env.num_envs, device=env.device)
     if not flat:
         quality = tread_placement_quality(
@@ -572,9 +574,8 @@ def audit_after_step(env):
             tread_depth=course['tread_depth'],
             riser_height=course['riser_height'],
             step_count=coordinator.runtime.step_count,
+            sole_centre=centre, level_radius=0.125,
         )
-        if rolling_rows is not None:
-            quality = torch.where(rolling_rows, torch.ones_like(quality), quality)
     env._g1_footstep_acquisition_quality = quality
     env._g1_footstep_landing_audit["acquisition_quality"] = quality.clone()
     if rolling_rows is not None:
