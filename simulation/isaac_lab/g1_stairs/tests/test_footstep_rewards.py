@@ -329,6 +329,39 @@ class LevelPitchTests(unittest.TestCase):
             cached_level_pitch(SimpleNamespace(num_envs=2))
 
 
+class LevelFootYawTests(unittest.TestCase):
+    @staticmethod
+    def _q(yaw):
+        yaw = torch.as_tensor(yaw, dtype=torch.float32)
+        z = torch.zeros_like(yaw)
+        return torch.stack([torch.cos(yaw / 2), z, z, torch.sin(yaw / 2)], dim=-1)
+
+    def test_charges_stance_yaw_beyond_deadband_either_sign_on_rows(self):
+        import math
+        from simulation.isaac_lab.g1_stairs.footstep_rewards import (
+            LEVEL_FOOT_YAW_DEADBAND_RAD, level_foot_yaw)
+        self.assertAlmostEqual(LEVEL_FOOT_YAW_DEADBAND_RAD, math.radians(5.0), places=3)
+        root = torch.tensor([0.0, 1.0, 3.1, 0.0])
+        # left out +0.2, right in +0.04; root-relative, wrapping across pi
+        feet = torch.stack([root + 0.2, root + 0.04], dim=-1)
+        supported = torch.tensor([[True, True], [True, False], [True, True], [True, True]])
+        rows = torch.tensor([True, True, True, False])
+        e = 0.2 - LEVEL_FOOT_YAW_DEADBAND_RAD
+        out = level_foot_yaw(self._q(feet), self._q(root), supported, rows)
+        torch.testing.assert_close(out, torch.tensor([e, e, e, 0.0]), atol=1e-5, rtol=0)
+        toe_in = torch.stack([root - 0.2, root + 0.2], dim=-1)
+        out = level_foot_yaw(self._q(toe_in), self._q(root), supported, rows)
+        torch.testing.assert_close(out, torch.tensor([2 * e, e, 2 * e, 0.0]), atol=1e-5, rtol=0)
+
+    def test_reads_cached_value_per_second(self):
+        from types import SimpleNamespace
+        from simulation.isaac_lab.g1_stairs.footstep_rewards import cached_level_foot_yaw
+        env = SimpleNamespace(num_envs=2, _g1_footstep_level_foot_yaw=torch.tensor([0.0, 0.1]))
+        torch.testing.assert_close(cached_level_foot_yaw(env), torch.tensor([0.0, 0.1]))
+        with self.assertRaises(RuntimeError):
+            cached_level_foot_yaw(SimpleNamespace(num_envs=2))
+
+
 class OffBeatRewardTests(unittest.TestCase):
     def test_reads_cached_count_per_event(self):
         from types import SimpleNamespace

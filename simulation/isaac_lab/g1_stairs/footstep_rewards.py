@@ -347,6 +347,42 @@ def cached_level_pitch(env):
     return value
 
 
+# Patch 73: stance foot yaw against the pelvis free up to this on level
+# ground. Level stance toe-out p90: model_91700 4.3 deg, 94100 mean -1.3;
+# treads 3.8-5.1 deg at every checkpoint since 91700.
+LEVEL_FOOT_YAW_DEADBAND_RAD = 0.0873  # 5 deg
+
+
+def _yaw_wxyz(q):
+    w, x, y, z = q.unbind(-1)
+    return torch.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+
+
+def level_foot_yaw(foot_quat_w, root_quat_w, supported, rows,
+                   deadband=LEVEL_FOOT_YAW_DEADBAND_RAD):
+    """Stance foot yaw against the pelvis beyond ``deadband`` [rad], either
+    sign, summed over the feet in contact, on ``rows`` [N].
+
+    Patch 73. Level-ground toe-out grew 2.8 deg (91700) -> 6.3 (103600) ->
+    10.4 (108600) -> 11.3 (114100) at the hip yaw, while tread toe-out held
+    3.8-5.1 deg and did not separate strict from failed climbs (doc
+    g1-stair-clock-resume-run-20261120-100022-findings). Flat excess per
+    frame: 0.001 rad at 91700, 0.140 at 114100. Same rows as level_pitch.
+    """
+    rel = _yaw_wxyz(foot_quat_w) - _yaw_wxyz(root_quat_w)[:, None]
+    rel = torch.atan2(torch.sin(rel), torch.cos(rel))
+    excess = torch.clamp(rel.abs() - deadband, min=0.0) * supported.to(rel.dtype)
+    return torch.where(rows, excess.sum(dim=-1), torch.zeros_like(excess[:, 0]))
+
+
+def cached_level_foot_yaw(env):
+    """Stance foot yaw beyond the deadband on level ground, per second."""
+    value = getattr(env, "_g1_footstep_level_foot_yaw", None)
+    if value is None or value.shape != (env.num_envs,):
+        raise RuntimeError("missing cached level foot yaw")
+    return value
+
+
 # Sole clearance above the riser edge that earns full lift credit. The
 # Unitree prior's swing sole clearance is ~1.5-2 cm, so a lift capped at
 # exactly the riser height still stubs the edge.

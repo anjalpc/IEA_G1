@@ -5,7 +5,7 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Patch 72. Resume patch 71 run 20261119_153236 model_103600 (most natural flat and platform walk so far, pitch 1.9 deg, stance knee 0.30, roll 18 deg/s, no skid; but 20 cm 6/10 strict and 6 cm 5/10) for 10500 iterations (overnight, ~20 h) with graded placement on every non-tread target (flat tiles, approach, the pre-riser placement, platform), 1.0 on target to 0.5 at the 12.5 cm acceptance radius, like the tread grading of patch 53. Evidence (doc g1-p71-first-step-handover), 103600 lands 3.7 cm short of flat targets at full pay (0.33 m/s for 0.35) and the first 20 cm step 2.3 cm short of a 2.75 cm heel budget; the pre-riser placement is overshot 3-8 cm at full pay, +7-8 cm on every 6 cm failure. Paper check, graded flat pay 103600 6.01/s vs on-target 96100 6.67/s (+0.66), touchdowns unchanged, lean still unprofitable (level_pitch 2.6/s at 96100's lean). Pass, same robots, flat landing - target within 1.5 cm, speed >= 0.34, pitch <= 4 deg, stance knee median <= 0.35, roll <= 18 deg/s, no skid; first 20 cm step landing - target >= -1.5 cm; pre-riser overshoot <= 4 cm; 20 cm >= 9/10 strict; 6 cm >= 8/10; 8-19 cm no worse than 103600. Unattended run, judge afterwards by tracing 40%, 70%, last and the training-curve peak of 20 cm clean; discard checkpoints after flat pitch > 6 deg, crouch status > 0.20, 20 cm below 6/10, or flat skid / double touchdowns.
+  purpose: Patch 73. Resume patch 72 run 20261120_100022 model_114100 (20 cm 10/10 strict, no falls, weight 1.6 cm ahead at the top; but level toe-out 11.3 deg, stance foot pivot p90 75 deg/s, flat 4 cm short) for 2000 iterations (~4 h diagnostic) with level_foot_yaw -5, stance foot yaw against the pelvis beyond 5 deg on level ground (flat tiles, platform after the climb), the level_pitch rows. Evidence (doc g1-stair-clock-resume-run-20261120-100022-findings), level toe-out 2.8 deg at 91700, 6.3 at 103600, 10.4 at 108600, 11.3 at 114100 (hip yaw, not slip); tread toe-out 3.8-5.1 deg at every checkpoint, strict 5.0 vs failed 4.0 at 114100, so the climb does not use it. Paper check, flat cost 91700 0.00/s, 103600 0.15, 114100 0.70 (crouch 0.49, uncommanded_yaw 0.35). Pass, same robots, level stance toe-out median <= 6 deg, pivot frames above 30 deg/s <= 8 percent, tread toe-out 3-6 deg, 20 cm >= 9/10 strict, 2-19 cm no worse than 114100, flat pitch <= 4 deg, stance knee median <= 0.37. Stop early if 20 cm below 8/10 or toe-out turns into toe-in beyond 5 deg.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -126,7 +126,7 @@ execution:
   environments: 4096
   # Resumed run: 11500 more iterations after the checkpoint's own (patch 63,
   # Sunday to Monday 08:00, about 21.6 h on g6; checkpoints every 50).
-  maximum_iterations: 10500
+  maximum_iterations: 2000
   training_seed: 42
 # Residual on the frozen official Unitree policy (balance_residual_control);
 # the actor sees all 688 inputs. Policy, critic, optimizer and learning rate
@@ -135,8 +135,8 @@ execution:
 policy_initialization:
   type: rsl_rl_training_resume
   source:
-    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261119_153236/model_103600.pt
-    sha256: a3e7673772ee7c8be963c9185505fe94e40bf97a4c9e0de872b41ceae468aff4
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261120_100022/model_114100.pt
+    sha256: FILL_ON_AWS
   critic_initialization: restored
   optimizer_initialization: restored
   locomotion_observations: 480
@@ -314,6 +314,9 @@ reward_experiment:
         # Cost at the traced postures: 94100 0.96/s, 91700 1.78, 96100 2.66
         # (flat); stair approach and stairs 0.
         level_pitch: -15.0
+        # Patch 73: stance toe-out beyond 5 deg on level ground, summed over feet
+        # in contact. Flat cost: 91700 0.00/s, 103600 0.15, 114100 0.70.
+        level_foot_yaw: -5.0
         # Landing impact, per touchdown: ((v - 0.3) / 0.3)^2 for the sole
         # downward speed v above 0.3 m/s (Unitree prior 0.20). Run
         # 20261031_212003 model_3700: 0.48 m/s flat, 0.81 m/s stairs (p90

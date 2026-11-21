@@ -366,6 +366,10 @@ def audit_after_step(env):
         from .footstep_rewards import level_pitch
         level_rows = keep & ((riser_height_per_env(env) <= 0.0) | clock_state.climbed)
         env._g1_footstep_level_pitch = level_pitch(data.projected_gravity_b, level_rows)
+        # Patch 73: toe-out on the same level-ground rows.
+        from .footstep_rewards import level_foot_yaw
+        env._g1_footstep_level_foot_yaw = level_foot_yaw(
+            data.body_quat_w[:, foot_ids], data.root_quat_w, supported, level_rows)
         # Landing impact on all tiles (before prev_supported moves on).
         sole_vz = sole_velocity[..., 2]
         impact = landing_impact(

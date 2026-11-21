@@ -1399,6 +1399,10 @@ class FootstepRewardsCfg(StairRewardsCfg):
         self.level_pitch = RewTerm(
             func=footstep_rewards.cached_level_pitch, weight=-1.0
         )
+        # Patch 73: stance toe-out beyond 5 deg on level ground. Weight from the config.
+        self.level_foot_yaw = RewTerm(
+            func=footstep_rewards.cached_level_foot_yaw, weight=-1.0
+        )
         # Pelvis roll/pitch as Unitree's base_angular_velocity, plus yaw
         # relative to the command (patch 39). Weight from the config.
         self.base_angular_velocity = RewTerm(

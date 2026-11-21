@@ -458,6 +458,9 @@ class GeometryTrace:
                 "cached_level_pitch": cached(
                     "_g1_footstep_level_pitch"
                 ),
+                "cached_level_foot_yaw": cached(
+                    "_g1_footstep_level_foot_yaw"
+                ),
                 "acquisition_paid": (
                     bool(env._g1_footstep_acquisition_paid[i].item())
                     if hasattr(env, "_g1_footstep_acquisition_paid")
