@@ -552,6 +552,15 @@ def main() -> None:
             resolved_config,
         )
 
+    # Patch 74b probe: tread-1 target moved forward (replay only).
+    tread1_forward = float(((resolved_config or {}).get("replay") or {}).get("tread1_target_forward_m", 0.0))
+    if tread1_forward:
+        if not 0.0 < tread1_forward <= 0.03:
+            raise SystemExit("replay.tread1_target_forward_m must be in (0, 0.03] m")
+        from simulation.isaac_lab.g1_stairs import footstep_tensor as _ftensor
+        _ftensor.TREAD1_TARGET_FORWARD_M = tread1_forward
+        print(f"[INFO] Probe: tread-1 target {tread1_forward * 100:.1f} cm forward", flush=True)
+
     env = gym.make(
         args.task,
         cfg=env_cfg,

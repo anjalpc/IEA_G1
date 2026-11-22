@@ -968,8 +968,8 @@ cd /workspace/IEA_G1
 # as seed k). Single-robot replays were GPU-bound on the A10G (3 in parallel
 # 107 s vs 55 s alone), so batching robots is the speed-up, not processes.
 cmd_traces() {
-    local USAGE="Usage: simctl traces [<checkpoint>...] [--parallel <n>] [--name <tag>] [--symmetry check|average] [--heights <m,m,...>] [--executed-clip <x>] [--residual-gate <fade_s>] [--speed <m/s>] [--raw-teacher] [--ramp <s>] [--raw-start <s>] [--clock-level <s>] [--clock-stairs <s>] [--level-off]"
-    local CKPTS=() PARALLEL=3 NAME=traces SYM=check ONLY="" EXEC_CLIP="" GATE="" SPEED="" RAW="" RAMP="" RAW_START="" CLOCK_LEVEL="" CLOCK_STAIRS="" LEVEL_OFF=""
+    local USAGE="Usage: simctl traces [<checkpoint>...] [--parallel <n>] [--name <tag>] [--symmetry check|average] [--heights <m,m,...>] [--executed-clip <x>] [--residual-gate <fade_s>] [--speed <m/s>] [--raw-teacher] [--ramp <s>] [--raw-start <s>] [--clock-level <s>] [--clock-stairs <s>] [--tread1-forward <m>] [--level-off]"
+    local CKPTS=() PARALLEL=3 NAME=traces SYM=check ONLY="" EXEC_CLIP="" GATE="" SPEED="" RAW="" RAMP="" RAW_START="" CLOCK_LEVEL="" CLOCK_STAIRS="" TREAD1="" LEVEL_OFF=""
     while [ $# -gt 0 ]; do
         case "$1" in
             --parallel) PARALLEL="${2:?$USAGE}"; shift 2 ;;
@@ -1000,6 +1000,8 @@ cmd_traces() {
             # Probe: fixed stair cycle on the 20 cm riser (s), other heights on the
             # same line from period_stairs_s; clock jitter 0 (every robot the same cycle).
             --clock-stairs) CLOCK_STAIRS="${2:?$USAGE}"; shift 2 ;;
+            # Probe: tread-1 target moved <m> forward (replay only, <= 0.03).
+            --tread1-forward) TREAD1="${2:?$USAGE}"; shift 2 ;;
             # Probe: footstep / clock rewards unpaid on level ground (patch 68).
             --level-off) LEVEL_OFF=1; shift ;;
             [0-9]*) CKPTS+=("$1"); shift ;;
@@ -1030,12 +1032,12 @@ cmd_traces() {
     CFG="experiments/g1_stairs/runs/${RUN_ID}/resolved_config.yaml"
     EVAL="experiments/g1_stairs/outputs/evaluation/${NAME}/${RUN_ID}"
     [ -f "$CFG" ] || { echo "Resolved config not found: $CFG" >&2; exit 1; }
-    if [ -n "$EXEC_CLIP$GATE$SPEED$RAW$RAMP$RAW_START$CLOCK_LEVEL$CLOCK_STAIRS$LEVEL_OFF" ]; then
+    if [ -n "$EXEC_CLIP$GATE$SPEED$RAW$RAMP$RAW_START$CLOCK_LEVEL$CLOCK_STAIRS$TREAD1$LEVEL_OFF" ]; then
         [ "$NAME" != traces ] || { echo "probe options (--executed-clip --residual-gate --speed --raw-teacher --ramp) need --name <tag> (keeps probe traces apart)" >&2; exit 1; }
         mkdir -p "$EVAL"
-        python3 - "$CFG" "$EVAL/resolved_config_probe.yaml" "$EXEC_CLIP" "$GATE" "$SPEED" "$RAW" "$RAMP" "$RAW_START" "$CLOCK_LEVEL" "$LEVEL_OFF" "$CLOCK_STAIRS" <<'PY' || exit 1
+        python3 - "$CFG" "$EVAL/resolved_config_probe.yaml" "$EXEC_CLIP" "$GATE" "$SPEED" "$RAW" "$RAMP" "$RAW_START" "$CLOCK_LEVEL" "$LEVEL_OFF" "$CLOCK_STAIRS" "$TREAD1" <<'PY' || exit 1
 import sys, yaml
-cfg = yaml.safe_load(open(sys.argv[1])); clip, gate, speed, raw, ramp, raw_start, clock_level, level_off, clock_stairs = sys.argv[3:12]
+cfg = yaml.safe_load(open(sys.argv[1])); clip, gate, speed, raw, ramp, raw_start, clock_level, level_off, clock_stairs, tread1 = sys.argv[3:13]
 ctl = cfg.get("balance_residual_control")
 if not isinstance(ctl, dict) or "executed_clip" not in ctl:
     sys.exit("run has no balance_residual_control.executed_clip")
@@ -1110,6 +1112,12 @@ if clock_stairs:
           f"period_jitter {clk['period_jitter']} -> 0", file=sys.stderr)
     clk["period_stairs_per_m"] = round(per_m, 6)
     clk["period_jitter"] = 0.0
+if tread1:
+    t1 = float(tread1)
+    if not 0.0 < t1 <= 0.03:
+        sys.exit("--tread1-forward must be in (0, 0.03] m")
+    print(f"Probe: tread-1 target {t1 * 100:.1f} cm forward", file=sys.stderr)
+    cfg.setdefault("replay", {})["tread1_target_forward_m"] = t1
 yaml.safe_dump(cfg, open(sys.argv[2], "w"), sort_keys=False)
 PY
         CFG="$EVAL/resolved_config_probe.yaml"

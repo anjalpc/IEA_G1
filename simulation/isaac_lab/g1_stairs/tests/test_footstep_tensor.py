@@ -200,3 +200,17 @@ class BatchedFootstepTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class Tread1ProbeTests(unittest.TestCase):
+    def test_probe_moves_only_tread_one(self):
+        from simulation.isaac_lab.g1_stairs import footstep_tensor as ft
+        idx = torch.tensor([0, 1, 2, 3])
+        base = ft.tread_target_x(torch.tensor(1.0), torch.tensor(0.25), idx, 3)
+        torch.testing.assert_close(base, torch.tensor([1.11, 1.36, 1.61, 1.875]))
+        try:
+            ft.TREAD1_TARGET_FORWARD_M = 0.015
+            moved = ft.tread_target_x(torch.tensor(1.0), torch.tensor(0.25), idx, 3)
+        finally:
+            ft.TREAD1_TARGET_FORWARD_M = 0.0
+        torch.testing.assert_close(moved - base, torch.tensor([0.015, 0.0, 0.0, 0.0]))

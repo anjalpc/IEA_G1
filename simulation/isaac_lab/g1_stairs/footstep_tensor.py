@@ -27,12 +27,19 @@ NOMINAL_APPROACH_STEPS = 1
 APPROACH_LAST_GAP_M = 0.20
 
 
+# Patch 74b: replay probe only (record_view, replay.tread1_target_forward_m).
+# Moves the tread-1 target forward; 0 in training.
+TREAD1_TARGET_FORWARD_M = 0.0
+
+
 def tread_target_x(first_riser_x, tread_depth, index, step_count):
     """Course x of the planned sole centre for stair/platform ``index``
     (0 = tread 1): treads TREAD_TARGET_BACK_M behind their centre, platform
-    cells (index >= step_count) at their centre."""
+    cells (index >= step_count) at their centre. Tread 1 moves forward by
+    TREAD1_TARGET_FORWARD_M (replay probe)."""
     x = first_riser_x + (index + 0.5) * tread_depth
-    return torch.where(index < step_count, x - TREAD_TARGET_BACK_M, x)
+    x = torch.where(index < step_count, x - TREAD_TARGET_BACK_M, x)
+    return torch.where(index == 0, x + TREAD1_TARGET_FORWARD_M, x)
 
 
 def approach_target_x(first_riser_x, tread_depth, index):
