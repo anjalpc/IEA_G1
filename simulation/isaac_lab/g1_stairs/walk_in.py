@@ -53,6 +53,29 @@ def validate_walk_in_cfg(cfg, *, start_clearance_m=1.0, approach_length_m=2.0) -
             "settle_s": (settle_lo, settle_hi)}
 
 
+def walk_back_limit_x(env):
+    """Stair-escape walking-back limit (course x). Without the walk-in the
+    usual STAIR_MIN_X_M (-0.5 m, 0.5 m behind the start). With it, 0.5 m
+    behind the walk-in start, but kept 5 cm inside the tile's back edge
+    (start_clearance - approach_length behind the course origin)."""
+    from .footstep_mixing import STAIR_MIN_X_M
+    cfg = (getattr(env.cfg, "footstep_clock", None) or {}).get("walk_in")
+    if not cfg:
+        return STAIR_MIN_X_M
+    from .terrain_state import stair_cfg
+    terrain = stair_cfg(env)
+    clearance = float(terrain.start_clearance)
+    return walk_back_limit(cfg["start_distance_m"], clearance, float(terrain.approach_length))
+
+
+def walk_back_limit(start_distance_m, start_clearance_m, approach_length_m):
+    """Pure form of walk_back_limit_x."""
+    from .footstep_mixing import STAIR_MIN_X_M
+    start_x = start_clearance_m - start_distance_m
+    edge_x = start_clearance_m - approach_length_m
+    return max(start_x + STAIR_MIN_X_M, edge_x + 0.05)
+
+
 def stop_trigger_x(first_riser_x, stop_distance, speed, stop_ramp_s):
     """[N] course x at which to release the command so the pelvis comes to rest
     near ``first_riser_x - stop_distance``: a linear ramp-down covers about

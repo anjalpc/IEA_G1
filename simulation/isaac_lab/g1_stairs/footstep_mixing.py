@@ -98,10 +98,11 @@ def outside_safe_region(root_xy_local, *, x_range=SAFE_X_M, abs_y=SAFE_ABS_Y_M):
     return (x < x_range[0]) | (x > x_range[1]) | (y.abs() > abs_y)
 
 
-def stair_escape(root_xy_local, root_yaw, on_stairs):
-    """[N] Stair env left the corridor, walked back, or turned away (failure)."""
+def stair_escape(root_xy_local, root_yaw, on_stairs, min_x=STAIR_MIN_X_M):
+    """[N] Stair env left the corridor, walked back, or turned away (failure).
+    ``min_x``: walking-back limit (patch 76: lower with a walk-in start)."""
     x, y = root_xy_local[:, 0], root_xy_local[:, 1]
-    away = ((y.abs() > STAIR_ABS_Y_M) | (x < STAIR_MIN_X_M)
+    away = ((y.abs() > STAIR_ABS_Y_M) | (x < min_x)
             | (root_yaw.abs() > STAIR_MAX_ABS_YAW_RAD))
     return on_stairs & away
 

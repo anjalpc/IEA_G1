@@ -73,7 +73,9 @@ def stair_target_stall(env):
 def stair_course_escape(env):
     """Failure when a stair env leaves its corridor or turns away."""
     xyz, yaw = course_root_pose(env)
-    return stair_escape(xyz[:, :2], yaw, riser_height_per_env(env) > 0)
+    from .walk_in import walk_back_limit_x
+    return stair_escape(xyz[:, :2], yaw, riser_height_per_env(env) > 0,
+                        min_x=walk_back_limit_x(env))
 
 
 def ensure_rolling_clock(env):

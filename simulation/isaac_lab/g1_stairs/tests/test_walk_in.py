@@ -57,3 +57,10 @@ def test_forward_command_ramps_and_releases():
     out = walk_in_forward_command(phase, t, t_stop, 0.4, 1.0, 0.5)
     torch.testing.assert_close(out[:4], torch.tensor([0.2, 0.4, 0.2, 0.0]))
     assert torch.isnan(out[4])
+
+
+def test_walk_back_limit_follows_the_walk_in_start_inside_the_tile():
+    from simulation.isaac_lab.g1_stairs.walk_in import walk_back_limit
+    assert walk_back_limit(1.0, 1.0, 2.0) == -0.5                         # usual start: unchanged
+    assert abs(walk_back_limit(1.7, 1.0, 2.0) - (-0.95)) < 1e-9          # capped 5 cm inside the tile
+    assert abs(walk_back_limit(1.3, 1.0, 2.0) - (-0.8)) < 1e-9
