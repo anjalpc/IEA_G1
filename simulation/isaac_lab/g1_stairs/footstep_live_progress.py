@@ -629,6 +629,20 @@ def audit_after_step(env):
         # progress credit, finite); the next window resets it.
         env._g1_footstep_best_distance[advanced & rolling_rows] = 0.0
         coordinator.runtime.target_index[rolling_rows] = clock_state.window[rolling_rows]
+        # Patch 75b probe: re-phase the clock to the measured gait once per
+        # episode at the walk-in handover: at the first lift-off after the
+        # residual gate opens, the phase jumps to the start of that foot's
+        # swing window. Flag set by the residual wrapper
+        # (balance_residual_control.residual_gate_resync_clock).
+        gate = getattr(env, "_g1_residual_gate_weight", None)
+        if gate is not None and getattr(env, "_g1_gate_resync_clock", False):
+            from .footstep_clock import resync_phase
+            done = getattr(env, "_g1_clock_resynced", None)
+            if done is None or done.shape != gate.shape:
+                done = torch.zeros_like(gate, dtype=torch.bool)
+            clock_state.phase, env._g1_clock_resynced = resync_phase(
+                clock_state.phase, gate, done, touchdown_before[0], supported,
+                env.episode_length_buf == 0)
         command = env.command_manager.get_command("base_velocity")
         clock_state.advance(
             float(env.step_dt), rolling_walking,

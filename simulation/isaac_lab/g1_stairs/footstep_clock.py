@@ -208,6 +208,22 @@ def follow_plan_foot(phase, was_swinging, plan_foot, rows):
     return torch.where(shift, torch.remainder(phase + 0.5, 1.0), phase)
 
 
+def resync_phase(phase, gate, done, prev_supported, supported, reset):
+    """Patch 75b probe: (phase [N], done [N]). Once per episode, at the first
+    lift-off after the residual gate opens (gate > 0), the phase jumps to the
+    start of that foot's swing window, so the clock matches the gait the
+    residual takes over. ``reset`` rows clear ``done``."""
+    ds, ss = DOUBLE_SUPPORT_FRACTION, SINGLE_SUPPORT_FRACTION
+    done = done & ~reset
+    lifted = prev_supported & ~supported
+    armed = (gate > 0) & ~done
+    left = armed & lifted[:, 0]
+    right = armed & lifted[:, 1] & ~left
+    phase = torch.where(left, torch.full_like(phase, ds),
+                        torch.where(right, torch.full_like(phase, 2 * ds + ss), phase))
+    return phase, done | left | right
+
+
 def own_window(phase, foot):
     """[N] True during ``foot``'s swing window and the double support after
     it (left: phase 0.15-0.65, right: 0.65-1.0 and 0.0-0.15)."""

@@ -611,3 +611,20 @@ class FollowHeadingTests(unittest.TestCase):
         from simulation.isaac_lab.g1_stairs.footstep_clock import follow_heading
         h = follow_heading(torch.tensor([3.1]), torch.tensor([-3.1]), torch.tensor([0.0]), 0.02, torch.tensor([0.02]))
         self.assertAlmostEqual(float(h), -3.1, places=4)
+
+
+def test_resync_phase_once_at_first_liftoff_after_gate_opens():
+    import torch
+    from simulation.isaac_lab.g1_stairs.footstep_clock import resync_phase
+    phase = torch.tensor([0.9, 0.3, 0.7, 0.5])
+    gate = torch.tensor([0.1, 0.1, 0.0, 0.1])
+    done = torch.tensor([False, False, False, True])
+    prev = torch.tensor([[True, True], [True, True], [True, True], [True, True]])
+    now = torch.tensor([[False, True], [True, False], [False, True], [False, True]])
+    reset = torch.zeros(4, dtype=torch.bool)
+    p, d = resync_phase(phase, gate, done, prev, now, reset)
+    # left lift-off -> 0.15; right -> 0.65; gate closed -> unchanged; already done -> unchanged
+    torch.testing.assert_close(p, torch.tensor([0.15, 0.65, 0.7, 0.5]))
+    assert d.tolist() == [True, True, False, True]
+    p2, d2 = resync_phase(p, gate, d, prev, now, torch.tensor([False, False, False, True]))
+    torch.testing.assert_close(p2, torch.tensor([0.15, 0.65, 0.7, 0.15]))  # reset re-arms row 4

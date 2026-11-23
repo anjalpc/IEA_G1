@@ -413,6 +413,7 @@ class FrozenBalanceResidualWrapper:
         teacher_start_raw_s: float = 0.0,
         residual_gate_walk_in_m: float = 0.6,
         residual_gate_fade_in_s: float = 0.4,
+        residual_gate_resync_clock: bool = False,
     ) -> None:
         self._wrapped = wrapped
         self._start_raw_s = float(teacher_start_raw_s)
@@ -423,6 +424,7 @@ class FrozenBalanceResidualWrapper:
         self._gate_fade_s = float(residual_gate_fade_s)
         self._gate_walk_in_m = float(residual_gate_walk_in_m)
         self._gate_fade_in_s = float(residual_gate_fade_in_s)
+        self._gate_resync = bool(residual_gate_resync_clock)
         if residual_gate == "walk_in" and not 0.0 < self._gate_walk_in_m <= 3.0:
             raise ValueError("residual_gate_walk_in_m must be in (0, 3] m")
         self._gate_weight = None
@@ -481,6 +483,7 @@ class FrozenBalanceResidualWrapper:
                 "residual_gate": self._gate,
                 "residual_gate_walk_in_m": self._gate_walk_in_m,
                 "residual_gate_fade_in_s": self._gate_fade_in_s,
+                "residual_gate_resync_clock": self._gate_resync,
                 "teacher_start_raw_s": self._start_raw_s,
                 "scale_by_joint": {
                     name: float(self._scale[index].item())
@@ -565,6 +568,7 @@ class FrozenBalanceResidualWrapper:
                 self._gate_weight, active, reset, float(env.step_dt),
                 self._gate_fade_in_s, self._gate_fade_s)
             env._g1_residual_gate_weight = self._gate_weight
+            env._g1_gate_resync_clock = self._gate_resync
             clip = self._residual_clip.to(residual_actions.device)
             return clamp_abs(residual_actions, clip) * self._gate_weight[:, None]
         if self._gate_weight is None:
@@ -631,4 +635,5 @@ def wrap_balance_residual_from_config(wrapped, resolved_config: dict[str, Any]):
         teacher_start_raw_s=float(cfg.get("teacher_start_raw_s", 0.0)),
         residual_gate_walk_in_m=float(cfg.get("residual_gate_walk_in_m", 0.6)),
         residual_gate_fade_in_s=float(cfg.get("residual_gate_fade_in_s", 0.4)),
+        residual_gate_resync_clock=bool(cfg.get("residual_gate_resync_clock", False)),
     )
