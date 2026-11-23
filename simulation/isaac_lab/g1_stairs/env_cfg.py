@@ -1488,6 +1488,9 @@ class FootstepEnvCfg(StairEnvCfg):
             func=footstep_phase_observation.reset_footsteps_with_phase,
             mode="reset",
         )
+        # Patch 76: walk in, stop, then climb (no-op unless footstep_clock.walk_in).
+        from . import walk_in
+        self.events.walk_in_reset = EventTerm(func=walk_in.reset_walk_in, mode="reset")
         from isaaclab.managers import TerminationTermCfg as DoneTerm
         from . import footstep_live_progress
 

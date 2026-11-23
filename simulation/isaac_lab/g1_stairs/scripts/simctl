@@ -968,8 +968,8 @@ cd /workspace/IEA_G1
 # as seed k). Single-robot replays were GPU-bound on the A10G (3 in parallel
 # 107 s vs 55 s alone), so batching robots is the speed-up, not processes.
 cmd_traces() {
-    local USAGE="Usage: simctl traces [<checkpoint>...] [--parallel <n>] [--name <tag>] [--symmetry check|average] [--heights <m,m,...>] [--executed-clip <x>] [--residual-gate <fade_s>] [--speed <m/s>] [--raw-teacher] [--ramp <s>] [--raw-start <s>] [--clock-level <s>] [--clock-stairs <s>] [--tread1-forward <m>] [--waist-pitch-off] [--walk-in <m>] [--resync-clock] [--stop <s>] [--level-off]"
-    local CKPTS=() PARALLEL=3 NAME=traces SYM=check ONLY="" EXEC_CLIP="" GATE="" SPEED="" RAW="" RAMP="" RAW_START="" CLOCK_LEVEL="" CLOCK_STAIRS="" TREAD1="" WAIST_OFF="" WALK_IN="" RESYNC="" STOP="" LEVEL_OFF=""
+    local USAGE="Usage: simctl traces [<checkpoint>...] [--parallel <n>] [--name <tag>] [--symmetry check|average] [--heights <m,m,...>] [--executed-clip <x>] [--residual-gate <fade_s>] [--speed <m/s>] [--raw-teacher] [--ramp <s>] [--raw-start <s>] [--clock-level <s>] [--clock-stairs <s>] [--tread1-forward <m>] [--waist-pitch-off] [--walk-in <m>] [--resync-clock] [--stop <s>] [--walk-stop <m>] [--level-off]"
+    local CKPTS=() PARALLEL=3 NAME=traces SYM=check ONLY="" EXEC_CLIP="" GATE="" SPEED="" RAW="" RAMP="" RAW_START="" CLOCK_LEVEL="" CLOCK_STAIRS="" TREAD1="" WAIST_OFF="" WALK_IN="" RESYNC="" STOP="" WALK_STOP="" LEVEL_OFF=""
     while [ $# -gt 0 ]; do
         case "$1" in
             --parallel) PARALLEL="${2:?$USAGE}"; shift 2 ;;
@@ -1014,6 +1014,10 @@ cmd_traces() {
             # Probe (with --ramp, flat only): forward command back to 0 from <s> s
             # over 0.5 s (joystick released).
             --stop) STOP="${2:?$USAGE}"; shift 2 ;;
+            # Probe (patch 76): stair rows start 1.7 m before the first riser, the
+            # teacher walks in alone at 0.35 m/s, stops ~<m> before the riser, settles
+            # 1 s, then the residual climbs (gate after_stop). 18 s replays.
+            --walk-stop) WALK_STOP="${2:?$USAGE}"; shift 2 ;;
             # Probe: footstep / clock rewards unpaid on level ground (patch 68).
             --level-off) LEVEL_OFF=1; shift ;;
             [0-9]*) CKPTS+=("$1"); shift ;;
@@ -1044,12 +1048,12 @@ cmd_traces() {
     CFG="experiments/g1_stairs/runs/${RUN_ID}/resolved_config.yaml"
     EVAL="experiments/g1_stairs/outputs/evaluation/${NAME}/${RUN_ID}"
     [ -f "$CFG" ] || { echo "Resolved config not found: $CFG" >&2; exit 1; }
-    if [ -n "$EXEC_CLIP$GATE$SPEED$RAW$RAMP$RAW_START$CLOCK_LEVEL$CLOCK_STAIRS$TREAD1$WAIST_OFF$WALK_IN$RESYNC$STOP$LEVEL_OFF" ]; then
+    if [ -n "$EXEC_CLIP$GATE$SPEED$RAW$RAMP$RAW_START$CLOCK_LEVEL$CLOCK_STAIRS$TREAD1$WAIST_OFF$WALK_IN$RESYNC$STOP$WALK_STOP$LEVEL_OFF" ]; then
         [ "$NAME" != traces ] || { echo "probe options (--executed-clip --residual-gate --speed --raw-teacher --ramp) need --name <tag> (keeps probe traces apart)" >&2; exit 1; }
         mkdir -p "$EVAL"
-        python3 - "$CFG" "$EVAL/resolved_config_probe.yaml" "$EXEC_CLIP" "$GATE" "$SPEED" "$RAW" "$RAMP" "$RAW_START" "$CLOCK_LEVEL" "$LEVEL_OFF" "$CLOCK_STAIRS" "$TREAD1" "$WAIST_OFF" "$WALK_IN" "$RESYNC" "$STOP" <<'PY' || exit 1
+        python3 - "$CFG" "$EVAL/resolved_config_probe.yaml" "$EXEC_CLIP" "$GATE" "$SPEED" "$RAW" "$RAMP" "$RAW_START" "$CLOCK_LEVEL" "$LEVEL_OFF" "$CLOCK_STAIRS" "$TREAD1" "$WAIST_OFF" "$WALK_IN" "$RESYNC" "$STOP" "$WALK_STOP" <<'PY' || exit 1
 import sys, yaml
-cfg = yaml.safe_load(open(sys.argv[1])); clip, gate, speed, raw, ramp, raw_start, clock_level, level_off, clock_stairs, tread1, waist_off, walk_in, resync, stop = sys.argv[3:17]
+cfg = yaml.safe_load(open(sys.argv[1])); clip, gate, speed, raw, ramp, raw_start, clock_level, level_off, clock_stairs, tread1, waist_off, walk_in, resync, stop, walk_stop = sys.argv[3:18]
 ctl = cfg.get("balance_residual_control")
 if not isinstance(ctl, dict) or "executed_clip" not in ctl:
     sys.exit("run has no balance_residual_control.executed_clip")
@@ -1163,6 +1167,22 @@ if stop:
         sys.exit("--stop must be after the ramp and <= 30 s")
     print(f"Probe: forward command back to 0 from {st} s over 0.5 s", file=sys.stderr)
     cfg.setdefault("replay", {})["command_stop_s"] = st
+if walk_stop:
+    if walk_in or gate:
+        sys.exit("--walk-stop sets its own gate; drop --walk-in / --residual-gate")
+    d = float(walk_stop)
+    clock = cfg.get("footstep_clock")
+    ctl = cfg.get("balance_residual_control")
+    if not isinstance(clock, dict) or not clock.get("enabled") or not isinstance(ctl, dict):
+        sys.exit("run has no footstep_clock / balance_residual_control")
+    clock["walk_in"] = {"enabled": True, "start_distance_m": 1.7, "stop_distance_m": [d, d],
+                        "walk_speed_mps": 0.35, "ramp_s": 1.0, "stop_ramp_s": 0.5,
+                        "settle_s": [1.0, 1.0]}
+    ctl["residual_gate"] = "after_stop"
+    ctl["residual_gate_fade_in_s"] = 0.2
+    ctl.setdefault("residual_gate_fade_s", 0.8)
+    print(f"Probe: walk in from 1.7 m, stop ~{d} m before the riser, settle 1 s, then climb "
+          f"(residual fades in 0.2 s after the stop); flat tiles teacher only", file=sys.stderr)
 yaml.safe_dump(cfg, open(sys.argv[2], "w"), sort_keys=False)
 PY
         CFG="$EVAL/resolved_config_probe.yaml"
@@ -1208,7 +1228,7 @@ PY
         done
     done
 
-    export TR_EVAL="$EVAL" TR_CFG="$CFG" TR_TRAIN="${TRAIN_DIR/$REPO/\/workspace\/IEA_G1}" TR_COMMIT="$(git rev-parse HEAD)" TR_CONTAINER="$CONTAINER" TR_SYM="$SYM"
+    export TR_EVAL="$EVAL" TR_CFG="$CFG" TR_TRAIN="${TRAIN_DIR/$REPO/\/workspace\/IEA_G1}" TR_COMMIT="$(git rev-parse HEAD)" TR_CONTAINER="$CONTAINER" TR_SYM="$SYM" TR_LEN="$([ -n "$WALK_STOP" ] && echo 900 || echo 600)"
     trace_one() {
         local M=$1 H=$2 N=$3 HC K DONE=1
         HC="$(awk -v h="$H" 'BEGIN{printf "%02d", int(h * 100 + 0.5)}')"
@@ -1221,7 +1241,7 @@ PY
         for K in $(seq 1 "$N"); do rm -rf "${T/\{env\}/$K}"; done
         mkdir -p "$TR_EVAL"
         # A replay takes 1-3 min; 15 min means it hangs: stop it in the container too.
-        timeout 900 docker exec -i --env UNITREE_RL_LAB_ROOT=/workspace/unitree_rl_lab --workdir /workspace/IEA_G1 "$TR_CONTAINER" /workspace/isaaclab/isaaclab.sh -p simulation/isaac_lab/g1_stairs/scripts/visualization/record_view.py --task Unitree-IEA-G1-29dof-Stairs-Footsteps-v0 --trace-only --symmetry "$TR_SYM" --view side --output_dir "/workspace/IEA_G1/$T" --video_length 600 --seed 1 --num_envs "$N" --checkpoint "${TR_TRAIN}/model_${M}.pt" --resolved_config "/workspace/IEA_G1/${TR_CFG}" --riser_height_override "$H" --project_commit "$TR_COMMIT" --isaaclab_commit 3c6e67bb5c7ada942a6d1884ab69338f57596f77 --unitree_rl_commit 4960b84732b0c2ec593dccbfe963fda1bcd7b1e3 --unitree_diff_sha256 54a60bd3ed9de27514530c82936cb43e6b1c5074fee173e81ee271b7ca238b1f --headless --device cuda:0 </dev/null > "/tmp/rv_${M}_${HC}.log" 2>&1 \
+        timeout 900 docker exec -i --env UNITREE_RL_LAB_ROOT=/workspace/unitree_rl_lab --workdir /workspace/IEA_G1 "$TR_CONTAINER" /workspace/isaaclab/isaaclab.sh -p simulation/isaac_lab/g1_stairs/scripts/visualization/record_view.py --task Unitree-IEA-G1-29dof-Stairs-Footsteps-v0 --trace-only --symmetry "$TR_SYM" --view side --output_dir "/workspace/IEA_G1/$T" --video_length "${TR_LEN:-600}" --seed 1 --num_envs "$N" --checkpoint "${TR_TRAIN}/model_${M}.pt" --resolved_config "/workspace/IEA_G1/${TR_CFG}" --riser_height_override "$H" --project_commit "$TR_COMMIT" --isaaclab_commit 3c6e67bb5c7ada942a6d1884ab69338f57596f77 --unitree_rl_commit 4960b84732b0c2ec593dccbfe963fda1bcd7b1e3 --unitree_diff_sha256 54a60bd3ed9de27514530c82936cb43e6b1c5074fee173e81ee271b7ca238b1f --headless --device cuda:0 </dev/null > "/tmp/rv_${M}_${HC}.log" 2>&1 \
             || docker exec "$TR_CONTAINER" pkill -9 -f "model_${M}_h${HC}cm_seed" >/dev/null 2>&1 || true
         for K in $(seq 1 "$N"); do
             local D="${T/\{env\}/$K}"

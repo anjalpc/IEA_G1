@@ -687,6 +687,9 @@ def audit_after_step(env):
         unpay_level_ground(env, level)
     steer_stair_command(env, coordinator.runtime, flat, resets,
                         course["tread_depth"], clock_state)
+    # Patch 76: walk-in / stop commands before the climb (no-op unless enabled).
+    from .walk_in import walk_in_step
+    walk_in_step(env, resets)
     if clock_state is None:
         # Without the clock a finished plan stands still; with it the row
         # walks on (above).

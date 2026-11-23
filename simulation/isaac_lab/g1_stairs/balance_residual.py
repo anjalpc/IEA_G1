@@ -418,8 +418,8 @@ class FrozenBalanceResidualWrapper:
         self._wrapped = wrapped
         self._start_raw_s = float(teacher_start_raw_s)
         self._moving_s = None
-        if residual_gate not in ("off", "stair_tiles", "walk_in"):
-            raise ValueError("residual_gate must be 'off', 'stair_tiles' or 'walk_in'")
+        if residual_gate not in ("off", "stair_tiles", "walk_in", "after_stop"):
+            raise ValueError("residual_gate must be 'off', 'stair_tiles', 'walk_in' or 'after_stop'")
         self._gate = residual_gate
         self._gate_fade_s = float(residual_gate_fade_s)
         self._gate_walk_in_m = float(residual_gate_walk_in_m)
@@ -513,7 +513,7 @@ class FrozenBalanceResidualWrapper:
             self._teacher_prefix,
         )
 
-        if self._gate in ("stair_tiles", "walk_in"):
+        if self._gate in ("stair_tiles", "walk_in", "after_stop"):
             residual_actions = self._gated(residual_actions)
         with torch.no_grad():
             teacher_actions = self._teacher(policy_obs)
@@ -554,14 +554,19 @@ class FrozenBalanceResidualWrapper:
         if clock is not None:
             active = active & ~clock.climbed
         reset = env.episode_length_buf == 0
-        if self._gate == "walk_in":
+        if self._gate in ("walk_in", "after_stop"):
             # Patch 75a: off until the pelvis is within walk-in distance of
             # the first riser (course frame), then fade in.
             from .footstep_isaac_adapter import course_root_pose, course_tensors
             from .footstep_tensor import NOMINAL_FOOT_SEPARATION_M
             course = course_tensors(env, foot_separation_m=NOMINAL_FOOT_SEPARATION_M)
             xyz, _ = course_root_pose(env)
-            active = active & (course["first_riser_x"] - xyz[:, 0] <= self._gate_walk_in_m)
+            if self._gate == "walk_in":
+                active = active & (course["first_riser_x"] - xyz[:, 0] <= self._gate_walk_in_m)
+            else:
+                # Patch 76: only once the walk-in has stopped and the climb began.
+                climbing = getattr(env, "_g1_walk_in_climbing", None)
+                active = active & (climbing if climbing is not None else torch.zeros_like(active))
             if self._gate_weight is None:
                 self._gate_weight = torch.zeros_like(active, dtype=residual_actions.dtype)
             self._gate_weight = residual_gate_walk_in_weight(
