@@ -968,8 +968,8 @@ cd /workspace/IEA_G1
 # as seed k). Single-robot replays were GPU-bound on the A10G (3 in parallel
 # 107 s vs 55 s alone), so batching robots is the speed-up, not processes.
 cmd_traces() {
-    local USAGE="Usage: simctl traces [<checkpoint>...] [--parallel <n>] [--name <tag>] [--symmetry check|average] [--heights <m,m,...>] [--executed-clip <x>] [--residual-gate <fade_s>] [--speed <m/s>] [--raw-teacher] [--ramp <s>] [--raw-start <s>] [--clock-level <s>] [--clock-stairs <s>] [--tread1-forward <m>] [--waist-pitch-off] [--walk-in <m>] [--resync-clock] [--level-off]"
-    local CKPTS=() PARALLEL=3 NAME=traces SYM=check ONLY="" EXEC_CLIP="" GATE="" SPEED="" RAW="" RAMP="" RAW_START="" CLOCK_LEVEL="" CLOCK_STAIRS="" TREAD1="" WAIST_OFF="" WALK_IN="" RESYNC="" LEVEL_OFF=""
+    local USAGE="Usage: simctl traces [<checkpoint>...] [--parallel <n>] [--name <tag>] [--symmetry check|average] [--heights <m,m,...>] [--executed-clip <x>] [--residual-gate <fade_s>] [--speed <m/s>] [--raw-teacher] [--ramp <s>] [--raw-start <s>] [--clock-level <s>] [--clock-stairs <s>] [--tread1-forward <m>] [--waist-pitch-off] [--walk-in <m>] [--resync-clock] [--stop <s>] [--level-off]"
+    local CKPTS=() PARALLEL=3 NAME=traces SYM=check ONLY="" EXEC_CLIP="" GATE="" SPEED="" RAW="" RAMP="" RAW_START="" CLOCK_LEVEL="" CLOCK_STAIRS="" TREAD1="" WAIST_OFF="" WALK_IN="" RESYNC="" STOP="" LEVEL_OFF=""
     while [ $# -gt 0 ]; do
         case "$1" in
             --parallel) PARALLEL="${2:?$USAGE}"; shift 2 ;;
@@ -1011,6 +1011,9 @@ cmd_traces() {
             # Probe (with --walk-in): re-phase the gait clock to the first lift-off
             # after the residual gate opens.
             --resync-clock) RESYNC=1; shift ;;
+            # Probe (with --ramp, flat only): forward command back to 0 from <s> s
+            # over 0.5 s (joystick released).
+            --stop) STOP="${2:?$USAGE}"; shift 2 ;;
             # Probe: footstep / clock rewards unpaid on level ground (patch 68).
             --level-off) LEVEL_OFF=1; shift ;;
             [0-9]*) CKPTS+=("$1"); shift ;;
@@ -1041,12 +1044,12 @@ cmd_traces() {
     CFG="experiments/g1_stairs/runs/${RUN_ID}/resolved_config.yaml"
     EVAL="experiments/g1_stairs/outputs/evaluation/${NAME}/${RUN_ID}"
     [ -f "$CFG" ] || { echo "Resolved config not found: $CFG" >&2; exit 1; }
-    if [ -n "$EXEC_CLIP$GATE$SPEED$RAW$RAMP$RAW_START$CLOCK_LEVEL$CLOCK_STAIRS$TREAD1$WAIST_OFF$WALK_IN$RESYNC$LEVEL_OFF" ]; then
+    if [ -n "$EXEC_CLIP$GATE$SPEED$RAW$RAMP$RAW_START$CLOCK_LEVEL$CLOCK_STAIRS$TREAD1$WAIST_OFF$WALK_IN$RESYNC$STOP$LEVEL_OFF" ]; then
         [ "$NAME" != traces ] || { echo "probe options (--executed-clip --residual-gate --speed --raw-teacher --ramp) need --name <tag> (keeps probe traces apart)" >&2; exit 1; }
         mkdir -p "$EVAL"
-        python3 - "$CFG" "$EVAL/resolved_config_probe.yaml" "$EXEC_CLIP" "$GATE" "$SPEED" "$RAW" "$RAMP" "$RAW_START" "$CLOCK_LEVEL" "$LEVEL_OFF" "$CLOCK_STAIRS" "$TREAD1" "$WAIST_OFF" "$WALK_IN" "$RESYNC" <<'PY' || exit 1
+        python3 - "$CFG" "$EVAL/resolved_config_probe.yaml" "$EXEC_CLIP" "$GATE" "$SPEED" "$RAW" "$RAMP" "$RAW_START" "$CLOCK_LEVEL" "$LEVEL_OFF" "$CLOCK_STAIRS" "$TREAD1" "$WAIST_OFF" "$WALK_IN" "$RESYNC" "$STOP" <<'PY' || exit 1
 import sys, yaml
-cfg = yaml.safe_load(open(sys.argv[1])); clip, gate, speed, raw, ramp, raw_start, clock_level, level_off, clock_stairs, tread1, waist_off, walk_in, resync = sys.argv[3:16]
+cfg = yaml.safe_load(open(sys.argv[1])); clip, gate, speed, raw, ramp, raw_start, clock_level, level_off, clock_stairs, tread1, waist_off, walk_in, resync, stop = sys.argv[3:17]
 ctl = cfg.get("balance_residual_control")
 if not isinstance(ctl, dict) or "executed_clip" not in ctl:
     sys.exit("run has no balance_residual_control.executed_clip")
@@ -1152,6 +1155,14 @@ if walk_in:
           f"out {ctl['residual_gate_fade_s']} s); flat tiles teacher only", file=sys.stderr)
 if resync and not walk_in:
     sys.exit("--resync-clock needs --walk-in")
+if stop:
+    if not ramp:
+        sys.exit("--stop needs --ramp")
+    st = float(stop)
+    if not float(ramp) < st <= 30.0:
+        sys.exit("--stop must be after the ramp and <= 30 s")
+    print(f"Probe: forward command back to 0 from {st} s over 0.5 s", file=sys.stderr)
+    cfg.setdefault("replay", {})["command_stop_s"] = st
 yaml.safe_dump(cfg, open(sys.argv[2], "w"), sort_keys=False)
 PY
         CFG="$EVAL/resolved_config_probe.yaml"

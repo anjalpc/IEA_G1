@@ -827,6 +827,11 @@ def main() -> None:
     # Replay probe (simctl --ramp): flat replays only; the forward command
     # rises from 0 instead of starting at full speed.
     command_ramp_s = float(((resolved_config or {}).get("replay") or {}).get("command_ramp_s", 0.0))
+    # Patch 75c: forward command back to 0 from this time (with the ramp only).
+    command_stop_s = ((resolved_config or {}).get("replay") or {}).get("command_stop_s")
+    command_stop_s = None if command_stop_s is None else float(command_stop_s)
+    if command_stop_s is not None and command_ramp_s <= 0.0:
+        raise SystemExit("replay.command_stop_s needs replay.command_ramp_s")
     ramp = None
     if command_ramp_s > 0.0:
         if replay is None or applied_riser_height_m != 0.0:
@@ -837,7 +842,7 @@ def main() -> None:
         def ramp():
             elapsed = env.unwrapped.episode_length_buf.float() * float(env.unwrapped.step_dt)
             ramp_forward_command(command_term.vel_command_b, replay.forward_velocity_mps,
-                                 elapsed, command_ramp_s)
+                                 elapsed, command_ramp_s, stop_s=command_stop_s)
 
         ramp()
         obs = env.get_observations()

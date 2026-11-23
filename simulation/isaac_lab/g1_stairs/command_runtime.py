@@ -128,12 +128,19 @@ def platform_finish_speed(
     ), settling
 
 
-def ramp_forward_command(vel_command_b, target_mps, elapsed_s, ramp_s):
+def ramp_forward_command(vel_command_b, target_mps, elapsed_s, ramp_s,
+                         stop_s=None, stop_ramp_s=0.5):
     """Replay probe: forward command rises linearly from 0 to ``target_mps``
     over ``ramp_s`` seconds of episode time (a joystick pushed forward, not a
-    step from standstill). Writes vel_command_b[:, 0] in place."""
+    step from standstill). With ``stop_s`` (patch 75c) it falls back to 0
+    over ``stop_ramp_s`` from that time (joystick released). Writes
+    vel_command_b[:, 0] in place."""
     if ramp_s <= 0.0:
         raise ValueError("command ramp must be > 0 s")
     scale = (elapsed_s / ramp_s).clamp(0.0, 1.0)
+    if stop_s is not None:
+        if stop_ramp_s <= 0.0:
+            raise ValueError("stop ramp must be > 0 s")
+        scale = scale * (1.0 - ((elapsed_s - stop_s) / stop_ramp_s).clamp(0.0, 1.0))
     vel_command_b[:, 0] = float(target_mps) * scale
     return vel_command_b

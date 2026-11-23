@@ -369,3 +369,11 @@ def test_walk_in_gate_rejects_bad_fades():
     z = torch.zeros(1, dtype=torch.bool)
     with pytest.raises(ValueError):
         residual_gate_walk_in_weight(torch.zeros(1), z, z, 0.02, 0.0, 0.8)
+
+
+def test_ramp_forward_command_with_stop():
+    from simulation.isaac_lab.g1_stairs.command_runtime import ramp_forward_command
+    cmd = torch.zeros(4, 3)
+    t = torch.tensor([0.5, 2.0, 4.25, 5.0])
+    ramp_forward_command(cmd, 0.4, t, 1.0, stop_s=4.0, stop_ramp_s=0.5)
+    torch.testing.assert_close(cmd[:, 0], torch.tensor([0.2, 0.4, 0.2, 0.0]))
