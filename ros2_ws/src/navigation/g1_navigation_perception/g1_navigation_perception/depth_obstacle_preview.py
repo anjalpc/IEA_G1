@@ -16,6 +16,7 @@ from std_msgs.msg import Header, String
 from tf2_ros import Buffer, TransformException, TransformListener
 
 from .depth_context import cloud_context_reason
+from .hand_self_filter import hand_keep_mask
 from .depth_geometry import heights_above_plane, select_floor_plane, transform_points
 
 
@@ -31,6 +32,17 @@ class DepthObstaclePreview(Node):
         self.bounds = (
             self.declare_parameter("minimum_floor_distance_m", 0.65).value,
             self.declare_parameter("maximum_floor_distance_m", 0.95).value)
+        self.hand_self_filter_enabled = self.declare_parameter(
+            "hand_self_filter_enabled", False).value
+        self.hand_padding = self.declare_parameter(
+            "hand_self_filter_padding_m", 0.02).value
+        self.hand_bounds = {side: self.declare_parameter(
+            f"hand_self_filter_{side}_bounds_m", [0.] * 6).value
+            for side in ("left", "right")}
+        if self.hand_self_filter_enabled:
+            identity = {s: [0., 0., 0., 0., 0., 0., 1.] for s in self.hand_bounds}
+            hand_keep_mask(np.empty((0, 3)), identity, self.hand_bounds,
+                           padding_m=self.hand_padding)
         self.gpu_selector = None
         backend = self.declare_parameter("compute_backend", "cpu").value
         if backend not in ("cpu", "cuda"):
@@ -177,6 +189,15 @@ class DepthObstaclePreview(Node):
         try:
             t = self.buffer.lookup_transform(
                 "pelvis", message.header.frame_id, Time.from_msg(message.header.stamp)).transform
+            hand_poses = {}
+            if self.hand_self_filter_enabled:
+                for side in ("left", "right"):
+                    wrist = self.buffer.lookup_transform(
+                        "pelvis", side+"_wrist_yaw_link",
+                        Time.from_msg(message.header.stamp)).transform
+                    p, q_wrist = wrist.translation, wrist.rotation
+                    hand_poses[side] = [p.x, p.y, p.z, q_wrist.x, q_wrist.y,
+                                        q_wrist.z, q_wrist.w]
             self.pending = None
             self.previous = source_stamp
             self.last_processed_at = time.monotonic()
@@ -185,6 +206,10 @@ class DepthObstaclePreview(Node):
                                        skip_nans=True)[::4]
             points = points[np.isfinite(points).all(axis=1)]
             points = transform_points(points, [v.x, v.y, v.z], [r.x, r.y, r.z, r.w])
+            if self.hand_self_filter_enabled:
+                points = points[hand_keep_mask(
+                    points, hand_poses, self.hand_bounds,
+                    padding_m=self.hand_padding)]
             up = transform_points([[0., 0., 1.]], [0., 0., 0.],
                                   [-q.x, -q.y, -q.z, q.w])[0]
             forward = np.array([1., 0., 0.])

@@ -1328,3 +1328,45 @@ The head setting remained unchanged through these recordings. The current
 model assumes fixed sensor mounting; the numerical adjustment angle is
 not independently recorded. Live sensor-to-body/floor alignment must be
 verified before production costmap integration.
+
+### Opt-in diagnostic hand containment candidate — 2026-11-23
+
+The depth obstacle preview optionally applies hand containment before floor
+selection. It is disabled by default; depth_hand_self_filter.yaml explicitly
+enables nominal wrist-local boxes derived from the vendored BrainCo Revo2
+visual geometry and the physical_robot_state hand mounts. Each face has a
+0.02 m margin. Both pelvis-from-wrist transforms are required at the source
+image timestamp before the pending cloud is consumed. Missing TF follows the
+existing TF_UNAVAILABLE rejection path; invalid numerical geometry is rejected.
+No latest-TF substitution, timestamp shift or fabricated finger telemetry is used.
+
+This is a containment approximation for the recorded open/relaxed hand pose,
+not a full-body filter. No raw cloud, clearing ray, LiDAR, navigation footprint,
+controller or locomotion setting is changed. The default diagnostic output
+remains /g1/diagnostics/depth/obstacles; enabling a separate experimental bridge
+to Nav2 requires its own validation. Removed returns are not free-space evidence.
+
+Recorded comparison: 39 marking clouds with available TF contained 214 close
+returns, all excluded; one startup cloud lacked TF and was reported separately.
+The selected low-box counts stayed 2738/2738 at approximately 50 cm from toes
+and 3519/3519 at approximately 20 cm; baseline selected count remained zero.
+A restamped, isolated Nav2 depth-only marking comparison reproduced self-marking
+before filtering. After filtering none of 22 hand-only cells were occupied,
+while 1442 background obstacle cells remained. Clearing, LiDAR, inflation and
+controllers were excluded from that experiment. This does not qualify touching
+objects, arbitrary finger poses, full-body exclusion or live navigation.
+The margin was selected using these recordings; fresh validation remains required.
+
+The robot_body_filter branch named ros2 was inspected on 2026-11-23. Its manifest
+still requires catkin, roscpp and dynamic_reconfigure; ROS Index lists no Humble
+release. No dependency on that package or source port is introduced here.
+
+### Hand containment software checkpoint validation — 2026-11-23
+
+The perception package passed 62 tests, including the recorded 214-point
+regression, rotated/translated containment, invalid inputs, missing wrist TF,
+and image-time lookup with a different future pose. The operator completed the
+full workspace build/test gate without reported failures. The installed function
+and installed profile reproduced all 39 available walking clouds and retained
+all tested low-box points. Configuration validation passed. The live opt-in
+profile has not yet been qualified; default filtering remains disabled.

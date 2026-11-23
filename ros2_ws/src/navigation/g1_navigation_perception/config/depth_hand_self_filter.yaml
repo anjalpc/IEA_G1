@@ -1,0 +1,10 @@
+# Opt-in diagnostic profile: open/relaxed BrainCo Revo2 hands only.
+# Nominal visual-mesh envelopes in measured wrist_yaw_link coordinates.
+# Derived from the vendored model plus physical_robot_state hand mounts.
+# Padding adds 0.02 m on each face; no timestamp shift or free-space rays.
+g1_depth_obstacle_preview:
+  ros__parameters:
+    hand_self_filter_enabled: true
+    hand_self_filter_padding_m: 0.02
+    hand_self_filter_left_bounds_m: [0.04149999999999805, -0.031649144934950996, -0.04245347857778515, 0.20535905758356282, 0.022995747134089476, 0.08377567403807032]
+    hand_self_filter_right_bounds_m: [0.041499999999999974, -0.022978960976004607, -0.042463478577785145, 0.20425007307673623, 0.032768153070678326, 0.08464258060505596]

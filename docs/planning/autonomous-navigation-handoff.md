@@ -302,3 +302,26 @@ The head setting remained unchanged through these recordings. The current
 model assumes fixed sensor mounting; the numerical adjustment angle is
 not independently recorded. Live sensor-to-body/floor alignment must be
 verified before production costmap integration.
+
+### Hand self-filter integration candidate — 2026-11-23
+
+Physical bounded vx=0.20 trial moved approximately 0.257 m then stopped stably
+with DWB obstacle rejection. Subsequent manual walking source recording isolated
+214 depth marks near the hands; no scan return was within 0.5 m. The self-return
+hypothesis is supported, though the original transient was not fully recorded.
+
+Saved bag: ros2_ws/log/glim_gpu_benchmark/manual-depth-source-1795184167261279537.
+Offline 39-cloud containment check removed all 214 selected returns and retained
+all tested low-box points. A depth-only Nav2 marking replay reproduced self-marks
+before filtering and left zero occupied hand-only cells of 22 after filtering;
+1442 background cells remained. Reports and replay inputs are in that bag folder.
+One early cloud had unavailable TF and was excluded explicitly.
+
+The perception preview now has an opt-in wrist-box containment candidate; default
+is off. No physical launch/configuration is changed. The perception package passed 62 tests, and the operator completed the full
+workspace build/test gate without reported failures. The installed function and
+installed profile reproduced the 39-cloud and low-box comparison. Configuration
+validation passed. Next: fresh no-motion live validation using the explicit
+opt-in profile; then a separately authorized movement check. Keep footprint work separate. No autonomous
+retry is justified by the offline marking result alone. New thesis preservation
+is still needed for physical trials, this investigation and its failed replays.

@@ -249,3 +249,51 @@ def test_rejected_geometry_never_reports_healthy(preview, reason):
     assert health.status[0].level == DiagnosticStatus.ERROR
     assert health.status[0].message == reason
     assert node.cloud_pub.messages[-1].width == 0
+
+
+def enable_hand_filter(node):
+    node.hand_self_filter_enabled = True
+    node.hand_bounds = {s: [-.02, -.02, -.02, .02, .02, .02]
+                        for s in ("left", "right")}
+    node.hand_padding = .02
+
+
+def test_enabled_hand_filter_requires_both_wrist_transforms(preview):
+    node, clock = preview
+    message = inputs(node, clock)
+    enable_hand_filter(node)
+    node.cloud_callback(message)
+    node.process_latest()
+    assert node.status_pub.messages[-1].data == "TF_UNAVAILABLE"
+    assert node.cloud_pub.messages[-1].width == 0
+    assert node.pending is message
+    assert node.previous is None
+
+
+def test_enabled_hand_filter_uses_image_time_and_preserves_box(preview):
+    node, clock = preview
+    message = inputs(node, clock)
+    enable_hand_filter(node)
+    for side in ("left", "right"):
+        for offset, x in ((0, .6 if side == "left" else 5.),
+                          (1_000_000_000, 5.)):
+            t = TransformStamped()
+            t.header = Header(stamp=Time(nanoseconds=clock.ns+offset).to_msg(),
+                              frame_id="pelvis")
+            t.child_frame_id = side+"_wrist_yaw_link"
+            t.transform.translation.x = x
+            t.transform.translation.z = -.1
+            t.transform.rotation.w = 1.
+            node.buffer.set_transform(t, "test")
+    optical = transform_points(np.tile([.6, 0., -.6], (4, 1)),
+                               [0., 0., 0.], [.5, -.5, .5, .5])
+    existing = read_points_numpy(message, field_names=("x", "y", "z"))
+    message = create_cloud_xyz32(message.header, np.vstack((existing, optical)))
+    node.cloud_callback(message)
+    node.process_latest()
+    assert node.status_pub.messages[-1].data == "DIAGNOSTIC_CANDIDATE"
+    output = node.cloud_pub.messages[-1]
+    assert output.header.stamp == message.header.stamp
+    points = read_points_numpy(output, field_names=("x", "y", "z"))
+    assert len(points) > 0
+    assert np.all(points[:, 2] < -.5)
