@@ -362,6 +362,21 @@ def residual_gate_weight(previous, active, reset, dt, fade_s):
     return torch.where(active, torch.ones_like(previous), off)
 
 
+def residual_gate_walk_in_weight(previous, active, reset, dt, fade_in_s, fade_out_s):
+    """Residual weight [N] for the walk-in gate (patch 75a, replay option).
+
+    0 at reset (teacher alone); rises linearly to 1 over ``fade_in_s`` while
+    ``active`` (stairs ahead within the walk-in distance, not yet climbed),
+    falls linearly to 0 over ``fade_out_s`` otherwise (after the climb).
+    """
+    if fade_in_s <= 0.0 or fade_out_s <= 0.0:
+        raise ValueError("residual gate fades must be > 0 s")
+    previous = torch.where(reset, torch.zeros_like(previous), previous)
+    up = (previous + dt / fade_in_s).clamp_max(1.0)
+    down = (previous - dt / fade_out_s).clamp_min(0.0)
+    return torch.where(active, up, down)
+
+
 def start_raw_mask(moving_s, moving, reset, dt, start_s):
     """Raw-teacher start (patch 66e): returns (new moving time [N], use raw [N]).
 
@@ -396,14 +411,20 @@ class FrozenBalanceResidualWrapper:
         residual_gate: str = "off",
         residual_gate_fade_s: float = 0.8,
         teacher_start_raw_s: float = 0.0,
+        residual_gate_walk_in_m: float = 0.6,
+        residual_gate_fade_in_s: float = 0.4,
     ) -> None:
         self._wrapped = wrapped
         self._start_raw_s = float(teacher_start_raw_s)
         self._moving_s = None
-        if residual_gate not in ("off", "stair_tiles"):
-            raise ValueError("residual_gate must be 'off' or 'stair_tiles'")
+        if residual_gate not in ("off", "stair_tiles", "walk_in"):
+            raise ValueError("residual_gate must be 'off', 'stair_tiles' or 'walk_in'")
         self._gate = residual_gate
         self._gate_fade_s = float(residual_gate_fade_s)
+        self._gate_walk_in_m = float(residual_gate_walk_in_m)
+        self._gate_fade_in_s = float(residual_gate_fade_in_s)
+        if residual_gate == "walk_in" and not 0.0 < self._gate_walk_in_m <= 3.0:
+            raise ValueError("residual_gate_walk_in_m must be in (0, 3] m")
         self._gate_weight = None
         if (teacher_checkpoint is None) == (teacher_onnx is None):
             raise ValueError("set exactly one of teacher_checkpoint or teacher_onnx")
@@ -458,6 +479,8 @@ class FrozenBalanceResidualWrapper:
                     if value != float(self._residual_clip.min())}),
                 "executed_clip": self._executed_clip,
                 "residual_gate": self._gate,
+                "residual_gate_walk_in_m": self._gate_walk_in_m,
+                "residual_gate_fade_in_s": self._gate_fade_in_s,
                 "teacher_start_raw_s": self._start_raw_s,
                 "scale_by_joint": {
                     name: float(self._scale[index].item())
@@ -487,7 +510,7 @@ class FrozenBalanceResidualWrapper:
             self._teacher_prefix,
         )
 
-        if self._gate == "stair_tiles":
+        if self._gate in ("stair_tiles", "walk_in"):
             residual_actions = self._gated(residual_actions)
         with torch.no_grad():
             teacher_actions = self._teacher(policy_obs)
@@ -528,6 +551,22 @@ class FrozenBalanceResidualWrapper:
         if clock is not None:
             active = active & ~clock.climbed
         reset = env.episode_length_buf == 0
+        if self._gate == "walk_in":
+            # Patch 75a: off until the pelvis is within walk-in distance of
+            # the first riser (course frame), then fade in.
+            from .footstep_isaac_adapter import course_root_pose, course_tensors
+            from .footstep_tensor import NOMINAL_FOOT_SEPARATION_M
+            course = course_tensors(env, foot_separation_m=NOMINAL_FOOT_SEPARATION_M)
+            xyz, _ = course_root_pose(env)
+            active = active & (course["first_riser_x"] - xyz[:, 0] <= self._gate_walk_in_m)
+            if self._gate_weight is None:
+                self._gate_weight = torch.zeros_like(active, dtype=residual_actions.dtype)
+            self._gate_weight = residual_gate_walk_in_weight(
+                self._gate_weight, active, reset, float(env.step_dt),
+                self._gate_fade_in_s, self._gate_fade_s)
+            env._g1_residual_gate_weight = self._gate_weight
+            clip = self._residual_clip.to(residual_actions.device)
+            return clamp_abs(residual_actions, clip) * self._gate_weight[:, None]
         if self._gate_weight is None:
             self._gate_weight = active.to(residual_actions.dtype)
         self._gate_weight = residual_gate_weight(
@@ -590,4 +629,6 @@ def wrap_balance_residual_from_config(wrapped, resolved_config: dict[str, Any]):
         residual_gate=str(cfg.get("residual_gate", "off")),
         residual_gate_fade_s=float(cfg.get("residual_gate_fade_s", 0.8)),
         teacher_start_raw_s=float(cfg.get("teacher_start_raw_s", 0.0)),
+        residual_gate_walk_in_m=float(cfg.get("residual_gate_walk_in_m", 0.6)),
+        residual_gate_fade_in_s=float(cfg.get("residual_gate_fade_in_s", 0.4)),
     )

@@ -345,3 +345,27 @@ def test_raw_start_only_where_the_teacher_walks_alone():
     out = w._raw_start(torch.zeros(3, 480), torch.zeros(3, 29))
     # env 0: flat, moving -> raw; env 1: residual on (stairs) -> averaged; env 2: standing -> averaged
     assert out[:, 0].tolist() == [1.0, 0.0, 0.0]
+
+
+def test_walk_in_gate_starts_off_fades_in_and_out():
+    from simulation.isaac_lab.g1_stairs.balance_residual import residual_gate_walk_in_weight
+    on = torch.ones(2, dtype=torch.bool); off = torch.zeros(2, dtype=torch.bool)
+    w = residual_gate_walk_in_weight(torch.ones(2), off, on, 0.02, 0.4, 0.8)
+    assert torch.equal(w, torch.zeros(2))                 # reset: teacher alone
+    for _ in range(10):
+        w = residual_gate_walk_in_weight(w, on, off, 0.02, 0.4, 0.8)
+    assert torch.allclose(w, torch.full((2,), 0.5))       # half way after 0.2 s
+    for _ in range(20):
+        w = residual_gate_walk_in_weight(w, on, off, 0.02, 0.4, 0.8)
+    assert torch.equal(w, torch.ones(2))                  # capped at 1
+    for _ in range(20):
+        w = residual_gate_walk_in_weight(w, off, off, 0.02, 0.4, 0.8)
+    assert torch.allclose(w, torch.full((2,), 0.5))       # out over 0.8 s
+
+
+def test_walk_in_gate_rejects_bad_fades():
+    import pytest
+    from simulation.isaac_lab.g1_stairs.balance_residual import residual_gate_walk_in_weight
+    z = torch.zeros(1, dtype=torch.bool)
+    with pytest.raises(ValueError):
+        residual_gate_walk_in_weight(torch.zeros(1), z, z, 0.02, 0.0, 0.8)
