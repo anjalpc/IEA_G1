@@ -5,7 +5,7 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Patch 73. Resume patch 72 run 20261120_100022 model_114100 (20 cm 10/10 strict, no falls, weight 1.6 cm ahead at the top; but level toe-out 11.3 deg, stance foot pivot p90 75 deg/s, flat 4 cm short) for 2000 iterations (~4 h diagnostic) with level_foot_yaw -5, stance foot yaw against the pelvis beyond 5 deg on level ground (flat tiles, platform after the climb), the level_pitch rows. Evidence (doc g1-stair-clock-resume-run-20261120-100022-findings), level toe-out 2.8 deg at 91700, 6.3 at 103600, 10.4 at 108600, 11.3 at 114100 (hip yaw, not slip); tread toe-out 3.8-5.1 deg at every checkpoint, strict 5.0 vs failed 4.0 at 114100, so the climb does not use it. Paper check, flat cost 91700 0.00/s, 103600 0.15, 114100 0.70 (crouch 0.49, uncommanded_yaw 0.35). Pass, same robots, level stance toe-out median <= 6 deg, pivot frames above 30 deg/s <= 8 percent, tread toe-out 3-6 deg, 20 cm >= 9/10 strict, 2-19 cm no worse than 114100, flat pitch <= 4 deg, stance knee median <= 0.37. Stop early if 20 cm below 8/10 or toe-out turns into toe-in beyond 5 deg.
+  purpose: Patch 77. Resume patch 73 run 20261121_131006 model_116100 (strict 130/140, 20 cm 9/10 from a standing start) with the real walk-in on every stair episode, overnight (10500 iterations, about 20 h). The Unitree teacher walks in alone from 1.7 m, stops 0.4-1.0 m before riser 1, settles 0.5-1.5 s, then the residual fades in (0.2 s) and climbs; after the climb it fades out (0.8 s) and the teacher walks the platform; flat tiles are teacher only (option B, residual gate after_stop). Evidence (doc g1-p76b-walk-stop-replay-findings), 116100 replayed with walk-in and a 1.0 m stop, 131/140 climbed, strict 119/140, 9 falls; 20 cm 5/10, 19 cm 8/10, every 20 cm fall at a fast stair cycle (jitter 0.90-0.99) by backward tip at the top transfer; stop offset 1-4 cm, heading under 1.1 deg. Pass, walk-stop replays at 1.0 and 0.4 m, same robots, 20 cm >= 9/10 strict, 19 cm >= 9/10, 2-18 cm >= 118/120 climbed with at most 2 falls, flat unchanged. Stop early if a mid-run checkpoint replays 20 cm below 5/10 or 2-18 cm with more than 2 falls at a 1.0 m stop.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -118,15 +118,29 @@ footstep_clock:
   # rules (patch 70: flat unpaid, platform paid, flat copied the paid
   # platform gait). The level-ground lean is charged by level_pitch.
   period_jitter: 0.1
+  # Patch 77: every stair episode starts with the teacher walking in from
+  # 1.7 m before riser 1 (the tile's level ground), stopping 0.4-1.0 m
+  # before it and standing 0.5-1.5 s, as an operator would; the climb (plan,
+  # clock, residual) starts from that stop (walk_in.py). Flat tiles unchanged.
+  walk_in:
+    enabled: true
+    start_distance_m: 1.7
+    stop_distance_m: [0.4, 1.0]
+    walk_speed_mps: 0.35
+    ramp_s: 1.0
+    stop_ramp_s: 0.5
+    settle_s: [0.5, 1.5]
   # Stride (two steps) = speed x cycle time, capped here: above the cap only
   # the rhythm gets quicker.
   max_stride_m: 0.55
 execution:
   # Patch 57: 4096 (2048 used 6.9 of 23 GB and 40% of the GPU).
   environments: 4096
+  # Patch 77: 10500 (about 20 h at ~6.9 s/it, Monday afternoon to Tuesday
+  # after 09:00).
   # Resumed run: 11500 more iterations after the checkpoint's own (patch 63,
   # Sunday to Monday 08:00, about 21.6 h on g6; checkpoints every 50).
-  maximum_iterations: 2000
+  maximum_iterations: 10500
   training_seed: 42
 # Residual on the frozen official Unitree policy (balance_residual_control);
 # the actor sees all 688 inputs. Policy, critic, optimizer and learning rate
@@ -135,8 +149,8 @@ execution:
 policy_initialization:
   type: rsl_rl_training_resume
   source:
-    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261120_100022/model_114100.pt
-    sha256: 3f7a20192d162aaa0542f77dd97b5ef7a457c374415d841ca2f4107e1d71bea4
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261121_131006/model_116100.pt
+    sha256: FILL_ON_AWS
   critic_initialization: restored
   optimizer_initialization: restored
   locomotion_observations: 480
@@ -153,6 +167,12 @@ balance_residual_control:
   # Patch 44: teacher output replaced by (T(s) + M T(M s)) / 2
   # (balance_residual.MirrorAveragedTeacher); deployment must do the same.
   teacher_symmetry: average
+  # Patch 77: residual off on flat tiles and during the walk-in; it fades in
+  # over 0.2 s once the robot has stopped and the climb starts, and out over
+  # 0.8 s once the stairs are climbed (Unitree walks flat and platform).
+  residual_gate: after_stop
+  residual_gate_fade_in_s: 0.2
+  residual_gate_fade_s: 0.8
   # Raw Unitree action units (x 0.25 rad). Legs: up to +-2 units = +-0.5 rad
   # for riser lift and foot placement; waist and arms stay near the teacher.
   residual_clip: 2.0
