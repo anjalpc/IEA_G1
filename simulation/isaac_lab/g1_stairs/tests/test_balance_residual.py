@@ -340,11 +340,23 @@ def test_raw_start_only_where_the_teacher_walks_alone():
     w = FrozenBalanceResidualWrapper.__new__(FrozenBalanceResidualWrapper)
     w._wrapped = SimpleNamespace(unwrapped=env)
     w._start_raw_s, w._moving_s = 0.3, None
+    import simulation.isaac_lab.g1_stairs.footstep_symmetry as fs
+    fs_mirror_obs, fs_mirror_act = fs.mirror_teacher_obs, fs.mirror_actions
+    fs.mirror_teacher_obs, fs.mirror_actions = (lambda o: o), (lambda a: a)
     w._gate_weight = torch.tensor([0.0, 1.0, 0.0])
     w._raw_teacher = lambda obs: torch.ones(3, 29)
     out = w._raw_start(torch.zeros(3, 480), torch.zeros(3, 29))
+    fs.mirror_teacher_obs, fs.mirror_actions = fs_mirror_obs, fs_mirror_act
     # env 0: flat, moving -> raw; env 1: residual on (stairs) -> averaged; env 2: standing -> averaged
     assert out[:, 0].tolist() == [1.0, 0.0, 0.0]
+
+
+def test_start_side_redrawn_only_at_the_start_of_a_move():
+    from simulation.isaac_lab.g1_stairs.balance_residual import start_side_draw
+    side = torch.tensor([0, 1, 1, 0])
+    moving_s = torch.tensor([0.02, 0.10, 0.0, 0.02])   # new move, ongoing, standing, new move
+    out = start_side_draw(side, moving_s, 0.02, torch.tensor([1, 0, 0, 0]))
+    assert out.tolist() == [1, 1, 1, 0]
 
 
 def test_walk_in_gate_starts_off_fades_in_and_out():

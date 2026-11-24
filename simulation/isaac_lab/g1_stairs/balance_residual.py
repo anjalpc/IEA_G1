@@ -387,11 +387,23 @@ def start_raw_mask(moving_s, moving, reset, dt, start_s):
     teacher steps within 0.2 s. So the raw teacher drives the first
     ``start_s`` seconds after a move command begins (from standing or reset),
     then the averaged one.
+
+    Patch 78b: the raw side is drawn 50/50 per move (start_side_draw): T(s)
+    or its mirror M T(M s). Each is one decisive Unitree start; a fixed T(s)
+    always led with the same leg and kicked the heading one way (+1.2..+1.4
+    deg at 1.5 s, run 20261116_170635 v100 test).
     """
     if start_s <= 0.0:
         raise ValueError("raw-teacher start must be > 0 s")
     moving_s = torch.where(moving & ~reset, moving_s + dt, torch.zeros_like(moving_s))
     return moving_s, moving & (moving_s <= start_s)
+
+
+def start_side_draw(side, moving_s, dt, draw):
+    """[N] raw-start side (0 = T(s), 1 = M T(M s)): redrawn from ``draw``
+    on the first step of a move (moving time back to one step), else kept."""
+    fresh = (moving_s > 0.0) & (moving_s <= dt * 1.5)
+    return torch.where(fresh, draw.to(side.dtype), side)
 
 
 class FrozenBalanceResidualWrapper:
@@ -593,14 +605,22 @@ class FrozenBalanceResidualWrapper:
         moving = (command[:, :2].norm(dim=-1) > 0.05) | (command[:, 2].abs() > 0.05)
         if self._moving_s is None:
             self._moving_s = torch.zeros(moving.shape, device=averaged.device)
+            self._start_side = torch.zeros(moving.shape, dtype=torch.long, device=averaged.device)
+        dt = float(env.step_dt)
         self._moving_s, use_raw = start_raw_mask(
-            self._moving_s, moving, env.episode_length_buf == 0,
-            float(env.step_dt), self._start_raw_s)
+            self._moving_s, moving, env.episode_length_buf == 0, dt, self._start_raw_s)
+        self._start_side = start_side_draw(
+            self._start_side, self._moving_s, dt,
+            torch.randint(0, 2, moving.shape, device=averaged.device))
         if self._gate_weight is not None:
             use_raw = use_raw & (self._gate_weight == 0.0)
         if not bool(use_raw.any()):
             return averaged
-        return torch.where(use_raw[:, None], self._raw_teacher(policy_obs), averaged)
+        from .footstep_symmetry import mirror_actions, mirror_teacher_obs
+        raw = self._raw_teacher(policy_obs)
+        mirrored = mirror_actions(self._raw_teacher(mirror_teacher_obs(policy_obs)))
+        raw = torch.where((self._start_side == 1)[:, None], mirrored, raw)
+        return torch.where(use_raw[:, None], raw, averaged)
 
 
 def wrap_balance_residual_from_config(wrapped, resolved_config: dict[str, Any]):

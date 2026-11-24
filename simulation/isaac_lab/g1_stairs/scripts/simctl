@@ -1099,7 +1099,7 @@ if raw_start:
     ctl = cfg.get("balance_residual_control")
     if not isinstance(ctl, dict) or ctl.get("teacher_symmetry") != "average":
         sys.exit("--raw-start needs balance_residual_control.teacher_symmetry average")
-    print(f"Probe: raw Unitree teacher for the first {rs} s of each move, then averaged", file=sys.stderr)
+    print(f"Probe: one-sided Unitree teacher (side drawn 50/50 per move) for the first {rs} s of each move, then averaged", file=sys.stderr)
     ctl["teacher_start_raw_s"] = rs
 if clock_level:
     lv = float(clock_level)
@@ -1468,7 +1468,7 @@ if raw_start:
     ctl = cfg.get("balance_residual_control")
     if not isinstance(ctl, dict) or ctl.get("teacher_symmetry") != "average":
         sys.exit("--raw-start needs balance_residual_control.teacher_symmetry average")
-    print(f"Probe: raw Unitree teacher for the first {rs} s of each move, then averaged", file=sys.stderr)
+    print(f"Probe: one-sided Unitree teacher (side drawn 50/50 per move) for the first {rs} s of each move, then averaged", file=sys.stderr)
     ctl["teacher_start_raw_s"] = rs
 yaml.safe_dump(cfg, open(sys.argv[2], "w"), sort_keys=False)
 PY
