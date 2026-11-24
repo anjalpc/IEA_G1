@@ -134,8 +134,14 @@ def _state(env):
 def reset_walk_in(env, env_ids):
     """Isaac reset event (after reset_base and the footstep reset): stair rows
     move back to start_distance_m and start walking in; flat rows climb-phase
-    (no effect: the gate needs a riser)."""
-    cfg = (getattr(env.cfg, "footstep_clock", None) or {}).get("walk_in")
+    (no effect: the gate needs a riser). Also applies footstep_clock.pre_riser
+    once (patch 79), before any plan is built from it."""
+    clock = getattr(env.cfg, "footstep_clock", None) or {}
+    if clock.get("pre_riser") and not getattr(env, "_g1_pre_riser_set", False):
+        from .footstep_tensor import configure_pre_riser
+        configure_pre_riser(clock["pre_riser"]["gap_m"], clock["pre_riser"]["radius_m"])
+        env._g1_pre_riser_set = True
+    cfg = clock.get("walk_in")
     if not cfg:
         return
     from .terrain_state import riser_height_per_env

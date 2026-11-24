@@ -42,6 +42,17 @@ def tread_target_x(first_riser_x, tread_depth, index, step_count):
     return torch.where(index == 0, x + TREAD1_TARGET_FORWARD_M, x)
 
 
+def configure_pre_riser(gap_m: float, radius_m: float) -> None:
+    """Patch 79: pre-riser stance target ``gap_m`` before the first riser and
+    its x grading radius. footstep_tread imports the gap by value, so both
+    modules are set (relative import: the copies the env uses)."""
+    global APPROACH_LAST_GAP_M
+    from . import footstep_tread
+    APPROACH_LAST_GAP_M = float(gap_m)
+    footstep_tread.APPROACH_LAST_GAP_M = float(gap_m)
+    footstep_tread.PRE_RISER_RADIUS_M = float(radius_m)
+
+
 def approach_target_x(first_riser_x, tread_depth, index):
     """Course x of approach target ``index`` (-1 = last before the riser)."""
     return first_riser_x - APPROACH_LAST_GAP_M + (index + 1) * tread_depth

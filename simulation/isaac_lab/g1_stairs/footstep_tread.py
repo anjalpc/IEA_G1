@@ -26,6 +26,10 @@ TREAD_QUALITY_FLOOR = 0.5        # pay at the acceptance limit, 1.0 at the plann
 # loaded feet stop 0.9-1.4 cm short. The URDF foot is four 5 mm spheres, so
 # the extra reach comes from the simulated asset (collision or contact offset).
 TOE_CONTACT_REACH_M = 0.015
+# Patch 79: the pre-riser stance foot (last approach target) is graded by its
+# x error over this radius (None: the level_radius grading of patch 72). Set
+# from footstep_clock.pre_riser via footstep_tensor.configure_pre_riser.
+PRE_RISER_RADIUS_M = None
 
 
 def tread_placement_quality(*, sole_bounds, targets, feet, first_riser_x,
@@ -69,6 +73,14 @@ def tread_placement_quality(*, sole_bounds, targets, feet, first_riser_x,
         c = sole_centre[torch.arange(n, device=sole_centre.device), feet[:, 0].long(), :2]
         distance = torch.linalg.vector_norm(c - targets[:, 0, :2], dim=-1)
         other = 1.0 - (1.0 - TREAD_QUALITY_FLOOR) * (distance / level_radius).clamp(0.0, 1.0)
+    if PRE_RISER_RADIUS_M is not None:
+        # Patch 79: the pre-riser stance decides both big steps after it
+        # (126600 walk-stop replays: centre 15.3-17.3 cm before the riser
+        # climbed, <= 15.0 landed tread 2 and the top short, >= 18.0 tread 1).
+        pre = (riser_height > 0) & ((target_x - (first_riser_x - APPROACH_LAST_GAP_M)).abs() < 1e-3)
+        x_error = (centre_x - target_x).abs()
+        graded = 1.0 - (1.0 - TREAD_QUALITY_FLOOR) * (x_error / PRE_RISER_RADIUS_M).clamp(0.0, 1.0)
+        other = torch.where(pre, graded, other)
     return torch.where(tread, quality, other)
 
 

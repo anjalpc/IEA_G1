@@ -85,3 +85,12 @@ def test_rear_first_foot_follows_heading_and_draws_ties():
     yaw = torch.tensor([0.0, 0.0, 0.0, math.pi / 2])
     out = rear_first_foot(feet, yaw, torch.tensor([0, 0, 1, 0]))
     assert out.tolist() == [1, 0, 1, 1]
+
+
+def test_clock_cfg_validates_pre_riser():
+    clock = {"enabled": True, "period_slow_s": 1.0, "period_fast_s": 0.7, "period_stairs_s": 1.25,
+             "period_jitter": 0.1, "max_stride_m": 0.6, "pre_riser": {"gap_m": 0.163, "radius_m": 0.02}}
+    assert validate_clock_cfg(clock)["pre_riser"] == {"gap_m": 0.163, "radius_m": 0.02}
+    for bad in ({"gap_m": 0.10, "radius_m": 0.02}, {"gap_m": 0.163}, {"gap_m": 0.163, "radius_m": 0.2}):
+        with pytest.raises(ValueError):
+            validate_clock_cfg({**clock, "pre_riser": bad})

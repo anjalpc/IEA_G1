@@ -74,7 +74,7 @@ def validate_clock_cfg(cfg) -> dict | None:
                 "period_jitter", "max_stride_m"}
     optional = {"period_stairs_per_m", "period_stairs_rise_from_m", "period_level_s",
                 "level_rewards_off", "level_rewards_start_s", "level_rewards_paid_after_climb",
-                "walk_in"}
+                "walk_in", "pre_riser"}
     unknown = set(cfg) - required - optional
     if unknown:
         raise ValueError(f"unknown footstep_clock keys: {sorted(unknown)}")
@@ -119,6 +119,14 @@ def validate_clock_cfg(cfg) -> dict | None:
         raise ValueError("footstep_clock.level_rewards_paid_after_climb must be true or false and needs level_rewards_off")
     if after:
         out_level["level_rewards_paid_after_climb"] = True
+    pre = cfg.get("pre_riser")
+    if pre is not None:
+        if not isinstance(pre, dict) or set(pre) != {"gap_m", "radius_m"}:
+            raise ValueError("footstep_clock.pre_riser needs exactly gap_m and radius_m")
+        gap, radius = float(pre["gap_m"]), float(pre["radius_m"])
+        if not 0.14 <= gap <= 0.20 or not 0.01 <= radius <= 0.125:
+            raise ValueError("footstep_clock.pre_riser: gap_m in [0.14, 0.20], radius_m in [0.01, 0.125]")
+        out_level["pre_riser"] = {"gap_m": gap, "radius_m": radius}
     from .walk_in import validate_walk_in_cfg
     walk_in = validate_walk_in_cfg(cfg.get("walk_in"))
     if walk_in is not None:

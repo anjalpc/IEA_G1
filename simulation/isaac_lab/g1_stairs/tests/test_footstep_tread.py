@@ -173,6 +173,22 @@ class TreadPlacementQualityTests(unittest.TestCase):
         self.assertAlmostEqual(self.lq(heel=0.71, target_x=0.8, riser=0.0, dy=0.03), 1 - 0.5 * 0.03 / 0.125, places=4)
         self.assertAlmostEqual(self.lq(heel=1.785, target_x=1.875), 1.0, places=5)   # platform
 
+    def test_pre_riser_graded_tightly_when_configured(self):
+        # Patch 79: pre-riser target 16.3 cm before the riser, 0.5 at 2 cm x error.
+        import simulation.isaac_lab.g1_stairs.footstep_tensor as ft
+        import simulation.isaac_lab.g1_stairs.footstep_tread as tr
+        saved = (ft.APPROACH_LAST_GAP_M, tr.APPROACH_LAST_GAP_M, tr.PRE_RISER_RADIUS_M)
+        try:
+            ft.configure_pre_riser(0.163, 0.02)
+            t = 1.0 - 0.163
+            self.assertAlmostEqual(self.lq(heel=t - 0.09, target_x=t), 1.0, places=4)
+            self.assertAlmostEqual(self.lq(heel=t - 0.08, target_x=t), 0.75, places=3)   # 1 cm long
+            self.assertAlmostEqual(self.lq(heel=t - 0.13, target_x=t), 0.5, places=4)    # 4 cm short
+            self.assertAlmostEqual(self.lq(heel=t - 0.08, target_x=t, riser=0.0), 1 - 0.5 * 0.01 / 0.125, places=4)  # flat tile: unchanged
+            self.assertAlmostEqual(self.lq(heel=t - 0.34, target_x=t - 0.25), 1 - 0.5 * 0.0 / 0.125, places=4)       # earlier approach target: unchanged
+        finally:
+            ft.APPROACH_LAST_GAP_M, tr.APPROACH_LAST_GAP_M, tr.PRE_RISER_RADIUS_M = saved
+
     def test_level_grading_leaves_treads_unchanged(self):
         for heel in (0.99, 1.0, 1.02, 1.04):
             self.assertAlmostEqual(self.lq(heel=heel, target_x=1.11), self.q(heel=heel), places=6)
