@@ -1228,7 +1228,9 @@ PY
         done
     done
 
-    export TR_EVAL="$EVAL" TR_CFG="$CFG" TR_TRAIN="${TRAIN_DIR/$REPO/\/workspace\/IEA_G1}" TR_COMMIT="$(git rev-parse HEAD)" TR_CONTAINER="$CONTAINER" TR_SYM="$SYM" TR_LEN="$([ -n "$WALK_STOP" ] && echo 900 || echo 600)"
+    # Walk-in runs (--walk-stop, or a run trained with footstep_clock.walk_in)
+    # need 18 s: walk-in, stop and settle take 3-6 s before the climb starts.
+    export TR_EVAL="$EVAL" TR_CFG="$CFG" TR_TRAIN="${TRAIN_DIR/$REPO/\/workspace\/IEA_G1}" TR_COMMIT="$(git rev-parse HEAD)" TR_CONTAINER="$CONTAINER" TR_SYM="$SYM" TR_LEN="$(python3 -c "import sys,yaml; w=(yaml.safe_load(open(sys.argv[1])).get('footstep_clock') or {}).get('walk_in') or {}; print(900 if w.get('enabled') else 600)" "$CFG")"
     trace_one() {
         local M=$1 H=$2 N=$3 HC K DONE=1
         HC="$(awk -v h="$H" 'BEGIN{printf "%02d", int(h * 100 + 0.5)}')"
