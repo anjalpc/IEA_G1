@@ -574,6 +574,21 @@ def main() -> None:
             sys.modules[n].TREAD1_TARGET_FORWARD_M = tread1_forward
         print(f"[INFO] Probe: tread-1 target {tread1_forward * 100:.1f} cm forward in {mods}", flush=True)
 
+    # Patch 78c probe: last approach (pre-riser stance) target closer to the
+    # riser. footstep_tread imports the constant by value, so set it there too.
+    gap = float(((resolved_config or {}).get("replay") or {}).get("approach_last_gap_m", 0.0))
+    if gap:
+        if not 0.14 <= gap < 0.20:
+            raise SystemExit("replay.approach_last_gap_m must be in [0.14, 0.20) m")
+        mods = [n for n, m in list(sys.modules.items())
+                if (n.endswith("g1_stairs.footstep_tensor") or n.endswith("g1_stairs.footstep_tread"))
+                and hasattr(m, "APPROACH_LAST_GAP_M")]
+        if not any(n.startswith("isaac_lab.") for n in mods):
+            raise SystemExit(f"probe: env footstep_tensor module not loaded (found {mods})")
+        for n in mods:
+            sys.modules[n].APPROACH_LAST_GAP_M = gap
+        print(f"[INFO] Probe: pre-riser target {gap * 100:.1f} cm before the riser in {mods}", flush=True)
+
     if isinstance(env.unwrapped, DirectMARLEnv):
         env = multi_agent_to_single_agent(env)
     if args.showcase or batch:
