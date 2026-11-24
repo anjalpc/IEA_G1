@@ -18,6 +18,11 @@ import torch
 WALK, STOP, CLIMB = 0, 1, 2
 KEYS = {"enabled", "start_distance_m", "stop_distance_m", "walk_speed_mps",
         "ramp_s", "stop_ramp_s", "settle_s"}
+# Patch 78a: which foot the climb starts with. "random" (patch 76/77, 50/50,
+# ignores the stance) or "rear" (the foot behind after the stop; a stagger
+# under REAR_TIE_M is a tie, drawn 50/50, so left and right stay balanced).
+FIRST_FOOT = ("random", "rear")
+REAR_TIE_M = 0.01
 
 
 def validate_walk_in_cfg(cfg, *, start_clearance_m=1.0, approach_length_m=2.0) -> dict | None:
@@ -28,8 +33,11 @@ def validate_walk_in_cfg(cfg, *, start_clearance_m=1.0, approach_length_m=2.0) -
         raise ValueError("footstep_clock.walk_in must be a mapping")
     if not bool(cfg.get("enabled", False)):
         return None
-    if set(cfg) != KEYS:
-        raise ValueError(f"footstep_clock.walk_in needs exactly {sorted(KEYS)}")
+    first_foot = str(cfg.get("first_foot", "random"))
+    if set(cfg) - {"first_foot"} != KEYS:
+        raise ValueError(f"footstep_clock.walk_in needs exactly {sorted(KEYS)} (optional first_foot)")
+    if first_foot not in FIRST_FOOT:
+        raise ValueError(f"walk_in.first_foot must be one of {FIRST_FOOT}")
     start = float(cfg["start_distance_m"])
     stop_lo, stop_hi = (float(v) for v in cfg["stop_distance_m"])
     settle_lo, settle_hi = (float(v) for v in cfg["settle_s"])
@@ -50,7 +58,18 @@ def validate_walk_in_cfg(cfg, *, start_clearance_m=1.0, approach_length_m=2.0) -
         raise ValueError("walk_in.settle_s must satisfy 0 <= min <= max <= 3")
     return {"enabled": True, "start_distance_m": start, "stop_distance_m": (stop_lo, stop_hi),
             "walk_speed_mps": speed, "ramp_s": ramp, "stop_ramp_s": stop_ramp,
-            "settle_s": (settle_lo, settle_hi)}
+            "settle_s": (settle_lo, settle_hi), "first_foot": first_foot}
+
+
+def rear_first_foot(foot_xy, root_yaw, draw):
+    """[N] first foot 0=L / 1=R: the foot further back along the heading.
+    ``foot_xy`` [N, 2, 2] (left, right), ``root_yaw`` [N] rad, ``draw`` [N]
+    0/1 used where the stagger is under REAR_TIE_M."""
+    heading = torch.stack((torch.cos(root_yaw), torch.sin(root_yaw)), dim=-1)
+    along = (foot_xy * heading[:, None, :]).sum(-1)               # [N, 2]
+    stagger = along[:, 0] - along[:, 1]                           # + = left ahead
+    rear = torch.where(stagger > 0, 1, 0).to(torch.long)
+    return torch.where(stagger.abs() < REAR_TIE_M, draw.to(torch.long), rear)
 
 
 def walk_back_limit_x(env):
@@ -157,6 +176,7 @@ def walk_in_step(env, resets):
     from .footstep_isaac_adapter import course_root_pose, course_tensors
     from .footstep_tensor import NOMINAL_FOOT_SEPARATION_M
     from .footstep_phase_observation import reset_footsteps_with_phase
+    from .contact_sensor_contract import FOOT_BODY_NAMES
     st = _state(env)
     stairs = riser_height_per_env(env) > 0.0
     t = env.episode_length_buf.float() * float(env.step_dt)
@@ -168,7 +188,18 @@ def walk_in_step(env, resets):
         st["phase"], t, st["t_stop"], st["settle"], xyz[:, 0], trigger, live, cfg["stop_ramp_s"])
     ids = climb_now.nonzero().flatten()
     if ids.numel():
-        reset_footsteps_with_phase(env, ids)
+        first_foot = None
+        if cfg.get("first_foot", "random") == "rear":
+            from .footstep_phase_observation import random_first_foot
+            data = env.scene["robot"].data
+            cached = getattr(env, "_g1_foot_body_ids", None)
+            foot_ids = cached[0] if cached else [
+                list(env.scene["robot"].body_names).index(n) for n in FOOT_BODY_NAMES]
+            w, x, y, z = data.root_quat_w[ids].unbind(-1)
+            yaw = torch.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
+            first_foot = rear_first_foot(data.body_pos_w[ids][:, foot_ids, :2], yaw,
+                                         random_first_foot(len(ids), env.device))
+        reset_footsteps_with_phase(env, ids, first_foot=first_foot)
     before = stairs & (st["phase"] != CLIMB)
     if bool(before.any()):
         command = env.command_manager.get_command("base_velocity")

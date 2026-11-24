@@ -59,16 +59,17 @@ def random_first_foot(count: int, device) -> torch.Tensor:
     return torch.randint(0, 2, (count,), device=device, dtype=torch.long)
 
 
-def reset_footsteps_with_phase(env, env_ids):
+def reset_footsteps_with_phase(env, env_ids, first_foot=None):
     """Isaac reset event; clears target state and clock for selected rows.
 
-    The plan's lead foot is drawn 50/50 per episode. A fixed left lead
+    The plan's lead foot is drawn 50/50 per episode unless ``first_foot``
+    [len(env_ids)] is given (walk-in climb start, patch 78a). A fixed left lead
     taught a left/right asymmetry (short left steps, leftward turn) that
     leaked into flat walking through the shared network.
     """
     count = env.num_envs if env_ids is None else len(env_ids)
     ensure_coordinator(env).reset(
-        env_ids, first_foot=random_first_foot(count, env.device)
+        env_ids, first_foot=random_first_foot(count, env.device) if first_foot is None else first_foot
     )
     ids = slice(None) if env_ids is None else env_ids
     state = ensure_rolling_clock(env)

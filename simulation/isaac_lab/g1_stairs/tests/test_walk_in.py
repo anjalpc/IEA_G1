@@ -64,3 +64,24 @@ def test_walk_back_limit_follows_the_walk_in_start_inside_the_tile():
     assert walk_back_limit(1.0, 1.0, 2.0) == -0.5                         # usual start: unchanged
     assert abs(walk_back_limit(1.7, 1.0, 2.0) - (-0.95)) < 1e-9          # capped 5 cm inside the tile
     assert abs(walk_back_limit(1.3, 1.0, 2.0) - (-0.8)) < 1e-9
+
+
+def test_first_foot_option_validated():
+    assert validate_walk_in_cfg(CFG)["first_foot"] == "random"
+    assert validate_walk_in_cfg({**CFG, "first_foot": "rear"})["first_foot"] == "rear"
+    with pytest.raises(ValueError):
+        validate_walk_in_cfg({**CFG, "first_foot": "left"})
+
+
+def test_rear_first_foot_follows_heading_and_draws_ties():
+    from simulation.isaac_lab.g1_stairs.walk_in import rear_first_foot
+    import math
+    # rows: left ahead (-> right first), right ahead (-> left first), tie (-> draw),
+    # left ahead along a heading of 90 deg (y forward) -> right first
+    feet = torch.tensor([[[0.10, 0.1], [0.03, -0.1]],
+                         [[0.02, 0.1], [0.09, -0.1]],
+                         [[0.05, 0.1], [0.046, -0.1]],
+                         [[-0.1, 0.12], [0.1, 0.05]]])
+    yaw = torch.tensor([0.0, 0.0, 0.0, math.pi / 2])
+    out = rear_first_foot(feet, yaw, torch.tensor([0, 0, 1, 0]))
+    assert out.tolist() == [1, 0, 1, 1]
