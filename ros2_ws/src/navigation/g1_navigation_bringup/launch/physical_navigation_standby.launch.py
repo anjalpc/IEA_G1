@@ -39,6 +39,11 @@ def generate_launch_description():
         if transport not in ('wifi', 'wired'):
             raise ValueError('transport must be wifi or wired')
         glim_profile = 'glim_mid360_wifi' if transport == 'wifi' else 'glim_mid360'
+        controller = LaunchConfiguration('controller').perform(context)
+        profiles = {'dwb': 'g1_gait_yaw_030_navigation.yaml',
+                    'mppi': 'g1_mppi_navigation.yaml'}
+        if controller not in profiles:
+            raise ValueError('controller must be dwb or mppi')
         relay = []
         if transport == 'wifi':
             relay.append(Node(
@@ -81,7 +86,8 @@ def generate_launch_description():
                     map=LaunchConfiguration('map'),
                     params_file=LaunchConfiguration('localization_params'),
                     use_sim_time='false', autostart='true'),
-            include(base / 'g1_gait_yaw_030_physical_nav.launch.py', start_localization='false'),
+            include(base / 'g1_gait_yaw_030_physical_nav.launch.py',
+                    start_localization='false', navigation_params=str(base / profiles[controller])),
             include(base / 'g1_navigate_to_pose_preview.launch.py'),
         ]
 
@@ -99,5 +105,6 @@ def generate_launch_description():
             description='Use the verified AMCL seed for the physical gantry reference.',
         ),
         DeclareLaunchArgument('transport', default_value='wifi', description='wifi or wired'),
+        DeclareLaunchArgument('controller', default_value='mppi', description='dwb or mppi'),
         OpaqueFunction(function=start),
     ])

@@ -1415,3 +1415,12 @@ Livox publisher and no laptop relay. After the Ethernet cable was moved
 clear of the forward corridor, the candidate check produced three plans
 and 68 nonzero candidate commands, canceled as expected, emitted zero
 raw commands, and left the arbiter idle. No wired walk was performed.
+
+### Default physical navigation controller
+
+The packaged laptop standby launch defaults to MPPI. Select `controller:=dwb`
+for the DWB fallback. Both use the same operating limits, perception stack,
+and command supervision. A bounded MPPI trial on 25 November 2026 completed
+with verified stop and ownership release. The default selection is an
+operating decision based on that evidence and the isolated controller checks.
+Comparative gait smoothness has not been established by matched walks.

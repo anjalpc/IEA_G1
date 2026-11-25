@@ -48,6 +48,10 @@ installation that has yet to install the packaged profile.
 
 ### 2. Start the laptop — navigation
 
+The laptop launch defaults to **MPPI**. Append `controller:=dwb` to use
+the DWB fallback. Either controller starts in standby. Physical motion
+requires a separately initiated, guarded trial.
+
 In the sourced Humble development container with the CUDA depth environment
 installed, stop any standalone laptop instances of the included nodes before
 starting the packaged launch.

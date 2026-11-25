@@ -19,7 +19,9 @@ def include(package, filename, arguments=None):
         launch_arguments=(arguments or {}).items())
 
 def generate_launch_description():
+    nav_params = LaunchConfiguration('navigation_params')
     return LaunchDescription([
+        DeclareLaunchArgument('navigation_params', default_value=NAV),
         ExecuteProcess(cmd=['python3',join(BASE,'g1_controller_velocity_preview.py'),'--window-s','0.8'],output='screen'),
         DeclareLaunchArgument('map',default_value=join(get_package_share_directory('g1_navigation_localization'), 'maps', 'physical', 'building_map_verified_cellfix.yaml')),
         DeclareLaunchArgument('start_localization', default_value='true'),
@@ -29,9 +31,9 @@ def generate_launch_description():
                 'map': LaunchConfiguration('map'), 'use_sim_time': 'false', 'autostart': 'true',
             })],
         ),
-        Node(package='nav2_planner',executable='planner_server',name='planner_server',output='screen',parameters=[NAV]),
-        Node(package='nav2_controller',executable='controller_server',name='controller_server',output='screen',parameters=[NAV],remappings=[('cmd_vel','cmd_vel_nav')]),
-        Node(package='nav2_velocity_smoother',executable='velocity_smoother',name='velocity_smoother',output='screen',parameters=[NAV],remappings=[('cmd_vel','cmd_vel_nav'),('cmd_vel_smoothed','/g1/diagnostics/navigation/cmd_vel_candidate')]),
+        Node(package='nav2_planner',executable='planner_server',name='planner_server',output='screen',parameters=[nav_params]),
+        Node(package='nav2_controller',executable='controller_server',name='controller_server',output='screen',parameters=[nav_params],remappings=[('cmd_vel','cmd_vel_nav')]),
+        Node(package='nav2_velocity_smoother',executable='velocity_smoother',name='velocity_smoother',output='screen',parameters=[nav_params],remappings=[('cmd_vel','cmd_vel_nav'),('cmd_vel_smoothed','/g1/diagnostics/navigation/cmd_vel_candidate')]),
         Node(package='g1_navigation_control',executable='navigation_command_adapter',name='g1_navigation_command_adapter',output='screen',parameters=[CONTROL]),
         Node(package='nav2_lifecycle_manager',executable='lifecycle_manager',name='lifecycle_manager_depth_recording',output='screen',parameters=[{'use_sim_time':False,'autostart':True,'node_names':['planner_server','controller_server','velocity_smoother']}]),
     ])
