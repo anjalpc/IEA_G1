@@ -12,6 +12,9 @@
   <exec_depend>g1_handshake</exec_depend>
   <exec_depend>g1_card_presentation</exec_depend>
   <exec_depend>g1_hardware_bridge</exec_depend>
+  <exec_depend>g1_locomotion_control</exec_depend>
+  <exec_depend>livox_ros_driver2</exec_depend>
+  <exec_depend>realsense2_camera</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>
 

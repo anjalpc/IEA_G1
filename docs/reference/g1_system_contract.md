@@ -1370,3 +1370,37 @@ full workspace build/test gate without reported failures. The installed function
 and installed profile reproduced all 39 available walking clouds and retained
 all tested low-box points. Configuration validation passed. The live opt-in
 profile has not yet been qualified; default filtering remains disabled.
+
+### Packaged physical Wi-Fi candidate startup
+
+The opt-in `g1_navigation_bringup/physical_wifi_candidate.launch.py` installs
+the AMCL seed, navigation settings, behavior tree, and depth/velocity
+helpers. The verified physical map is installed by g1_navigation_localization. It owns one Wi-Fi cloud relay, physical odometry
+authority and robot-state publisher, depth projection and CUDA filter, scan
+projection and diagnostic costmap, Map Server and AMCL, and the candidate
+planner, controller, smoother, adapter, and navigator. The launch starts no
+PC2 driver, physical arbiter, or command forwarder. The default AMCL profile
+accepts an operator seed. The `gantry_start:=true` option selects the saved
+physical reference at map x=0.747 m, y=0.718 m, yaw=1.18246 rad. Align the scan
+with the fixed mapped walls before requesting a path.
+
+The package-owned `g1_locomotion_control/config/physical_pc2_deployment.yaml`
+and the candidate laptop adapter share deployment ceilings of 1.00 m/s
+forward and 0.60 rad/s absolute yaw. The laptop candidate controller and
+smoother limit operation to 0.25 m/s forward and 0.35 rad/s absolute yaw,
+with zero commanded lateral velocity and the 0.30 rad/s minimum-turn tuning.
+The PC2 watchdog remains 0.25 s and the adapter timeout remains 0.15 s.
+The deployment ceilings are project settings. The 25 November bounded physical
+trial recorded a 0.25 m/s peak forward command and a 0.217 rad/s peak absolute
+yaw command, successful arrival, and stopped release. Independent validation
+of motion at the deployment ceilings remains outside that trial.
+
+The PC2 counterpart is `g1_bringup/pc2_navigation_wifi.launch.py`. It owns
+Hardware State, the depth-only D435i, MID-360 Wi-Fi transport, and the Sport
+arbiter. A child exit shuts down the launch. Verify PC2 clock sync before
+starting Livox. Run the interaction launch separately because it uses the
+same camera and hardware-state sources.
+
+The 25 November two-launch check produced three plans and 68 nonzero
+candidate commands, canceled as expected, recorded zero raw commands,
+and confirmed an idle physical boundary with no checker failures.

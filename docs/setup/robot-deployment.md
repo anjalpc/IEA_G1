@@ -292,7 +292,7 @@ Start read-only physical localization with the saved physical map:
 
 ```bash
 ros2 launch g1_navigation_bringup physical_localization.launch.py \
-  map:=/workspace/IEA_G1/ros2_ws/src/navigation/g1_navigation_localization/maps/physical/building_map.yaml
+  map:=/workspace/IEA_G1/ros2_ws/src/navigation/g1_navigation_localization/maps/physical/building_map_verified_cellfix.yaml
 ```
 
 In RViz, provide the robot's actual starting pose with **2D Pose Estimate**.
