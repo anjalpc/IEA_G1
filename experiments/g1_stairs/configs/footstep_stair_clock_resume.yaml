@@ -5,7 +5,7 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Patch 79. Resume patch 77 run 20261123_124058 model_126600 for 10500 iterations (overnight, about 20 h) with two changes. (1) Pre-riser stance target 16.3 cm before the first riser (was 20) and graded by its x error, pay 0.5 at 2 cm (was 12.5 cm by distance). Evidence (doc g1-p78c-short-landing-mechanism), 126600 walk-stop replays, pre-riser stance centre 15.3-17.3 cm climbed, <= 15.0 cm landed tread 2 and the top short (all 5 falls at 14-15 cm after a 1.0 m stop at 11.3-12.0 cm, 0.7 m stop falls at 11.2-15.0), >= 18.0 cm landed tread 1 short (0.4 m stop, 20 cm); the 20 cm target was landed anywhere from 11 to 18.6 cm. (2) Raw-teacher start 0.5 s with the side drawn per move (patch 78b), flat and walk-in starts (1.0 m/s start 10/10 falls -> 0, first lift 0.48 -> 0.17 s). Pass, walk-stop replays at 0.4 / 0.6 / 0.7 / 1.0 m, same robots, pre-riser stance within 15-17.5 cm in >= 90 percent, 14-20 cm no falls at any stop, 20 cm >= 9/10 at every stop, 2-12 cm no worse than 126600. Stop early if a mid-run checkpoint falls at more than 2 of 50 at the 1.0 m stop.
+  purpose: Patch 80. Resume patch 79 run 20261124_131453 model_137100 with the same settings for 10500 iterations (overnight), more practice from close pre-riser stances (option 2). Patch 79 changes kept. (1) Pre-riser stance target 16.3 cm before the first riser (was 20) and graded by its x error, pay 0.5 at 2 cm (was 12.5 cm by distance). Evidence (doc g1-p78c-short-landing-mechanism), 126600 walk-stop replays, pre-riser stance centre 15.3-17.3 cm climbed, <= 15.0 cm landed tread 2 and the top short (all 5 falls at 14-15 cm after a 1.0 m stop at 11.3-12.0 cm, 0.7 m stop falls at 11.2-15.0), >= 18.0 cm landed tread 1 short (0.4 m stop, 20 cm); the 20 cm target was landed anywhere from 11 to 18.6 cm. (2) Raw-teacher start 0.5 s with the side drawn per move (patch 78b), flat and walk-in starts (1.0 m/s start 10/10 falls -> 0, first lift 0.48 -> 0.17 s). Pass, walk-stop replays at 0.4 / 0.6 / 0.7 / 1.0 m, same robots, pre-riser stance within 15-17.5 cm in >= 90 percent, 14-20 cm no falls at any stop, 20 cm >= 9/10 at every stop, 2-12 cm no worse than 126600. Stop early if a mid-run checkpoint falls at more than 2 of 50 at the 1.0 m stop.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -152,8 +152,8 @@ execution:
 policy_initialization:
   type: rsl_rl_training_resume
   source:
-    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261123_124058/model_126600.pt
-    sha256: c429a5756d9e4813f3b919ee5799ff2cb510e1cfdc104468882c200c2252804a
+    path: /workspace/IEA_G1/experiments/g1_stairs/logs/rsl_rl/unitree_iea_g1_29dof_stairs_v0/footstep_stair_clock_resume_20261124_131453/model_137100.pt
+    sha256: 71de38f6c9904ef8ce288429c7b39407d24564d43137ef28b7305d1980bbb75d
   critic_initialization: restored
   optimizer_initialization: restored
   locomotion_observations: 480
