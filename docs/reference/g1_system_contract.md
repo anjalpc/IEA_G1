@@ -1373,7 +1373,7 @@ profile has not yet been qualified; default filtering remains disabled.
 
 ### Packaged physical Wi-Fi candidate startup
 
-The opt-in `g1_navigation_bringup/physical_wifi_candidate.launch.py` installs
+The opt-in `g1_navigation_bringup/physical_navigation_standby.launch.py` installs
 the AMCL seed, navigation settings, behavior tree, and depth/velocity
 helpers. The verified physical map is installed by g1_navigation_localization. It owns one Wi-Fi cloud relay, physical odometry
 authority and robot-state publisher, depth projection and CUDA filter, scan
@@ -1395,7 +1395,7 @@ trial recorded a 0.25 m/s peak forward command and a 0.217 rad/s peak absolute
 yaw command, successful arrival, and stopped release. Independent validation
 of motion at the deployment ceilings remains outside that trial.
 
-The PC2 counterpart is `g1_bringup/pc2_navigation_wifi.launch.py`. It owns
+The PC2 counterpart is `g1_bringup/pc2_navigation_hardware.launch.py`. It owns
 Hardware State, the depth-only D435i, MID-360 Wi-Fi transport, and the Sport
 arbiter. A child exit shuts down the launch. Verify PC2 clock sync before
 starting Livox. Run the interaction launch separately because it uses the
@@ -1404,3 +1404,14 @@ same camera and hardware-state sources.
 The 25 November two-launch check produced three plans and 68 nonzero
 candidate commands, canceled as expected, recorded zero raw commands,
 and confirmed an idle physical boundary with no checker failures.
+
+Both packaged entry points accept \`transport:=wired\`; Wi-Fi remains the
+default. Select the same mode on both machines. Wired PC2 uses the wired
+CycloneDDS profile and publishes MID-360 clouds directly to
+\`/g1/sensors/lidar/points\`. The wired laptop selects the wired DDS and GLIM
+profiles and omits the Wi-Fi relay. Map selection and motion limits are
+independent of transport. The stationary wired check verified one direct
+Livox publisher and no laptop relay. After the Ethernet cable was moved
+clear of the forward corridor, the candidate check produced three plans
+and 68 nonzero candidate commands, canceled as expected, emitted zero
+raw commands, and left the arbiter idle. No wired walk was performed.

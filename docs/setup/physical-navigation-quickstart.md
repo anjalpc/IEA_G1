@@ -1,13 +1,27 @@
 # Physical navigation quickstart
 
-## Standard startup — Wi-Fi navigation
+## Standard startup — saved-map navigation
 
-Use this workflow to run candidate navigation on the G1 EDU U7
-(`mode_machine` 5). Start **PC2 first, then the laptop**. The reference
-workflows below are separate bringup modes.
+Run **one launch on PC2 and one on the laptop**. Start PC2 first.
 
-Keep the robot stationary during startup. Stop any existing instances of
-the shared sensor or navigation nodes before switching modes.
+| Machine | Unified launch file | What it starts |
+| --- | --- | --- |
+| PC2 | `pc2_navigation_hardware.launch.py` | Hardware State, depth-only D435i, MID-360, and the Sport arbiter |
+| Laptop development container | `physical_navigation_standby.launch.py` | Odometry, depth processing, saved-map localization, planning, and controller output |
+
+Both launches default to **Wi-Fi**. For **Ethernet**, append
+`transport:=wired` to both launch commands below. The launches select their
+own DDS profiles. Source the ROS overlays before launching. Set DDS
+explicitly in separate RViz and diagnostic terminals.
+
+For Ethernet, confirm the laptop uses `eno1` at `192.168.123.99` and PC2
+uses `eth0` at `192.168.123.164`. Route the cable clear of the robot's feet
+and intended corridor. PC2 publishes the LiDAR cloud directly to
+`/g1/sensors/lidar/points` in wired mode. Wi-Fi mode uses the laptop relay.
+
+Keep the G1 EDU U7 (`mode_machine` 5) stationary during startup. Stop
+existing instances of the same sensor or navigation nodes before
+switching modes. Physical forwarding is a separate supervised trial.
 
 ### 1. Start PC2 — sensors and Sport arbiter
 
@@ -25,7 +39,7 @@ source /opt/ros/foxy/setup.bash &&
 source livox_ws/install/setup.bash &&
 source ros2_ws/install/setup.bash &&
 test "$(timedatectl show -p NTPSynchronized --value)" = yes &&
-ros2 launch g1_bringup pc2_navigation_wifi.launch.py
+ros2 launch g1_bringup pc2_navigation_hardware.launch.py
 ```
 
 The launch uses the installed physical_pc2_deployment.yaml by default.
@@ -46,39 +60,72 @@ starting the packaged launch.
 cd /workspace/IEA_G1/ros2_ws &&
 source /opt/ros/humble/setup.bash &&
 source install/setup.bash &&
-ros2 launch g1_navigation_bringup physical_wifi_candidate.launch.py
+ros2 launch g1_navigation_bringup physical_navigation_standby.launch.py
 ```
 
-### 3. Set the starting pose in RViz
+### 3. Open RViz and check localization
 
-Set **Fixed Frame** to `map`. Add **Map** on `/map` and **LaserScan**
-on `/scan` with **Best Effort** reliability. With the robot stationary,
-use **2D Pose Estimate** to seed its actual position and heading. Check that
-the live scan lines up with fixed walls and corners.
+Use a separate laptop-container terminal for RViz. Set `transport` to
+match both launches. Use this same setup in every separate diagnostic or
+recording terminal.
 
-If the robot is at the saved gantry position and heading, append
-`gantry_start:=true` to the laptop launch command at startup. AMCL then
-loads that starting pose automatically. Both starts load the same saved map.
-
-### 4. Verify readiness before requesting a path
-
-Open a separate terminal in the laptop development container. Sourcing
-Humble loads the ROS CLI, and sourcing the workspace overlay makes the
-installed G1 packages and message types available. The Wi-Fi variables
-below let this terminal discover the PC2 sensors and laptop nodes on
-domain 42. The running launch's environment is local to its own processes.
-
-**What:** Check navigation lifecycle, depth status, and the raw velocity topic.<br>
-**Why:** Confirm that navigation is ready and the physical forwarding path is idle.<br>
-**Expected:** All three nodes are active, depth reports DIAGNOSTIC_CANDIDATE, and raw velocity has zero publishers.
+**What:** Source the laptop workspace and select the matching DDS profile.<br>
+**Why:** Let RViz and diagnostic commands discover the running ROS graph.<br>
+**Expected:** The terminal uses application domain 42 and the selected laptop DDS XML.
 
 ```bash
 cd /workspace/IEA_G1/ros2_ws &&
 source /opt/ros/humble/setup.bash &&
 source install/setup.bash &&
+transport=wifi &&
 export ROS_DOMAIN_ID=42 ROS_LOCALHOST_ONLY=0 RMW_IMPLEMENTATION=rmw_cyclonedds_cpp &&
-export CYCLONEDDS_URI=file:///workspace/IEA_G1/ros2_ws/src/navigation/g1_navigation_bringup/config/physical/cyclonedds_laptop_wifi.xml
+export CYCLONEDDS_URI="file://$PWD/src/navigation/g1_navigation_bringup/config/physical/cyclonedds_laptop_${transport}.xml"
+```
 
+For Ethernet, replace `transport=wifi` with `transport=wired` in that block.
+
+**What:** Open RViz with `map` as the fixed frame.<br>
+**Why:** View the robot, live scan, and saved map in the same coordinate frame.<br>
+**Expected:** RViz opens. The map frame becomes available after AMCL initializes.
+
+```bash
+rviz2 -f map
+```
+
+In **Displays → Add**, configure these views:
+
+| Display | Topic and settings | What to check |
+| --- | --- | --- |
+| **Map** | `/map`, Reliable, Transient Local | The intended saved map is loaded. |
+| **LaserScan** | `/scan`, Best Effort | Live returns align with fixed mapped walls and corners. |
+| **RobotModel** | Description Source **Topic**, `/robot_description` | The model appears at the robot's estimated location. |
+| **Map**, named **Navigation local costmap** | `/local_costmap/costmap` | Inspect nearby collision costs if the controller rejects a path. |
+| **Path**, optional | `/plan` | Review the route after a plan has been requested. |
+
+Switch **Views → Type** to **TopDownOrtho** to judge alignment. With the
+robot stationary, use **2D Pose Estimate** to seed its actual map position
+and heading. When the robot is at the saved gantry position and heading,
+you can instead append `gantry_start:=true` to the laptop launch command
+and check the resulting alignment without clicking a pose.
+
+For stationary depth troubleshooting, add **PointCloud2** on
+`/g1/diagnostics/depth/obstacles` with **Best Effort** reliability.
+Use `/g1/diagnostics/depth/points` to compare the raw cloud. Disable these
+displays before moving. If map localization is unavailable, use the
+`pelvis` fixed frame for this depth-only view and restore `map` afterward.
+
+Use **File → Save Config As** if you want to reuse the layout.
+
+### 4. Verify readiness before requesting a path
+
+In another laptop-container terminal, repeat the sourcing and transport
+setup from step 3. Keep the robot stationary.
+
+**What:** Check navigation lifecycle, depth status, and the raw velocity topic.<br>
+**Why:** Confirm that navigation is ready and physical forwarding is idle.<br>
+**Expected:** All three nodes are active, depth reports DIAGNOSTIC_CANDIDATE, and raw velocity has zero publishers.
+
+```bash
 for node in /planner_server /controller_server /bt_navigator; do
   printf '%s ' "$node"
   timeout 8s ros2 lifecycle get "$node"
@@ -117,7 +164,19 @@ source install/setup.bash &&
 ros2 launch g1_navigation_bringup physical_wifi_mapping.launch.py
 ```
 
-In the Wi-Fi RViz window, set **Fixed Frame** to `map`. Add **Map** on
+For **wired mapping**, start PC2 with `transport:=wired` first. In the
+laptop terminal, run the terminal setup in the RViz step from standard
+startup with `transport=wired`, then use the wired mapping launch:
+
+**What:** Start the wired laptop mapping launch.<br>
+**Why:** Build the map from the direct LiDAR topic published by PC2.<br>
+**Expected:** RViz shows the map as SLAM Toolbox receives scans.
+
+```bash
+ros2 launch g1_navigation_bringup physical_mapping.launch.py
+```
+
+In RViz on the selected transport, set **Fixed Frame** to `map`. Add **Map** on
 `/map` and **LaserScan** on `/scan`, with **Best Effort** reliability for
 the scan. Keep PointCloud2 displays disabled while moving. Once the map
 and scan appear, use your normal supervised manual procedure to map the
@@ -134,9 +193,9 @@ area. Stop the robot before saving.
    exist before stopping mapping. Keep the pair together. The YAML
    references the image and is the file you pass to navigation.
 
-If the panel or **Save Map** is unavailable, use the terminal **Save the
-physical map** procedure in the reference section with a unique filename.
-The RViz button requires the running SLAM Toolbox map-saver service.
+If the panel or **Save Map** is unavailable, use **Save a map from the
+terminal** below. The RViz button requires the running SLAM Toolbox
+map-saver service.
 
 ### 3. Save or reopen an editable SLAM session
 
@@ -168,7 +227,7 @@ launch running. In the same sourced laptop terminal:
 **Expected:** RViz shows the new map and AMCL is ready for an initial pose.
 
 ```bash
-ros2 launch g1_navigation_bringup physical_wifi_candidate.launch.py   map:=/workspace/IEA_G1/ros2_ws/src/navigation/g1_navigation_localization/maps/physical/new_lab.yaml
+ros2 launch g1_navigation_bringup physical_navigation_standby.launch.py map:=/workspace/IEA_G1/ros2_ws/src/navigation/g1_navigation_localization/maps/physical/new_lab.yaml
 ```
 
 Replace `new_lab.yaml` with the file you saved. Leave `gantry_start` off for
@@ -176,229 +235,35 @@ a new environment. Use **2D Pose Estimate** at the actual position and
 heading, then check scan alignment against fixed walls. Complete the
 stationary readiness check above before requesting a candidate-only goal.
 
-## Reference workflows
+## Save a map from the terminal
 
-Use these procedures for wired mapping, standalone localization, or recording-only diagnostics. Stop the standard Wi-Fi launch before starting a reference workflow that owns the same nodes.
+Use this fallback while SLAM Toolbox is still running if the RViz
+**Save Map** button is unavailable. Use the standard RViz step's terminal
+setup with the transport you are running. Keep the robot stationary.
 
-### Safety rules
-
-- Use G1 EDU U7 `mode_machine` 5 only.
-- Never run duplicate Livox or `hardware_state` processes.
-- Never run mapping and localization simultaneously.
-- Keep RViz PointCloud2 disabled while the robot moves.
-- Stop if LiDAR clouds are not about 10 Hz and roughly 20,000 points.
-- Use `Ctrl+C` in the foreground terminal to stop a stack.
-- Every new terminal needs its own setup and exports.
-
-### PC2 Terminal 1: measured robot state
-
-Run this on PC2 and leave it in the foreground:
+**What:** Save the current occupancy map to a unique name.<br>
+**Why:** Produce a YAML and PGM pair for saved-map navigation.<br>
+**Expected:** Both files are listed in the localization package's physical-map directory.
 
 ```bash
-cd /home/unitree/IEA_G1/ros2_ws
-
-source /opt/ros/foxy/setup.bash
-source install/setup.bash
-
-export ROS_DOMAIN_ID=42
-export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-export ROS_LOCALHOST_ONLY=0
-export CYCLONEDDS_URI="file:///home/unitree/IEA_G1/livox_ws/config/cyclonedds_pc2_wired.xml"
-
-if pgrep -af '/g1_hardware_bridge/hardware_state' |
-  grep -v pgrep
-then
-  echo "ALREADY RUNNING: hardware_state"
-else
-  /home/unitree/IEA_G1/ros2_ws/install/g1_hardware_bridge/lib/g1_hardware_bridge/hardware_state     --ros-args     --params-file     /home/unitree/IEA_G1/ros2_ws/install/g1_hardware_bridge/share/g1_hardware_bridge/config/hardware.yaml
-fi
+map_dir=/workspace/IEA_G1/ros2_ws/src/navigation/g1_navigation_localization/maps/physical
+map_path="$map_dir/site_$(date +%Y%m%d_%H%M%S)"
+ros2 run nav2_map_server map_saver_cli -f "$map_path" --ros-args -p save_map_timeout:=10.0 -p free_thresh_default:=0.25 -p occupied_thresh_default:=0.65 &&
+ls -lh "$map_path.yaml" "$map_path.pgm"
 ```
 
-Healthy startup reports `Physical LowState source ready`. If native samples
-stop, the supervisor waits for DDS cleanup and performs at most three
-automatic helper restarts. Do not start a second direct LowState helper while
-the supervised source is running.
+## Check LiDAR if the map or scan stays blank
 
-### PC2 Terminal 2: MID-360 driver
+Use a diagnostic terminal with the same transport setup as RViz.
 
-First confirm that PC2 has an NTP-selected peer:
+**What:** Measure the canonical LiDAR stream and inspect one cloud's width.<br>
+**Why:** Check that full scans are reaching the laptop.<br>
+**Expected:** About 10 Hz and roughly 20,000 points per cloud.
 
 ```bash
-ntpq -pn
-
-if ntpq -pn |
-  awk '$1 ~ /^\*/ {found=1} END {exit !found}'
-then
-  echo "PASS: PC2 time has a selected NTP peer"
-else
-  echo "STOP: synchronize PC2 time before starting Livox"
-fi
+timeout --signal=INT --kill-after=2s 8s ros2 topic hz /g1/sensors/lidar/points
+timeout 8s ros2 topic echo /g1/sensors/lidar/points sensor_msgs/msg/PointCloud2 --qos-reliability best_effort --field width --once
 ```
 
-Only after the NTP check passes, start Livox in the foreground:
-
-```bash
-cd /home/unitree/IEA_G1/livox_ws
-
-source /opt/ros/foxy/setup.bash
-source install/setup.bash
-
-export ROS_DOMAIN_ID=42
-export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-export ROS_LOCALHOST_ONLY=0
-export CYCLONEDDS_URI="file:///home/unitree/IEA_G1/livox_ws/config/cyclonedds_pc2_wired.xml"
-
-if pgrep -af '/livox_ros_driver2/livox_ros_driver2_node' |
-  grep -v pgrep
-then
-  echo "ALREADY RUNNING: Livox driver"
-else
-  ros2 run     livox_ros_driver2     livox_ros_driver2_node     --ros-args     -p xfer_format:=0     -p multi_topic:=0     -p data_src:=0     -p publish_freq:=10.0     -p output_data_type:=0     -p frame_id:=mid360_link     -p user_config_path:=/home/unitree/IEA_G1/livox_ws/config/mid360_pc2.json     -r /livox/lidar:=/g1/sensors/lidar/points     -r /livox/imu:=/g1/sensors/lidar/imu_raw
-fi
-```
-
-### Laptop setup: run in every new ROS terminal
-
-Use this block at the beginning of every new terminal inside the development
-container:
-
-```bash
-cd /workspace/IEA_G1/ros2_ws
-
-source /opt/ros/humble/setup.bash
-source install/setup.bash
-
-export ROS_DOMAIN_ID=42
-export RMW_IMPLEMENTATION=rmw_cyclonedds_cpp
-export ROS2CLI_DISABLE_DAEMON=1
-export ROS_LOCALHOST_ONLY=0
-export CYCLONEDDS_URI="file:///workspace/IEA_G1/ros2_ws/src/navigation/g1_navigation_bringup/config/physical/cyclonedds_laptop_wired.xml"
-```
-
-### Laptop preflight
-
-After running the laptop setup block:
-
-```bash
-echo "=== REQUIRED TOPICS ==="
-
-ros2 topic list -t |
-grep -E   '^/g1/sensors/lidar/(points|imu_raw)|^/g1/state/imu_raw|^/joint_states'
-
-echo "=== CLOUD RATE ==="
-
-timeout --signal=INT --kill-after=2s 6s   stdbuf -oL -eL   ros2 topic hz   /g1/sensors/lidar/points
-
-echo "=== CLOUD WIDTH ==="
-
-timeout 8s   ros2 topic echo   /g1/sensors/lidar/points   sensor_msgs/msg/PointCloud2   --qos-reliability reliable   --field width   --once
-```
-
-Healthy LiDAR output is about 10 Hz with roughly 20,000 points per cloud.
-Approximately 96 points at packet rate is invalid; restart Livox only after
-PC2 time is synchronized.
-
-### Laptop Terminal 1: physical mapping
-
-Run the laptop setup block, then:
-
-```bash
-ros2 launch   g1_navigation_bringup   physical_mapping.launch.py
-```
-
-Keep the robot stationary until GLIM completes initial IMU-state estimation.
-
-### Laptop Terminal 2: RViz
-
-Run the laptop setup block, then:
-
-```bash
-rviz2
-```
-
-Set:
-
-- Fixed Frame: `map`
-- Map topic: `/map`
-- LaserScan topic: `/scan`
-- Add TF and RobotModel
-- Do not add PointCloud2 while moving
-
-### Save the physical map
-
-While physical mapping is still running, open another laptop terminal, run
-the laptop setup block, then:
-
-```bash
-map_directory=/workspace/IEA_G1/ros2_ws/src/navigation/g1_navigation_localization/maps/physical
-
-mkdir -p "${map_directory}"
-
-ros2 run nav2_map_server map_saver_cli   -f "${map_directory}/building_map"   --ros-args   -p save_map_timeout:=10.0   -p free_thresh_default:=0.25   -p occupied_thresh_default:=0.65
-```
-
-Verify that both files exist:
-
-```bash
-ls -lh   "${map_directory}/building_map.yaml"   "${map_directory}/building_map.pgm"
-```
-
-Stop physical mapping with `Ctrl+C` before starting localization.
-
-### Laptop Terminal 1: saved-map localization
-
-Run the laptop setup block, then:
-
-```bash
-ros2 launch   g1_navigation_bringup   physical_localization.launch.py   map:=/workspace/IEA_G1/ros2_ws/src/navigation/g1_navigation_localization/maps/physical/building_map_verified_cellfix.yaml
-```
-
-In RViz, use **2D Pose Estimate** to provide the robot's actual starting pose.
-Do not start localization and mapping together.
-
-### Laptop Terminal 1: planning-only navigation
-
-Stop the localization-only launch before starting this stack.
-Run the laptop setup block, then:
-
-```bash
-ros2 launch g1_navigation_bringup physical_planning.launch.py map:=/workspace/IEA_G1/ros2_ws/src/navigation/g1_navigation_localization/maps/physical/building_map_verified_cellfix.yaml autostart:=true
-```
-
-Use **2D Pose Estimate** in RViz before requesting a path.
-This launch starts localization and global planning only.
-It does not start a controller, `cmd_vel`, or robot commands.
-
-If obstacles enclose the robot in the inflated costmap, planning
-correctly aborts instead of crossing them.
-
-### Laptop Terminal 1: recording-only control dry run
-
-Stop the planning-only launch, run the laptop setup block, then start the dry run:
-
-    ros2 launch g1_navigation_bringup physical_control_dry_run.launch.py map:=/workspace/IEA_G1/ros2_ws/src/navigation/g1_navigation_localization/maps/physical/building_map_verified_cellfix.yaml
-
-This stack uses recording backend 1 and cannot move the physical robot. Set the initial pose with RViz 2D Pose Estimate. The planner server, controller server, and velocity smoother must each report active [3]. After every proof, locomotion state must return to owner 0, backend 1, and stopped true. Set the RViz LaserScan Reliability Policy to Best Effort. A Navigation command stream timed out warning after cancellation is the expected watchdog release.
-
-### Clean shutdown
-
-- Stop RViz with `Ctrl+C`.
-- Stop the foreground laptop mapping or localization launch with `Ctrl+C`.
-- Stop the foreground PC2 Livox process with `Ctrl+C`.
-- Stop the foreground PC2 hardware-state process with `Ctrl+C`.
-
-Confirm no duplicates remain on PC2:
-
-```bash
-pgrep -af   'g1_hardware_bridge.low_state.helper|hardware_state|livox_ros_driver2_node'   || echo "PASS: physical PC2 publishers stopped"
-```
-
-### Opt-in Wi-Fi mapping
-
-Use config/physical/cyclonedds_laptop_wifi.xml and cyclonedds_pc2_wifi.xml from g1_navigation_bringup. Current interfaces/addresses are wlp3s0/192.168.188.117 and wlan0/192.168.188.160; verify them before startup. Deploy the PC2 XML by SCP to /home/unitree/IEA_G1/livox_ws/config/cyclonedds_pc2_wifi.xml and use that persistent path as CYCLONEDDS_URI for domain-42 PC2 sensor nodes.
-
-For this mode, change only the Livox cloud remap to /livox/lidar:=/g1/transport/lidar/points_wifi. Keep the IMU remap unchanged. Do not also publish the canonical cloud directly from PC2.
-
-After building and sourcing the laptop overlay, run ros2 launch g1_navigation_bringup physical_wifi_mapping.launch.py. It selects the laptop Wi-Fi profile and reliable GLIM profile and starts one relay. Do not run an additional manual relay, localization launch, or mapping launch alongside it. Diagnostic and recording terminals still need domain 42 and the Wi-Fi CYCLONEDDS_URI explicitly set.
-
-Keep PointCloud2 disabled during movement. Bounded stationary/manual continuity checks passed; longer route coverage, autonomous control, and physical communications-loss stopping still require validation.
+Clouds of about 96 points at packet rate indicate invalid scan aggregation.
+Verify PC2 clock synchronization before restarting the hardware launch.
