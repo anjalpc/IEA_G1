@@ -584,6 +584,13 @@ def main() -> None:
         env_cfg.footstep_clock = footstep_clock
         print("[INFO] Footstep gait clock:", footstep_clock, flush=True)
 
+    from simulation.isaac_lab.g1_stairs.domain_randomization import (
+        apply_domain_randomization, validate_domain_cfg)
+    domain = validate_domain_cfg(resolved_config.get("domain_randomization"))
+    apply_domain_randomization(env_cfg, domain)
+    if domain is not None:
+        print("[INFO] Domain randomisation:", domain, flush=True)
+
     from simulation.isaac_lab.g1_stairs.command_runtime import (
         apply_stair_heading_command,
     )

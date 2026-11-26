@@ -139,6 +139,11 @@ def apply_resolved_replay_config(env_cfg, path: Path) -> AppliedReplayConfig:
             raise RuntimeError("footstep_clock requires a footstep task")
         env_cfg.footstep_clock = footstep_clock
 
+    # Patch 82: domain randomisation as recorded (or set by a replay probe).
+    from simulation.isaac_lab.g1_stairs.domain_randomization import (
+        apply_domain_randomization, validate_domain_cfg)
+    apply_domain_randomization(env_cfg, validate_domain_cfg(resolved.get("domain_randomization")))
+
     observations = resolved.get(
         "observations",
         {},

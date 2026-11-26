@@ -1472,6 +1472,8 @@ class FootstepEnvCfg(StairEnvCfg):
     # Rolling gait clock for flat tiles (footstep_clock.validate_clock_cfg);
     # set from the experiment YAML by training and replay. None = off.
     footstep_clock: dict | None = None
+    # Patch 82: domain_randomization.validate_domain_cfg output; None = off.
+    domain_randomization: dict | None = None
 
     def __post_init__(self):
         super().__post_init__()
@@ -1488,6 +1490,10 @@ class FootstepEnvCfg(StairEnvCfg):
             func=footstep_phase_observation.reset_footsteps_with_phase,
             mode="reset",
         )
+        # Patch 82: stair position belief error, drawn before the walk-in uses it.
+        from . import domain_randomization
+        self.events.stair_belief_reset = EventTerm(
+            func=domain_randomization.reset_stair_belief, mode="reset")
         # Patch 76: walk in, stop, then climb (no-op unless footstep_clock.walk_in).
         from . import walk_in
         self.events.walk_in_reset = EventTerm(func=walk_in.reset_walk_in, mode="reset")

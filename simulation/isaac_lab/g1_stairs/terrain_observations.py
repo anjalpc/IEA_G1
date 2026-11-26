@@ -191,9 +191,12 @@ def stair_geometry(
     step_count = int(cfg.step_count)
     first_riser = float(cfg.start_clearance)
 
+    from .domain_randomization import stair_belief_offset
+    belief = stair_belief_offset(env)   # patch 82: believed minus real stair x
     root_x = (
         robot.data.root_pos_w[:, 0]
         - env.scene.env_origins[:, 0]
+        - belief
     )
 
     platform_start = (
@@ -287,7 +290,8 @@ def stair_geometry(
             zero_velocity,
         )
         local_bounds = sole_bounds.clone()
-        local_bounds[..., 0:2] -= env.scene.env_origins[:, 0, None, None]
+        local_bounds[..., 0:2] -= env.scene.env_origins[:, 0, None, None] + (
+            belief[:, None, None] if torch.is_tensor(belief) else belief)
         foot_distance = per_foot_next_riser_distance(
             local_bounds,
             first_riser,

@@ -37,8 +37,9 @@ def course_tensors(
         raise ValueError("riser height must have one value per environment")
     if int(cfg.step_count) < 1 or float(cfg.tread_depth) <= 0:
         raise ValueError("invalid resolved stair course")
+    from .domain_randomization import stair_belief_offset
     return dict(
-        first_riser_x=torch.full_like(height, float(cfg.start_clearance)),
+        first_riser_x=torch.full_like(height, float(cfg.start_clearance)) + stair_belief_offset(env),
         tread_depth=torch.full_like(height, float(cfg.tread_depth)),
         riser_height=height,
         centre_y=torch.zeros_like(height),
