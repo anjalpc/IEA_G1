@@ -1184,8 +1184,10 @@ if walk_stop:
     if not isinstance(clock, dict) or not clock.get("enabled") or not isinstance(ctl, dict):
         sys.exit("run has no footstep_clock / balance_residual_control")
     clock["walk_in"] = {"enabled": True, "start_distance_m": 1.7, "stop_distance_m": [d, d],
-                        "walk_speed_mps": 0.35, "ramp_s": 1.0, "stop_ramp_s": 0.5,
-                        "settle_s": [1.0, 1.0]}
+                        "walk_speed_mps": 0.35, "ramp_s": float(ramp) if ramp else 1.0,
+                        "stop_ramp_s": 0.5, "settle_s": [1.0, 1.0]}
+    if ramp:  # patch 81b: --ramp also sets the walk-in speed-up (0.2-3 s)
+        print(f"Probe: walk-in command ramps from 0 over {float(ramp)} s", file=sys.stderr)
     ctl["residual_gate"] = "after_stop"
     ctl["residual_gate_fade_in_s"] = 0.2
     ctl.setdefault("residual_gate_fade_s", 0.8)
