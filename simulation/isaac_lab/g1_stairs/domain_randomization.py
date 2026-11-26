@@ -22,17 +22,34 @@ KEYS = {"friction", "mass", "push", "obs_noise", "stair_offset_m"}
 MAX_OFFSET_M = 0.05
 
 
+# Older experiment configs carry an all-false block with these names (inherited
+# into every resolved config); they map onto the keys above.
+LEGACY = {"rigid_body_material": "friction", "added_mass": "mass", "pushes": "push",
+          "observation_noise": "obs_noise"}
+LEGACY_IGNORED = {"enabled"}
+LEGACY_UNSUPPORTED = {"action_latency"}
+
+
 def validate_domain_cfg(cfg):
-    """Normalised dict or None (off). Unknown keys and bad ranges raise."""
+    """Normalised dict, or None when nothing is randomised. Unknown keys raise."""
     if not cfg:
         return None
-    if not isinstance(cfg, dict) or set(cfg) - KEYS:
-        raise ValueError(f"domain_randomization keys must be from {sorted(KEYS)}")
+    if not isinstance(cfg, dict):
+        raise ValueError("domain_randomization must be a mapping")
+    unknown = set(cfg) - KEYS - set(LEGACY) - LEGACY_IGNORED - LEGACY_UNSUPPORTED
+    if unknown:
+        raise ValueError(f"unknown domain_randomization keys {sorted(unknown)}")
+    if any(bool(cfg.get(k)) for k in LEGACY_UNSUPPORTED):
+        raise ValueError("domain_randomization.action_latency is not implemented")
     out = {k: bool(cfg.get(k, False)) for k in ("friction", "mass", "push", "obs_noise")}
+    for old, new in LEGACY.items():
+        out[new] = out[new] or bool(cfg.get(old, False))
     lo, hi = (float(v) for v in cfg.get("stair_offset_m", (0.0, 0.0)))
     if not -MAX_OFFSET_M <= lo <= hi <= MAX_OFFSET_M:
         raise ValueError(f"stair_offset_m must satisfy -{MAX_OFFSET_M} <= lo <= hi <= {MAX_OFFSET_M}")
     out["stair_offset_m"] = (lo, hi)
+    if not any(out[k] for k in ("friction", "mass", "push", "obs_noise")) and lo == hi == 0.0:
+        return None
     return out
 
 

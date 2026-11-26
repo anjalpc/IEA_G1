@@ -12,6 +12,13 @@ def test_validate():
     out = validate_domain_cfg({"friction": True, "stair_offset_m": [-0.03, 0.03]})
     assert out == {"friction": True, "mass": False, "push": False, "obs_noise": False,
                    "stair_offset_m": (-0.03, 0.03)}
+    legacy_off = {"enabled": False, "rigid_body_material": False, "added_mass": False,
+                  "pushes": False, "observation_noise": False, "action_latency": False}
+    assert validate_domain_cfg(legacy_off) is None          # every resolved config carries this
+    assert validate_domain_cfg({**legacy_off, "push": True})["push"] is True
+    assert validate_domain_cfg({**legacy_off, "pushes": True})["push"] is True
+    with pytest.raises(ValueError):
+        validate_domain_cfg({**legacy_off, "action_latency": True})
     for bad in ({"wind": True}, {"stair_offset_m": [0.02, -0.02]}, {"stair_offset_m": [0.0, 0.08]}):
         with pytest.raises(ValueError):
             validate_domain_cfg(bad)
