@@ -399,6 +399,24 @@ def start_raw_mask(moving_s, moving, reset, dt, start_s):
     return moving_s, moving & (moving_s <= start_s)
 
 
+STEP_LIFT_MIN_S = 0.10   # a foot unloaded this long counts as lifted (not a weight shift)
+STEP_ARM_S = 0.10        # ignore unloading in the first 0.1 s of a move (spawn settling)
+
+
+def start_step_done(unloaded_s, done, moving_s, supported, dt):
+    """Patch 81: has the first step of this move been taken? Returns (new
+    per-foot unloaded time [N, 2], done [N]). A step = a foot unloaded for at
+    least STEP_LIFT_MIN_S, then loaded again. Cleared when a move starts."""
+    fresh = moving_s <= dt * 1.5
+    armed = (moving_s > STEP_ARM_S)[:, None]
+    lifted = unloaded_s >= STEP_LIFT_MIN_S
+    landed = (lifted & supported).any(dim=-1)
+    unloaded_s = torch.where(~supported & armed, unloaded_s + dt, torch.zeros_like(unloaded_s))
+    done = torch.where(fresh, torch.zeros_like(done), done | landed)
+    unloaded_s = torch.where(fresh[:, None], torch.zeros_like(unloaded_s), unloaded_s)
+    return unloaded_s, done
+
+
 def start_side_draw(side, moving_s, dt, draw):
     """[N] raw-start side (0 = T(s), 1 = M T(M s)): redrawn from ``draw``
     on the first step of a move (moving time back to one step), else kept."""
@@ -423,13 +441,22 @@ class FrozenBalanceResidualWrapper:
         residual_gate: str = "off",
         residual_gate_fade_s: float = 0.8,
         teacher_start_raw_s: float = 0.0,
+        teacher_start_until_step: bool = False,
         residual_gate_walk_in_m: float = 0.6,
         residual_gate_fade_in_s: float = 0.4,
         residual_gate_resync_clock: bool = False,
     ) -> None:
         self._wrapped = wrapped
         self._start_raw_s = float(teacher_start_raw_s)
+        # Patch 81: one-sided teacher until the first step lands (cap
+        # teacher_start_raw_s), not for a fixed time: a 1 s command ramp
+        # (walk-in, joystick) outlasted the 0.5 s window and the averaged
+        # teacher hesitated (137100 walk-in: first lift 1.3-1.4 s, hips 8 cm ahead).
+        self._start_until_step = bool(teacher_start_until_step)
         self._moving_s = None
+        self._start_unloaded_s = None
+        if self._start_until_step and self._start_raw_s <= 0.0:
+            raise ValueError("teacher_start_until_step needs teacher_start_raw_s > 0 (the cap)")
         if residual_gate not in ("off", "stair_tiles", "walk_in", "after_stop"):
             raise ValueError("residual_gate must be 'off', 'stair_tiles', 'walk_in' or 'after_stop'")
         self._gate = residual_gate
@@ -497,6 +524,7 @@ class FrozenBalanceResidualWrapper:
                 "residual_gate_fade_in_s": self._gate_fade_in_s,
                 "residual_gate_resync_clock": self._gate_resync,
                 "teacher_start_raw_s": self._start_raw_s,
+                "teacher_start_until_step": self._start_until_step,
                 "scale_by_joint": {
                     name: float(self._scale[index].item())
                     for index, name in enumerate(BODY_JOINTS)
@@ -612,6 +640,16 @@ class FrozenBalanceResidualWrapper:
         self._start_side = start_side_draw(
             self._start_side, self._moving_s, dt,
             torch.randint(0, 2, moving.shape, device=averaged.device))
+        if self._start_until_step:
+            clock = getattr(env, "_g1_rolling_clock", None)   # created on the first env step
+            supported = (clock.prev_supported if clock is not None
+                         else torch.ones((moving.shape[0], 2), dtype=torch.bool, device=averaged.device))
+            if self._start_unloaded_s is None:
+                self._start_unloaded_s = torch.zeros((moving.shape[0], 2), device=averaged.device)
+                self._start_done = torch.zeros(moving.shape, dtype=torch.bool, device=averaged.device)
+            self._start_unloaded_s, self._start_done = start_step_done(
+                self._start_unloaded_s, self._start_done, self._moving_s, supported, dt)
+            use_raw = use_raw & ~self._start_done
         if self._gate_weight is not None:
             use_raw = use_raw & (self._gate_weight == 0.0)
         if not bool(use_raw.any()):
@@ -658,6 +696,7 @@ def wrap_balance_residual_from_config(wrapped, resolved_config: dict[str, Any]):
         residual_gate=str(cfg.get("residual_gate", "off")),
         residual_gate_fade_s=float(cfg.get("residual_gate_fade_s", 0.8)),
         teacher_start_raw_s=float(cfg.get("teacher_start_raw_s", 0.0)),
+        teacher_start_until_step=bool(cfg.get("teacher_start_until_step", False)),
         residual_gate_walk_in_m=float(cfg.get("residual_gate_walk_in_m", 0.6)),
         residual_gate_fade_in_s=float(cfg.get("residual_gate_fade_in_s", 0.4)),
         residual_gate_resync_clock=bool(cfg.get("residual_gate_resync_clock", False)),

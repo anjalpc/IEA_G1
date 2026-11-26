@@ -1094,14 +1094,20 @@ if ramp:
     print(f"Probe: forward command ramps from 0 over {r} s (flat replays only)", file=sys.stderr)
     cfg.setdefault("replay", {})["command_ramp_s"] = r
 if raw_start:
-    rs = float(raw_start)
+    # Patch 81: "step" = one-sided teacher until the first step lands (cap 2 s).
+    step = raw_start == "step"
+    rs = 2.0 if step else float(raw_start)
     if not 0.0 < rs <= 2.0:
-        sys.exit("--raw-start must be in (0, 2] s")
+        sys.exit("--raw-start must be in (0, 2] s or 'step'")
     ctl = cfg.get("balance_residual_control")
     if not isinstance(ctl, dict) or ctl.get("teacher_symmetry") != "average":
         sys.exit("--raw-start needs balance_residual_control.teacher_symmetry average")
-    print(f"Probe: one-sided Unitree teacher (side drawn 50/50 per move) for the first {rs} s of each move, then averaged", file=sys.stderr)
+    if step:
+        print("Probe: one-sided Unitree teacher (side drawn 50/50 per move) until the first step lands (max 2 s), then averaged", file=sys.stderr)
+    else:
+        print(f"Probe: one-sided Unitree teacher (side drawn 50/50 per move) for the first {rs} s of each move, then averaged", file=sys.stderr)
     ctl["teacher_start_raw_s"] = rs
+    ctl["teacher_start_until_step"] = step
 if clock_level:
     lv = float(clock_level)
     if not 0.4 <= lv <= 2.0:
@@ -1469,14 +1475,20 @@ if ramp:
     print(f"Probe: forward command ramps from 0 over {r} s (flat replays only)", file=sys.stderr)
     cfg.setdefault("replay", {})["command_ramp_s"] = r
 if raw_start:
-    rs = float(raw_start)
+    # Patch 81: "step" = one-sided teacher until the first step lands (cap 2 s).
+    step = raw_start == "step"
+    rs = 2.0 if step else float(raw_start)
     if not 0.0 < rs <= 2.0:
-        sys.exit("--raw-start must be in (0, 2] s")
+        sys.exit("--raw-start must be in (0, 2] s or 'step'")
     ctl = cfg.get("balance_residual_control")
     if not isinstance(ctl, dict) or ctl.get("teacher_symmetry") != "average":
         sys.exit("--raw-start needs balance_residual_control.teacher_symmetry average")
-    print(f"Probe: one-sided Unitree teacher (side drawn 50/50 per move) for the first {rs} s of each move, then averaged", file=sys.stderr)
+    if step:
+        print("Probe: one-sided Unitree teacher (side drawn 50/50 per move) until the first step lands (max 2 s), then averaged", file=sys.stderr)
+    else:
+        print(f"Probe: one-sided Unitree teacher (side drawn 50/50 per move) for the first {rs} s of each move, then averaged", file=sys.stderr)
     ctl["teacher_start_raw_s"] = rs
+    ctl["teacher_start_until_step"] = step
 yaml.safe_dump(cfg, open(sys.argv[2], "w"), sort_keys=False)
 PY
         RESOLVED_CONFIG="$PROBE"

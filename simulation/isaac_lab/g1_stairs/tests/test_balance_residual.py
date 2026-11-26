@@ -339,7 +339,7 @@ def test_raw_start_only_where_the_teacher_walks_alone():
                           command_manager=SimpleNamespace(get_command=lambda name: cmd))
     w = FrozenBalanceResidualWrapper.__new__(FrozenBalanceResidualWrapper)
     w._wrapped = SimpleNamespace(unwrapped=env)
-    w._start_raw_s, w._moving_s = 0.3, None
+    w._start_raw_s, w._moving_s, w._start_until_step = 0.3, None, False
     import simulation.isaac_lab.g1_stairs.footstep_symmetry as fs
     fs_mirror_obs, fs_mirror_act = fs.mirror_teacher_obs, fs.mirror_actions
     fs.mirror_teacher_obs, fs.mirror_actions = (lambda o: o), (lambda a: a)
@@ -389,3 +389,24 @@ def test_ramp_forward_command_with_stop():
     t = torch.tensor([0.5, 2.0, 4.25, 5.0])
     ramp_forward_command(cmd, 0.4, t, 1.0, stop_s=4.0, stop_ramp_s=0.5)
     torch.testing.assert_close(cmd[:, 0], torch.tensor([0.2, 0.4, 0.2, 0.0]))
+
+
+def test_start_step_done_needs_a_real_lift_and_landing():
+    from simulation.isaac_lab.g1_stairs.balance_residual import start_step_done
+    dt = 0.02
+    unloaded = torch.zeros(3, 2)
+    done = torch.zeros(3, dtype=torch.bool)
+    # robot 0: left foot lifts 0.2 s then lands; robot 1: a 0.04 s weight shift;
+    # robot 2: unloaded only during the first 0.1 s (spawn settling), then lands
+    for k in range(1, 40):
+        t = k * dt
+        sup = torch.ones(3, 2, dtype=torch.bool)
+        if 0.3 <= t < 0.5: sup[0, 0] = False
+        if 0.3 <= t < 0.34: sup[1, 1] = False
+        if t < 0.1: sup[2, 0] = False
+        moving_s = torch.full((3,), t)
+        unloaded, done = start_step_done(unloaded, done, moving_s, sup, dt)
+    assert done.tolist() == [True, False, False]
+    # a new move clears it
+    unloaded, done = start_step_done(unloaded, done, torch.full((3,), dt), torch.ones(3, 2, dtype=torch.bool), dt)
+    assert done.tolist() == [False, False, False]
