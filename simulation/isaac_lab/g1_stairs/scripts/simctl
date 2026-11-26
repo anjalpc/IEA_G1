@@ -1089,7 +1089,7 @@ if raw:
         sys.exit("run has no balance_residual_control")
     print(f"Probe: teacher_symmetry {ctl.get('teacher_symmetry', 'off')} -> off (raw Unitree teacher)", file=sys.stderr)
     ctl["teacher_symmetry"] = "off"
-if ramp:
+if ramp and not walk_stop:   # with --walk-stop, --ramp sets the walk-in speed-up instead (patch 81b)
     r = float(ramp)
     if not 0.0 < r <= 5.0:
         sys.exit("--ramp must be in (0, 5] s")
