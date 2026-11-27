@@ -5,7 +5,7 @@ schema_version: 1
 # training, fill policy_initialization.source.sha256 from the checkpoint.
 experiment:
   id: footstep_stair_clock_resume
-  purpose: Patch 80. Resume patch 79 run 20261124_131453 model_137100 with the same settings for 10500 iterations (overnight), more practice from close pre-riser stances (option 2). Patch 79 changes kept. (1) Pre-riser stance target 16.3 cm before the first riser (was 20) and graded by its x error, pay 0.5 at 2 cm (was 12.5 cm by distance). Evidence (doc g1-p78c-short-landing-mechanism), 126600 walk-stop replays, pre-riser stance centre 15.3-17.3 cm climbed, <= 15.0 cm landed tread 2 and the top short (all 5 falls at 14-15 cm after a 1.0 m stop at 11.3-12.0 cm, 0.7 m stop falls at 11.2-15.0), >= 18.0 cm landed tread 1 short (0.4 m stop, 20 cm); the 20 cm target was landed anywhere from 11 to 18.6 cm. (2) Raw-teacher start 0.5 s with the side drawn per move (patch 78b), flat and walk-in starts (1.0 m/s start 10/10 falls -> 0, first lift 0.48 -> 0.17 s). Pass, walk-stop replays at 0.4 / 0.6 / 0.7 / 1.0 m, same robots, pre-riser stance within 15-17.5 cm in >= 90 percent, 14-20 cm no falls at any stop, 20 cm >= 9/10 at every stop, 2-12 cm no worse than 126600. Stop early if a mid-run checkpoint falls at more than 2 of 50 at the 1.0 m stop.
+  purpose: Patch 84, final ascent run. Resume model_137100 (end of the patch 79 run, best, 489/560 strict at 0.4/0.6/0.7/1.0 m stops) with domain randomisation, as the 137100 replays need it (1.0 m stop, 2-20 cm, strict out of 70, perfect world 62, Unitree friction/mass/push/noise 2, stair believed 3 cm closer 7, 3 cm further 6; flat Unitree walker under all four 10/10 no falls; alone at 10/20 cm, friction 9/1, mass 9/6, push 5/2, noise 0/1 of 10). Changes, (1) Unitree friction 0.3-1.0, torso mass -1..+3 kg, pushes +-0.5 m/s every 5 s, observation noise, height scan noise +-3 cm, stair position belief error +-3 cm per episode; rewards and tread acceptance judge feet against the real stairs (patch 83). (2) Walk-in stop 0.5-0.9 m, instant walk-in command (ramp 0), one-sided raw teacher until the first step (cap 2 s). Pass, last-checkpoint replays at 0.5 / 0.7 / 0.9 m stops, same robots, under randomisation at least 85 percent strict-clean over 2-20 cm and 20 cm at least 8/10 at every stop; without randomisation no worse than 137100 by more than 5 percentage points. Stop early if training stats show no recovery of stair climbs by about iteration 1500 of the run.
   type: footstep_curriculum_bootstrap
   meaningful_stair_training: false
 inheritance:
@@ -129,9 +129,11 @@ footstep_clock:
   walk_in:
     enabled: true
     start_distance_m: 1.7
-    stop_distance_m: [0.4, 1.0]
+    # Patch 84: 0.5-0.9 m, and the full walk-in command at once (ramp 0):
+    # the teacher takes no step at small commands (1 s ramp: first lift 1.39 s).
+    stop_distance_m: [0.5, 0.9]
     walk_speed_mps: 0.35
-    ramp_s: 1.0
+    ramp_s: 0.0
     stop_ramp_s: 0.5
     settle_s: [0.5, 1.5]
   # Stride (two steps) = speed x cycle time, capped here: above the cap only
@@ -145,6 +147,16 @@ execution:
   # Sunday to Monday 08:00, about 21.6 h on g6; checkpoints every 50).
   maximum_iterations: 10500
   training_seed: 42
+# Patch 84: Unitree's own randomisation (domain_randomization.py) plus the
+# stair position belief error and height scan noise. Merged over the base's
+# all-false legacy block.
+domain_randomization:
+  friction: true
+  mass: true
+  push: true
+  obs_noise: true
+  height_scan_noise_m: 0.03
+  stair_offset_m: [-0.03, 0.03]
 # Residual on the frozen official Unitree policy (balance_residual_control);
 # the actor sees all 688 inputs. Policy, critic, optimizer and learning rate
 # are restored from the checkpoint (training_resume.py checks the SHA256);
@@ -178,7 +190,9 @@ balance_residual_control:
   residual_gate_fade_s: 0.8
   # Patch 78b/79: one-sided Unitree teacher (side drawn per move) for the
   # first 0.5 s of a move from standing, where the residual gate is 0.
-  teacher_start_raw_s: 0.5
+  # Patch 84: until the first step lifts (patch 81), capped at 2 s.
+  teacher_start_raw_s: 2.0
+  teacher_start_until_step: true
   # Raw Unitree action units (x 0.25 rad). Legs: up to +-2 units = +-0.5 rad
   # for riser lift and foot placement; waist and arms stay near the teacher.
   residual_clip: 2.0
