@@ -19,8 +19,9 @@ from __future__ import annotations
 
 import torch
 
-KEYS = {"friction", "mass", "push", "obs_noise", "stair_offset_m"}
+KEYS = {"friction", "mass", "push", "obs_noise", "stair_offset_m", "height_scan_noise_m"}
 MAX_OFFSET_M = 0.05
+MAX_SCAN_NOISE_M = 0.10
 
 
 # Older experiment configs carry an all-false block with these names (inherited
@@ -49,6 +50,14 @@ def validate_domain_cfg(cfg):
     if not -MAX_OFFSET_M <= lo <= hi <= MAX_OFFSET_M:
         raise ValueError(f"stair_offset_m must satisfy -{MAX_OFFSET_M} <= lo <= hi <= {MAX_OFFSET_M}")
     out["stair_offset_m"] = (lo, hi)
+    # Patch 84: uniform noise per height-scan ray (m). The scan is part of the
+    # policy group, so it is applied only with obs_noise (enable_corruption).
+    scan = float(cfg.get("height_scan_noise_m", 0.0))
+    if not 0.0 <= scan <= MAX_SCAN_NOISE_M:
+        raise ValueError(f"height_scan_noise_m must be in [0, {MAX_SCAN_NOISE_M}]")
+    if scan > 0.0 and not out["obs_noise"]:
+        raise ValueError("height_scan_noise_m needs obs_noise (policy-group corruption)")
+    out["height_scan_noise_m"] = scan
     if not any(out[k] for k in ("friction", "mass", "push", "obs_noise")) and lo == hi == 0.0:
         return None
     return out
@@ -69,6 +78,10 @@ def apply_domain_randomization(env_cfg, dr) -> None:
         env_cfg.events.push_robot = upstream.push_robot
     if dr["obs_noise"]:
         env_cfg.observations.policy.enable_corruption = True
+    if dr.get("height_scan_noise_m", 0.0) > 0.0:
+        from isaaclab.utils.noise import AdditiveUniformNoiseCfg
+        n = dr["height_scan_noise_m"]
+        env_cfg.observations.policy.height_scan.noise = AdditiveUniformNoiseCfg(n_min=-n, n_max=n)
     env_cfg.domain_randomization = dr
 
 

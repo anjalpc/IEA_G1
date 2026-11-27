@@ -11,7 +11,7 @@ def test_validate():
     assert validate_domain_cfg(None) is None
     out = validate_domain_cfg({"friction": True, "stair_offset_m": [-0.03, 0.03]})
     assert out == {"friction": True, "mass": False, "push": False, "obs_noise": False,
-                   "stair_offset_m": (-0.03, 0.03)}
+                   "stair_offset_m": (-0.03, 0.03), "height_scan_noise_m": 0.0}
     legacy_off = {"enabled": False, "rigid_body_material": False, "added_mass": False,
                   "pushes": False, "observation_noise": False, "action_latency": False}
     assert validate_domain_cfg(legacy_off) is None          # every resolved config carries this
@@ -79,3 +79,12 @@ def test_real_stair_frame_moves_plan_rows_onto_real_treads():
                               tread_depth=depth, riser_height=height, step_count=3,
                               half_width=1.0, approach_steps=2)
     assert bool(ok[0, 0])
+
+
+def test_height_scan_noise_needs_observation_noise():
+    out = validate_domain_cfg({"obs_noise": True, "height_scan_noise_m": 0.03})
+    assert out["height_scan_noise_m"] == 0.03
+    with pytest.raises(ValueError):
+        validate_domain_cfg({"height_scan_noise_m": 0.03})
+    with pytest.raises(ValueError):
+        validate_domain_cfg({"obs_noise": True, "height_scan_noise_m": 0.2})

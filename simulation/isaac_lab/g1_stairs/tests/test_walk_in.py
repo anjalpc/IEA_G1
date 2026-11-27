@@ -94,3 +94,14 @@ def test_clock_cfg_validates_pre_riser():
     for bad in ({"gap_m": 0.10, "radius_m": 0.02}, {"gap_m": 0.163}, {"gap_m": 0.163, "radius_m": 0.2}):
         with pytest.raises(ValueError):
             validate_clock_cfg({**clock, "pre_riser": bad})
+
+
+def test_ramp_zero_gives_the_full_command_at_once():
+    assert validate_walk_in_cfg({**CFG, "ramp_s": 0.0})["ramp_s"] == 0.0
+    for bad in (0.1, -0.5):
+        with pytest.raises(ValueError):
+            validate_walk_in_cfg({**CFG, "ramp_s": bad})
+    phase = torch.tensor([WALK, WALK, STOP])
+    t = torch.tensor([0.0, 0.02, 3.25]); t_stop = torch.tensor([0.0, 0.0, 3.0])
+    out = walk_in_forward_command(phase, t, t_stop, 0.35, 0.0, 0.5)
+    torch.testing.assert_close(out, torch.tensor([0.35, 0.35, 0.175]))

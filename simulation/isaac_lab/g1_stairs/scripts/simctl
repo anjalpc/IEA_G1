@@ -968,8 +968,8 @@ cd /workspace/IEA_G1
 # as seed k). Single-robot replays were GPU-bound on the A10G (3 in parallel
 # 107 s vs 55 s alone), so batching robots is the speed-up, not processes.
 cmd_traces() {
-    local USAGE="Usage: simctl traces [<checkpoint>...] [--parallel <n>] [--name <tag>] [--symmetry check|average] [--heights <m,m,...>] [--executed-clip <x>] [--residual-gate <fade_s>] [--speed <m/s>] [--raw-teacher] [--ramp <s>] [--raw-start <s>] [--clock-level <s>] [--clock-stairs <s>] [--tread1-forward <m>] [--waist-pitch-off] [--walk-in <m>] [--resync-clock] [--stop <s>] [--walk-stop <m>] [--rear-foot] [--approach-gap <m>] [--dr friction,mass,push,noise] [--stair-offset <m>] [--level-off]"
-    local CKPTS=() PARALLEL=3 NAME=traces SYM=check ONLY="" EXEC_CLIP="" GATE="" SPEED="" RAW="" RAMP="" RAW_START="" CLOCK_LEVEL="" CLOCK_STAIRS="" TREAD1="" WAIST_OFF="" WALK_IN="" RESYNC="" STOP="" WALK_STOP="" REAR="" GAP="" DR="" SOFF="" LEVEL_OFF=""
+    local USAGE="Usage: simctl traces [<checkpoint>...] [--parallel <n>] [--name <tag>] [--symmetry check|average] [--heights <m,m,...>] [--executed-clip <x>] [--residual-gate <fade_s>] [--speed <m/s>] [--raw-teacher] [--ramp <s>] [--raw-start <s>] [--clock-level <s>] [--clock-stairs <s>] [--tread1-forward <m>] [--waist-pitch-off] [--walk-in <m>] [--resync-clock] [--stop <s>] [--walk-stop <m>] [--rear-foot] [--approach-gap <m>] [--dr friction,mass,push,noise|none] [--stair-offset <m>] [--level-off] [--wait]"
+    local CKPTS=() PARALLEL=3 NAME=traces SYM=check ONLY="" EXEC_CLIP="" GATE="" SPEED="" RAW="" RAMP="" RAW_START="" CLOCK_LEVEL="" CLOCK_STAIRS="" TREAD1="" WAIST_OFF="" WALK_IN="" RESYNC="" STOP="" WALK_STOP="" REAR="" GAP="" DR="" SOFF="" LEVEL_OFF="" WAIT=0
     while [ $# -gt 0 ]; do
         case "$1" in
             --parallel) PARALLEL="${2:?$USAGE}"; shift 2 ;;
@@ -1021,6 +1021,7 @@ cmd_traces() {
             --rear-foot) REAR=1; shift ;;
             --approach-gap) GAP="${2:?$USAGE}"; shift 2 ;;
             --dr) DR="${2:?$USAGE}"; shift 2 ;;
+            --wait) WAIT=1; shift ;;
             --stair-offset) SOFF="${2:?$USAGE}"; shift 2 ;;
             # Probe: footstep / clock rewards unpaid on level ground (patch 68).
             --level-off) LEVEL_OFF=1; shift ;;
@@ -1033,8 +1034,15 @@ cmd_traces() {
     # mirror-symmetric residual (record_view.py --symmetry).
     [[ "$SYM" =~ ^(check|average)$ ]] || { echo "--symmetry must be check or average" >&2; exit 1; }
     if [ -f "$CURRENT_PID" ] && kill -0 "$(cat "$CURRENT_PID")" 2>/dev/null; then
-        echo "Training is running (PID $(cat "$CURRENT_PID")); replays would slow it down. Wait or run: simctl stop" >&2
-        exit 1
+        if [ "$WAIT" = 1 ]; then
+            # Patch 84: chain replays onto the end of training.
+            echo "Waiting for training (PID $(cat "$CURRENT_PID")) to finish..." >&2
+            while kill -0 "$(cat "$CURRENT_PID")" 2>/dev/null; do sleep 300; done
+            sleep 60
+        else
+            echo "Training is running (PID $(cat "$CURRENT_PID")); replays would slow it down. Wait, add --wait, or run: simctl stop" >&2
+            exit 1
+        fi
     fi
     local RUN_ID TRAIN_DIR CFG EVAL HEIGHTS LAST
     RUN_ID="$(current_run)"; TRAIN_DIR="$(resolve_train_dir)"
@@ -1185,16 +1193,23 @@ if walk_stop:
     ctl = cfg.get("balance_residual_control")
     if not isinstance(clock, dict) or not clock.get("enabled") or not isinstance(ctl, dict):
         sys.exit("run has no footstep_clock / balance_residual_control")
+    # Without --ramp the run's own walk-in ramp (patch 84; 1.0 s before walk-in had one).
+    own = float((clock.get("walk_in") or {}).get("ramp_s", 1.0))
     clock["walk_in"] = {"enabled": True, "start_distance_m": 1.7, "stop_distance_m": [d, d],
-                        "walk_speed_mps": 0.35, "ramp_s": float(ramp) if ramp else 1.0,
+                        "walk_speed_mps": 0.35, "ramp_s": float(ramp) if ramp else own,
                         "stop_ramp_s": 0.5, "settle_s": [1.0, 1.0]}
-    if ramp:  # patch 81b: --ramp also sets the walk-in speed-up (0.2-3 s)
+    if ramp:  # patch 81b: --ramp also sets the walk-in speed-up (0 or 0.2-3 s)
         print(f"Probe: walk-in command ramps from 0 over {float(ramp)} s", file=sys.stderr)
     ctl["residual_gate"] = "after_stop"
     ctl["residual_gate_fade_in_s"] = 0.2
     ctl.setdefault("residual_gate_fade_s", 0.8)
     print(f"Probe: walk in from 1.7 m, stop ~{d} m before the riser, settle 1 s, then climb "
           f"(residual fades in 0.2 s after the stop); flat tiles teacher only", file=sys.stderr)
+if dr == "none":
+    # Patch 84: replay a randomised run in the perfect world (baseline comparison).
+    cfg["domain_randomization"] = None
+    dr = ""
+    print("Probe: domain randomisation off", file=sys.stderr)
 if dr or soff:
     # Patch 82: Unitree's own randomisation and/or a fixed stair position error.
     d = dict(cfg.get("domain_randomization") or {})

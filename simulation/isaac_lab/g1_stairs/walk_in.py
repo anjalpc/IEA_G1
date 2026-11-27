@@ -52,8 +52,11 @@ def validate_walk_in_cfg(cfg, *, start_clearance_m=1.0, approach_length_m=2.0) -
         raise ValueError("walk_in.stop_distance_m must satisfy 0.3 <= min <= max <= start - 0.3")
     if not 0.1 <= speed <= 0.5:
         raise ValueError("walk_in.walk_speed_mps must be in [0.1, 0.5]")
-    if not 0.2 <= ramp <= 3.0 or not 0.2 <= stop_ramp <= 2.0:
-        raise ValueError("walk_in.ramp_s must be in [0.2, 3] and stop_ramp_s in [0.2, 2]")
+    # ramp 0 (patch 84): the full walk-in speed at once. The Unitree teacher
+    # takes no step at small commands, so a 1 s ramp delayed the first lift
+    # to 1.39 s (0.3 s: 0.60 s, instant: 0.12-0.18 s).
+    if not (ramp == 0.0 or 0.2 <= ramp <= 3.0) or not 0.2 <= stop_ramp <= 2.0:
+        raise ValueError("walk_in.ramp_s must be 0 or in [0.2, 3] and stop_ramp_s in [0.2, 2]")
     if not 0.0 <= settle_lo <= settle_hi <= 3.0:
         raise ValueError("walk_in.settle_s must satisfy 0 <= min <= max <= 3")
     return {"enabled": True, "start_distance_m": start, "stop_distance_m": (stop_lo, stop_hi),
@@ -114,7 +117,7 @@ def advance_phase(phase, t, t_stop, settle, x, trigger_x, stairs, stop_ramp_s):
 
 def walk_in_forward_command(phase, t, t_stop, speed, ramp_s, stop_ramp_s):
     """[N] forward command for WALK / STOP rows (CLIMB rows: NaN, not set here)."""
-    walk = speed * (t / ramp_s).clamp(0.0, 1.0)
+    walk = speed * (t / ramp_s).clamp(0.0, 1.0) if ramp_s > 0 else torch.full_like(t, float(speed))
     stop = speed * (1.0 - (t - t_stop) / stop_ramp_s).clamp(0.0, 1.0)
     out = torch.where(phase == WALK, walk, stop)
     return torch.where(phase == CLIMB, torch.full_like(out, float("nan")), out)
