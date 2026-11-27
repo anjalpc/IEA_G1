@@ -7,7 +7,8 @@ velocity_env_cfg.EventCfg: friction 0.3-1.0, torso mass -1..+3 kg, push
 +-0.5 m/s every 5 s, policy observation noise) and adds a stair position
 belief error: the plan, the stair observation and the stair steering use
 stairs shifted by an offset drawn per episode, while physics and the
-evaluator keep the real stairs.
+evaluator keep the real stairs, and so do rewards and tread acceptance
+(patch 83, real_stair_frame).
 
 Config (top level): domain_randomization: {friction: bool, mass: bool,
 push: bool, obs_noise: bool, stair_offset_m: [lo, hi]}. Offset +d means the
@@ -89,3 +90,27 @@ def reset_stair_belief(env, env_ids) -> None:
         env._g1_stair_belief_offset = torch.zeros(env.num_envs, device=env.device)
     ids = torch.arange(env.num_envs, device=env.device) if env_ids is None else env_ids
     env._g1_stair_belief_offset[ids] = torch.empty(len(ids), device=env.device).uniform_(lo, hi)
+
+
+def real_stair_frame(course, targets, offset, plan_rows):
+    """Patch 83: course and targets for judging feet against the real stairs.
+
+    The plan, the observations, the walk-in stop and the gate use the
+    believed stairs (``course`` from course_tensors). Rewards and tread
+    acceptance must use the real ones, or a landing that follows the
+    believed plan is paid even when it misses the real tread (replays of
+    137100 with a 3 cm error: 7/70 and 6/70 clean). Stair-plan targets
+    (``plan_rows`` [N]) move by the error so they sit on the real treads
+    and keep the grid the tread checks rely on; rolling-clock targets are
+    relative to the feet and stay. Returns the inputs unchanged when off.
+    """
+    if not torch.is_tensor(offset):
+        if offset != 0.0:
+            raise ValueError("stair belief offset must be a tensor or 0.0")
+        return course, targets
+    real = dict(course)
+    real["first_riser_x"] = course["first_riser_x"] - offset
+    shift = torch.where(plan_rows, offset, torch.zeros_like(offset))
+    targets = targets.clone()
+    targets[..., 0] -= shift[:, None]
+    return real, targets

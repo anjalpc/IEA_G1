@@ -238,6 +238,14 @@ def audit_after_step(env):
         coordinator.runtime.target_index[handover] = 0
         coordinator.runtime.first_foot[handover] = clock_state.assigned[handover]
     env._g1_rolling_rows = rolling_rows
+    # Patch 83: from here on feet are judged against the real stairs; the
+    # plan above (and the observation, walk-in and gate) use the believed ones.
+    from .domain_randomization import real_stair_frame, stair_belief_offset
+    plan_rows = course["riser_height"] > 0
+    if rolling_rows is not None:
+        plan_rows = plan_rows & ~rolling_rows
+    course, targets = real_stair_frame(
+        course, targets, stair_belief_offset(env), plan_rows)
     if flat:
         qualified = qualified_flat_mask(
             sole_centre=centre, sole_bounds=bounds,
